@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mr.Young's Billionaire Homepage - Interactive World Map</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="map-container">
+        <canvas id="stars-canvas"></canvas>
+        <div id="map"></div>
+        
+        <!-- 좌측 햄버거 메뉴 버튼 -->
+        <button id="hamburger-menu-btn" class="hamburger-menu-btn">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        
+        <!-- 좌측 사이드 메뉴 -->
+        <div id="side-menu" class="side-menu hidden">
+            <div class="side-menu-header">
+                <h3>메뉴</h3>
+                <button id="close-side-menu" class="close-btn">&times;</button>
+            </div>
+            <div class="side-menu-content">
+                <div class="side-menu-section">
+                    <h4>사용자</h4>
+                    <button id="side-user-login-btn" class="side-menu-btn user-login-btn">로그인</button>
+                    <button id="side-user-logout-btn" class="side-menu-btn user-logout-btn hidden">로그아웃</button>
+                    <span id="side-user-email" class="side-user-email hidden"></span>
+                </div>
+                <div class="side-menu-section" id="side-admin-section" style="display: none;">
+                    <h4>관리</h4>
+                    <button id="side-admin-login-btn" class="side-menu-btn admin-login-btn">Admin 로그인</button>
+                    <button id="side-admin-logout-btn" class="side-menu-btn admin-logout-btn hidden">Admin 로그아웃</button>
+                </div>
+                <div class="side-menu-section">
+                    <h4>도움말</h4>
+                    <button id="side-help-btn" class="side-menu-btn help-btn">Help</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 상단 헤더 -->
+        <div class="header">
+            <div class="header-content">
+                <h1>Mr.Young Map</h1>
+                <p>Global Advertising Platform</p>
+            </div>
+            <div class="header-actions">
+                <button id="user-login-btn" class="user-login-btn">로그인</button>
+                <button id="user-logout-btn" class="user-logout-btn hidden">로그아웃</button>
+                <span id="user-email" class="user-email hidden"></span>
+                <button id="help-btn" class="help-btn">Help</button>
+                <button id="admin-login-btn" class="admin-login-btn">Admin</button>
+                <button id="admin-logout-btn" class="admin-logout-btn hidden">Logout</button>
+            </div>
+        </div>
+        
+        <!-- 우측 정보 패널 -->
+        <div id="info-panel" class="info-panel hidden">
+            <div class="panel-header">
+                <h3 id="region-name">지역 정보</h3>
+                <button id="close-panel" class="close-btn">&times;</button>
+            </div>
+            <div class="panel-content">
+                <div class="region-details">
+                    <p><strong>국가:</strong> <span id="country-name">-</span></p>
+                    <p><strong>행정구역:</strong> <span id="admin-level">-</span></p>
+                    <p><strong>인구:</strong> <span id="population">-</span></p>
+                    <p><strong>면적:</strong> <span id="area">-</span></p>
+                </div>
+                <div class="advertising-info">
+                    <h4>광고 정보</h4>
+                    <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
+                    <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
+                    <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
+                    <div id="paypal-buttons" style="margin-top: 15px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        
+        <!-- 좌측 컨트롤 패널 (숨김) -->
+        <div id="control-panel" class="control-panel hidden">
+            <div class="panel-header">
+                <h3>지도 제어</h3>
+                <button id="close-menu" class="close-btn">&times;</button>
+            </div>
+            <div class="panel-content">
+                <div class="zoom-controls">
+                    <h4>줌 레벨</h4>
+                    <button id="zoom-world">전 세계</button>
+                    <button id="zoom-country">국가별</button>
+                    <button id="zoom-region">지역별</button>
+                </div>
+                <div class="legend">
+                    <h4>범례</h4>
+                    <div class="legend-item">
+                        <div class="legend-color available"></div>
+                        <span>사용 가능</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color occupied"></div>
+                        <span>광고 중</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color selected"></div>
+                        <span>선택됨</span>
+                    </div>
+                </div>
+                <div class="statistics">
+                    <h4>통계</h4>
+                    <div class="stat-item">
+                        <span class="stat-label">총 지역:</span>
+                        <span id="total-regions" class="stat-value">15</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">광고 중:</span>
+                        <span id="occupied-regions" class="stat-value">3</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">총 수익:</span>
+                        <span id="total-revenue" class="stat-value">$0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">점유율:</span>
+                        <span id="occupancy-rate" class="stat-value">20%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 관리자 패널 -->
+        <div id="admin-panel" class="admin-panel hidden">
+            <div class="admin-header">
+                <h3>관리자 패널</h3>
+                <button id="close-admin" class="close-btn">&times;</button>
+            </div>
+            <div class="admin-content">
+                <div class="logo-management">
+                    <h4>로고 관리</h4>
+                    <div class="usage-guide">
+                        <p><strong>사용법:</strong></p>
+                        <ol>
+                            <li>지도에서 주를 클릭하여 선택</li>
+                            <li>이미지 파일을 선택하고 업로드</li>
+                            <li>크기, 투명도, 회전 조정</li>
+                            <li>로고 저장 버튼으로 적용</li>
+                        </ol>
+                    </div>
+                    <div class="current-logo">
+                        <h5>현재 선택된 주: <span id="selected-state-name">-</span></h5>
+                        <div class="logo-preview">
+                            <img id="current-logo-img" src="" alt="현재 로고" style="display: none;">
+                            <div id="no-logo" class="no-logo">로고 없음</div>
+                        </div>
+                    </div>
+                    <div class="logo-upload">
+                        <h5>로고 업로드</h5>
+                        <input type="file" id="logo-file-input" accept="image/*">
+                        <button id="upload-logo" class="upload-btn">로고 업로드</button>
+                    </div>
+                    <div class="logo-settings">
+                        <h5>로고 설정</h5>
+                        <div class="setting-item">
+                            <label>크기:</label>
+                            <input type="range" id="logo-size" min="20" max="100" value="50">
+                            <span id="logo-size-value">50px</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>투명도:</label>
+                            <input type="range" id="logo-opacity" min="0.1" max="1" step="0.1" value="0.8">
+                            <span id="logo-opacity-value">80%</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>회전:</label>
+                            <input type="range" id="logo-rotation" min="0" max="360" value="0">
+                            <span id="logo-rotation-value">0°</span>
+                        </div>
+                    </div>
+                    <div class="color-settings">
+                        <h5>지역 색상 설정</h5>
+                        <div class="setting-item">
+                            <label>지역 색상:</label>
+                            <input type="color" id="region-color" value="#4ecdc4">
+                            <span id="region-color-value">#4ecdc4</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>경계선 색상:</label>
+                            <input type="color" id="border-color" value="#ffffff">
+                            <span id="border-color-value">#ffffff</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>경계선 두께:</label>
+                            <input type="range" id="border-width" min="1" max="5" value="1">
+                            <span id="border-width-value">1px</span>
+                        </div>
+                        <div class="preset-colors">
+                            <h6>브랜드 색상 프리셋</h6>
+                            <div class="color-presets">
+                                <div class="color-preset" data-color="#ff6b6b" data-border="#d63031" title="빨간색 브랜드">
+                                    <div class="preset-color" style="background: #ff6b6b; border: 2px solid #d63031;"></div>
+                                </div>
+                                <div class="color-preset" data-color="#4ecdc4" data-border="#00b894" title="청록색 브랜드">
+                                    <div class="preset-color" style="background: #4ecdc4; border: 2px solid #00b894;"></div>
+                                </div>
+                                <div class="color-preset" data-color="#feca57" data-border="#fdcb6e" title="노란색 브랜드">
+                                    <div class="preset-color" style="background: #feca57; border: 2px solid #fdcb6e;"></div>
+                                </div>
+                                <div class="color-preset" data-color="#a29bfe" data-border="#6c5ce7" title="보라색 브랜드">
+                                    <div class="preset-color" style="background: #a29bfe; border: 2px solid #6c5ce7;"></div>
+                                </div>
+                                <div class="color-preset" data-color="#fd79a8" data-border="#e84393" title="핑크색 브랜드">
+                                    <div class="preset-color" style="background: #fd79a8; border: 2px solid #e84393;"></div>
+                                </div>
+                                <div class="color-preset" data-color="#00b894" data-border="#00a085" title="초록색 브랜드">
+                                    <div class="preset-color" style="background: #00b894; border: 2px solid #00a085;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="logo-actions">
+                        <button id="save-logo" class="save-btn">로고 저장</button>
+                        <button id="remove-logo" class="remove-btn">로고 제거</button>
+                        <button id="reset-logo" class="reset-btn">설정 초기화</button>
+                    </div>
+                </div>
+                
+                <!-- 지역 정보 관리 -->
+                <div class="region-management">
+                    <h4>지역 정보 관리</h4>
+                    <div class="region-form">
+                        <div class="form-group">
+                            <label>지역명 (한국어):</label>
+                            <input type="text" id="region-name-ko-input" placeholder="한국어 지역명">
+                        </div>
+                        <div class="form-group">
+                            <label>지역명 (영어):</label>
+                            <input type="text" id="region-name-en-input" placeholder="영어 지역명">
+                        </div>
+                        <div class="form-group">
+                            <label>국가:</label>
+                            <input type="text" id="region-country-input" placeholder="국가명">
+                        </div>
+                        <div class="form-group">
+                            <label>행정구역 레벨:</label>
+                            <input type="text" id="region-admin-level-input" placeholder="예: State, Prefecture, City">
+                        </div>
+                        <div class="form-group">
+                            <label>인구:</label>
+                            <input type="number" id="region-population-input" placeholder="인구수">
+                        </div>
+                        <div class="form-group">
+                            <label>면적 (km²):</label>
+                            <input type="number" id="region-area-input" placeholder="면적">
+                        </div>
+                        <div class="form-group">
+                            <label>광고 가격 (USD):</label>
+                            <input type="number" id="region-ad-price-input" placeholder="광고 가격">
+                        </div>
+                        <div class="form-group">
+                            <label>광고 상태:</label>
+                            <select id="region-ad-status-input">
+                                <option value="available">사용 가능</option>
+                                <option value="occupied">광고 중</option>
+                            </select>
+                        </div>
+                        <div class="region-actions">
+                            <button id="save-region-info" class="save-btn">지역 정보 저장</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 기업 정보 관리 -->
+                <div class="company-management">
+                    <h4>기업 정보 관리</h4>
+                    <div class="company-form">
+                        <div class="form-group">
+                            <label>기업명:</label>
+                            <input type="text" id="company-name-input" placeholder="기업명을 입력하세요">
+                        </div>
+                        <div class="form-group">
+                            <label>산업:</label>
+                            <input type="text" id="company-industry-input" placeholder="산업 분야">
+                        </div>
+                        <div class="form-group">
+                            <label>설립년도:</label>
+                            <input type="number" id="company-founded-input" placeholder="예: 2020">
+                        </div>
+                        <div class="form-group">
+                            <label>직원 수:</label>
+                            <input type="text" id="company-employees-input" placeholder="예: 100명">
+                        </div>
+                        <div class="form-group">
+                            <label>웹사이트:</label>
+                            <input type="url" id="company-website-input" placeholder="https://example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>기업 소개:</label>
+                            <textarea id="company-description-input" placeholder="기업에 대한 간단한 소개를 입력하세요" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>주요 특징 (줄바꿈으로 구분):</label>
+                            <textarea id="company-features-input" placeholder="특징1&#10;특징2&#10;특징3" rows="3"></textarea>
+                        </div>
+                        <div class="company-actions">
+                            <button id="save-company-info" class="save-btn">기업 정보 저장</button>
+                            <button id="preview-company-info" class="preview-btn">미리보기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 관리자 로그인 모달 -->
+        <div id="admin-login-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>관리자 로그인</h2>
+                    <button id="close-admin-login" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="login-form">
+                        <div class="form-group">
+                            <label for="admin-username">사용자명:</label>
+                            <input type="text" id="admin-username" placeholder="관리자 ID">
+                        </div>
+                        <div class="form-group">
+                            <label for="admin-password">비밀번호:</label>
+                            <input type="password" id="admin-password" placeholder="비밀번호">
+                        </div>
+                        <button id="admin-login-submit" class="login-btn">로그인</button>
+                        <div id="login-error" class="error-message hidden">잘못된 로그인 정보입니다.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 사용자 로그인 모달 -->
+        <div id="user-login-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>사용자 로그인</h2>
+                    <button id="close-user-login" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="login-form">
+                        <div class="form-group">
+                            <label for="user-email-input">이메일:</label>
+                            <input type="email" id="user-email-input" placeholder="이메일 주소">
+                        </div>
+                        <div class="form-group">
+                            <label for="user-password-input">비밀번호:</label>
+                            <input type="password" id="user-password-input" placeholder="비밀번호">
+                        </div>
+                        <button id="user-login-submit" class="login-btn">로그인</button>
+                        <button id="user-google-signup-btn" class="google-signup-btn">
+                            <svg width="18" height="18" viewBox="0 0 18 18" style="margin-right: 8px; vertical-align: middle;">
+                                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.965-2.184l-2.908-2.258c-.806.54-1.837.86-3.057.86-2.35 0-4.34-1.587-5.055-3.72H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+                                <path fill="#FBBC05" d="M3.945 10.698c-.18-.54-.282-1.117-.282-1.698s.102-1.158.282-1.698V4.97H.957C.348 6.175 0 7.55 0 9s.348 2.825.957 4.03l2.988-2.332z"/>
+                                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.97L3.945 7.302C4.66 5.167 6.65 3.58 9 3.58z"/>
+                            </svg>
+                            구글로 회원가입하기
+                        </button>
+                        <div id="user-login-error" class="error-message hidden">로그인 정보를 확인하세요.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 기업 정보 모달 (통합: 지역 + 기업 정보) -->
+        <div id="company-info-modal" class="modal hidden">
+            <div class="modal-content company-modal">
+                <div class="modal-header">
+                    <h2 id="company-name">지역 & 기업 정보</h2>
+                    <button id="close-company-info" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- 지역 정보 섹션 -->
+                    <div class="region-info-section">
+                        <h3 class="section-title">
+                            <span class="label-primary">🗺️ 지역 정보</span>
+                            <span class="label-secondary" id="company-region-section-label-en"></span>
+                        </h3>
+                        <div class="region-info-grid">
+                            <div class="detail-card">
+                                <div class="detail-icon">📍</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">지역명</span>
+                                        <span class="label-secondary" id="company-region-label-en"></span>
+                                    </label>
+                                    <span id="company-region">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">👥</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">인구</span>
+                                        <span class="label-secondary" id="company-region-population-label-en"></span>
+                                    </label>
+                                    <span id="company-region-population">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">📏</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">면적</span>
+                                        <span class="label-secondary" id="company-region-area-label-en"></span>
+                                    </label>
+                                    <span id="company-region-area">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">🏛️</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">행정구역</span>
+                                        <span class="label-secondary" id="company-region-admin-level-label-en"></span>
+                                    </label>
+                                    <span id="company-region-admin-level">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">💰</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">광고 가격</span>
+                                        <span class="label-secondary" id="company-region-price-label-en"></span>
+                                    </label>
+                                    <span id="company-region-price">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">📊</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">상태</span>
+                                        <span class="label-secondary" id="company-region-status-label-en"></span>
+                                    </label>
+                                    <span id="company-region-status">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 구분선 -->
+                    <div class="divider"></div>
+                    
+                    <!-- 기업 정보 섹션 -->
+                    <div class="company-info-section">
+                        <h3 class="section-title">
+                            <span class="label-primary">🏢 대표 기업 정보</span>
+                            <span class="label-secondary" id="company-info-section-label-en"></span>
+                        </h3>
+                        <div class="company-header">
+                            <div class="company-logo-section">
+                                <img id="company-logo" src="" alt="기업 로고" class="company-logo-img">
+                            </div>
+                            <div class="company-basic-info">
+                                <h4 id="company-name-title">기업명</h4>
+                            </div>
+                        </div>
+                        
+                        <div class="company-details-grid">
+                            <div class="detail-card">
+                                <div class="detail-icon">🏭</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">산업 분야</span>
+                                        <span class="label-secondary" id="company-industry-label-en"></span>
+                                    </label>
+                                    <span id="company-industry">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">📅</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">설립년도</span>
+                                        <span class="label-secondary" id="company-founded-label-en"></span>
+                                    </label>
+                                    <span id="company-founded">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">👥</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">직원 수</span>
+                                        <span class="label-secondary" id="company-employees-label-en"></span>
+                                    </label>
+                                    <span id="company-employees">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">🌐</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">웹사이트</span>
+                                        <span class="label-secondary" id="company-website-label-en"></span>
+                                    </label>
+                                    <a id="company-website" href="#" target="_blank">-</a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="company-description">
+                            <h4>
+                                <span class="label-primary">📋 기업 소개</span>
+                                <span class="label-secondary" id="company-description-label-en"></span>
+                            </h4>
+                            <p id="company-description-text">-</p>
+                        </div>
+                        
+                        <div class="company-features">
+                            <h4>
+                                <span class="label-primary">✨ 주요 특징</span>
+                                <span class="label-secondary" id="company-features-label-en"></span>
+                            </h4>
+                            <ul id="company-features-list">
+                                <li>-</li>
+                            </ul>
+                        </div>
+                        
+                        <!-- 관리자 모드에서만 표시되는 편집 버튼 -->
+                        <div class="company-actions" id="company-modal-actions">
+                            <button id="company-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
+                            <button id="company-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
+                            <div id="company-paypal-buttons" style="margin-top: 15px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 지역 정보 모달 (광고가 없을 때) -->
+        <div id="region-info-modal" class="modal hidden">
+            <div class="modal-content region-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary" id="region-modal-title">지역 정보</span>
+                        <span class="label-secondary" id="region-modal-title-en"></span>
+                    </h2>
+                    <button id="close-region-info" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="region-info">
+                        <div class="region-header">
+                            <div class="region-flag-section">
+                                <div id="region-flag" class="region-flag">🏴</div>
+                            </div>
+                            <div class="region-basic-info">
+                                <h3 id="region-modal-name">-</h3>
+                                <p class="region-location">📍 <span id="region-modal-country">-</span></p>
+                            </div>
+                        </div>
+                        
+                        <div class="region-details-grid">
+                            <div class="detail-card">
+                                <div class="detail-icon">👥</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">인구</span>
+                                        <span class="label-secondary" id="region-modal-population-label-en"></span>
+                                    </label>
+                                    <span id="region-modal-population">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">📏</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">면적</span>
+                                        <span class="label-secondary" id="region-modal-area-label-en"></span>
+                                    </label>
+                                    <span id="region-modal-area">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">🏛️</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">행정구역</span>
+                                        <span class="label-secondary" id="region-modal-admin-level-label-en"></span>
+                                    </label>
+                                    <span id="region-modal-admin-level">-</span>
+                                </div>
+                            </div>
+                            <div class="detail-card">
+                                <div class="detail-icon">💰</div>
+                                <div class="detail-content">
+                                    <label>
+                                        <span class="label-primary">광고 가격</span>
+                                        <span class="label-secondary" id="region-modal-price-label-en"></span>
+                                    </label>
+                                    <span id="region-modal-price">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="region-status">
+                            <h4>
+                                <span class="label-primary">📊 광고 상태</span>
+                                <span class="label-secondary" id="region-modal-status-label-en"></span>
+                            </h4>
+                            <div class="status-info">
+                                <div class="status-badge" id="region-modal-status">
+                                    <span class="status-icon">✅</span>
+                                    <span class="status-text">Available</span>
+                                </div>
+                                <p class="status-description">
+                                    <span class="description-primary">이 지역은 현재 광고를 등록할 수 있습니다.</span>
+                                    <span class="description-secondary" id="region-modal-status-description-en"></span>
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="region-actions">
+                            <button id="region-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
+                            <button id="region-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
+                            <div id="region-paypal-buttons" style="margin-top: 15px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 로딩 인디케이터 -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>지도를 불러오는 중...</p>
+        </div>
+    </div>
+    
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <!-- PayPal JS SDK (Live Mode) - 실제 결제 가능 -->
+    <script src="https://www.paypal.com/sdk/js?client-id=AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp&currency=USD" data-sdk-integration-source="developer-studio"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Firebase 설정은 script.js에서 초기화
+        // 여기서는 SDK만 로드
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        
+        // Firebase 설정 객체
+        // Firebase 프로젝트 설정 방법:
+        // 1. https://console.firebase.google.com/ 에서 프로젝트 생성
+        // 2. 프로젝트 설정 > 일반 > 앱 추가 > 웹 앱 선택
+        // 3. Firebase SDK 설정에서 아래 값들을 복사하여 붙여넣기
+        // 4. 인증 > 로그인 방법 > Google 활성화 필요
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY", // Firebase 콘솔에서 복사
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // YOUR_PROJECT_ID를 실제 프로젝트 ID로 변경
+            projectId: "YOUR_PROJECT_ID", // Firebase 콘솔에서 복사
+            storageBucket: "YOUR_PROJECT_ID.appspot.com", // YOUR_PROJECT_ID를 실제 프로젝트 ID로 변경
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // Firebase 콘솔에서 복사
+            appId: "YOUR_APP_ID" // Firebase 콘솔에서 복사
+        };
+        
+        // Firebase 초기화는 script.js에서 처리
+        window.firebaseModules = { initializeApp, getAuth, getFirestore, firebaseConfig };
+    </script>
+    <script src="script.js"></script>
+</body>
+</html>

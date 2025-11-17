@@ -1,0 +1,15839 @@
+// Mr.Young's Billionaire Homepage - Interactive World Map
+class BillionaireMap {
+    constructor() {
+        this.map = null;
+        this.currentRegion = null;
+        this.regionData = new Map();
+        this.uniformAdPrice = 1000;
+        const originalRegionDataSet = this.regionData.set.bind(this.regionData);
+        this.regionData.set = (key, value) => {
+            const enforcedValue = this.enforceUniformAdPrice(value);
+            return originalRegionDataSet(key, enforcedValue);
+        };
+        this.advertisingData = new Map();
+        this.logoData = {}; // 간단한 객체로 변경
+        this.colorData = {}; // 색상 데이터 저장
+        this.companyData = {}; // 기업 정보 데이터 저장
+        this.koreaLogoData = {}; // 한국 로고 데이터
+        this.koreaColorData = {}; // 한국 색상 데이터
+        this.koreaCompanyData = {}; // 한국 기업 정보 데이터
+        this.japanLogoData = {}; // 일본 로고 데이터
+        this.japanColorData = {}; // 일본 색상 데이터
+        this.japanCompanyData = {}; // 일본 기업 정보 데이터
+        this.currentMapMode = 'usa'; // 현재 지도 모드 (모든 국가 포함)
+        this.adminMode = false;
+        // Firebase 관련 변수
+        this.firebaseApp = null;
+        this.firebaseAuth = null;
+        this.firestore = null;
+        this.currentUser = null; // 현재 로그인한 사용자
+        this.isFirebaseInitialized = false;
+        // 성능 최적화: 데이터 캐싱
+        this.cachedGeoJsonData = {
+            'usa': null,
+            'korea': null,
+            'japan': null,
+            'china': null,
+            'russia': null,
+            'india': null,
+            'canada': null,
+            'germany': null,
+            'uk': null,
+            'france': null,
+            'italy': null,
+            'brazil': null,
+            'australia': null,
+            'mexico': null,
+            'indonesia': null,
+            'saudi-arabia': null,
+            'turkey': null,
+            'south-africa': null,
+            'argentina': null,
+            'european-union': null,
+            'spain': null,
+            'netherlands': null,
+            'poland': null,
+            'belgium': null,
+            'sweden': null,
+            'austria': null,
+            'denmark': null,
+            'finland': null,
+            'ireland': null,
+            'portugal': null,
+            'greece': null,
+            'czech-republic': null,
+            'romania': null,
+            'hungary': null,
+            'bulgaria': null
+        };
+        this.rawGeoJsonCache = {};
+        this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
+        this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
+        this.isAdminLoggedIn = false; // 관리자 로그인 상태
+        this.selectedStateId = null; // 현재 선택된 주 ID
+        this.uiVisible = false; // UI 요소 표시 상태
+        this.pKeyCount = 0; // P키 연타 카운트
+        this.pKeyTimer = null; // P키 타이머
+        this.isGlobeMode = false; // 3D 지구본 모드 상태 (initializeMap에서 초기화)
+        this.globeRotationInterval = null; // 지구본 자동 회전 인터벌
+        this.cloudRotation = 0; // 구름 회전 각도
+        this.cloudImage = null; // 구름 이미지
+        this.cloudAnimationId = null; // 구름 애니메이션 ID
+        this.dynamicColorSetup = false; // 동적 색상 조정 설정 여부
+        this.southAfricaProvinceMapping = null; // 남아프리카공화국 주-지구 매핑
+        this.argentinaProvinceMapping = null; // 아르헨티나 주 매핑
+        this.spainAutonomousCommunityMapping = null; // 스페인 자치지역-주 매핑
+        
+        // G20 국가 설정
+        this.g20Countries = {
+            'usa': { name: 'United States', center: [-95, 35], zoom: 4, flag: '🇺🇸' },
+            'china': { name: 'China', center: [104, 35], zoom: 4, flag: '🇨🇳' },
+            'japan': { name: 'Japan', center: [139, 36], zoom: 6, flag: '🇯🇵' },
+            'germany': { name: 'Germany', center: [10, 51], zoom: 6, flag: '🇩🇪' },
+            'india': { name: 'India', center: [77, 20], zoom: 4, flag: '🇮🇳' },
+            'uk': { name: 'United Kingdom', center: [-3, 54], zoom: 6, flag: '🇬🇧' },
+            'france': { name: 'France', center: [2, 46], zoom: 6, flag: '🇫🇷' },
+            'italy': { name: 'Italy', center: [12, 42], zoom: 6, flag: '🇮🇹' },
+            'brazil': { name: 'Brazil', center: [-55, -15], zoom: 4, flag: '🇧🇷' },
+            'canada': { name: 'Canada', center: [-106, 56], zoom: 4, flag: '🇨🇦' },
+            'russia': { name: 'Russia', center: [100, 60], zoom: 3, flag: '🇷🇺' },
+            'australia': { name: 'Australia', center: [133, -27], zoom: 4, flag: '🇦🇺' },
+            'mexico': { name: 'Mexico', center: [-102, 23], zoom: 5, flag: '🇲🇽' },
+            'south-korea': { name: 'South Korea', center: [127, 36], zoom: 6, flag: '🇰🇷' },
+            'indonesia': { name: 'Indonesia', center: [113, -5], zoom: 5, flag: '🇮🇩' },
+            'saudi-arabia': { name: 'Saudi Arabia', center: [45, 24], zoom: 5, flag: '🇸🇦' },
+            'turkey': { name: 'Turkey', center: [35, 39], zoom: 5, flag: '🇹🇷' },
+            'south-africa': { name: 'South Africa', center: [22, -30], zoom: 5, flag: '🇿🇦' },
+            'argentina': { name: 'Argentina', center: [-63, -38], zoom: 4, flag: '🇦🇷' },
+            'european-union': { name: 'European Union', center: [10, 50], zoom: 4, flag: '🇪🇺' },
+            'spain': { name: 'Spain', center: [-3, 40], zoom: 5, flag: '🇪🇸' },
+            'netherlands': { name: 'Netherlands', center: [5, 52], zoom: 6, flag: '🇳🇱' },
+            'poland': { name: 'Poland', center: [19, 52], zoom: 5, flag: '🇵🇱' },
+            'belgium': { name: 'Belgium', center: [4.5, 50.5], zoom: 6, flag: '🇧🇪' },
+            'sweden': { name: 'Sweden', center: [18, 60], zoom: 5, flag: '🇸🇪' },
+            'austria': { name: 'Austria', center: [13, 47.5], zoom: 6, flag: '🇦🇹' },
+            'denmark': { name: 'Denmark', center: [10, 56], zoom: 6, flag: '🇩🇰' },
+            'finland': { name: 'Finland', center: [26, 64], zoom: 5, flag: '🇫🇮' },
+            'ireland': { name: 'Ireland', center: [-8, 53], zoom: 6, flag: '🇮🇪' },
+            'portugal': { name: 'Portugal', center: [-8, 39.5], zoom: 6, flag: '🇵🇹' },
+            'greece': { name: 'Greece', center: [23, 38], zoom: 6, flag: '🇬🇷' },
+            'czech-republic': { name: 'Czech Republic', center: [15, 49.75], zoom: 6, flag: '🇨🇿' },
+            'romania': { name: 'Romania', center: [25, 46], zoom: 6, flag: '🇷🇴' },
+            'hungary': { name: 'Hungary', center: [19.5, 47.5], zoom: 6, flag: '🇭🇺' },
+            'bulgaria': { name: 'Bulgaria', center: [25, 43], zoom: 6, flag: '🇧🇬' }
+        };
+        
+        // G20 국가별 언어 매핑 (주요 언어 + 영어)
+        this.countryLanguages = {
+            'usa': { 
+                primary: { 
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                },
+                secondary: {}
+            },
+            'china': {
+                primary: {
+                    'Region Information': '地区信息',
+                    'Population': '人口',
+                    'Area': '面积',
+                    'Administrative Level': '行政区划',
+                    'Advertising Price': '广告价格',
+                    'Status': '状态',
+                    'Available': '可用',
+                    'Occupied': '已占用',
+                    'This region is available for advertisement registration.': '此地区目前可以注册广告。',
+                    'This region is currently occupied by an advertisement.': '此地区目前已被广告占用。',
+                    'Purchase This Region': '购买此地区',
+                    'Company Information': '企业信息',
+                    'Industry': '行业',
+                    'Founded': '成立年份',
+                    'Employees': '员工数',
+                    'Website': '网站',
+                    'Company Description': '企业介绍',
+                    'Key Features': '主要特点',
+                    'Region': '地区'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'japan': {
+                primary: {
+                    'Region Information': '地域情報',
+                    'Population': '人口',
+                    'Area': '面積',
+                    'Administrative Level': '行政区画',
+                    'Advertising Price': '広告価格',
+                    'Status': 'ステータス',
+                    'Available': '利用可能',
+                    'Occupied': '占有中',
+                    'This region is available for advertisement registration.': 'この地域は現在広告登録が可能です。',
+                    'This region is currently occupied by an advertisement.': 'この地域は現在広告に占有されています。',
+                    'Purchase This Region': 'この地域を購入',
+                    'Company Information': '企業情報',
+                    'Industry': '業界',
+                    'Founded': '設立年',
+                    'Employees': '従業員数',
+                    'Website': 'ウェブサイト',
+                    'Company Description': '企業紹介',
+                    'Key Features': '主な特徴',
+                    'Region': '地域'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'germany': {
+                primary: {
+                    'Region Information': 'Regionsinformationen',
+                    'Population': 'Bevölkerung',
+                    'Area': 'Fläche',
+                    'Administrative Level': 'Verwaltungsebene',
+                    'Advertising Price': 'Werbekosten',
+                    'Status': 'Status',
+                    'Available': 'Verfügbar',
+                    'Occupied': 'Besetzt',
+                    'This region is available for advertisement registration.': 'Diese Region ist für Werbeanmeldungen verfügbar.',
+                    'This region is currently occupied by an advertisement.': 'Diese Region ist derzeit von einer Werbung belegt.',
+                    'Purchase This Region': 'Diese Region kaufen',
+                    'Company Information': 'Unternehmensinformationen',
+                    'Industry': 'Branche',
+                    'Founded': 'Gegründet',
+                    'Employees': 'Mitarbeiter',
+                    'Website': 'Website',
+                    'Company Description': 'Unternehmensbeschreibung',
+                    'Key Features': 'Hauptmerkmale',
+                    'Region': 'Region'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'india': {
+                primary: {
+                    'Region Information': 'क्षेत्र जानकारी',
+                    'Population': 'जनसंख्या',
+                    'Area': 'क्षेत्रफल',
+                    'Administrative Level': 'प्रशासनिक स्तर',
+                    'Advertising Price': 'विज्ञापन मूल्य',
+                    'Status': 'स्थिति',
+                    'Available': 'उपलब्ध',
+                    'Occupied': 'अधिकृत',
+                    'This region is available for advertisement registration.': 'यह क्षेत्र वर्तमान में विज्ञापन पंजीकरण के लिए उपलब्ध है।',
+                    'This region is currently occupied by an advertisement.': 'यह क्षेत्र वर्तमान में एक विज्ञापन द्वारा अधिकृत है।',
+                    'Purchase This Region': 'इस क्षेत्र को खरीदें',
+                    'Company Information': 'कंपनी जानकारी',
+                    'Industry': 'उद्योग',
+                    'Founded': 'स्थापना वर्ष',
+                    'Employees': 'कर्मचारी',
+                    'Website': 'वेबसाइट',
+                    'Company Description': 'कंपनी विवरण',
+                    'Key Features': 'मुख्य विशेषताएं',
+                    'Region': 'क्षेत्र'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'uk': {
+                primary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                },
+                secondary: {}
+            },
+            'france': {
+                primary: {
+                    'Region Information': 'Informations sur la région',
+                    'Population': 'Population',
+                    'Area': 'Superficie',
+                    'Administrative Level': 'Niveau administratif',
+                    'Advertising Price': 'Prix de la publicité',
+                    'Status': 'Statut',
+                    'Available': 'Disponible',
+                    'Occupied': 'Occupé',
+                    'This region is available for advertisement registration.': 'Cette région est actuellement disponible pour l\'enregistrement de publicités.',
+                    'This region is currently occupied by an advertisement.': 'Cette région est actuellement occupée par une publicité.',
+                    'Purchase This Region': 'Acheter cette région',
+                    'Company Information': 'Informations sur l\'entreprise',
+                    'Industry': 'Industrie',
+                    'Founded': 'Fondée',
+                    'Employees': 'Employés',
+                    'Website': 'Site web',
+                    'Company Description': 'Description de l\'entreprise',
+                    'Key Features': 'Caractéristiques principales',
+                    'Region': 'Région'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'italy': {
+                primary: {
+                    'Region Information': 'Informazioni sulla regione',
+                    'Population': 'Popolazione',
+                    'Area': 'Area',
+                    'Administrative Level': 'Livello amministrativo',
+                    'Advertising Price': 'Prezzo pubblicitario',
+                    'Status': 'Stato',
+                    'Available': 'Disponibile',
+                    'Occupied': 'Occupato',
+                    'This region is available for advertisement registration.': 'Questa regione è attualmente disponibile per la registrazione pubblicitaria.',
+                    'This region is currently occupied by an advertisement.': 'Questa regione è attualmente occupata da una pubblicità.',
+                    'Purchase This Region': 'Acquista questa regione',
+                    'Company Information': 'Informazioni sull\'azienda',
+                    'Industry': 'Settore',
+                    'Founded': 'Fondata',
+                    'Employees': 'Dipendenti',
+                    'Website': 'Sito web',
+                    'Company Description': 'Descrizione dell\'azienda',
+                    'Key Features': 'Caratteristiche principali',
+                    'Region': 'Regione'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'brazil': {
+                primary: {
+                    'Region Information': 'Informações da região',
+                    'Population': 'População',
+                    'Area': 'Área',
+                    'Administrative Level': 'Nível administrativo',
+                    'Advertising Price': 'Preço de publicidade',
+                    'Status': 'Status',
+                    'Available': 'Disponível',
+                    'Occupied': 'Ocupado',
+                    'This region is available for advertisement registration.': 'Esta região está atualmente disponível para registro de publicidade.',
+                    'This region is currently occupied by an advertisement.': 'Esta região está atualmente ocupada por uma publicidade.',
+                    'Purchase This Region': 'Comprar esta região',
+                    'Company Information': 'Informações da empresa',
+                    'Industry': 'Indústria',
+                    'Founded': 'Fundada',
+                    'Employees': 'Funcionários',
+                    'Website': 'Site',
+                    'Company Description': 'Descrição da empresa',
+                    'Key Features': 'Características principais',
+                    'Region': 'Região'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'canada': {
+                primary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                },
+                secondary: {}
+            },
+            'russia': {
+                primary: {
+                    'Region Information': 'Информация о регионе',
+                    'Population': 'Население',
+                    'Area': 'Площадь',
+                    'Administrative Level': 'Административный уровень',
+                    'Advertising Price': 'Стоимость рекламы',
+                    'Status': 'Статус',
+                    'Available': 'Доступно',
+                    'Occupied': 'Занято',
+                    'This region is available for advertisement registration.': 'Этот регион в настоящее время доступен для регистрации рекламы.',
+                    'This region is currently occupied by an advertisement.': 'Этот регион в настоящее время занят рекламой.',
+                    'Purchase This Region': 'Купить этот регион',
+                    'Company Information': 'Информация о компании',
+                    'Industry': 'Отрасль',
+                    'Founded': 'Основана',
+                    'Employees': 'Сотрудники',
+                    'Website': 'Веб-сайт',
+                    'Company Description': 'Описание компании',
+                    'Key Features': 'Основные особенности',
+                    'Region': 'Регион'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'australia': {
+                primary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                },
+                secondary: {}
+            },
+            'mexico': {
+                primary: {
+                    'Region Information': 'Información de la región',
+                    'Population': 'Población',
+                    'Area': 'Área',
+                    'Administrative Level': 'Nivel administrativo',
+                    'Advertising Price': 'Precio de publicidad',
+                    'Status': 'Estado',
+                    'Available': 'Disponible',
+                    'Occupied': 'Ocupado',
+                    'This region is available for advertisement registration.': 'Esta región está disponible para el registro de publicidad.',
+                    'This region is currently occupied by an advertisement.': 'Esta región está ocupada por una publicidad.',
+                    'Purchase This Region': 'Comprar esta región',
+                    'Company Information': 'Información de la empresa',
+                    'Industry': 'Industria',
+                    'Founded': 'Fundada',
+                    'Employees': 'Empleados',
+                    'Website': 'Sitio web',
+                    'Company Description': 'Descripción de la empresa',
+                    'Key Features': 'Características principales',
+                    'Region': 'Región'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'south-korea': {
+                primary: {
+                    'Region Information': '지역 정보',
+                    'Population': '인구',
+                    'Area': '면적',
+                    'Administrative Level': '행정구역',
+                    'Advertising Price': '광고 가격',
+                    'Status': '상태',
+                    'Available': '사용 가능',
+                    'Occupied': '광고 중',
+                    'This region is available for advertisement registration.': '이 지역은 현재 광고를 등록할 수 있습니다.',
+                    'This region is currently occupied by an advertisement.': '이 지역은 현재 광고가 등록되어 있습니다.',
+                    'Purchase This Region': '이 지역 구매하기',
+                    'Company Information': '기업 정보',
+                    'Industry': '산업 분야',
+                    'Founded': '설립년도',
+                    'Employees': '직원 수',
+                    'Website': '웹사이트',
+                    'Company Description': '기업 소개',
+                    'Key Features': '주요 특징',
+                    'Region': '지역명'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'indonesia': {
+                primary: {
+                    'Region Information': 'Informasi Wilayah',
+                    'Population': 'Populasi',
+                    'Area': 'Luas',
+                    'Administrative Level': 'Tingkat Administratif',
+                    'Advertising Price': 'Harga Iklan',
+                    'Status': 'Status',
+                    'Available': 'Tersedia',
+                    'Occupied': 'Terisi',
+                    'This region is available for advertisement registration.': 'Wilayah ini saat ini tersedia untuk pendaftaran iklan.',
+                    'This region is currently occupied by an advertisement.': 'Wilayah ini saat ini ditempati oleh iklan.',
+                    'Purchase This Region': 'Beli Wilayah Ini',
+                    'Company Information': 'Informasi Perusahaan',
+                    'Industry': 'Industri',
+                    'Founded': 'Didirikan',
+                    'Employees': 'Karyawan',
+                    'Website': 'Situs Web',
+                    'Company Description': 'Deskripsi Perusahaan',
+                    'Key Features': 'Fitur Utama',
+                    'Region': 'Wilayah'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'saudi-arabia': {
+                primary: {
+                    'Region Information': 'معلومات المنطقة',
+                    'Population': 'السكان',
+                    'Area': 'المساحة',
+                    'Administrative Level': 'المستوى الإداري',
+                    'Advertising Price': 'سعر الإعلان',
+                    'Status': 'الحالة',
+                    'Available': 'متاح',
+                    'Occupied': 'محتل',
+                    'This region is available for advertisement registration.': 'هذه المنطقة متاحة حالياً لتسجيل الإعلانات.',
+                    'This region is currently occupied by an advertisement.': 'هذه المنطقة محتلة حالياً بإعلان.',
+                    'Purchase This Region': 'شراء هذه المنطقة',
+                    'Company Information': 'معلومات الشركة',
+                    'Industry': 'الصناعة',
+                    'Founded': 'تأسست',
+                    'Employees': 'الموظفين',
+                    'Website': 'الموقع الإلكتروني',
+                    'Company Description': 'وصف الشركة',
+                    'Key Features': 'الميزات الرئيسية',
+                    'Region': 'المنطقة'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'turkey': {
+                primary: {
+                    'Region Information': 'Bölge Bilgisi',
+                    'Population': 'Nüfus',
+                    'Area': 'Alan',
+                    'Administrative Level': 'İdari Seviye',
+                    'Advertising Price': 'Reklam Fiyatı',
+                    'Status': 'Durum',
+                    'Available': 'Müsait',
+                    'Occupied': 'Dolu',
+                    'This region is available for advertisement registration.': 'Bu bölge şu anda reklam kaydı için müsait.',
+                    'This region is currently occupied by an advertisement.': 'Bu bölge şu anda bir reklam tarafından işgal edilmiş.',
+                    'Purchase This Region': 'Bu Bölgeyi Satın Al',
+                    'Company Information': 'Şirket Bilgileri',
+                    'Industry': 'Endüstri',
+                    'Founded': 'Kuruluş',
+                    'Employees': 'Çalışanlar',
+                    'Website': 'Web Sitesi',
+                    'Company Description': 'Şirket Açıklaması',
+                    'Key Features': 'Ana Özellikler',
+                    'Region': 'Bölge'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            },
+            'south-africa': {
+                primary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                },
+                secondary: {}
+            },
+            'argentina': {
+                primary: {
+                    'Region Information': 'Información de la región',
+                    'Population': 'Población',
+                    'Area': 'Área',
+                    'Administrative Level': 'Nivel administrativo',
+                    'Advertising Price': 'Precio de publicidad',
+                    'Status': 'Estado',
+                    'Available': 'Disponible',
+                    'Occupied': 'Ocupado',
+                    'This region is available for advertisement registration.': 'Esta región está disponible para el registro de publicidad.',
+                    'This region is currently occupied by an advertisement.': 'Esta región está ocupada por una publicidad.',
+                    'Purchase This Region': 'Comprar esta región',
+                    'Company Information': 'Información de la empresa',
+                    'Industry': 'Industria',
+                    'Founded': 'Fundada',
+                    'Employees': 'Empleados',
+                    'Website': 'Sitio web',
+                    'Company Description': 'Descripción de la empresa',
+                    'Key Features': 'Características principales',
+                    'Region': 'Región'
+                },
+                secondary: {
+                    'Region Information': 'Region Information',
+                    'Population': 'Population',
+                    'Area': 'Area',
+                    'Administrative Level': 'Administrative Level',
+                    'Advertising Price': 'Advertising Price',
+                    'Status': 'Status',
+                    'Available': 'Available',
+                    'Occupied': 'Occupied',
+                    'This region is available for advertisement registration.': 'This region is available for advertisement registration.',
+                    'This region is currently occupied by an advertisement.': 'This region is currently occupied by an advertisement.',
+                    'Purchase This Region': 'Purchase This Region',
+                    'Company Information': 'Company Information',
+                    'Industry': 'Industry',
+                    'Founded': 'Founded',
+                    'Employees': 'Employees',
+                    'Website': 'Website',
+                    'Company Description': 'Company Description',
+                    'Key Features': 'Key Features',
+                    'Region': 'Region'
+                }
+            }
+        };
+        this.zoomLevels = {
+            world: 2,
+            country: 4,
+            region: 6
+        };
+        
+        this.init();
+    }
+    
+    async init() {
+        try {
+            // 별 배경 초기화
+            this.initStarsBackground();
+            
+            // Firebase 초기화 (비동기로 실행, 실패해도 지도는 로드됨)
+            this.initializeFirebase().catch(err => {
+                console.warn('Firebase 초기화 실패 (계속 진행):', err);
+            });
+            
+            await this.initializeMap();
+            await this.loadWorldData();
+            if (!this.eventListenersAdded) {
+                this.setupEventListeners();
+                this.eventListenersAdded = true;
+            }
+            this.hideLoading();
+            this.switchToUserMode(); // 초기에는 일반 사용자 모드
+            // UI는 P키 연타로 표시하거나 햄버거 메뉴를 통해 접근
+            // this.showUI(); // 초기에는 UI 표시하지 않음
+            this.addMapModeToggle(); // 지도 모드 전환 버튼 추가
+            this.setupColorPresetListeners(); // 색상 프리셋 이벤트 리스너 추가
+            this.updateUserUI(); // 사용자 UI 초기화 (사이드 메뉴 로그인 버튼 표시)
+            
+            // 초기화 시 관리자 섹션 숨기기
+            const sideAdminSection = document.getElementById('side-admin-section');
+            if (sideAdminSection) {
+                sideAdminSection.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('초기화 중 오류 발생:', error);
+            this.showError('지도를 불러오는 중 오류가 발생했습니다.');
+        }
+    }
+    
+    // 별 배경 초기화 (Canvas 기반)
+    initStarsBackground() {
+        const canvas = document.getElementById('stars-canvas');
+        if (!canvas) {
+            console.error('별 캔버스를 찾을 수 없습니다');
+            return;
+        }
+        
+        const ctx = canvas.getContext('2d');
+        const numStars = 800; // 별 개수 증가 (더 풍부하게)
+        const stars = [];
+        
+        // 캔버스 크기 설정
+        const resizeCanvas = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // 리사이즈 시 별 위치 재계산
+            if (this.stars && this.stars.length > 0) {
+                this.stars.forEach(star => {
+                    star.x = Math.random() * canvas.width;
+                    star.y = Math.random() * canvas.height;
+                });
+            }
+            if (this.stars) this.drawStars();
+        };
+        
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // 별 생성 (크기와 밝기 다양화)
+        for (let i = 0; i < numStars; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 2 + 0.3, // 더 작은 별도 포함
+                opacity: Math.random() * 0.9 + 0.1, // 더 밝게
+                twinkleSpeed: Math.random() * 0.03 + 0.005,
+                currentOpacity: Math.random() * 0.9 + 0.1,
+                color: Math.random() > 0.8 ? '#87CEEB' : '#FFFFFF' // 일부 별은 하늘색
+            });
+        }
+        
+        this.stars = stars;
+        this.starsCanvas = canvas;
+        this.starsCtx = ctx;
+        
+        // 별 그리기
+        this.drawStars();
+        
+        // 반짝임 애니메이션
+        this.animateStars();
+        
+        console.log(`${numStars}개의 별이 생성되었습니다`);
+    }
+    
+    // 별 그리기
+    drawStars() {
+        if (!this.starsCtx || !this.starsCanvas || !this.stars) return;
+        
+        const ctx = this.starsCtx;
+        const canvas = this.starsCanvas;
+        
+        // 캔버스 클리어
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 별 그리기 (더 밝고 선명하게)
+        this.stars.forEach(star => {
+            const opacity = star.currentOpacity || star.opacity;
+            const color = star.color || '#FFFFFF';
+            
+            // 별 중심
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+            
+            // 색상에 맞춘 투명도 적용
+            if (color === '#87CEEB') {
+                ctx.fillStyle = `rgba(135, 206, 235, ${opacity})`;
+            } else {
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+            }
+            ctx.fill();
+            
+            // 큰 별은 후광 효과 추가
+            if (star.radius > 1.5) {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius * 1.5, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.3})`;
+                ctx.fill();
+            }
+        });
+    }
+    
+    // 별 반짝임 애니메이션
+    animateStars() {
+        if (!this.stars) return;
+        
+        this.stars.forEach(star => {
+            if (!star.currentOpacity) star.currentOpacity = star.opacity;
+            star.currentOpacity += star.twinkleSpeed;
+            if (star.currentOpacity > star.opacity + 0.3 || star.currentOpacity < star.opacity - 0.3) {
+                star.twinkleSpeed = -star.twinkleSpeed;
+            }
+        });
+        
+        this.drawStars();
+        requestAnimationFrame(() => this.animateStars());
+    }
+    
+    enforceUniformAdPrice(region) {
+        if (!region || typeof region !== 'object') {
+            return region;
+        }
+
+        const descriptor = Object.getOwnPropertyDescriptor(region, 'ad_price');
+
+        if (!descriptor || !descriptor.get) {
+            Object.defineProperty(region, 'ad_price', {
+                configurable: true,
+                enumerable: true,
+                get: () => this.uniformAdPrice,
+                set: () => {},
+            });
+        }
+
+        return region;
+    }
+
+    // Firebase 초기화
+    async initializeFirebase() {
+        try {
+            // Firebase 모듈이 로드될 때까지 대기
+            if (!window.firebaseModules) {
+                console.warn('Firebase 모듈이 아직 로드되지 않았습니다. 잠시 후 다시 시도합니다.');
+                setTimeout(() => this.initializeFirebase(), 1000);
+                return;
+            }
+
+            const { initializeApp, getAuth, getFirestore, firebaseConfig } = window.firebaseModules;
+            
+            // Firebase 설정이 실제 값으로 교체되었는지 확인
+            if (firebaseConfig.apiKey === "YOUR_API_KEY" || !firebaseConfig.apiKey) {
+                console.warn('Firebase 설정이 아직 완료되지 않았습니다. index.html에서 firebaseConfig를 업데이트하세요.');
+                this.showNotification('Firebase 설정이 필요합니다. index.html에서 Firebase 설정을 업데이트해주세요.', 'error');
+                return;
+            }
+
+            // Firebase 앱 초기화
+            this.firebaseApp = initializeApp(firebaseConfig);
+            this.firebaseAuth = getAuth(this.firebaseApp);
+            this.firestore = getFirestore(this.firebaseApp);
+            this.isFirebaseInitialized = true;
+
+            // 인증 상태 변경 감지
+            this.firebaseAuth.onAuthStateChanged((user) => {
+                const wasLoggedOut = !this.currentUser && user; // 로그아웃 상태에서 로그인으로 변경
+                this.currentUser = user;
+                if (user) {
+                    console.log('사용자 로그인:', user.email);
+                    // 로그인 성공 시 열려있는 모달/패널에 PayPal 버튼 자동 렌더링
+                    if (wasLoggedOut && this.currentRegion) {
+                        this.autoRenderPayPalButtons();
+                    }
+                } else {
+                    console.log('사용자 로그아웃');
+                }
+                // UI 업데이트
+                this.updateUserUI();
+            });
+
+            console.log('Firebase 초기화 완료');
+        } catch (error) {
+            console.error('Firebase 초기화 오류:', error);
+            this.showNotification('Firebase 초기화에 실패했습니다. 일부 기능이 제한될 수 있습니다.', 'warning');
+        }
+    }
+
+    // 구매 기록을 Firestore에 저장
+    async savePurchaseToFirestore(regionId, regionName, paypalOrderId, buyerEmail, amount) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 구매 기록을 저장할 수 없습니다.');
+            return;
+        }
+
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const purchaseData = {
+                regionId: regionId,
+                regionName: regionName,
+                paypalOrderId: paypalOrderId,
+                buyerEmail: buyerEmail,
+                amount: amount,
+                purchaseDate: serverTimestamp(),
+                status: 'completed'
+            };
+
+            const docRef = await addDoc(collection(this.firestore, 'purchases'), purchaseData);
+            console.log('구매 기록 저장 완료:', docRef.id);
+            return docRef.id;
+        } catch (error) {
+            console.error('구매 기록 저장 오류:', error);
+            this.showNotification('구매 기록 저장에 실패했습니다.', 'error');
+        }
+    }
+
+    // 특정 지역의 소유자 확인
+    async checkRegionOwnership(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
+            return false;
+        }
+
+        try {
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const q = query(
+                collection(this.firestore, 'purchases'),
+                where('regionId', '==', regionId),
+                where('buyerEmail', '==', this.currentUser.email),
+                where('status', '==', 'completed')
+            );
+
+            const querySnapshot = await getDocs(q);
+            return !querySnapshot.empty; // 구매 기록이 있으면 소유자
+        } catch (error) {
+            console.error('소유권 확인 오류:', error);
+            return false;
+        }
+    }
+
+    // 사용자 로그인 (이메일/비밀번호)
+    async loginUser(email, password) {
+        if (!this.isFirebaseInitialized || !this.firebaseAuth) {
+            this.showNotification('Firebase가 초기화되지 않았습니다.', 'error');
+            return;
+        }
+
+        try {
+            const { signInWithEmailAndPassword } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            await signInWithEmailAndPassword(this.firebaseAuth, email, password);
+            this.showNotification('로그인 성공!', 'success');
+            this.updateUserUI();
+            this.hideUserLoginModal();
+            // 로그인 성공 시 열려있는 모달/패널에 PayPal 버튼 자동 렌더링
+            if (this.currentRegion) {
+                this.autoRenderPayPalButtons();
+            }
+        } catch (error) {
+            console.error('로그인 오류:', error);
+            const errorMsg = error.code === 'auth/user-not-found' ? '등록되지 않은 이메일입니다.' 
+                : error.code === 'auth/wrong-password' ? '비밀번호가 잘못되었습니다.'
+                : '로그인에 실패했습니다. 이메일과 비밀번호를 확인하세요.';
+            this.showNotification(errorMsg, 'error');
+        }
+    }
+
+    // 사용자 회원가입
+    async signUpUser(email, password) {
+        if (!this.isFirebaseInitialized || !this.firebaseAuth) {
+            this.showNotification('Firebase가 초기화되지 않았습니다.', 'error');
+            return;
+        }
+
+        try {
+            const { createUserWithEmailAndPassword } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            await createUserWithEmailAndPassword(this.firebaseAuth, email, password);
+            this.showNotification('회원가입 성공!', 'success');
+            this.updateUserUI();
+        } catch (error) {
+            console.error('회원가입 오류:', error);
+            const errorMsg = error.code === 'auth/email-already-in-use' ? '이미 사용 중인 이메일입니다.'
+                : error.code === 'auth/weak-password' ? '비밀번호가 너무 약합니다. (최소 6자)'
+                : '회원가입에 실패했습니다.';
+            this.showNotification(errorMsg, 'error');
+        }
+    }
+    
+    // 구글 로그인/회원가입
+    async signInWithGoogle() {
+        if (!this.isFirebaseInitialized || !this.firebaseAuth) {
+            this.showNotification('Firebase가 초기화되지 않았습니다. Firebase 설정을 확인해주세요. index.html에서 firebaseConfig를 업데이트해야 합니다.', 'error');
+            console.error('Firebase 초기화 상태:', {
+                isFirebaseInitialized: this.isFirebaseInitialized,
+                firebaseAuth: this.firebaseAuth,
+                firebaseConfig: window.firebaseModules?.firebaseConfig
+            });
+            return;
+        }
+
+        try {
+            const { GoogleAuthProvider, signInWithPopup } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            const provider = new GoogleAuthProvider();
+            const result = await signInWithPopup(this.firebaseAuth, provider);
+            
+            // 로그인 성공
+            this.currentUser = result.user;
+            this.updateUserUI();
+            this.hideUserLoginModal();
+            this.showNotification('구글 로그인 성공!', 'success');
+            console.log('구글 로그인 성공:', result.user.email);
+            // 로그인 성공 시 열려있는 모달/패널에 PayPal 버튼 자동 렌더링
+            if (this.currentRegion) {
+                this.autoRenderPayPalButtons();
+            }
+        } catch (error) {
+            console.error('구글 로그인 오류:', error);
+            const errorMsg = error.code === 'auth/popup-closed-by-user' ? '로그인 창이 닫혔습니다.'
+                : error.code === 'auth/popup-blocked' ? '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.'
+                : '구글 로그인에 실패했습니다.';
+            this.showNotification(errorMsg, 'error');
+        }
+    }
+
+    // 사용자 로그아웃
+    async logoutUser() {
+        if (!this.isFirebaseInitialized || !this.firebaseAuth) {
+            return;
+        }
+
+        try {
+            const { signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            await signOut(this.firebaseAuth);
+            this.showNotification('로그아웃되었습니다.', 'info');
+            this.updateUserUI();
+        } catch (error) {
+            console.error('로그아웃 오류:', error);
+        }
+    }
+
+    async initializeMap() {
+        // MapLibre GL JS 초기화 (무료 오픈소스 버전 사용)
+        mapboxgl.accessToken = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+        
+        // 3D 지구본 모드 활성화 (기본값)
+        this.isGlobeMode = true;
+        
+        this.map = new mapboxgl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    'raster-tiles': {
+                        type: 'raster',
+                        tiles: [
+                            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                        ],
+                        tileSize: 256,
+                        wrapX: true, // 지구본이라 양쪽 끝 연결
+                        attribution: '© Esri'
+                    }
+                },
+                layers: [
+                    {
+                        id: 'background',
+                        type: 'raster',
+                        source: 'raster-tiles',
+                        paint: {
+                            'raster-opacity': 1,
+                            'raster-brightness-min': 0.5,   // 차분한 밝기 (야광 효과 제거)
+                            'raster-brightness-max': 0.85,  // 최대 밝기도 낮춤
+                            'raster-saturation': 0.65,      // 실제 위성 지도처럼 낮은 채도
+                            'raster-contrast': 0.35,        // 선명한 대비로 실제 지도처럼
+                            'raster-hue-rotate': -5,          // 약간 따뜻한 톤 (구글 어스 스타일)
+                            'raster-resampling': 'linear'    // 부드러운 렌더링
+                        }
+                    }
+                ],
+                // 대기 및 조명 효과 (구글어스/nullschool 스타일)
+                light: {
+                    anchor: 'viewport',
+                    color: '#ffffff',
+                    intensity: 0.4,          // 차분한 조명 (야광 효과 제거)
+                    position: [0.3, 0.3, 1.2] // 태양 위치 조정
+                },
+                sky: {
+                    'sky-type': 'atmosphere',
+                    'sky-atmosphere-sun': [0.0, 0.0],
+                    'sky-atmosphere-sun-intensity': 12, // 차분한 태양 강도
+                    'sky-atmosphere-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['sky-radial-progress'],
+                        0.0, '#6BA8D6',  // 지평선 근처는 차분한 하늘색
+                        0.3, '#4A6FA5',  // 중간은 차분한 파란색
+                        0.7, '#2A3D5C',  // 더 진한 남색
+                        1.0, '#0a0a1a'   // 우주는 어두운 남색
+                    ],
+                    'sky-atmosphere-halo-color': '#ffffff',
+                    'sky-atmosphere-space-color': '#0a0a1a',
+                    'sky-atmosphere-star-intensity': 0.5,
+                    'sky-atmosphere-fog-density': 0.08, // 약간 더 두꺼운 대기 (자연스러운 느낌)
+                    'sky-atmosphere-fog-height': 0.25 // 대기 높이 증가
+                }
+            },
+            center: [0, 0], // 지구본 중앙으로 초기화
+            zoom: 1.5, // 전체 지구본이 보이도록 줌 레벨 조정
+            maxZoom: 20, // 더 많이 확대 가능
+            minZoom: 0.5, // 더 많이 축소 가능 (전체 지구본 보기)
+            // 부드러운 줌 애니메이션
+            transition: {
+                duration: 400,
+                delay: 0
+            },
+            // 지구본 렌더링 옵션
+            antialias: true,
+            preserveDrawingBuffer: true,
+            fadeDuration: 300,
+            // 3D 지구본 모드 활성화
+            projection: 'globe',
+            // 초기 시야각 설정 (전체 지구본 보기)
+            pitch: 0,
+            bearing: 0,
+            // 2D 모드에서 세계지도 한 번만 표시 (3D 모드에는 영향 없음)
+            renderWorldCopies: false
+        });
+        
+        // 지도 로드 완료 대기
+        return new Promise((resolve) => {
+            this.map.on('load', () => {
+                console.log('지도 로드 완료');
+                
+                // 3D 지구본 스타일 설정
+                this.setupGlobeStyle();
+                
+                // 줌 이벤트 리스너 추가 (로고 크기 조절용) - 최적화된 버전
+                this.map.on('zoomend', () => {
+                    this.updateAllLogoSizes();
+                });
+                
+                this.map.on('moveend', () => {
+                    this.updateAllLogoSizes();
+                });
+                
+                // 2D 모드에서 최소 줌 제한 (세계지도가 여러 번 보이지 않도록)
+                this.map.on('zoom', () => {
+                    if (!this.isGlobeMode && this.map.getZoom() < 1.5) {
+                        this.map.setZoom(1.5);
+                    }
+                });
+                
+                // 지도 로드 후 초기 줌 설정 보장
+                setTimeout(() => {
+                    if (this.isGlobeMode) {
+                        this.map.easeTo({
+                            center: [0, 0],
+                            zoom: 1.5,
+                            pitch: 0,
+                            duration: 1000
+                        });
+                    }
+                }, 100);
+                
+                resolve();
+            });
+        });
+    }
+    
+    async loadWorldData() {
+        try {
+            let geoJsonData;
+            
+            // 캐시된 데이터가 있으면 사용
+            if (this.cachedGeoJsonData['usa']) {
+                geoJsonData = this.cachedGeoJsonData['usa'];
+            } else {
+                // 실제 미국 주 경계선 데이터를 공개 API에서 로드
+                try {
+                    const response = await fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json');
+                    geoJsonData = await response.json();
+                } catch (error) {
+                    console.error('API 데이터 로드 실패:', error);
+                    const localResponse = await fetch('data/us-states.geojson');
+                    geoJsonData = await localResponse.json();
+                }
+                
+                // 미국 주별 실제 인구 및 면적 데이터
+                const usaStateData = {
+                    'California': { population: 39029000, area: 423967 },
+                    'Texas': { population: 30503000, area: 695662 },
+                    'Florida': { population: 22610000, area: 170312 },
+                    'New York': { population: 19677000, area: 141297 },
+                    'Pennsylvania': { population: 12982000, area: 119280 },
+                    'Illinois': { population: 12480000, area: 149995 },
+                    'Ohio': { population: 11792000, area: 116098 },
+                    'Georgia': { population: 11029000, area: 153910 },
+                    'North Carolina': { population: 10855000, area: 139391 },
+                    'Michigan': { population: 10270000, area: 250487 },
+                    'New Jersey': { population: 9255000, area: 22591 },
+                    'Virginia': { population: 8717000, area: 110787 },
+                    'Washington': { population: 7999000, area: 184661 },
+                    'Arizona': { population: 7636000, area: 295234 },
+                    'Tennessee': { population: 7222000, area: 109153 },
+                    'Indiana': { population: 6864000, area: 94326 },
+                    'Massachusetts': { population: 6992000, area: 27336 },
+                    'Missouri': { population: 6168000, area: 180540 },
+                    'Maryland': { population: 6247000, area: 32131 },
+                    'Wisconsin': { population: 5944000, area: 169635 },
+                    'Colorado': { population: 5979000, area: 269601 },
+                    'Minnesota': { population: 5773000, area: 225163 },
+                    'South Carolina': { population: 5437000, area: 82933 },
+                    'Alabama': { population: 5154000, area: 135767 },
+                    'Louisiana': { population: 4554000, area: 135659 },
+                    'Kentucky': { population: 4525000, area: 104656 },
+                    'Oregon': { population: 4325000, area: 254800 },
+                    'Oklahoma': { population: 4050000, area: 181037 },
+                    'Connecticut': { population: 3625000, area: 14357 },
+                    'Utah': { population: 3497000, area: 219882 },
+                    'Iowa': { population: 3223000, area: 145746 },
+                    'Nevada': { population: 3195000, area: 286380 },
+                    'Arkansas': { population: 3086000, area: 137732 },
+                    'Mississippi': { population: 2931000, area: 125438 },
+                    'Kansas': { population: 2942000, area: 213100 },
+                    'New Mexico': { population: 2119000, area: 314917 },
+                    'Nebraska': { population: 1979000, area: 200330 },
+                    'Idaho': { population: 1967000, area: 216443 },
+                    'West Virginia': { population: 1775000, area: 62756 },
+                    'Hawaii': { population: 1417000, area: 28311 },
+                    'Maine': { population: 1396000, area: 91633 },
+                    'New Hampshire': { population: 1395000, area: 24214 },
+                    'Montana': { population: 1142000, area: 380831 },
+                    'Rhode Island': { population: 1100000, area: 4001 },
+                    'Delaware': { population: 1018000, area: 6446 },
+                    'South Dakota': { population: 919000, area: 199729 },
+                    'North Dakota': { population: 784000, area: 183108 },
+                    'Alaska': { population: 734000, area: 1723337 },
+                    'Vermont': { population: 650000, area: 24906 },
+                    'Wyoming': { population: 583000, area: 253335 }
+                };
+                
+                // 각 주에 광고 정보 추가
+                geoJsonData.features.forEach((feature, index) => {
+                    const props = feature.properties;
+                    const stateName = props.name;
+                    const stateId = stateName.toLowerCase().replace(/\s+/g, '_');
+                    
+                    // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
+                    const stateData = usaStateData[stateName] || { 
+                        population: Math.floor(Math.random() * 10000000) + 1000000, 
+                        area: Math.floor(Math.random() * 500000) + 50000 
+                    };
+                    
+                    feature.properties = {
+                        ...props,
+                        id: stateId,
+                        name_en: stateName,
+                        name_ko: this.getKoreanStateName(stateName),
+                        country: 'USA',
+                        country_code: 'US',
+                        admin_level: 'State',
+                        population: stateData.population,
+                        area: stateData.area,
+                        ad_status: 'available',
+                        ad_price: 50000 + (index * 5000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#4ecdc4',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    
+                    // regionData에 저장
+                    this.regionData.set(stateId, feature.properties);
+                });
+                
+                // 캐시에 저장
+                this.cachedGeoJsonData['usa'] = geoJsonData;
+            }
+            
+            // 소스 업데이트 또는 생성
+            if (this.map.getSource('world-regions')) {
+                // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                // 소스가 없으면 새로 생성
+                this.map.addSource('world-regions', {
+                    type: 'geojson',
+                    data: geoJsonData
+                });
+            }
+            
+            // 레이어가 없으면 추가
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'ad_status'], 'occupied'],
+                            '#ff6b6b',
+                            '#4ecdc4'
+                        ],
+                        'fill-opacity': 0.7  // 지구본에서 더 선명하게 보이도록 증가
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            0, 0.5,
+                            5, 1,
+                            10, 1.5
+                        ],
+                        'line-opacity': 0.9
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': '#feca57',
+                        'fill-opacity': 0
+                    }
+                });
+                
+                // 이벤트 리스너 한 번만 추가
+                if (!this.eventListenersAdded) {
+                    this.setupEventListeners();
+                    this.eventListenersAdded = true;
+                }
+            }
+            
+            console.log('미국 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            
+            // 초기 통계 업데이트
+            this.updateStatistics();
+        } catch (error) {
+            console.error('미국 데이터 로드 실패:', error);
+            this.showNotification('미국 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    // 3D 지구본 스타일 설정
+    setupGlobeStyle() {
+        if (!this.isGlobeMode) return;
+        
+        // 구름 효과 추가
+        this.addCloudLayer();
+        
+        // 구름 애니메이션 시작
+        this.startCloudAnimation();
+        
+        // 줌 레벨에 따른 동적 색상 조정 (구글 어스처럼)
+        this.setupDynamicColorAdjustment();
+        
+        console.log('3D 지구본 모드 활성화 (구름 효과 포함, 차분한 위성 지도 스타일)');
+    }
+    
+    // 동적 색상 조정 설정 (줌 레벨에 따라)
+    setupDynamicColorAdjustment() {
+        if (!this.map || !this.map.getLayer('background')) return;
+        if (this.dynamicColorSetup) return; // 이미 설정되었으면 반환
+        
+        // 초기 설정 적용
+        this.updateGlobeColorsByZoom();
+        
+        // 줌 이벤트 리스너 추가 (한 번만)
+        this.map.on('zoom', () => {
+            this.updateGlobeColorsByZoom();
+        });
+        
+        this.dynamicColorSetup = true;
+    }
+    
+    // 줌 레벨에 따른 지구본 색상 업데이트
+    updateGlobeColorsByZoom() {
+        if (!this.map || !this.map.getLayer('background')) return;
+        
+        const zoom = this.map.getZoom();
+        
+        // 줌 레벨에 따라 밝기, 채도, 대비 조정
+        let brightnessMin, saturation, contrast;
+        
+        if (zoom < 2) {
+            // 전체 지구본 보기 - 매우 차분하게
+            brightnessMin = 0.45;
+            saturation = 0.6;
+            contrast = 0.3;
+        } else if (zoom < 5) {
+            // 대륙 전체 보기 - 차분하게
+            brightnessMin = 0.5;
+            saturation = 0.65;
+            contrast = 0.35;
+        } else if (zoom < 10) {
+            // 국가/지역 보기 - 자연스럽게
+            brightnessMin = 0.55;
+            saturation = 0.7;
+            contrast = 0.4;
+        } else {
+            // 상세 보기 - 더 선명하게 (실제 위성 지도 느낌)
+            brightnessMin = 0.6;
+            saturation = 0.75;
+            contrast = 0.45;
+        }
+        
+        // 색상 속성 업데이트
+        if (this.map.getPaintProperty) {
+            this.map.setPaintProperty('background', 'raster-brightness-min', brightnessMin);
+            this.map.setPaintProperty('background', 'raster-brightness-max', Math.min(brightnessMin + 0.3, 0.9));
+            this.map.setPaintProperty('background', 'raster-saturation', saturation);
+            this.map.setPaintProperty('background', 'raster-contrast', contrast);
+        }
+    }
+    
+    // 구름 텍스처 생성
+    createCloudTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 2048;
+        canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        
+        // 그라데이션 배경 (반투명)
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.15)');
+        gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.25)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 자연스러운 구름 패턴 생성 (차분한 색상)
+        const clouds = [];
+        for (let i = 0; i < 80; i++) {
+            clouds.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 150 + 80,
+                opacity: Math.random() * 0.35 + 0.15  // 약간 더 투명하게
+            });
+        }
+        
+        // 구름 그리기 (퍼지 효과, 약간 회색빛)
+        clouds.forEach(cloud => {
+            const gradient = ctx.createRadialGradient(
+                cloud.x, cloud.y, 0,
+                cloud.x, cloud.y, cloud.radius
+            );
+            // 약간 회색빛 구름 (실제 위성 지도처럼)
+            gradient.addColorStop(0, `rgba(245, 248, 255, ${cloud.opacity})`);
+            gradient.addColorStop(0.5, `rgba(235, 240, 250, ${cloud.opacity * 0.5})`);
+            gradient.addColorStop(1, 'rgba(245, 248, 255, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(cloud.x, cloud.y, cloud.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        
+        // 추가 자연스러운 구름 패턴
+        for (let i = 0; i < 40; i++) {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            const radius = Math.random() * 100 + 50;
+            const opacity = Math.random() * 0.25 + 0.08;
+            
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            // 약간 회색빛 구름
+            gradient.addColorStop(0, `rgba(240, 245, 252, ${opacity})`);
+            gradient.addColorStop(1, 'rgba(240, 245, 252, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        return canvas.toDataURL();
+    }
+    
+    // 구름 레이어 추가
+    addCloudLayer() {
+        if (!this.map.getLayer('clouds-layer')) {
+            // 구름 텍스처 생성
+            const cloudDataUrl = this.createCloudTexture();
+            
+            // 구름 이미지 로드
+            this.map.loadImage(cloudDataUrl, (error, image) => {
+                if (error) {
+                    console.error('구름 이미지 로드 실패:', error);
+                    return;
+                }
+                
+                this.cloudImage = image;
+                
+                // 구름 소스 추가
+                if (this.map.getSource('clouds')) {
+                    this.map.removeSource('clouds');
+                }
+                
+                this.map.addSource('clouds', {
+                    type: 'image',
+                    url: cloudDataUrl,
+                    coordinates: [
+                        [-180, 85], // 좌상단
+                        [180, 85],  // 우상단
+                        [180, -85], // 우하단
+                        [-180, -85] // 좌하단
+                    ]
+                });
+                
+                // 구름 레이어 추가
+                if (!this.map.getLayer('clouds-layer')) {
+                    this.map.addLayer({
+                        id: 'clouds-layer',
+                        type: 'raster',
+                        source: 'clouds',
+                        paint: {
+                            'raster-opacity': [
+                                'interpolate',
+                                ['linear'],
+                                ['zoom'],
+                                0, 0.28,  // 작은 줌에서는 약간 투명 (차분한 느낌)
+                                3, 0.35,  // 중간 줌에서는 자연스럽게
+                                10, 0.25  // 큰 줌에서는 더 투명하게
+                            ],
+                            'raster-resampling': 'linear',
+                            'raster-fade-duration': 0
+                        },
+                        minzoom: 0,
+                        maxzoom: 22
+                    });
+                }
+            });
+        }
+    }
+    
+    // 구름 회전 애니메이션 시작
+    startCloudAnimation() {
+        if (this.cloudAnimationId) {
+            cancelAnimationFrame(this.cloudAnimationId);
+        }
+        
+        const animate = () => {
+            if (!this.isGlobeMode || !this.map || !this.map.getSource('clouds')) {
+                this.cloudAnimationId = null;
+                return;
+            }
+            
+            // 구름을 지구본보다 조금 느리게 회전 (자연스러운 효과)
+            this.cloudRotation += 0.00015;
+            
+            // 구름 좌표 업데이트 (회전 효과)
+            const source = this.map.getSource('clouds');
+            if (source && source.setCoordinates) {
+                const angle = this.cloudRotation;
+                
+                // 경도 기준으로 회전 (지구본 축 회전과 동일)
+                const baseCoords = [
+                    [-180, 85],
+                    [180, 85],
+                    [180, -85],
+                    [-180, -85]
+                ];
+                
+                // 경도를 회전시켜 구름 이동 효과 생성
+                const rotatedCoords = baseCoords.map(coord => {
+                    const rotatedLng = (coord[0] + angle * 360 / (Math.PI * 2)) % 360;
+                    const normalizedLng = rotatedLng > 180 ? rotatedLng - 360 : rotatedLng;
+                    return [normalizedLng, coord[1]];
+                });
+                
+                source.setCoordinates(rotatedCoords);
+            }
+            
+            this.cloudAnimationId = requestAnimationFrame(animate);
+        };
+        
+        animate();
+    }
+    
+    // 구름 애니메이션 중지
+    stopCloudAnimation() {
+        if (this.cloudAnimationId) {
+            cancelAnimationFrame(this.cloudAnimationId);
+            this.cloudAnimationId = null;
+        }
+    }
+    
+    // 2D/3D 모드 전환
+    toggleGlobeMode() {
+        this.isGlobeMode = !this.isGlobeMode;
+        
+        if (this.isGlobeMode) {
+            // 3D 지구본 모드로 전환
+            this.map.setProjection('globe');
+            
+            // 3D 모드에서는 세계지도 복사본을 활성화 (지구본 표시용)
+            if (this.map.setRenderWorldCopies) {
+                this.map.setRenderWorldCopies(true);
+            }
+            
+            // 지구본을 화면 중앙에 배치 (부드러운 전환)
+            this.map.easeTo({
+                center: [0, 0],
+                pitch: 0, // 전체 지구본 보기
+                zoom: 1.5,
+                duration: 1500,
+                easing: (t) => t * (2 - t) // ease-out 커브
+            });
+            
+            // 지구본 스타일 재설정
+            this.setupGlobeStyle();
+            
+            this.showNotification('3D 지구본 모드로 전환되었습니다.', 'info');
+        } else {
+            // 2D 평면 모드로 전환
+            this.map.setProjection('mercator');
+            
+            // 2D 모드에서 세계지도를 한 번만 표시하도록 설정
+            if (this.map.setRenderWorldCopies) {
+                this.map.setRenderWorldCopies(false);
+            }
+            
+            // 2D 모드에서 최소 줌 제한 (너무 많이 축소되어 지도가 여러 번 보이지 않도록)
+            const currentZoom = this.map.getZoom();
+            const minZoom2D = 1.5; // 2D 모드 최소 줌 레벨
+            if (currentZoom < minZoom2D) {
+                this.map.setZoom(minZoom2D);
+            }
+            
+            // 구름 애니메이션 중지 및 레이어 제거
+            this.stopCloudAnimation();
+            if (this.map.getLayer('clouds-layer')) {
+                this.map.removeLayer('clouds-layer');
+            }
+            if (this.map.getSource('clouds')) {
+                this.map.removeSource('clouds');
+            }
+            
+            // 시야각 초기화 (부드러운 전환)
+            this.map.easeTo({
+                pitch: 0,
+                zoom: Math.max(this.map.getZoom(), minZoom2D),
+                duration: 1500,
+                easing: (t) => t * (2 - t) // ease-out 커브
+            });
+            
+            this.showNotification('2D 평면 모드로 전환되었습니다.', 'info');
+        }
+        
+        // 버튼 상태 업데이트
+        this.updateModeButtons();
+        const globeBtn = document.getElementById('globe-mode-btn');
+        if (globeBtn) {
+            globeBtn.innerHTML = this.isGlobeMode ? '🌍 3D 지구본' : '🗺️ 2D 평면';
+        }
+    }
+    
+    // 지구본 자동 회전 (선택사항)
+    startGlobeRotation() {
+        if (!this.isGlobeMode || this.globeRotationInterval) return;
+        
+        this.globeRotationInterval = setInterval(() => {
+            const currentBearing = this.map.getBearing();
+            this.map.setBearing(currentBearing + 0.5);
+        }, 50);
+    }
+    
+    stopGlobeRotation() {
+        if (this.globeRotationInterval) {
+            clearInterval(this.globeRotationInterval);
+            this.globeRotationInterval = null;
+        }
+    }
+    
+    // 지도 모드 전환 버튼 추가
+    addMapModeToggle() {
+        const mapModeToggle = document.createElement('div');
+        mapModeToggle.id = 'map-mode-toggle';
+        mapModeToggle.className = 'map-mode-toggle';
+        
+        // 3D/2D 토글 버튼 (드롭다운 옆에 별도로 배치)
+        const globeBtn = document.createElement('button');
+        globeBtn.id = 'globe-mode-btn';
+        globeBtn.className = 'mode-btn';
+        globeBtn.textContent = '🌍 3D 지구본';
+        
+        // G20 라벨 생성
+        const g20Label = document.createElement('span');
+        g20Label.className = 'g20-label';
+        g20Label.textContent = 'G20';
+        
+        // G20 국가 드롭다운 생성
+        const countryDropdown = document.createElement('select');
+        countryDropdown.id = 'country-selector-dropdown';
+        countryDropdown.className = 'country-dropdown';
+        
+        // 기본 선택 옵션 추가
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '국가 선택';
+        defaultOption.selected = true;
+        countryDropdown.appendChild(defaultOption);
+        
+        // 구분선 추가
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '━━━━━━━━━━━━━━━';
+        countryDropdown.appendChild(separator);
+        
+        // G20 국가 옵션 추가 (행정구역이 구현된 국가는 앞에, 나머지는 뒤에)
+        // 주의: G20 설정에서는 'south-korea'를 사용하지만, 내부적으로는 'korea'를 사용
+        const europeanCountries = [
+            'spain', 'netherlands', 'poland', 'belgium', 'sweden',
+            'austria', 'denmark', 'finland', 'ireland', 'portugal',
+            'greece', 'czech-republic', 'romania', 'hungary', 'bulgaria'
+        ];
+        const implementedCountries = ['usa', 'south-korea', 'japan', 'china', 'russia', 'india', 'canada', 'germany', 'uk', 'france', 'italy', 'brazil', 'australia', 'mexico', 'indonesia', 'saudi-arabia', 'turkey', 'south-africa', 'argentina', 'european-union', ...europeanCountries];
+        const otherCountries = Object.keys(this.g20Countries).filter(c => !implementedCountries.includes(c) && !europeanCountries.includes(c));
+        
+        // 구현된 국가 먼저 추가 (유럽연합과 유럽 15개 국가 제외)
+        const europeanUnionIndex = implementedCountries.indexOf('european-union');
+        const countriesBeforeEU = implementedCountries.slice(0, europeanUnionIndex);
+        const countriesAfterEU = implementedCountries.slice(europeanUnionIndex + 1).filter(c => !europeanCountries.includes(c));
+        
+        countriesBeforeEU.forEach(countryCode => {
+            if (this.g20Countries[countryCode]) {
+                const option = document.createElement('option');
+                option.value = countryCode;
+                option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
+                countryDropdown.appendChild(option);
+            }
+        });
+        
+        // 유럽연합 추가
+        if (this.g20Countries['european-union']) {
+            const option = document.createElement('option');
+            option.value = 'european-union';
+            option.textContent = `${this.g20Countries['european-union'].flag} ${this.g20Countries['european-union'].name}`;
+            countryDropdown.appendChild(option);
+        }
+        
+        // 유럽연합 하위에 15개 국가 추가 (위에서 이미 정의된 europeanCountries 사용)
+        europeanCountries.forEach(countryCode => {
+            if (this.g20Countries[countryCode]) {
+                const option = document.createElement('option');
+                option.value = countryCode;
+                option.textContent = `  └ ${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
+                countryDropdown.appendChild(option);
+            }
+        });
+        
+        // 나머지 국가 추가 (유럽 15개 국가 제외)
+        countriesAfterEU.forEach(countryCode => {
+            if (this.g20Countries[countryCode] && !europeanCountries.includes(countryCode)) {
+                const option = document.createElement('option');
+                option.value = countryCode;
+                option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
+                countryDropdown.appendChild(option);
+            }
+        });
+        
+        // 구분선 추가
+        const separator2 = document.createElement('option');
+        separator2.disabled = true;
+        separator2.textContent = '━━━━━━━━━━━━━━━';
+        countryDropdown.appendChild(separator2);
+        
+        // 나머지 G20 국가 추가
+        otherCountries.forEach(countryCode => {
+            const option = document.createElement('option');
+            option.value = countryCode;
+            option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
+            countryDropdown.appendChild(option);
+        });
+        
+        // 요소들을 컨테이너에 추가
+        mapModeToggle.appendChild(globeBtn);
+        mapModeToggle.appendChild(g20Label);
+        mapModeToggle.appendChild(countryDropdown);
+        
+        // 기존 버튼 스타일 유지 (하위 호환성)
+        const usaBtn = document.createElement('button');
+        usaBtn.id = 'usa-mode-btn';
+        usaBtn.className = 'mode-btn hidden';
+        usaBtn.textContent = '🇺🇸 미국';
+        
+        const koreaBtn = document.createElement('button');
+        koreaBtn.id = 'korea-mode-btn';
+        koreaBtn.className = 'mode-btn hidden';
+        koreaBtn.textContent = '🇰🇷 한국';
+        
+        const japanBtn = document.createElement('button');
+        japanBtn.id = 'japan-mode-btn';
+        japanBtn.className = 'mode-btn hidden';
+        japanBtn.textContent = '🇯🇵 일본';
+        
+        const chinaBtn = document.createElement('button');
+        chinaBtn.id = 'china-mode-btn';
+        chinaBtn.className = 'mode-btn hidden';
+        chinaBtn.textContent = '🇨🇳 중국';
+
+        const russiaBtn = document.createElement('button');
+        russiaBtn.id = 'russia-mode-btn';
+        russiaBtn.className = 'mode-btn hidden';
+        russiaBtn.textContent = '🇷🇺 러시아';
+
+        const indiaBtn = document.createElement('button');
+        indiaBtn.id = 'india-mode-btn';
+        indiaBtn.className = 'mode-btn hidden';
+        indiaBtn.textContent = '🇮🇳 인도';
+
+        const canadaBtn = document.createElement('button');
+        canadaBtn.id = 'canada-mode-btn';
+        canadaBtn.className = 'mode-btn hidden';
+        canadaBtn.textContent = '🇨🇦 캐나다';
+
+        const germanyBtn = document.createElement('button');
+        germanyBtn.id = 'germany-mode-btn';
+        germanyBtn.className = 'mode-btn hidden';
+        germanyBtn.textContent = '🇩🇪 독일';
+
+        const ukBtn = document.createElement('button');
+        ukBtn.id = 'uk-mode-btn';
+        ukBtn.className = 'mode-btn hidden';
+        ukBtn.textContent = '🇬🇧 영국';
+
+        const franceBtn = document.createElement('button');
+        franceBtn.id = 'france-mode-btn';
+        franceBtn.className = 'mode-btn hidden';
+        franceBtn.textContent = '🇫🇷 프랑스';
+
+        const italyBtn = document.createElement('button');
+        italyBtn.id = 'italy-mode-btn';
+        italyBtn.className = 'mode-btn hidden';
+        italyBtn.textContent = '🇮🇹 이탈리아';
+
+        const brazilBtn = document.createElement('button');
+        brazilBtn.id = 'brazil-mode-btn';
+        brazilBtn.className = 'mode-btn hidden';
+        brazilBtn.textContent = '🇧🇷 브라질';
+
+        const australiaBtn = document.createElement('button');
+        australiaBtn.id = 'australia-mode-btn';
+        australiaBtn.className = 'mode-btn hidden';
+        australiaBtn.textContent = '🇦🇺 호주';
+
+        const mexicoBtn = document.createElement('button');
+        mexicoBtn.id = 'mexico-mode-btn';
+        mexicoBtn.className = 'mode-btn hidden';
+        mexicoBtn.textContent = '🇲🇽 멕시코';
+
+        const indonesiaBtn = document.createElement('button');
+        indonesiaBtn.id = 'indonesia-mode-btn';
+        indonesiaBtn.className = 'mode-btn hidden';
+        indonesiaBtn.textContent = '🇮🇩 인도네시아';
+
+        const saudiArabiaBtn = document.createElement('button');
+        saudiArabiaBtn.id = 'saudi-arabia-mode-btn';
+        saudiArabiaBtn.className = 'mode-btn hidden';
+        saudiArabiaBtn.textContent = '🇸🇦 사우디아라비아';
+
+        const turkeyBtn = document.createElement('button');
+        turkeyBtn.id = 'turkey-mode-btn';
+        turkeyBtn.className = 'mode-btn hidden';
+        turkeyBtn.textContent = '🇹🇷 터키';
+
+        const southAfricaBtn = document.createElement('button');
+        southAfricaBtn.id = 'south-africa-mode-btn';
+        southAfricaBtn.className = 'mode-btn hidden';
+        southAfricaBtn.textContent = '🇿🇦 남아프리카공화국';
+
+        const argentinaBtn = document.createElement('button');
+        argentinaBtn.id = 'argentina-mode-btn';
+        argentinaBtn.className = 'mode-btn hidden';
+        argentinaBtn.textContent = '🇦🇷 아르헨티나';
+        
+        mapModeToggle.appendChild(usaBtn);
+        mapModeToggle.appendChild(koreaBtn);
+        mapModeToggle.appendChild(japanBtn);
+        mapModeToggle.appendChild(chinaBtn);
+        mapModeToggle.appendChild(russiaBtn);
+        mapModeToggle.appendChild(indiaBtn);
+        mapModeToggle.appendChild(canadaBtn);
+        mapModeToggle.appendChild(germanyBtn);
+        mapModeToggle.appendChild(ukBtn);
+        mapModeToggle.appendChild(franceBtn);
+        mapModeToggle.appendChild(italyBtn);
+        mapModeToggle.appendChild(brazilBtn);
+        mapModeToggle.appendChild(australiaBtn);
+        mapModeToggle.appendChild(mexicoBtn);
+        mapModeToggle.appendChild(indonesiaBtn);
+        mapModeToggle.appendChild(saudiArabiaBtn);
+        mapModeToggle.appendChild(turkeyBtn);
+        mapModeToggle.appendChild(southAfricaBtn);
+        mapModeToggle.appendChild(argentinaBtn);
+        
+        document.body.appendChild(mapModeToggle);
+        
+        // 3D/2D 토글 버튼 이벤트 리스너
+        globeBtn.addEventListener('click', () => {
+            this.toggleGlobeMode();
+        });
+        
+        // 드롭다운 이벤트 리스너
+        countryDropdown.addEventListener('change', (e) => {
+            const selectedCountry = e.target.value;
+            if (selectedCountry && selectedCountry !== '') {
+                this.switchToCountryMode(selectedCountry);
+            }
+        });
+        
+        // 기존 버튼 이벤트 리스너 (하위 호환성)
+        usaBtn.addEventListener('click', () => {
+            this.switchToUSAMode();
+        });
+        
+        koreaBtn.addEventListener('click', () => {
+            this.switchToKoreaMode();
+        });
+        
+        japanBtn.addEventListener('click', () => {
+            this.switchToJapanMode();
+        });
+        
+        chinaBtn.addEventListener('click', () => {
+            this.switchToChinaMode();
+        });
+
+        russiaBtn.addEventListener('click', () => {
+            this.switchToRussiaMode();
+        });
+
+        indiaBtn.addEventListener('click', () => {
+            this.switchToIndiaMode();
+        });
+
+        canadaBtn.addEventListener('click', () => {
+            this.switchToCanadaMode();
+        });
+
+        germanyBtn.addEventListener('click', () => {
+            this.switchToGermanyMode();
+        });
+
+        ukBtn.addEventListener('click', () => {
+            this.switchToUKMode();
+        });
+
+        franceBtn.addEventListener('click', () => {
+            this.switchToFranceMode();
+        });
+
+        italyBtn.addEventListener('click', () => {
+            this.switchToItalyMode();
+        });
+
+        brazilBtn.addEventListener('click', () => {
+            this.switchToBrazilMode();
+        });
+
+        australiaBtn.addEventListener('click', () => {
+            this.switchToAustraliaMode();
+        });
+
+        mexicoBtn.addEventListener('click', () => {
+            this.switchToMexicoMode();
+        });
+
+        indonesiaBtn.addEventListener('click', () => {
+            this.switchToIndonesiaMode();
+        });
+
+        saudiArabiaBtn.addEventListener('click', () => {
+            this.switchToSaudiArabiaMode();
+        });
+
+        turkeyBtn.addEventListener('click', () => {
+            this.switchToTurkeyMode();
+        });
+
+        southAfricaBtn.addEventListener('click', () => {
+            this.switchToSouthAfricaMode();
+        });
+
+        argentinaBtn.addEventListener('click', () => {
+            this.switchToArgentinaMode();
+        });
+    }
+    
+    // 미국 모드로 전환
+    async switchToUSAMode() {
+        if (this.currentMapMode === 'usa') return; // 이미 미국 모드면 중단
+        
+        this.currentMapMode = 'usa';
+        this.updateModeButtons();
+        
+        // 빠른 전환을 위해 즉시 지도 이동 (데이터 로딩과 병렬)
+        this.map.easeTo({
+            center: [-95, 35],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadWorldData();
+        this.showNotification('미국 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 한국 모드로 전환
+    async switchToKoreaMode() {
+        if (this.currentMapMode === 'korea') return; // 이미 한국 모드면 중단
+        
+        this.currentMapMode = 'korea';
+        this.updateModeButtons();
+        
+        // 빠른 전환을 위해 즉시 지도 이동 (데이터 로딩과 병렬)
+        this.map.easeTo({
+            center: [127.5, 36.0],
+            zoom: 6,
+            duration: 600
+        });
+        
+        await this.loadKoreaData();
+        this.showNotification('한국 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 일본 모드로 전환
+    async switchToJapanMode() {
+        if (this.currentMapMode === 'japan') return; // 이미 일본 모드면 중단
+        
+        this.currentMapMode = 'japan';
+        this.updateModeButtons();
+        
+        // 빠른 전환을 위해 즉시 지도 이동 (데이터 로딩과 병렬)
+        this.map.easeTo({
+            center: [138.0, 36.0],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadJapanData();
+        this.showNotification('일본 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 중국 모드로 전환
+    async switchToChinaMode() {
+        if (this.currentMapMode === 'china') return; // 이미 중국 모드면 중단
+        
+        this.currentMapMode = 'china';
+        this.updateModeButtons();
+        
+        // 빠른 전환을 위해 즉시 지도 이동 (데이터 로딩과 병렬)
+        this.map.easeTo({
+            center: [104, 35],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadChinaData();
+        this.showNotification('중국 지도 모드로 전환되었습니다.', 'info');
+    }
+
+    // 인도 모드로 전환
+    async switchToIndiaMode() {
+        if (this.currentMapMode === 'india') return; // 이미 인도 모드면 중단
+        
+        this.currentMapMode = 'india';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [77, 20],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadIndiaData();
+        this.showNotification('인도 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 캐나다 모드로 전환
+    async switchToCanadaMode() {
+        if (this.currentMapMode === 'canada') return; // 이미 캐나다 모드면 중단
+        
+        this.currentMapMode = 'canada';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [-106, 56],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadCanadaData();
+        this.showNotification('캐나다 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 독일 모드로 전환
+    async switchToGermanyMode() {
+        if (this.currentMapMode === 'germany') return;
+        
+        this.currentMapMode = 'germany';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [10, 51],
+            zoom: 6,
+            duration: 600
+        });
+        
+        await this.loadGermanyData();
+        this.showNotification('독일 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 영국 모드로 전환
+    async switchToUKMode() {
+        if (this.currentMapMode === 'uk') return;
+        
+        this.currentMapMode = 'uk';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [-3, 54],
+            zoom: 6,
+            duration: 600
+        });
+        
+        await this.loadUKData();
+        this.showNotification('영국 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 프랑스 모드로 전환
+    async switchToFranceMode() {
+        if (this.currentMapMode === 'france') return;
+        
+        this.currentMapMode = 'france';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [2, 46],
+            zoom: 6,
+            duration: 600
+        });
+        
+        await this.loadFranceData();
+        this.showNotification('프랑스 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 이탈리아 모드로 전환
+    async switchToItalyMode() {
+        if (this.currentMapMode === 'italy') return;
+        
+        this.currentMapMode = 'italy';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [12, 42],
+            zoom: 6,
+            duration: 600
+        });
+        
+        await this.loadItalyData();
+        this.showNotification('이탈리아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 브라질 모드로 전환
+    async switchToBrazilMode() {
+        if (this.currentMapMode === 'brazil') return;
+        
+        this.currentMapMode = 'brazil';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [-55, -15],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadBrazilData();
+        this.showNotification('브라질 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 호주 모드로 전환
+    async switchToAustraliaMode() {
+        if (this.currentMapMode === 'australia') return;
+        
+        this.currentMapMode = 'australia';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [133, -27],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadAustraliaData();
+        this.showNotification('호주 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 멕시코 모드로 전환
+    async switchToMexicoMode() {
+        if (this.currentMapMode === 'mexico') return;
+        
+        this.currentMapMode = 'mexico';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [-102, 23],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadMexicoData();
+        this.showNotification('멕시코 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 인도네시아 모드로 전환
+    async switchToIndonesiaMode() {
+        if (this.currentMapMode === 'indonesia') return;
+        
+        this.currentMapMode = 'indonesia';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [113, -5],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadIndonesiaData();
+        this.showNotification('인도네시아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 사우디아라비아 모드로 전환
+    async switchToSaudiArabiaMode() {
+        if (this.currentMapMode === 'saudi-arabia') return;
+        
+        this.currentMapMode = 'saudi-arabia';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [45, 24],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadSaudiArabiaData();
+        this.showNotification('사우디아라비아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 터키 모드로 전환
+    async switchToTurkeyMode() {
+        if (this.currentMapMode === 'turkey') return;
+        
+        this.currentMapMode = 'turkey';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [35, 39],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadTurkeyData();
+        this.showNotification('터키 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 남아프리카공화국 모드로 전환
+    async switchToSouthAfricaMode() {
+        if (this.currentMapMode === 'south-africa') return;
+        
+        this.currentMapMode = 'south-africa';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [22, -30],
+            zoom: 5,
+            duration: 600
+        });
+        
+        await this.loadSouthAfricaData();
+        this.showNotification('남아프리카공화국 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 아르헨티나 모드로 전환
+    async switchToArgentinaMode() {
+        if (this.currentMapMode === 'argentina') return;
+        
+        this.currentMapMode = 'argentina';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [-63, -38],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadArgentinaData();
+        this.showNotification('아르헨티나 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 유럽연합 모드로 전환
+    async switchToEuropeanUnionMode() {
+        if (this.currentMapMode === 'european-union') return;
+        
+        this.currentMapMode = 'european-union';
+        this.updateModeButtons();
+        
+        this.map.easeTo({
+            center: [10, 50],
+            zoom: 4,
+            duration: 600
+        });
+        
+        await this.loadEuropeanUnionData();
+        this.showNotification('유럽연합 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 스페인 모드로 전환
+    async switchToSpainMode() {
+        if (this.currentMapMode === 'spain') return;
+        this.currentMapMode = 'spain';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [-3, 40], zoom: 5, duration: 600 });
+        await this.loadSpainData();
+        this.showNotification('스페인 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 네덜란드 모드로 전환
+    async switchToNetherlandsMode() {
+        if (this.currentMapMode === 'netherlands') return;
+        this.currentMapMode = 'netherlands';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [5, 52], zoom: 6, duration: 600 });
+        await this.loadNetherlandsData();
+        this.showNotification('네덜란드 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 폴란드 모드로 전환
+    async switchToPolandMode() {
+        if (this.currentMapMode === 'poland') return;
+        this.currentMapMode = 'poland';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [19, 52], zoom: 5, duration: 600 });
+        await this.loadPolandData();
+        this.showNotification('폴란드 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 벨기에 모드로 전환
+    async switchToBelgiumMode() {
+        if (this.currentMapMode === 'belgium') return;
+        this.currentMapMode = 'belgium';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [4.5, 50.5], zoom: 6, duration: 600 });
+        await this.loadBelgiumData();
+        this.showNotification('벨기에 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 스웨덴 모드로 전환
+    async switchToSwedenMode() {
+        if (this.currentMapMode === 'sweden') return;
+        this.currentMapMode = 'sweden';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [18, 60], zoom: 5, duration: 600 });
+        await this.loadSwedenData();
+        this.showNotification('스웨덴 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 오스트리아 모드로 전환
+    async switchToAustriaMode() {
+        if (this.currentMapMode === 'austria') return;
+        this.currentMapMode = 'austria';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [13, 47.5], zoom: 6, duration: 600 });
+        await this.loadAustriaData();
+        this.showNotification('오스트리아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 덴마크 모드로 전환
+    async switchToDenmarkMode() {
+        if (this.currentMapMode === 'denmark') return;
+        this.currentMapMode = 'denmark';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [10, 56], zoom: 6, duration: 600 });
+        await this.loadDenmarkData();
+        this.showNotification('덴마크 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 핀란드 모드로 전환
+    async switchToFinlandMode() {
+        if (this.currentMapMode === 'finland') return;
+        this.currentMapMode = 'finland';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [26, 64], zoom: 5, duration: 600 });
+        await this.loadFinlandData();
+        this.showNotification('핀란드 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 아일랜드 모드로 전환
+    async switchToIrelandMode() {
+        if (this.currentMapMode === 'ireland') return;
+        this.currentMapMode = 'ireland';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [-8, 53], zoom: 6, duration: 600 });
+        await this.loadIrelandData();
+        this.showNotification('아일랜드 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 포르투갈 모드로 전환
+    async switchToPortugalMode() {
+        if (this.currentMapMode === 'portugal') return;
+        this.currentMapMode = 'portugal';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [-8, 39.5], zoom: 6, duration: 600 });
+        await this.loadPortugalData();
+        this.showNotification('포르투갈 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 그리스 모드로 전환
+    async switchToGreeceMode() {
+        if (this.currentMapMode === 'greece') return;
+        this.currentMapMode = 'greece';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [23, 38], zoom: 6, duration: 600 });
+        await this.loadGreeceData();
+        this.showNotification('그리스 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 체코 모드로 전환
+    async switchToCzechRepublicMode() {
+        if (this.currentMapMode === 'czech-republic') return;
+        this.currentMapMode = 'czech-republic';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [15, 49.75], zoom: 6, duration: 600 });
+        await this.loadCzechRepublicData();
+        this.showNotification('체코 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 루마니아 모드로 전환
+    async switchToRomaniaMode() {
+        if (this.currentMapMode === 'romania') return;
+        this.currentMapMode = 'romania';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [25, 46], zoom: 6, duration: 600 });
+        await this.loadRomaniaData();
+        this.showNotification('루마니아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 헝가리 모드로 전환
+    async switchToHungaryMode() {
+        if (this.currentMapMode === 'hungary') return;
+        this.currentMapMode = 'hungary';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [19.5, 47.5], zoom: 6, duration: 600 });
+        await this.loadHungaryData();
+        this.showNotification('헝가리 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 불가리아 모드로 전환
+    async switchToBulgariaMode() {
+        if (this.currentMapMode === 'bulgaria') return;
+        this.currentMapMode = 'bulgaria';
+        this.updateModeButtons();
+        this.map.easeTo({ center: [25, 43], zoom: 6, duration: 600 });
+        await this.loadBulgariaData();
+        this.showNotification('불가리아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 러시아 모드로 전환
+    async switchToRussiaMode() {
+        if (this.currentMapMode === 'russia') return; // 이미 러시아 모드면 중단
+        
+        this.currentMapMode = 'russia';
+        this.updateModeButtons();
+        
+        // 빠른 전환을 위해 즉시 지도 이동
+        this.map.easeTo({
+            center: [100, 60],
+            zoom: 3,
+            duration: 600
+        });
+        
+        await this.loadRussiaData();
+        this.showNotification('러시아 지도 모드로 전환되었습니다.', 'info');
+    }
+    
+    // 국가 모드로 전환 (일반화된 함수)
+    async switchToCountryMode(countryCode) {
+        // 값 보정: 'cn' → 'china', 'ru' → 'russia'
+        if (countryCode && countryCode.toLowerCase() === 'cn') countryCode = 'china';
+        if (countryCode && countryCode.toLowerCase() === 'ru') countryCode = 'russia';
+        const country = this.g20Countries[countryCode];
+        if (!country) {
+            console.error('Unknown country code:', countryCode);
+            return;
+        }
+        
+        // 이미 해당 국가 모드면 중단
+        if (this.currentMapMode === countryCode) return;
+        
+        // 특별 처리: 미국, 한국, 일본은 기존 함수 사용
+        if (countryCode === 'usa') {
+            await this.switchToUSAMode();
+            return;
+        } else if (countryCode === 'south-korea') {
+            // 'south-korea'를 'korea'로 매핑
+            await this.switchToKoreaMode();
+            return;
+        } else if (countryCode === 'japan') {
+            await this.switchToJapanMode();
+            return;
+        } else if (countryCode === 'china') {
+            await this.switchToChinaMode();
+            return;
+        } else if (countryCode === 'russia' || countryCode === 'ru') {
+            await this.switchToRussiaMode();
+            return;
+        } else if (countryCode === 'india' || countryCode === 'in') {
+            await this.switchToIndiaMode();
+            return;
+        } else if (countryCode === 'canada' || countryCode === 'ca') {
+            await this.switchToCanadaMode();
+            return;
+        } else if (countryCode === 'germany' || countryCode === 'de') {
+            await this.switchToGermanyMode();
+            return;
+        } else if (countryCode === 'uk' || countryCode === 'gb') {
+            await this.switchToUKMode();
+            return;
+        } else if (countryCode === 'france' || countryCode === 'fr') {
+            await this.switchToFranceMode();
+            return;
+        } else if (countryCode === 'italy' || countryCode === 'it') {
+            await this.switchToItalyMode();
+            return;
+        } else if (countryCode === 'brazil' || countryCode === 'br') {
+            await this.switchToBrazilMode();
+            return;
+        } else if (countryCode === 'australia' || countryCode === 'au') {
+            await this.switchToAustraliaMode();
+            return;
+        } else if (countryCode === 'mexico' || countryCode === 'mx') {
+            await this.switchToMexicoMode();
+            return;
+        } else if (countryCode === 'indonesia' || countryCode === 'id') {
+            await this.switchToIndonesiaMode();
+            return;
+        } else if (countryCode === 'saudi-arabia' || countryCode === 'sa') {
+            await this.switchToSaudiArabiaMode();
+            return;
+        } else if (countryCode === 'turkey' || countryCode === 'tr') {
+            await this.switchToTurkeyMode();
+            return;
+        } else if (countryCode === 'south-africa' || countryCode === 'za') {
+            await this.switchToSouthAfricaMode();
+            return;
+        } else if (countryCode === 'argentina' || countryCode === 'ar') {
+            await this.switchToArgentinaMode();
+            return;
+        } else if (countryCode === 'european-union' || countryCode === 'eu') {
+            await this.switchToEuropeanUnionMode();
+            return;
+        } else if (countryCode === 'spain' || countryCode === 'es') {
+            await this.switchToSpainMode();
+            return;
+        } else if (countryCode === 'netherlands' || countryCode === 'nl') {
+            await this.switchToNetherlandsMode();
+            return;
+        } else if (countryCode === 'poland' || countryCode === 'pl') {
+            await this.switchToPolandMode();
+            return;
+        } else if (countryCode === 'belgium' || countryCode === 'be') {
+            await this.switchToBelgiumMode();
+            return;
+        } else if (countryCode === 'sweden' || countryCode === 'se') {
+            await this.switchToSwedenMode();
+            return;
+        } else if (countryCode === 'austria' || countryCode === 'at') {
+            await this.switchToAustriaMode();
+            return;
+        } else if (countryCode === 'denmark' || countryCode === 'dk') {
+            await this.switchToDenmarkMode();
+            return;
+        } else if (countryCode === 'finland' || countryCode === 'fi') {
+            await this.switchToFinlandMode();
+            return;
+        } else if (countryCode === 'ireland' || countryCode === 'ie') {
+            await this.switchToIrelandMode();
+            return;
+        } else if (countryCode === 'portugal' || countryCode === 'pt') {
+            await this.switchToPortugalMode();
+            return;
+        } else if (countryCode === 'greece' || countryCode === 'gr') {
+            await this.switchToGreeceMode();
+            return;
+        } else if (countryCode === 'czech-republic' || countryCode === 'cz') {
+            await this.switchToCzechRepublicMode();
+            return;
+        } else if (countryCode === 'romania' || countryCode === 'ro') {
+            await this.switchToRomaniaMode();
+            return;
+        } else if (countryCode === 'hungary' || countryCode === 'hu') {
+            await this.switchToHungaryMode();
+            return;
+        } else if (countryCode === 'bulgaria' || countryCode === 'bg') {
+            await this.switchToBulgariaMode();
+            return;
+        }
+        
+        // 기타 국가: 기본 지도 모드로 전환
+        this.currentMapMode = countryCode;
+        this.updateModeButtons();
+        
+        // 지도 이동
+        this.map.easeTo({
+            center: country.center,
+            zoom: country.zoom,
+            duration: 600
+        });
+        
+        // 세계 데이터 로드 (해당 국가의 경계선만 표시)
+        await this.loadWorldData();
+        
+        this.showNotification(`${country.name} 지도로 전환되었습니다.`, 'info');
+    }
+    
+    // 모드 버튼 상태 업데이트
+    updateModeButtons() {
+        const dropdown = document.getElementById('country-selector-dropdown');
+        const usaBtn = document.getElementById('usa-mode-btn');
+        const koreaBtn = document.getElementById('korea-mode-btn');
+        const japanBtn = document.getElementById('japan-mode-btn');
+        const chinaBtn = document.getElementById('china-mode-btn');
+        const russiaBtn = document.getElementById('russia-mode-btn');
+        const indiaBtn = document.getElementById('india-mode-btn');
+        const canadaBtn = document.getElementById('canada-mode-btn');
+        const germanyBtn = document.getElementById('germany-mode-btn');
+        const ukBtn = document.getElementById('uk-mode-btn');
+        const franceBtn = document.getElementById('france-mode-btn');
+        const italyBtn = document.getElementById('italy-mode-btn');
+        const brazilBtn = document.getElementById('brazil-mode-btn');
+        const australiaBtn = document.getElementById('australia-mode-btn');
+        const mexicoBtn = document.getElementById('mexico-mode-btn');
+        const indonesiaBtn = document.getElementById('indonesia-mode-btn');
+        const saudiArabiaBtn = document.getElementById('saudi-arabia-mode-btn');
+        const turkeyBtn = document.getElementById('turkey-mode-btn');
+        const southAfricaBtn = document.getElementById('south-africa-mode-btn');
+        const argentinaBtn = document.getElementById('argentina-mode-btn');
+        const globeBtn = document.getElementById('globe-mode-btn');
+        
+        // 드롭다운 선택 업데이트
+        if (dropdown) {
+            if (this.isGlobeMode) {
+                dropdown.value = '';
+            } else {
+                // currentMapMode와 드롭다운 값 매핑
+                let dropdownValue = this.currentMapMode;
+                if (this.currentMapMode === 'korea') {
+                    dropdownValue = 'south-korea';
+                }
+                dropdown.value = dropdownValue;
+            }
+        }
+        
+        // 모든 버튼에서 active 클래스 제거
+        if (usaBtn) usaBtn.classList.remove('active');
+        if (koreaBtn) koreaBtn.classList.remove('active');
+        if (japanBtn) japanBtn.classList.remove('active');
+        if (chinaBtn) chinaBtn.classList.remove('active');
+        if (russiaBtn) russiaBtn.classList.remove('active');
+        if (indiaBtn) indiaBtn.classList.remove('active');
+        if (canadaBtn) canadaBtn.classList.remove('active');
+        if (germanyBtn) germanyBtn.classList.remove('active');
+        if (ukBtn) ukBtn.classList.remove('active');
+        if (franceBtn) franceBtn.classList.remove('active');
+        if (italyBtn) italyBtn.classList.remove('active');
+        if (brazilBtn) brazilBtn.classList.remove('active');
+        if (australiaBtn) australiaBtn.classList.remove('active');
+        if (mexicoBtn) mexicoBtn.classList.remove('active');
+        if (indonesiaBtn) indonesiaBtn.classList.remove('active');
+        if (saudiArabiaBtn) saudiArabiaBtn.classList.remove('active');
+        if (turkeyBtn) turkeyBtn.classList.remove('active');
+        if (southAfricaBtn) southAfricaBtn.classList.remove('active');
+        if (argentinaBtn) argentinaBtn.classList.remove('active');
+        if (globeBtn) globeBtn.classList.remove('active');
+        
+        // 현재 모드에 따라 active 클래스 추가
+        if (this.isGlobeMode && globeBtn) {
+            globeBtn.classList.add('active');
+        } else if (this.currentMapMode === 'usa' && usaBtn) {
+            usaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'korea' && koreaBtn) {
+            koreaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'japan' && japanBtn) {
+            japanBtn.classList.add('active');
+        } else if (this.currentMapMode === 'china' && chinaBtn) {
+            chinaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'russia' && russiaBtn) {
+            russiaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'india' && indiaBtn) {
+            indiaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'canada' && canadaBtn) {
+            canadaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'germany' && germanyBtn) {
+            germanyBtn.classList.add('active');
+        } else if (this.currentMapMode === 'uk' && ukBtn) {
+            ukBtn.classList.add('active');
+        } else if (this.currentMapMode === 'france' && franceBtn) {
+            franceBtn.classList.add('active');
+        } else if (this.currentMapMode === 'italy' && italyBtn) {
+            italyBtn.classList.add('active');
+        } else if (this.currentMapMode === 'brazil' && brazilBtn) {
+            brazilBtn.classList.add('active');
+        } else if (this.currentMapMode === 'australia' && australiaBtn) {
+            australiaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'mexico' && mexicoBtn) {
+            mexicoBtn.classList.add('active');
+        } else if (this.currentMapMode === 'indonesia' && indonesiaBtn) {
+            indonesiaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'saudi-arabia' && saudiArabiaBtn) {
+            saudiArabiaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'turkey' && turkeyBtn) {
+            turkeyBtn.classList.add('active');
+        } else if (this.currentMapMode === 'south-africa' && southAfricaBtn) {
+            southAfricaBtn.classList.add('active');
+        } else if (this.currentMapMode === 'argentina' && argentinaBtn) {
+            argentinaBtn.classList.add('active');
+        }
+    }
+    
+    // 일본 데이터 로드
+    async loadJapanData() {
+        try {
+            let geoJsonData;
+            
+            // 캐시된 데이터가 있으면 사용
+            if (this.cachedGeoJsonData['japan']) {
+                geoJsonData = this.cachedGeoJsonData['japan'];
+            } else {
+                // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
+                const response = await fetch('data/japan-prefectures-accurate.geojson');
+                geoJsonData = await response.json();
+                
+                // 각 지역에 광고 정보 추가 (도도부현 단위)
+                geoJsonData.features.forEach((feature, index) => {
+                const props = feature.properties;
+                
+                // 새로운 데이터 구조에 맞게 속성 매핑
+                const prefectureNameJa = props.nam_ja || props.name || `Prefecture_${index}`;
+                const prefectureNameEn = props.nam || props.name_en || prefectureNameJa;
+                const prefectureId = props.id ? `prefecture_${props.id}` : `prefecture_${index}`;
+                
+                // 일본 도도부현별 인구 및 면적 데이터 (실제 데이터로 업데이트)
+                const prefectureData = {
+                    1: { name: "Hokkaido", name_ja: "北海道", population: 5179000, area: 83424 },
+                    2: { name: "Aomori", name_ja: "青森県", population: 1175000, area: 9645 },
+                    3: { name: "Iwate", name_ja: "岩手県", population: 1187000, area: 15275 },
+                    4: { name: "Miyagi", name_ja: "宮城県", population: 2265000, area: 7282 },
+                    5: { name: "Akita", name_ja: "秋田県", population: 915000, area: 11637 },
+                    6: { name: "Yamagata", name_ja: "山形県", population: 1050000, area: 9323 },
+                    7: { name: "Fukushima", name_ja: "福島県", population: 1780000, area: 13783 },
+                    8: { name: "Ibaraki", name_ja: "茨城県", population: 2824000, area: 6096 },
+                    9: { name: "Tochigi", name_ja: "栃木県", population: 1928000, area: 6408 },
+                    10: { name: "Gunma", name_ja: "群馬県", population: 1933000, area: 6363 },
+                    11: { name: "Saitama", name_ja: "埼玉県", population: 7389000, area: 3798 },
+                    12: { name: "Chiba", name_ja: "千葉県", population: 6364000, area: 5157 },
+                    13: { name: "Tokyo", name_ja: "東京都", population: 14049000, area: 2194 },
+                    14: { name: "Kanagawa", name_ja: "神奈川県", population: 9232000, area: 2416 },
+                    15: { name: "Niigata", name_ja: "新潟県", population: 2117000, area: 12583 },
+                    16: { name: "Toyama", name_ja: "富山県", population: 1016000, area: 4247 },
+                    17: { name: "Ishikawa", name_ja: "石川県", population: 1100000, area: 4186 },
+                    18: { name: "Fukui", name_ja: "福井県", population: 750000, area: 4189 },
+                    19: { name: "Yamanashi", name_ja: "山梨県", population: 800000, area: 4465 },
+                    20: { name: "Nagano", name_ja: "長野県", population: 2000000, area: 13562 },
+                    21: { name: "Gifu", name_ja: "岐阜県", population: 1970000, area: 10621 },
+                    22: { name: "Shizuoka", name_ja: "静岡県", population: 3588000, area: 7777 },
+                    23: { name: "Aichi", name_ja: "愛知県", population: 7552000, area: 5172 },
+                    24: { name: "Mie", name_ja: "三重県", population: 1726000, area: 5774 },
+                    25: { name: "Shiga", name_ja: "滋賀県", population: 1405000, area: 4017 },
+                    26: { name: "Kyoto", name_ja: "京都府", population: 2525000, area: 4613 },
+                    27: { name: "Osaka", name_ja: "大阪府", population: 8783000, area: 1905 },
+                    28: { name: "Hyogo", name_ja: "兵庫県", population: 5418000, area: 8400 },
+                    29: { name: "Nara", name_ja: "奈良県", population: 1298000, area: 3691 },
+                    30: { name: "Wakayama", name_ja: "和歌山県", population: 897000, area: 4726 },
+                    31: { name: "Tottori", name_ja: "鳥取県", population: 538000, area: 3507 },
+                    32: { name: "Shimane", name_ja: "島根県", population: 656000, area: 6708 },
+                    33: { name: "Okayama", name_ja: "岡山県", population: 1871000, area: 7114 },
+                    34: { name: "Hiroshima", name_ja: "広島県", population: 2777000, area: 8480 },
+                    35: { name: "Yamaguchi", name_ja: "山口県", population: 1285000, area: 6113 },
+                    36: { name: "Tokushima", name_ja: "徳島県", population: 713000, area: 4147 },
+                    37: { name: "Kagawa", name_ja: "香川県", population: 944000, area: 1877 },
+                    38: { name: "Ehime", name_ja: "愛媛県", population: 1305000, area: 5676 },
+                    39: { name: "Kochi", name_ja: "高知県", population: 670000, area: 7104 },
+                    40: { name: "Fukuoka", name_ja: "福岡県", population: 5095000, area: 4987 },
+                    41: { name: "Saga", name_ja: "佐賀県", population: 812000, area: 2440 },
+                    42: { name: "Nagasaki", name_ja: "長崎県", population: 1260000, area: 4132 },
+                    43: { name: "Kumamoto", name_ja: "熊本県", population: 1725000, area: 7409 },
+                    44: { name: "Oita", name_ja: "大分県", population: 1116000, area: 6341 },
+                    45: { name: "Miyazaki", name_ja: "宮崎県", population: 1046000, area: 7735 },
+                    46: { name: "Kagoshima", name_ja: "鹿児島県", population: 1537000, area: 9188 },
+                    47: { name: "Okinawa", name_ja: "沖縄県", population: 1464000, area: 2282 }
+                };
+                
+                const data = prefectureData[props.id] || { name: prefectureNameJa, name_ja: prefectureNameJa, population: 1000000, area: 5000 };
+                
+                feature.properties = {
+                    ...props,
+                    id: prefectureId,
+                    name: data.name, // 영어 이름을 메인으로 표시
+                    name_en: data.name,
+                    name_ja: data.name_ja, // 일본어 이름도 보존
+                    country: 'Japan',
+                    admin_level: 'Prefecture',
+                    population: data.population,
+                    area: data.area,
+                    ad_status: 'available',
+                    ad_price: Math.floor(Math.random() * 100000) + 10000,
+                    revenue: 0,
+                    company: null,
+                    logo: null,
+                    color: '#4ecdc4',
+                    border_color: '#ffffff',
+                    border_width: 1
+                };
+                
+                this.regionData.set(prefectureId, feature.properties);
+            });
+            
+            // 캐시에 저장
+            this.cachedGeoJsonData['japan'] = geoJsonData;
+            }
+            
+            // 소스 업데이트 또는 생성
+            if (this.map.getSource('world-regions')) {
+                // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                // 소스가 없으면 새로 생성
+                this.map.addSource('world-regions', {
+                    type: 'geojson',
+                    data: geoJsonData
+                });
+            }
+            
+            // 레이어가 없으면 추가
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'ad_status'], 'occupied'],
+                            '#ff6b6b',
+                            ['==', ['get', 'ad_status'], 'selected'],
+                            '#feca57',
+                            '#4ecdc4'
+                        ],
+                        'fill-opacity': 0.7
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 1,
+                        'line-opacity': 0.8
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': '#feca57',
+                        'fill-opacity': 0
+                    },
+                    filter: ['==', 'id', '']
+                });
+                
+                // 이벤트 리스너 한 번만 추가
+                if (!this.eventListenersAdded) {
+                    this.setupEventListeners();
+                    this.eventListenersAdded = true;
+                }
+            }
+            
+            console.log('일본 데이터 로드 완료:', geoJsonData.features.length, '개 도도부현');
+            
+        } catch (error) {
+            console.error('일본 데이터 로드 실패:', error);
+            this.showNotification('일본 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 중국 성 한국어 표기 매핑
+    getKoreanProvinceName(rawName) {
+        if (!rawName) return rawName;
+        const mapZhToKo = {
+            '北京市': '베이징시',
+            '天津市': '톈진시',
+            '河北省': '허베이성',
+            '山西省': '산시성',
+            '内蒙古自治区': '내몽골자치구',
+            '辽宁省': '랴오닝성',
+            '吉林省': '지린성',
+            '黑龙江省': '헤이룽장성',
+            '上海市': '상하이시',
+            '江苏省': '장쑤성',
+            '浙江省': '저장성',
+            '安徽省': '안후이성',
+            '福建省': '푸젠성',
+            '江西省': '장시성',
+            '山东省': '산둥성',
+            '河南省': '허난성',
+            '湖北省': '후베이성',
+            '湖南省': '후난성',
+            '广东省': '광둥성',
+            '广西壮族自治区': '광시좡족자치구',
+            '海南省': '하이난성',
+            '重庆市': '충칭시',
+            '四川省': '쓰촨성',
+            '贵州省': '구이저우성',
+            '云南省': '윈난성',
+            '西藏自治区': '티베트자치구',
+            '陕西省': '산시성(섬서)',
+            '甘肃省': '간쑤성',
+            '青海省': '칭하이성',
+            '宁夏回族自治区': '닝샤후이족자치구',
+            '新疆维吾尔自治区': '신장위구르자치구',
+            '香港特别行政区': '홍콩특별행정구',
+            '澳门特别行政区': '마카오특별행정구',
+            '台湾省': '타이완'
+        };
+        const mapEnToKo = {
+            'Beijing': '베이징시',
+            'Tianjin': '톈진시',
+            'Hebei': '허베이성',
+            'Shanxi': '산시성',
+            'Inner Mongolia': '내몽골자치구',
+            'Liaoning': '랴오닝성',
+            'Jilin': '지린성',
+            'Heilongjiang': '헤이룽장성',
+            'Shanghai': '상하이시',
+            'Jiangsu': '장쑤성',
+            'Zhejiang': '저장성',
+            'Anhui': '안후이성',
+            'Fujian': '푸젠성',
+            'Jiangxi': '장시성',
+            'Shandong': '산둥성',
+            'Henan': '허난성',
+            'Hubei': '후베이성',
+            'Hunan': '후난성',
+            'Guangdong': '광둥성',
+            'Guangxi': '광시좡족자치구',
+            'Hainan': '하이난성',
+            'Chongqing': '충칭시',
+            'Sichuan': '쓰촨성',
+            'Guizhou': '구이저우성',
+            'Yunnan': '윈난성',
+            'Tibet': '티베트자치구',
+            'Shaanxi': '산시성(섬서)',
+            'Gansu': '간쑤성',
+            'Qinghai': '칭하이성',
+            'Ningxia': '닝샤후이족자치구',
+            'Xinjiang': '신장위구르자치구',
+            'Hong Kong': '홍콩특별행정구',
+            'Macau': '마카오특별행정구',
+            'Taiwan': '타이완'
+        };
+        if (mapZhToKo[rawName]) return mapZhToKo[rawName];
+        if (mapEnToKo[rawName]) return mapEnToKo[rawName];
+        return rawName;
+    }
+
+    // 중국 데이터 로드 (성 단위)
+    async loadChinaData() {
+        try {
+            let geoJsonData;
+            
+            if (this.cachedGeoJsonData['china']) {
+                geoJsonData = this.cachedGeoJsonData['china'];
+            } else {
+                // 중국 성급 경계 데이터 다중 소스 시도
+                const candidateUrls = [
+                    // DataV GeoJSON API (권장) - 일부 환경에서 403 발생 가능
+                    'https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=100000_full',
+                    // DataV 정적 JSON (동일 데이터 다른 엔드포인트)
+                    'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json',
+                    // Apache ECharts 공식 예제 데이터
+                    'https://echarts.apache.org/examples/data/asset/geo/CHN.json',
+                    // GitHub: 중국 성 GeoJSON (province level)
+                    'https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/master/dist/geojson/areas/provinces.geojson',
+                    // GitHub: china province geojson alternative
+                    'https://raw.githubusercontent.com/hesongshy/China_Province_Line_GeoJSON/master/china_province.geojson',
+                    // GitHub: longwosion repo
+                    'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
+                ];
+                
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const response = await fetch(url, { cache: 'no-store' });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        // 형식 단순 정규화 (FeatureCollection 보장)
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = data;
+                            console.log('[China] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        // 일부 소스는 {features: [...]} 형태만 제공
+                        if (!data.type && Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[China] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        // ECharts 일부 데이터는 객체에 geoJson 키를 가짐
+                        if (data && data.geoJson && data.geoJson.type === 'FeatureCollection' && Array.isArray(data.geoJson.features)) {
+                            geoJsonData = data.geoJson;
+                            console.log('[China] Loaded (geoJson key) from', url, 'features:', geoJsonData.features.length);
+                            break;
+                        }
+                        // 일부 저장소는 { geometry: {...}, properties: {...} }의 배열만 제공
+                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[China] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (err) {
+                        lastError = err;
+                        console.warn('[China] Failed loading from', url, err);
+                    }
+                }
+                // 로컬 폴백
+                if (!geoJsonData) {
+                    try {
+                        const localResp = await fetch('data/china-provinces.geojson', { cache: 'no-store' });
+                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
+                        const localData = await localResp.json();
+                        if (localData && Array.isArray(localData.features) && localData.features.length > 10) {
+                            geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                            console.log('[China] Loaded from local fallback data/china-provinces.geojson');
+                        }
+                    } catch (e) {
+                        console.warn('[China] Local fallback missing or invalid', e);
+                    }
+                }
+                if (!geoJsonData) {
+                    throw lastError || new Error('No China dataset available');
+                }
+                
+                // 중국 성급 행정구역별 실제 인구 및 면적 데이터
+                const chinaProvinceData = {
+                    // 한자 표기
+                    '北京市': { population: 21893000, area: 16410 },
+                    '天津市': { population: 13870000, area: 11946 },
+                    '上海市': { population: 24870000, area: 6341 },
+                    '重庆市': { population: 32130000, area: 82403 },
+                    '河北省': { population: 74610000, area: 187700 },
+                    '山西省': { population: 34900000, area: 156700 },
+                    '辽宁省': { population: 42380000, area: 148000 },
+                    '吉林省': { population: 23920000, area: 187400 },
+                    '黑龙江省': { population: 30380000, area: 473000 },
+                    '江苏省': { population: 85120000, area: 102600 },
+                    '浙江省': { population: 65770000, area: 105500 },
+                    '安徽省': { population: 61130000, area: 139400 },
+                    '福建省': { population: 42890000, area: 121400 },
+                    '江西省': { population: 45380000, area: 166900 },
+                    '山东省': { population: 101700000, area: 157100 },
+                    '河南省': { population: 99000000, area: 167000 },
+                    '湖北省': { population: 58060000, area: 185900 },
+                    '湖南省': { population: 66440000, area: 211800 },
+                    '广东省': { population: 127000000, area: 179700 },
+                    '海南省': { population: 10420000, area: 35400 },
+                    '四川省': { population: 83670000, area: 485000 },
+                    '贵州省': { population: 38640000, area: 176000 },
+                    '云南省': { population: 47680000, area: 394000 },
+                    '陕西省': { population: 39520000, area: 205600 },
+                    '甘肃省': { population: 25030000, area: 425800 },
+                    '青海省': { population: 5920000, area: 721000 },
+                    '内蒙古自治区': { population: 24040000, area: 1183000 },
+                    '广西壮族自治区': { population: 50120000, area: 236700 },
+                    '西藏自治区': { population: 3660000, area: 1228000 },
+                    '宁夏回族自治区': { population: 7320000, area: 66400 },
+                    '新疆维吾尔自治区': { population: 25900000, area: 1664900 },
+                    '香港特别行政区': { population: 7493000, area: 1106 },
+                    '澳门特别行政区': { population: 682000, area: 33 },
+                    '台湾省': { population: 23410000, area: 36193 },
+                    // 영어 이름
+                    'Beijing': { population: 21893000, area: 16410 },
+                    'Tianjin': { population: 13870000, area: 11946 },
+                    'Shanghai': { population: 24870000, area: 6341 },
+                    'Chongqing': { population: 32130000, area: 82403 },
+                    'Hebei': { population: 74610000, area: 187700 },
+                    'Shanxi': { population: 34900000, area: 156700 },
+                    'Liaoning': { population: 42380000, area: 148000 },
+                    'Jilin': { population: 23920000, area: 187400 },
+                    'Heilongjiang': { population: 30380000, area: 473000 },
+                    'Jiangsu': { population: 85120000, area: 102600 },
+                    'Zhejiang': { population: 65770000, area: 105500 },
+                    'Anhui': { population: 61130000, area: 139400 },
+                    'Fujian': { population: 42890000, area: 121400 },
+                    'Jiangxi': { population: 45380000, area: 166900 },
+                    'Shandong': { population: 101700000, area: 157100 },
+                    'Henan': { population: 99000000, area: 167000 },
+                    'Hubei': { population: 58060000, area: 185900 },
+                    'Hunan': { population: 66440000, area: 211800 },
+                    'Guangdong': { population: 127000000, area: 179700 },
+                    'Hainan': { population: 10420000, area: 35400 },
+                    'Sichuan': { population: 83670000, area: 485000 },
+                    'Guizhou': { population: 38640000, area: 176000 },
+                    'Yunnan': { population: 47680000, area: 394000 },
+                    'Shaanxi': { population: 39520000, area: 205600 },
+                    'Gansu': { population: 25030000, area: 425800 },
+                    'Qinghai': { population: 5920000, area: 721000 },
+                    'Inner Mongolia': { population: 24040000, area: 1183000 },
+                    'Guangxi': { population: 50120000, area: 236700 },
+                    'Tibet': { population: 3660000, area: 1228000 },
+                    'Ningxia': { population: 7320000, area: 66400 },
+                    'Xinjiang': { population: 25900000, area: 1664900 },
+                    'Hong Kong': { population: 7493000, area: 1106 },
+                    'Macau': { population: 682000, area: 33 },
+                    'Taiwan': { population: 23410000, area: 36193 }
+                };
+                
+                const idSet = new Set();
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const props = feature.properties || {};
+                    const rawName = props.name || props.NL_NAME_1 || `Province_${index}`; // 중국어명
+                    const adcode = props.adcode || props.adcode99 || props.ID || `CN_${index}`;
+                    const nameEn = props.name_en || props.NAME_1 || '';
+                    
+                    // 지역 데이터 매칭 (여러 이름 패턴 시도)
+                    let regionData = null;
+                    const searchKeys = [
+                        rawName, // 한자 표기
+                        nameEn, // 영어 이름
+                        this.getKoreanProvinceName(rawName) // 한국어 이름 (한자로 역변환 시도는 안함)
+                    ];
+                    
+                    for (const key of searchKeys) {
+                        if (key && chinaProvinceData[key]) {
+                            regionData = chinaProvinceData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않으면 기본값 사용
+                    const population = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 30000000) + 3000000);
+                    const area = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 500000) + 50000);
+                    
+                    // 고유 ID 생성 (한글/중문 포함 시 안전한 키로 변환)
+                    const baseId = (rawName || adcode).toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    let finalId = baseId || `cn_province_${index}`;
+                    let counter = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = `${baseId}_${counter++}`;
+                    }
+                    idSet.add(finalId);
+                    
+                    feature.properties = {
+                        ...props,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: this.getKoreanProvinceName(rawName),
+                        name_en: nameEn || rawName,
+                        country: 'China',
+                        country_code: 'CN',
+                        admin_level: 'Province',
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#45b7d1',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                this.cachedGeoJsonData['china'] = geoJsonData;
+            }
+            
+            // 소스 업데이트 또는 생성
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', {
+                    type: 'geojson',
+                    data: geoJsonData
+                });
+            }
+            
+            // 레이어가 없으면 추가
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'ad_status'], 'occupied'],
+                            '#ff6b6b',
+                            '#45b7d1'
+                        ],
+                        'fill-opacity': 0.6
+                    }
+                });
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 1,
+                        'line-opacity': 0.8
+                    }
+                });
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': '#feca57',
+                        'fill-opacity': 0
+                    },
+                    filter: ['==', 'id', '']
+                });
+                if (!this.eventListenersAdded) {
+                    this.setupEventListeners();
+                    this.eventListenersAdded = true;
+                }
+            }
+            
+            console.log('중국 데이터 로드 완료:', geoJsonData.features.length, '개 성/자치구/시');
+            this.showNotification(`중국 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('중국 데이터 로드 실패:', error);
+            this.showNotification('중국 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 러시아 데이터 로드 (연방주체 단위: Oblast, Krai, Republic, Federal city 등)
+    async loadRussiaData() {
+        try {
+            let geoJsonData;
+            
+            if (this.cachedGeoJsonData['russia']) {
+                geoJsonData = this.cachedGeoJsonData['russia'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries RUS ADM1 (신뢰도 높음)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/RUS/ADM1/geoBoundaries-RUS-ADM1.geojson',
+                    // Natural Earth admin-1 (경계 품질 좋음, 포맷 다를 수 있음)
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson',
+                    // click_that_hood 러시아
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/russia.geojson'
+                ];
+                
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 50) {
+                            geoJsonData = data;
+                            console.log('[Russia] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 50) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Russia] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Russia] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Russia] Failed loading from', url, e);
+                    }
+                }
+                // 로컬 폴백
+                if (!geoJsonData) {
+                    try {
+                        const localResp = await fetch('data/russia-regions.geojson', { cache: 'no-store' });
+                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
+                        const localData = await localResp.json();
+                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        console.log('[Russia] Loaded from local fallback data/russia-regions.geojson');
+                    } catch (e) {
+                        console.warn('[Russia] Local fallback missing or invalid', e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Russia dataset available');
+                
+                // 필요 시 러시아만 필터링 (일부 소스는 전세계 admin-1을 반환)
+                if (geoJsonData && Array.isArray(geoJsonData.features) && geoJsonData.features.length > 300) {
+                    const filtered = geoJsonData.features.filter((feature) => {
+                        const p = feature.properties || {};
+                        const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                        const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                        const iso2 = (p.iso_a2 || '').toUpperCase();
+                        return a3 === 'RUS' || admin === 'Russia' || iso2 === 'RU';
+                    });
+                    if (filtered.length > 0) {
+                        console.log(`[Russia] Filtered Natural Earth/global dataset to Russia only: ${filtered.length} features`);
+                        geoJsonData = { type: 'FeatureCollection', features: filtered };
+                    }
+                }
+
+                // 러시아 연방주체별 실제 인구 및 면적 데이터
+                const russiaRegionData = {
+                    // 연방시 (3개)
+                    'Moscow': { population: 13010000, area: 2561 },
+                    'Saint Petersburg': { population: 5617000, area: 1439 },
+                    'Sevastopol': { population: 547000, area: 864 },
+                    'Москва': { population: 13010000, area: 2561 },
+                    'Санкт-Петербург': { population: 5617000, area: 1439 },
+                    'Севастополь': { population: 547000, area: 864 },
+                    // 공화국 (22개)
+                    'Republic of Adygea': { population: 447000, area: 7792 },
+                    'Republic of Altai': { population: 212000, area: 92600 },
+                    'Republic of Bashkortostan': { population: 4040000, area: 142947 },
+                    'Republic of Buryatia': { population: 955000, area: 351334 },
+                    'Republic of Dagestan': { population: 3160000, area: 50300 },
+                    'Republic of Ingushetia': { population: 532000, area: 3625 },
+                    'Kabardino-Balkar Republic': { population: 903000, area: 12500 },
+                    'Republic of Kalmykia': { population: 271000, area: 74731 },
+                    'Karachay-Cherkess Republic': { population: 464000, area: 14100 },
+                    'Republic of Karelia': { population: 539000, area: 172400 },
+                    'Republic of Komi': { population: 738000, area: 416800 },
+                    'Republic of Mari El': { population: 663000, area: 23400 },
+                    'Republic of Mordovia': { population: 717000, area: 26200 },
+                    'Republic of Sakha (Yakutia)': { population: 991000, area: 3083523 },
+                    'Republic of North Ossetia–Alania': { population: 699000, area: 8000 },
+                    'Republic of Tatarstan': { population: 3900000, area: 67836 },
+                    'Republic of Tuva': { population: 342000, area: 170500 },
+                    'Udmurt Republic': { population: 1460000, area: 42100 },
+                    'Republic of Khakassia': { population: 523000, area: 61900 },
+                    'Chechen Republic': { population: 1500000, area: 15300 },
+                    'Chuvash Republic': { population: 1180000, area: 18300 },
+                    'Republic of Crimea': { population: 2420000, area: 26100 },
+                    'Республика Адыгея': { population: 447000, area: 7792 },
+                    'Республика Алтай': { population: 212000, area: 92600 },
+                    'Республика Башкортостан': { population: 4040000, area: 142947 },
+                    'Республика Бурятия': { population: 955000, area: 351334 },
+                    'Республика Дагестан': { population: 3160000, area: 50300 },
+                    'Республика Ингушетия': { population: 532000, area: 3625 },
+                    'Кабардино-Балкарская Республика': { population: 903000, area: 12500 },
+                    'Республика Калмыкия': { population: 271000, area: 74731 },
+                    'Карачаево-Черкесская Республика': { population: 464000, area: 14100 },
+                    'Республика Карелия': { population: 539000, area: 172400 },
+                    'Республика Коми': { population: 738000, area: 416800 },
+                    'Республика Марий Эл': { population: 663000, area: 23400 },
+                    'Республика Мордовия': { population: 717000, area: 26200 },
+                    'Республика Саха (Якутия)': { population: 991000, area: 3083523 },
+                    'Республика Северная Осетия–Алания': { population: 699000, area: 8000 },
+                    'Республика Татарстан': { population: 3900000, area: 67836 },
+                    'Республика Тыва': { population: 342000, area: 170500 },
+                    'Удмуртская Республика': { population: 1460000, area: 42100 },
+                    'Республика Хакасия': { population: 523000, area: 61900 },
+                    'Чеченская Республика': { population: 1500000, area: 15300 },
+                    'Чувашская Республика': { population: 1180000, area: 18300 },
+                    'Республика Крым': { population: 2420000, area: 26100 },
+                    // 변경주 (9개)
+                    'Altai Krai': { population: 2240000, area: 167996 },
+                    'Zabaykalsky Krai': { population: 1030000, area: 431892 },
+                    'Kamchatka Krai': { population: 291000, area: 472300 },
+                    'Krasnodar Krai': { population: 5830000, area: 76000 },
+                    'Krasnoyarsk Krai': { population: 2810000, area: 2366800 },
+                    'Perm Krai': { population: 2600000, area: 160600 },
+                    'Primorsky Krai': { population: 1890000, area: 165900 },
+                    'Stavropol Krai': { population: 2730000, area: 66500 },
+                    'Khabarovsk Krai': { population: 1240000, area: 787600 },
+                    'Алтайский край': { population: 2240000, area: 167996 },
+                    'Забайкальский край': { population: 1030000, area: 431892 },
+                    'Камчатский край': { population: 291000, area: 472300 },
+                    'Краснодарский край': { population: 5830000, area: 76000 },
+                    'Красноярский край': { population: 2810000, area: 2366800 },
+                    'Пермский край': { population: 2600000, area: 160600 },
+                    'Приморский край': { population: 1890000, area: 165900 },
+                    'Ставропольский край': { population: 2730000, area: 66500 },
+                    'Хабаровский край': { population: 1240000, area: 787600 },
+                    // 주 (46개)
+                    'Amur Oblast': { population: 780000, area: 363700 },
+                    'Arkhangelsk Oblast': { population: 1080000, area: 587400 },
+                    'Astrakhan Oblast': { population: 991000, area: 44100 },
+                    'Belgorod Oblast': { population: 1550000, area: 27100 },
+                    'Bryansk Oblast': { population: 1150000, area: 34900 },
+                    'Chelyabinsk Oblast': { population: 3350000, area: 88500 },
+                    'Irkutsk Oblast': { population: 2310000, area: 767900 },
+                    'Ivanovo Oblast': { population: 990000, area: 21400 },
+                    'Kaliningrad Oblast': { population: 1030000, area: 15100 },
+                    'Kaluga Oblast': { population: 1010000, area: 29900 },
+                    'Kemerovo Oblast': { population: 2530000, area: 95700 },
+                    'Kirov Oblast': { population: 1200000, area: 120800 },
+                    'Kostroma Oblast': { population: 600000, area: 60200 },
+                    'Kurgan Oblast': { population: 780000, area: 71000 },
+                    'Kursk Oblast': { population: 1060000, area: 29800 },
+                    'Leningrad Oblast': { population: 1940000, area: 83900 },
+                    'Lipetsk Oblast': { population: 1110000, area: 24000 },
+                    'Magadan Oblast': { population: 130000, area: 462500 },
+                    'Moscow Oblast': { population: 8300000, area: 44300 },
+                    'Murmansk Oblast': { population: 730000, area: 144900 },
+                    'Nizhny Novgorod Oblast': { population: 3130000, area: 74800 },
+                    'Novosibirsk Oblast': { population: 2790000, area: 177800 },
+                    'Omsk Oblast': { population: 1870000, area: 139700 },
+                    'Orenburg Oblast': { population: 1950000, area: 123700 },
+                    'Oryol Oblast': { population: 700000, area: 24700 },
+                    'Penza Oblast': { population: 1220000, area: 43200 },
+                    'Pskov Oblast': { population: 570000, area: 55400 },
+                    'Rostov Oblast': { population: 4100000, area: 100800 },
+                    'Ryazan Oblast': { population: 1080000, area: 39600 },
+                    'Samara Oblast': { population: 3150000, area: 53600 },
+                    'Saratov Oblast': { population: 2340000, area: 101200 },
+                    'Sakhalin Oblast': { population: 470000, area: 87100 },
+                    'Sverdlovsk Oblast': { population: 4230000, area: 194300 },
+                    'Smolensk Oblast': { population: 900000, area: 49800 },
+                    'Tambov Oblast': { population: 970000, area: 34500 },
+                    'Tomsk Oblast': { population: 1050000, area: 314400 },
+                    'Tula Oblast': { population: 1460000, area: 25700 },
+                    'Tyumen Oblast': { population: 1700000, area: 160100 },
+                    'Ulyanovsk Oblast': { population: 1170000, area: 37300 },
+                    'Vladimir Oblast': { population: 1320000, area: 29000 },
+                    'Volgograd Oblast': { population: 2460000, area: 113900 },
+                    'Vologda Oblast': { population: 1080000, area: 145700 },
+                    'Voronezh Oblast': { population: 2250000, area: 52200 },
+                    'Yaroslavl Oblast': { population: 1200000, area: 36400 },
+                    'Амурская область': { population: 780000, area: 363700 },
+                    'Архангельская область': { population: 1080000, area: 587400 },
+                    'Астраханская область': { population: 991000, area: 44100 },
+                    'Белгородская область': { population: 1550000, area: 27100 },
+                    'Брянская область': { population: 1150000, area: 34900 },
+                    'Челябинская область': { population: 3350000, area: 88500 },
+                    'Иркутская область': { population: 2310000, area: 767900 },
+                    'Ивановская область': { population: 990000, area: 21400 },
+                    'Калининградская область': { population: 1030000, area: 15100 },
+                    'Калужская область': { population: 1010000, area: 29900 },
+                    'Кемеровская область': { population: 2530000, area: 95700 },
+                    'Кировская область': { population: 1200000, area: 120800 },
+                    'Костромская область': { population: 600000, area: 60200 },
+                    'Курганская область': { population: 780000, area: 71000 },
+                    'Курская область': { population: 1060000, area: 29800 },
+                    'Ленинградская область': { population: 1940000, area: 83900 },
+                    'Липецкая область': { population: 1110000, area: 24000 },
+                    'Магаданская область': { population: 130000, area: 462500 },
+                    'Московская область': { population: 8300000, area: 44300 },
+                    'Мурманская область': { population: 730000, area: 144900 },
+                    'Нижегородская область': { population: 3130000, area: 74800 },
+                    'Новосибирская область': { population: 2790000, area: 177800 },
+                    'Омская область': { population: 1870000, area: 139700 },
+                    'Оренбургская область': { population: 1950000, area: 123700 },
+                    'Орловская область': { population: 700000, area: 24700 },
+                    'Пензенская область': { population: 1220000, area: 43200 },
+                    'Псковская область': { population: 570000, area: 55400 },
+                    'Ростовская область': { population: 4100000, area: 100800 },
+                    'Рязанская область': { population: 1080000, area: 39600 },
+                    'Самарская область': { population: 3150000, area: 53600 },
+                    'Саратовская область': { population: 2340000, area: 101200 },
+                    'Сахалинская область': { population: 470000, area: 87100 },
+                    'Свердловская область': { population: 4230000, area: 194300 },
+                    'Смоленская область': { population: 900000, area: 49800 },
+                    'Тамбовская область': { population: 970000, area: 34500 },
+                    'Томская область': { population: 1050000, area: 314400 },
+                    'Тульская область': { population: 1460000, area: 25700 },
+                    'Тюменская область': { population: 1700000, area: 160100 },
+                    'Ульяновская область': { population: 1170000, area: 37300 },
+                    'Владимирская область': { population: 1320000, area: 29000 },
+                    'Волгоградская область': { population: 2460000, area: 113900 },
+                    'Вологодская область': { population: 1080000, area: 145700 },
+                    'Воронежская область': { population: 2250000, area: 52200 },
+                    'Ярославская область': { population: 1200000, area: 36400 },
+                    // 자치주 (1개)
+                    'Jewish Autonomous Oblast': { population: 153000, area: 36266 },
+                    'Еврейская автономная область': { population: 153000, area: 36266 },
+                    // 자치구 (4개)
+                    'Chukotka Autonomous Okrug': { population: 50000, area: 721500 },
+                    'Khanty-Mansi Autonomous Okrug': { population: 1670000, area: 534800 },
+                    'Nenets Autonomous Okrug': { population: 45000, area: 176800 },
+                    'Yamalo-Nenets Autonomous Okrug': { population: 540000, area: 769300 },
+                    'Чукотский автономный округ': { population: 50000, area: 721500 },
+                    'Ханты-Мансийский автономный округ': { population: 1670000, area: 534800 },
+                    'Ненецкий автономный округ': { population: 45000, area: 176800 },
+                    'Ямало-Ненецкий автономный округ': { population: 540000, area: 769300 }
+                };
+
+                // 속성 정규화
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const nameCandidates = [p.shapeName, p.name, p.NAME_1, p.NAME, p.region, p.admin, p.provname, `Region_${index}`];
+                    const rawName = nameCandidates.find(Boolean);
+                    const nameEn = p.NAME_1 || p.name || rawName;
+                    
+                    // 지역 데이터 매칭 (여러 이름 패턴 시도)
+                    let regionData = null;
+                    const searchKeys = [
+                        rawName, // 원본 이름
+                        nameEn, // 영어 이름
+                        p.shapeName, // shapeName
+                        p.NAME_1, // NAME_1
+                        p.NAME // NAME
+                    ];
+                    
+                    for (const key of searchKeys) {
+                        if (key && russiaRegionData[key]) {
+                            regionData = russiaRegionData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않으면 기본값 사용
+                    const population = regionData ? regionData.population : (p.population || Math.floor(Math.random() * 4000000) + 500000);
+                    const area = regionData ? regionData.area : (p.area || Math.floor(Math.random() * 800000) + 20000);
+                    
+                    const baseIdSrc = p.shapeID || p.shapeISO || p.hasc || rawName || `RUS_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `rus_region_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName, // 추후 한국어 매핑 가능
+                        name_en: nameEn,
+                        country: 'Russia',
+                        country_code: 'RU',
+                        admin_level: 'Federal Subject',
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 250000) + 120000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#7d5fff',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['russia'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'ad_status'], 'occupied'], '#ff6b6b', '#7d5fff'
+                        ],
+                        'fill-opacity': 0.6
+                    }
+                });
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 }
+                });
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: { 'fill-color': '#feca57', 'fill-opacity': 0 },
+                    filter: ['==', 'id', '']
+                });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('러시아 데이터 로드 완료:', geoJsonData.features.length, '개 연방주체');
+            this.showNotification(`러시아 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('러시아 데이터 로드 실패:', error);
+            this.showNotification('러시아 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 인도 데이터 로드 (주/연방령 단위)
+    async loadIndiaData() {
+        try {
+            let geoJsonData;
+            
+            // 인도 주/연방령별 실제 인구 및 면적 데이터
+            const indiaRegionData = {
+                // 주 (28개)
+                'Andhra Pradesh': { population: 52000000, area: 162970 },
+                'Arunachal Pradesh': { population: 1700000, area: 83743 },
+                'Assam': { population: 36100000, area: 78438 },
+                'Bihar': { population: 128000000, area: 94163 },
+                'Chhattisgarh': { population: 30000000, area: 135194 },
+                'Goa': { population: 1600000, area: 3702 },
+                'Gujarat': { population: 70600000, area: 196024 },
+                'Haryana': { population: 29000000, area: 44212 },
+                'Himachal Pradesh': { population: 7700000, area: 55673 },
+                'Jharkhand': { population: 39500000, area: 79714 },
+                'Karnataka': { population: 67600000, area: 191791 },
+                'Kerala': { population: 35400000, area: 38852 },
+                'Madhya Pradesh': { population: 85300000, area: 308252 },
+                'Maharashtra': { population: 126700000, area: 307713 },
+                'Manipur': { population: 3300000, area: 22327 },
+                'Meghalaya': { population: 3600000, area: 22429 },
+                'Mizoram': { population: 1300000, area: 21081 },
+                'Nagaland': { population: 2200000, area: 16579 },
+                'Odisha': { population: 47500000, area: 155707 },
+                'Punjab': { population: 30300000, area: 50362 },
+                'Rajasthan': { population: 81000000, area: 342239 },
+                'Sikkim': { population: 700000, area: 7096 },
+                'Tamil Nadu': { population: 78800000, area: 130058 },
+                'Telangana': { population: 39100000, area: 112077 },
+                'Tripura': { population: 4200000, area: 10486 },
+                'Uttar Pradesh': { population: 240000000, area: 240928 },
+                'Uttarakhand': { population: 11500000, area: 53483 },
+                'West Bengal': { population: 100300000, area: 88752 },
+                // 연방령 (8개)
+                'Andaman and Nicobar Islands': { population: 380000, area: 8249 },
+                'Chandigarh': { population: 1200000, area: 114 },
+                'Dadra and Nagar Haveli and Daman and Diu': { population: 970000, area: 603 },
+                'Delhi': { population: 19600000, area: 1484 },
+                'Delhi (National Capital Territory)': { population: 19600000, area: 1484 },
+                'Jammu and Kashmir': { population: 13600000, area: 55538 },
+                'Ladakh': { population: 320000, area: 59146 },
+                'Lakshadweep': { population: 70000, area: 32 },
+                'Puducherry': { population: 1700000, area: 490 },
+                // 힌디어 이름도 매칭 가능하도록 추가
+                'आंध्र प्रदेश': { population: 52000000, area: 162970 },
+                'अरुणाचल प्रदेश': { population: 1700000, area: 83743 },
+                'असम': { population: 36100000, area: 78438 },
+                'बिहार': { population: 128000000, area: 94163 },
+                'छत्तीसगढ़': { population: 30000000, area: 135194 },
+                'गोवा': { population: 1600000, area: 3702 },
+                'गुजरात': { population: 70600000, area: 196024 },
+                'हरियाणा': { population: 29000000, area: 44212 },
+                'हिमाचल प्रदेश': { population: 7700000, area: 55673 },
+                'झारखंड': { population: 39500000, area: 79714 },
+                'कर्नाटक': { population: 67600000, area: 191791 },
+                'केरल': { population: 35400000, area: 38852 },
+                'मध्य प्रदेश': { population: 85300000, area: 308252 },
+                'महाराष्ट्र': { population: 126700000, area: 307713 },
+                'मणिपुर': { population: 3300000, area: 22327 },
+                'मेघालय': { population: 3600000, area: 22429 },
+                'मिज़ोरम': { population: 1300000, area: 21081 },
+                'नागालैंड': { population: 2200000, area: 16579 },
+                'ओडिशा': { population: 47500000, area: 155707 },
+                'पंजाब': { population: 30300000, area: 50362 },
+                'राजस्थान': { population: 81000000, area: 342239 },
+                'सिक्किम': { population: 700000, area: 7096 },
+                'तमिलनाडु': { population: 78800000, area: 130058 },
+                'तेलंगाना': { population: 39100000, area: 112077 },
+                'त्रिपुरा': { population: 4200000, area: 10486 },
+                'उत्तर प्रदेश': { population: 240000000, area: 240928 },
+                'उत्तराखंड': { population: 11500000, area: 53483 },
+                'पश्चिम बंगाल': { population: 100300000, area: 88752 },
+                'अंडमान और निकोबार द्वीपसमूह': { population: 380000, area: 8249 },
+                'चंडीगढ़': { population: 1200000, area: 114 },
+                'दादरा और नगर हवेली और दमन और दीव': { population: 970000, area: 603 },
+                'दिल्ली': { population: 19600000, area: 1484 },
+                'जम्मू और कश्मीर': { population: 13600000, area: 55538 },
+                'लद्दाख़': { population: 320000, area: 59146 },
+                'लक्षद्वीप': { population: 70000, area: 32 },
+                'पुदुचेरी': { population: 1700000, area: 490 }
+            };
+            
+            if (this.cachedGeoJsonData['india']) {
+                geoJsonData = this.cachedGeoJsonData['india'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries IND ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IND/ADM1/geoBoundaries-IND-ADM1.geojson',
+                    // click_that_hood india
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/india.geojson',
+                    // Humanitarian Data Exchange mirror via GitHub
+                    'https://raw.githubusercontent.com/datasets/geo-admin1-us/master/data/india_states.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 25) {
+                            geoJsonData = data;
+                            console.log('[India] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 25) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[India] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 25 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[India] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[India] Failed loading from', url, e);
+                    }
+                }
+                // 로컬 폴백
+                if (!geoJsonData) {
+                    try {
+                        const localResp = await fetch('data/india-states.geojson', { cache: 'no-store' });
+                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
+                        const localData = await localResp.json();
+                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        console.log('[India] Loaded from local fallback data/india-states.geojson');
+                    } catch (e) {
+                        console.warn('[India] Local fallback missing or invalid', e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No India dataset available');
+                
+                // 속성 정규화
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.st_nm || p.state || p.NAME_1 || p.name || `State_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `IND_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `ind_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                    const searchKeys = [
+                        rawName,
+                        p.st_nm,
+                        p.state,
+                        p.NAME_1,
+                        p.name,
+                        p.name_en,
+                        p.name_hi,
+                        rawName.trim(),
+                        rawName.replace(/\s+/g, ' '),
+                        rawName.replace(/\(.*?\)/g, '').trim() // 괄호 내용 제거
+                    ].filter(key => key && typeof key === 'string');
+                    
+                    let regionData = null;
+                    for (const key of searchKeys) {
+                        if (indiaRegionData[key]) {
+                            regionData = indiaRegionData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
+                    const stateData = regionData || { 
+                        population: Math.floor(Math.random() * 30000000) + 500000, 
+                        area: Math.floor(Math.random() * 400000) + 10000 
+                    };
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName, // 추후 한국어 표기 매핑 가능
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'India',
+                        country_code: 'IN',
+                        admin_level: 'State/UT',
+                        population: stateData.population,
+                        area: stateData.area,
+                        ad_status: 'available',
+                        ad_price: 50000 + (index * 5000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#ff9f43',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['india'] = geoJsonData;
+            }
+            
+            // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
+            if (geoJsonData && geoJsonData.features) {
+                geoJsonData.features.forEach((feature) => {
+                    const p = feature.properties || {};
+                    const rawName = p.st_nm || p.state || p.NAME_1 || p.name || p.name_en;
+                    
+                    if (rawName) {
+                        // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                        const searchKeys = [
+                            rawName,
+                            p.st_nm,
+                            p.state,
+                            p.NAME_1,
+                            p.name,
+                            p.name_en,
+                            p.name_hi,
+                            rawName.trim(),
+                            rawName.replace(/\s+/g, ' '),
+                            rawName.replace(/\(.*?\)/g, '').trim() // 괄호 내용 제거
+                        ].filter(key => key && typeof key === 'string');
+                        
+                        let regionData = null;
+                        for (const key of searchKeys) {
+                            if (indiaRegionData[key]) {
+                                regionData = indiaRegionData[key];
+                                break;
+                            }
+                        }
+                        
+                        if (regionData) {
+                            feature.properties.population = regionData.population;
+                            feature.properties.area = regionData.area;
+                            // regionData도 업데이트
+                            if (feature.properties.id) {
+                                const regionInfo = this.regionData.get(feature.properties.id);
+                                if (regionInfo) {
+                                    regionInfo.population = regionData.population;
+                                    regionInfo.area = regionData.area;
+                                    this.regionData.set(feature.properties.id, regionInfo);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ff9f43'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('인도 데이터 로드 완료:', geoJsonData.features.length, '개 주/연방령');
+            this.showNotification(`인도 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('인도 데이터 로드 실패:', error);
+            this.showNotification('인도 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 캐나다 데이터 로드 (주/영토 단위)
+    async loadCanadaData() {
+        try {
+            let geoJsonData;
+            
+            // 캐나다 주/영토별 실제 인구 및 면적 데이터
+            const canadaRegionData = {
+                // 주 (10개)
+                'Ontario': { population: 15996989, area: 1076395 },
+                'Quebec': { population: 9030684, area: 1542056 },
+                'British Columbia': { population: 5646467, area: 944735 },
+                'Alberta': { population: 4849906, area: 661848 },
+                'Manitoba': { population: 1484135, area: 647797 },
+                'Saskatchewan': { population: 1231043, area: 591670 },
+                'Nova Scotia': { population: 1072545, area: 55284 },
+                'New Brunswick': { population: 850894, area: 71388 },
+                'Newfoundland and Labrador': { population: 541391, area: 405212 },
+                'Prince Edward Island': { population: 177081, area: 5660 },
+                // 영토 (3개)
+                'Northwest Territories': { population: 46000, area: 1346106 },
+                'Nunavut': { population: 40000, area: 2093190 },
+                'Yukon': { population: 45000, area: 482443 }
+            };
+            
+            if (this.cachedGeoJsonData['canada']) {
+                geoJsonData = this.cachedGeoJsonData['canada'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries CAN ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/CAN/ADM1/geoBoundaries-CAN-ADM1.geojson',
+                    // click_that_hood canada
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/canada.geojson',
+                    // Natural Earth Canada provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        // Natural Earth 데이터인 경우 캐나다만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'CAN' || admin === 'Canada' || iso2 === 'CA';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Canada] Filtered Natural Earth/global dataset to Canada only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = data;
+                            console.log('[Canada] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Canada] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Canada] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Canada] Failed loading from', url, e);
+                    }
+                }
+                // 로컬 폴백
+                if (!geoJsonData) {
+                    try {
+                        const localResp = await fetch('data/canada-provinces.geojson', { cache: 'no-store' });
+                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
+                        const localData = await localResp.json();
+                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        console.log('[Canada] Loaded from local fallback data/canada-provinces.geojson');
+                    } catch (e) {
+                        console.warn('[Canada] Local fallback missing or invalid', e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Canada dataset available');
+                
+                // 속성 정규화
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || p.shapeName || `Province_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || p.shapeISO || rawName || `CAN_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `can_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                    const searchKeys = [
+                        rawName,
+                        p.name,
+                        p.NAME_1,
+                        p.province,
+                        p.shapeName,
+                        rawName.trim(),
+                        rawName.replace(/\s+/g, ' ')
+                    ].filter(key => key && typeof key === 'string');
+                    
+                    let regionData = null;
+                    for (const key of searchKeys) {
+                        if (canadaRegionData[key]) {
+                            regionData = canadaRegionData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
+                    const provinceData = regionData || { 
+                        population: Math.floor(Math.random() * 5000000) + 50000, 
+                        area: Math.floor(Math.random() * 1500000) + 50000 
+                    };
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName, // 추후 한국어 표기 매핑 가능
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Canada',
+                        country_code: 'CA',
+                        admin_level: 'Province/Territory',
+                        population: provinceData.population,
+                        area: provinceData.area,
+                        ad_status: 'available',
+                        ad_price: 50000 + (index * 5000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#e74c3c',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['canada'] = geoJsonData;
+            }
+            
+            // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
+            if (geoJsonData && geoJsonData.features) {
+                geoJsonData.features.forEach((feature) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || p.shapeName || p.name_en;
+                    
+                    if (rawName) {
+                        // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                        const searchKeys = [
+                            rawName,
+                            p.name,
+                            p.NAME_1,
+                            p.province,
+                            p.shapeName,
+                            rawName.trim(),
+                            rawName.replace(/\s+/g, ' ')
+                        ].filter(key => key && typeof key === 'string');
+                        
+                        let regionData = null;
+                        for (const key of searchKeys) {
+                            if (canadaRegionData[key]) {
+                                regionData = canadaRegionData[key];
+                                break;
+                            }
+                        }
+                        
+                        if (regionData) {
+                            feature.properties.population = regionData.population;
+                            feature.properties.area = regionData.area;
+                            // regionData도 업데이트
+                            if (feature.properties.id) {
+                                const regionInfo = this.regionData.get(feature.properties.id);
+                                if (regionInfo) {
+                                    regionInfo.population = regionData.population;
+                                    regionInfo.area = regionData.area;
+                                    this.regionData.set(feature.properties.id, regionInfo);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#e74c3c'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('캐나다 데이터 로드 완료:', geoJsonData.features.length, '개 주/영토');
+            this.showNotification(`캐나다 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('캐나다 데이터 로드 실패:', error);
+            this.showNotification('캐나다 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 독일 데이터 로드 (주/Bundesland 단위)
+    async loadGermanyData() {
+        try {
+            let geoJsonData;
+            
+            // 독일 주별 실제 인구 및 면적 데이터
+            const germanyRegionData = {
+                'Baden-Württemberg': { population: 11350000, area: 35751 },
+                'Bayern': { population: 13450000, area: 70550 },
+                'Bavaria': { population: 13450000, area: 70550 },
+                'Berlin': { population: 3850000, area: 891 },
+                'Brandenburg': { population: 2610000, area: 29654 },
+                'Bremen': { population: 680000, area: 419 },
+                'Hamburg': { population: 1910000, area: 755 },
+                'Hessen': { population: 6390000, area: 21115 },
+                'Hesse': { population: 6390000, area: 21115 },
+                'Mecklenburg-Vorpommern': { population: 1610000, area: 23295 },
+                'Niedersachsen': { population: 8050000, area: 47614 },
+                'Lower Saxony': { population: 8050000, area: 47614 },
+                'Nordrhein-Westfalen': { population: 18220000, area: 34112 },
+                'North Rhine-Westphalia': { population: 18220000, area: 34112 },
+                'Rheinland-Pfalz': { population: 4180000, area: 19854 },
+                'Rhineland-Palatinate': { population: 4180000, area: 19854 },
+                'Saarland': { population: 970000, area: 2569 },
+                'Sachsen': { population: 4080000, area: 18415 },
+                'Saxony': { population: 4080000, area: 18415 },
+                'Sachsen-Anhalt': { population: 2150000, area: 20451 },
+                'Saxony-Anhalt': { population: 2150000, area: 20451 },
+                'Schleswig-Holstein': { population: 2950000, area: 15802 },
+                'Thüringen': { population: 2070000, area: 16172 },
+                'Thuringia': { population: 2070000, area: 16172 }
+            };
+            
+            if (this.cachedGeoJsonData['germany']) {
+                geoJsonData = this.cachedGeoJsonData['germany'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries DEU ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/DEU/ADM1/geoBoundaries-DEU-ADM1.geojson',
+                    // click_that_hood germany
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/germany.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = data;
+                            console.log('[Germany] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Germany] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Germany] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Germany] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Germany dataset available');
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `DEU_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `deu_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                    const searchKeys = [
+                        rawName,
+                        p.name,
+                        p.NAME_1,
+                        p.state,
+                        rawName.trim(),
+                        rawName.replace(/\s+/g, ' ')
+                    ].filter(key => key && typeof key === 'string');
+                    
+                    let regionData = null;
+                    for (const key of searchKeys) {
+                        if (germanyRegionData[key]) {
+                            regionData = germanyRegionData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
+                    const stateData = regionData || { 
+                        population: Math.floor(Math.random() * 3000000) + 500000, 
+                        area: Math.floor(Math.random() * 50000) + 2000 
+                    };
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Germany',
+                        country_code: 'DE',
+                        admin_level: 'State',
+                        population: stateData.population,
+                        area: stateData.area,
+                        ad_status: 'available',
+                        ad_price: 50000 + (index * 5000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#ffd93d',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['germany'] = geoJsonData;
+            }
+            
+            // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
+            if (geoJsonData && geoJsonData.features) {
+                geoJsonData.features.forEach((feature) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.state || p.name_en;
+                    
+                    if (rawName) {
+                        // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                        const searchKeys = [
+                            rawName,
+                            p.name,
+                            p.NAME_1,
+                            p.state,
+                            rawName.trim(),
+                            rawName.replace(/\s+/g, ' ')
+                        ].filter(key => key && typeof key === 'string');
+                        
+                        let regionData = null;
+                        for (const key of searchKeys) {
+                            if (germanyRegionData[key]) {
+                                regionData = germanyRegionData[key];
+                                break;
+                            }
+                        }
+                        
+                        if (regionData) {
+                            feature.properties.population = regionData.population;
+                            feature.properties.area = regionData.area;
+                            // regionData도 업데이트
+                            if (feature.properties.id) {
+                                const regionInfo = this.regionData.get(feature.properties.id);
+                                if (regionInfo) {
+                                    regionInfo.population = regionData.population;
+                                    regionInfo.area = regionData.area;
+                                    this.regionData.set(feature.properties.id, regionInfo);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ffd93d'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('독일 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`독일 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('독일 데이터 로드 실패:', error);
+            this.showNotification('독일 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 영국 데이터 로드 (지역/카운티 단위)
+    async loadUKData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['uk']) {
+                geoJsonData = this.cachedGeoJsonData['uk'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries GBR ADM1 (상위 레벨 행정구역)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/GBR/ADM1/geoBoundaries-GBR-ADM1.geojson',
+                    // Natural Earth UK regions (필터링 필요)
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // geoBoundaries ADM1 데이터는 이미 큰 단위로 나뉘어 있음
+                        if (url.includes('geoBoundaries') && data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2 && data.features.length < 50) {
+                            geoJsonData = data;
+                            console.log('[UK] Loaded from geoBoundaries ADM1:', url, 'features:', data.features.length);
+                            break;
+                        }
+                        
+                        // Natural Earth 데이터인 경우 영국만 필터링 (큰 단위로 그룹화 필요)
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'GBR' || admin === 'United Kingdom' || iso2 === 'GB';
+                            });
+                            if (filtered.length > 0 && filtered.length < 50) {
+                                // 이미 큰 단위로 나뉘어 있으면 그대로 사용
+                                console.log(`[UK] Filtered Natural Earth/global dataset to UK only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            } else if (filtered.length > 50) {
+                                // 작은 단위로 나뉘어 있으면 그룹화 필요
+                                console.log(`[UK] Filtered Natural Earth/global dataset to UK: ${filtered.length} features - will group`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                // 아래 그룹화 로직으로 진행
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2) {
+                            geoJsonData = data;
+                            console.log('[UK] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 2) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[UK] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 2 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[UK] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[UK] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No UK dataset available');
+                
+                // 50개 이상의 feature가 있으면 그룹화 필요
+                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                
+                if (needsGrouping) {
+                // 영국 지역을 더 큰 단위로 그룹화하는 매핑
+                // 잉글랜드 지역들을 9개 지역으로, 스코틀랜드/웨일스/북아일랜드는 각각 하나로 통합
+                const ukRegionMapping = {
+                    // England Regions (9개)
+                    'North East': ['Northumberland', 'County Durham', 'Tyne and Wear', 'Tees Valley', 'North East England'],
+                    'North West': ['Greater Manchester', 'Merseyside', 'Lancashire', 'Cumbria', 'Cheshire', 'North West England'],
+                    'Yorkshire and the Humber': ['West Yorkshire', 'South Yorkshire', 'East Riding of Yorkshire', 'North Yorkshire', 'Yorkshire and the Humber'],
+                    'East Midlands': ['Derbyshire', 'Nottinghamshire', 'Lincolnshire', 'Leicestershire', 'Rutland', 'Northamptonshire', 'East Midlands'],
+                    'West Midlands': ['West Midlands', 'Warwickshire', 'Staffordshire', 'Shropshire', 'Herefordshire', 'Worcestershire'],
+                    'East of England': ['Norfolk', 'Suffolk', 'Cambridgeshire', 'Essex', 'Hertfordshire', 'Bedfordshire', 'East of England'],
+                    'London': ['Greater London', 'London', 'Inner London', 'Outer London'],
+                    'South East': ['Kent', 'Surrey', 'East Sussex', 'West Sussex', 'Hampshire', 'Isle of Wight', 'Berkshire', 'Oxfordshire', 'Buckinghamshire', 'South East England'],
+                    'South West': ['Gloucestershire', 'Wiltshire', 'Somerset', 'Dorset', 'Devon', 'Cornwall', 'South West England'],
+                    // Scotland
+                    'Scotland': ['Scotland', 'Highland', 'Aberdeenshire', 'Perth and Kinross', 'Argyll and Bute', 'Scottish Borders', 'Dumfries and Galloway', 'Fife', 'Edinburgh', 'Glasgow'],
+                    // Wales
+                    'Wales': ['Wales', 'Gwynedd', 'Conwy', 'Denbighshire', 'Flintshire', 'Wrexham', 'Powys', 'Ceredigion', 'Pembrokeshire', 'Carmarthenshire', 'Swansea', 'Cardiff'],
+                    // Northern Ireland
+                    'Northern Ireland': ['Northern Ireland', 'Antrim', 'Armagh', 'Down', 'Fermanagh', 'Londonderry', 'Tyrone', 'Belfast']
+                };
+                
+                // 역매핑 생성 (소지역 -> 대지역)
+                const reverseMapping = {};
+                Object.keys(ukRegionMapping).forEach(region => {
+                    ukRegionMapping[region].forEach(subRegion => {
+                        reverseMapping[subRegion.toLowerCase()] = region;
+                        // 여러 변형도 추가
+                        reverseMapping[subRegion.toLowerCase().replace(/\s+/g, ' ')] = region;
+                        reverseMapping[subRegion.toLowerCase().replace(/[^\w\s]/g, '')] = region;
+                    });
+                });
+                
+                // 지역 그룹화
+                const groupedFeatures = new Map();
+                const idSet = new Set();
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.country || `Region_${index}`;
+                    const nameLower = rawName.toLowerCase().trim();
+                    
+                    // 그룹 찾기
+                    let groupName = null;
+                    for (const [key, value] of Object.entries(reverseMapping)) {
+                        if (nameLower.includes(key) || key.includes(nameLower)) {
+                            groupName = value;
+                            break;
+                        }
+                    }
+                    
+                    // 그룹을 찾지 못한 경우 직접 매칭 시도
+                    if (!groupName) {
+                        if (nameLower.includes('england') || nameLower.includes('london') || 
+                            nameLower.includes('yorkshire') || nameLower.includes('midlands') ||
+                            nameLower.includes('south') || nameLower.includes('north') ||
+                            nameLower.includes('east') || nameLower.includes('west')) {
+                            // 잉글랜드 지역 매칭 시도
+                            for (const [region, subRegions] of Object.entries(ukRegionMapping)) {
+                                if (region !== 'Scotland' && region !== 'Wales' && region !== 'Northern Ireland') {
+                                    if (subRegions.some(sub => nameLower.includes(sub.toLowerCase()))) {
+                                        groupName = region;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!groupName) {
+                                // 잉글랜드 지역명 직접 매칭
+                                if (nameLower.includes('london')) groupName = 'London';
+                                else if (nameLower.includes('north east')) groupName = 'North East';
+                                else if (nameLower.includes('north west')) groupName = 'North West';
+                                else if (nameLower.includes('yorkshire')) groupName = 'Yorkshire and the Humber';
+                                else if (nameLower.includes('east midlands')) groupName = 'East Midlands';
+                                else if (nameLower.includes('west midlands')) groupName = 'West Midlands';
+                                else if (nameLower.includes('east of england')) groupName = 'East of England';
+                                else if (nameLower.includes('south east')) groupName = 'South East';
+                                else if (nameLower.includes('south west')) groupName = 'South West';
+                            }
+                        } else if (nameLower.includes('scotland') || nameLower.includes('scottish') || nameLower.includes('edinburgh') || nameLower.includes('glasgow')) {
+                            groupName = 'Scotland';
+                        } else if (nameLower.includes('wales') || nameLower.includes('welsh') || nameLower.includes('cardiff')) {
+                            groupName = 'Wales';
+                        } else if (nameLower.includes('northern ireland') || nameLower.includes('belfast')) {
+                            groupName = 'Northern Ireland';
+                        }
+                    }
+                    
+                    // 기본값: 그룹을 찾지 못한 경우
+                    if (!groupName) {
+                        // 지역명을 콘솔에 출력하여 매핑 추가 필요 여부 확인
+                        console.warn(`[UK] 매칭되지 않은 지역: "${rawName}"`);
+                        // 일단 England로 분류하되, 나중에 수동으로 매핑 가능하도록
+                        groupName = 'Unmatched';
+                    }
+                    
+                    if (!groupedFeatures.has(groupName)) {
+                        groupedFeatures.set(groupName, {
+                            features: [],
+                            totalPopulation: 0,
+                            totalArea: 0
+                        });
+                    }
+                    
+                    const group = groupedFeatures.get(groupName);
+                    group.features.push(feature);
+                    group.totalPopulation += (p.population || 0);
+                    group.totalArea += (p.area || 0);
+                });
+                
+                // 그룹화된 features를 하나의 feature로 통합
+                const mergedFeatures = [];
+                const unmatchedGroups = [];
+                
+                groupedFeatures.forEach((group, groupName) => {
+                    if (group.features.length === 0) return;
+                    
+                    // 매칭되지 않은 그룹은 건너뛰기
+                    if (groupName === 'Unmatched') {
+                        unmatchedGroups.push(group);
+                        return;
+                    }
+                    
+                    // Geometry 통합 (MultiPolygon으로)
+                    const geometries = group.features.map(f => f.geometry).filter(g => g && g.coordinates);
+                    
+                    if (geometries.length === 0) {
+                        console.warn(`[UK] "${groupName}" 그룹에 유효한 geometry가 없습니다.`);
+                        return;
+                    }
+                    
+                    let mergedGeometry;
+                    if (geometries.length === 1) {
+                        mergedGeometry = geometries[0];
+                    } else {
+                        const allCoordinates = [];
+                        geometries.forEach(g => {
+                            if (g.type === 'Polygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                allCoordinates.push(g.coordinates);
+                            } else if (g.type === 'MultiPolygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                allCoordinates.push(...g.coordinates);
+                            }
+                        });
+                        if (allCoordinates.length === 1) {
+                            mergedGeometry = { type: 'Polygon', coordinates: allCoordinates[0] };
+                        } else if (allCoordinates.length > 1) {
+                            mergedGeometry = { type: 'MultiPolygon', coordinates: allCoordinates };
+                        } else {
+                            // geometry가 없으면 첫 번째 feature의 geometry 사용
+                            mergedGeometry = geometries[0];
+                        }
+                    }
+                    
+                    // Geometry 검증
+                    if (!mergedGeometry || !mergedGeometry.coordinates || 
+                        (mergedGeometry.type === 'Polygon' && mergedGeometry.coordinates.length === 0) ||
+                        (mergedGeometry.type === 'MultiPolygon' && mergedGeometry.coordinates.length === 0)) {
+                        console.warn(`[UK] "${groupName}" 그룹의 geometry 통합 실패`);
+                        return;
+                    }
+                    
+                    const baseId = groupName.toLowerCase().replace(/[^\w\uAC00-\uD7A3]/g, '_').replace(/__+/g, '_');
+                    let finalId = baseId;
+                    let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    mergedFeatures.push({
+                        type: 'Feature',
+                        geometry: mergedGeometry,
+                        properties: {
+                        id: finalId,
+                            name: groupName,
+                            name_ko: groupName,
+                            name_en: groupName,
+                        country: 'United Kingdom',
+                        country_code: 'GB',
+                        admin_level: 'Region/Country',
+                            population: Math.max(group.totalPopulation, Math.floor(Math.random() * 10000000) + 1000000),
+                            area: Math.max(group.totalArea, Math.floor(Math.random() * 200000) + 10000),
+                        ad_status: 'available',
+                            ad_price: 50000 + (mergedFeatures.length * 10000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#6c5ce7',
+                        border_color: '#ffffff',
+                            border_width: 1,
+                            original_count: group.features.length // 원본 지역 개수
+                        }
+                    });
+                    
+                    this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                });
+                
+                // 매칭되지 않은 지역들 처리
+                if (unmatchedGroups.length > 0) {
+                    console.warn(`[UK] ${unmatchedGroups.reduce((sum, g) => sum + g.features.length, 0)}개 지역이 매칭되지 않았습니다.`);
+                    unmatchedGroups.forEach(group => {
+                        group.features.forEach(feature => {
+                            const p = feature.properties || {};
+                            console.warn(`  - "${p.name || p.NAME_1 || 'Unknown'}"`);
+                        });
+                    });
+                }
+                
+                console.log(`[UK] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                
+                geoJsonData = {
+                    type: 'FeatureCollection',
+                    features: mergedFeatures
+                };
+                } else {
+                    // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
+                    const idSet = new Set();
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.country || `Region_${index}`;
+                        const baseIdSrc = p.hasc || p.shapeID || rawName || `GBR_${index}`;
+                        let baseId = baseIdSrc.toString().toLowerCase()
+                            .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                        if (!baseId) baseId = `gbr_region_${index}`;
+                        let finalId = baseId; let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: rawName,
+                            name_en: p.NAME_1 || p.name || rawName,
+                            country: 'United Kingdom',
+                            country_code: 'GB',
+                            admin_level: 'Region/Country',
+                            population: p.population || Math.floor(Math.random() * 10000000) + 1000000,
+                            area: p.area || Math.floor(Math.random() * 200000) + 10000,
+                            ad_status: 'available',
+                            ad_price: 50000 + (index * 10000),
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#6c5ce7',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        this.regionData.set(finalId, feature.properties);
+                    });
+                }
+                
+                this.cachedGeoJsonData['uk'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#6c5ce7'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('영국 데이터 로드 완료:', geoJsonData.features.length, '개 지역');
+            console.log('영국 데이터 샘플:', geoJsonData.features.slice(0, 3).map(f => ({
+                name: f.properties.name,
+                hasGeometry: !!f.geometry,
+                geometryType: f.geometry?.type,
+                coordinatesLength: f.geometry?.coordinates?.length
+            })));
+            
+            // Geometry 검증
+            const invalidFeatures = geoJsonData.features.filter(f => !f.geometry || !f.geometry.coordinates || f.geometry.coordinates.length === 0);
+            if (invalidFeatures.length > 0) {
+                console.warn(`[UK] ${invalidFeatures.length}개 feature에 유효한 geometry가 없습니다:`, invalidFeatures.map(f => f.properties.name));
+            }
+            
+            if (geoJsonData.features.length === 0) {
+                throw new Error('영국 데이터가 비어있습니다.');
+            }
+            
+            this.showNotification(`영국 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('영국 데이터 로드 실패:', error);
+            console.error('영국 데이터 로드 실패 상세:', error.stack || error.message);
+            this.showNotification(`영국 데이터를 불러오는데 실패했습니다: ${error.message}`, 'error');
+        }
+    }
+
+    // 프랑스 데이터 로드 (레지옹 단위)
+    async loadFranceData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['france']) {
+                geoJsonData = this.cachedGeoJsonData['france'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries FRA ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/FRA/ADM1/geoBoundaries-FRA-ADM1.geojson',
+                    // click_that_hood france
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/france.geojson',
+                    // Natural Earth France regions
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 프랑스만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'FRA' || admin === 'France' || iso2 === 'FR';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[France] Filtered Natural Earth/global dataset to France only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = data;
+                            console.log('[France] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[France] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[France] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[France] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No France dataset available');
+                
+                // 50개 이상의 feature가 있으면 그룹화 필요 (데파르트망 -> 레지옹)
+                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                
+                if (needsGrouping) {
+                    // 프랑스 레지옹 인구 및 면적 데이터 (2024 기준)
+                    const franceRegionData = {
+                        'Auvergne-Rhône-Alpes': { population: 8200000, area: 69711, name_ko: '오베르뉴-론-알프스' },
+                        'Bourgogne-Franche-Comté': { population: 2790000, area: 47784, name_ko: '부르고뉴-프랑슈-콩테' },
+                        'Bretagne': { population: 3460000, area: 27208, name_ko: '브르타뉴' },
+                        'Centre-Val de Loire': { population: 2550000, area: 39151, name_ko: '상트르-발 드 루아르' },
+                        'Corse': { population: 350000, area: 8680, name_ko: '코르시카' },
+                        'Grand Est': { population: 5540000, area: 57441, name_ko: '그랑테스트' },
+                        'Hauts-de-France': { population: 5960000, area: 31813, name_ko: '오드프랑스' },
+                        'Île-de-France': { population: 12320000, area: 12012, name_ko: '일드프랑스' },
+                        'Normandie': { population: 3350000, area: 29906, name_ko: '노르망디' },
+                        'Nouvelle-Aquitaine': { population: 6080000, area: 84036, name_ko: '누벨아키텐' },
+                        'Occitanie': { population: 6080000, area: 72724, name_ko: '옥시타니' },
+                        'Pays de la Loire': { population: 3900000, area: 32082, name_ko: '페이드라루아르' },
+                        'Provence-Alpes-Côte d\'Azur': { population: 5100000, area: 31400, name_ko: '프로방스-알프-코트다쥐르' }
+                    };
+                    
+                    // 프랑스 데파르트망을 13개 레지옹으로 그룹화하는 매핑
+                    const franceRegionMapping = {
+                        'Auvergne-Rhône-Alpes': ['Ain', 'Allier', 'Ardèche', 'Cantal', 'Drôme', 'Isère', 'Loire', 'Haute-Loire', 'Puy-de-Dôme', 'Rhône', 'Savoie', 'Haute-Savoie'],
+                        'Bourgogne-Franche-Comté': ['Côte-d\'Or', 'Doubs', 'Jura', 'Nièvre', 'Haute-Saône', 'Saône-et-Loire', 'Yonne', 'Territoire de Belfort'],
+                        'Bretagne': ['Côtes-d\'Armor', 'Finistère', 'Ille-et-Vilaine', 'Morbihan'],
+                        'Centre-Val de Loire': ['Cher', 'Eure-et-Loir', 'Indre', 'Indre-et-Loire', 'Loir-et-Cher', 'Loiret'],
+                        'Corse': ['Corse-du-Sud', 'Haute-Corse'],
+                        'Grand Est': ['Ardennes', 'Aube', 'Marne', 'Haute-Marne', 'Meurthe-et-Moselle', 'Meuse', 'Moselle', 'Bas-Rhin', 'Haut-Rhin', 'Vosges'],
+                        'Hauts-de-France': ['Aisne', 'Nord', 'Oise', 'Pas-de-Calais', 'Somme'],
+                        'Île-de-France': ['Paris', 'Seine-et-Marne', 'Yvelines', 'Essonne', 'Hauts-de-Seine', 'Seine-Saint-Denis', 'Val-de-Marne', 'Val-d\'Oise'],
+                        'Normandie': ['Calvados', 'Eure', 'Manche', 'Orne', 'Seine-Maritime'],
+                        'Nouvelle-Aquitaine': ['Charente', 'Charente-Maritime', 'Corrèze', 'Creuse', 'Dordogne', 'Gironde', 'Landes', 'Lot-et-Garonne', 'Pyrénées-Atlantiques', 'Deux-Sèvres', 'Vienne', 'Haute-Vienne'],
+                        'Occitanie': ['Ariège', 'Aude', 'Aveyron', 'Gard', 'Haute-Garonne', 'Gers', 'Hérault', 'Lot', 'Lozère', 'Hautes-Pyrénées', 'Pyrénées-Orientales', 'Tarn', 'Tarn-et-Garonne'],
+                        'Pays de la Loire': ['Loire-Atlantique', 'Maine-et-Loire', 'Mayenne', 'Sarthe', 'Vendée'],
+                        'Provence-Alpes-Côte d\'Azur': ['Alpes-de-Haute-Provence', 'Hautes-Alpes', 'Alpes-Maritimes', 'Bouches-du-Rhône', 'Var', 'Vaucluse']
+                    };
+                    
+                    // 역매핑 생성 (데파르트망 -> 레지옹)
+                    const reverseMapping = {};
+                    Object.keys(franceRegionMapping).forEach(region => {
+                        franceRegionMapping[region].forEach(departement => {
+                            const depLower = departement.toLowerCase();
+                            reverseMapping[depLower] = region;
+                            // 하이픈/공백 제거 변형
+                            reverseMapping[depLower.replace(/[-\s]+/g, ' ').trim()] = region;
+                            reverseMapping[depLower.replace(/[^\w\s]/g, '').trim()] = region;
+                        });
+                    });
+                    
+                    // 지역 그룹화
+                    const groupedFeatures = new Map();
+                    const idSet = new Set();
+                    
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
+                        const nameLower = rawName.toLowerCase().trim();
+                        
+                        // 정확한 매칭 먼저 시도
+                        let groupName = reverseMapping[nameLower] || null;
+                        
+                        // 정확한 매칭이 없으면 부분 매칭 시도
+                        if (!groupName) {
+                            for (const [key, value] of Object.entries(reverseMapping)) {
+                                if (key.length > 3 && (nameLower.includes(key) || key.includes(nameLower))) {
+                                    groupName = value;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 그룹을 찾지 못한 경우 직접 매칭 시도
+                        if (!groupName) {
+                            for (const [region, departements] of Object.entries(franceRegionMapping)) {
+                                for (const dep of departements) {
+                                    const depLower = dep.toLowerCase();
+                                    if (nameLower === depLower || nameLower.includes(depLower) || depLower.includes(nameLower)) {
+                                        groupName = region;
+                                        break;
+                                    }
+                                }
+                                if (groupName) break;
+                            }
+                        }
+                        
+                        // 기본값: 그룹을 찾지 못한 경우 개별 지역으로 처리
+                        if (!groupName) {
+                            console.warn(`[France] 매칭되지 않은 지역: "${rawName}" - 개별 지역으로 처리`);
+                            groupName = rawName;
+                        }
+                        
+                        if (!groupedFeatures.has(groupName)) {
+                            groupedFeatures.set(groupName, {
+                                features: [],
+                                totalPopulation: 0,
+                                totalArea: 0
+                            });
+                        }
+                        
+                        const group = groupedFeatures.get(groupName);
+                        group.features.push(feature);
+                        group.totalPopulation += (p.population || 0);
+                        group.totalArea += (p.area || 0);
+                    });
+                    
+                    // 그룹화된 features를 하나의 feature로 통합
+                    const mergedFeatures = [];
+                    
+                    groupedFeatures.forEach((group, groupName) => {
+                        if (group.features.length === 0) return;
+                        
+                        // 개별 지역인 경우 (그룹명이 원본 지역명과 같은 경우) - 그룹화하지 않고 개별로 처리
+                        const isIndividualRegion = group.features.length === 1 || 
+                                                   !Object.keys(franceRegionMapping).includes(groupName);
+                        
+                        if (isIndividualRegion) {
+                            // 개별 지역으로 처리 (그룹화하지 않음)
+                            group.features.forEach((feature, idx) => {
+                                const p = feature.properties || {};
+                                const rawName = p.name || p.NAME_1 || p.region || groupName || `Region_${idx}`;
+                                
+                                if (!feature.geometry || !feature.geometry.coordinates) {
+                                    console.warn(`[France] "${rawName}" 지역에 유효한 geometry가 없습니다.`);
+                                    return;
+                                }
+                                
+                                const baseIdSrc = p.hasc || p.shapeID || rawName || `fra_${idx}`;
+                                let baseId = baseIdSrc.toString().toLowerCase()
+                                    .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                                    .replace(/__+/g, '_')
+                                    .replace(/^_|_$/g, '');
+                                if (!baseId) baseId = `fra_region_${mergedFeatures.length}`;
+                                let finalId = baseId;
+                                let c = 1;
+                                while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                                idSet.add(finalId);
+                                
+                                mergedFeatures.push({
+                                    type: 'Feature',
+                                    geometry: feature.geometry,
+                                    properties: {
+                                        ...p,
+                                        id: finalId,
+                                        name: rawName,
+                                        name_ko: rawName,
+                                        name_en: rawName,
+                                        country: 'France',
+                                        country_code: 'FR',
+                                        admin_level: 'Département',
+                                        population: p.population || Math.floor(Math.random() * 500000) + 50000,
+                                        area: p.area || Math.floor(Math.random() * 5000) + 1000,
+                                        ad_status: 'available',
+                                        ad_price: 50000 + (mergedFeatures.length * 5000),
+                                        revenue: 0,
+                                        company: null,
+                                        logo: null,
+                                        color: '#5dade2',
+                                        border_color: '#ffffff',
+                                        border_width: 1
+                                    }
+                                });
+                                
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                            });
+                            return;
+                        }
+                        
+                        // 그룹화된 지역인 경우 - Geometry 통합 (MultiPolygon으로)
+                        const geometries = group.features.map(f => f.geometry).filter(g => g && g.coordinates);
+                        
+                        if (geometries.length === 0) {
+                            console.warn(`[France] "${groupName}" 그룹에 유효한 geometry가 없습니다.`);
+                            return;
+                        }
+                        
+                        let mergedGeometry;
+                        if (geometries.length === 1) {
+                            mergedGeometry = geometries[0];
+                        } else {
+                            const allCoordinates = [];
+                            geometries.forEach(g => {
+                                if (g.type === 'Polygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(g.coordinates);
+                                } else if (g.type === 'MultiPolygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(...g.coordinates);
+                                }
+                            });
+                            if (allCoordinates.length === 1) {
+                                mergedGeometry = { type: 'Polygon', coordinates: allCoordinates[0] };
+                            } else if (allCoordinates.length > 1) {
+                                mergedGeometry = { type: 'MultiPolygon', coordinates: allCoordinates };
+                            } else {
+                                mergedGeometry = geometries[0];
+                            }
+                        }
+                        
+                        // Geometry 검증
+                        if (!mergedGeometry || !mergedGeometry.coordinates || 
+                            (mergedGeometry.type === 'Polygon' && mergedGeometry.coordinates.length === 0) ||
+                            (mergedGeometry.type === 'MultiPolygon' && mergedGeometry.coordinates.length === 0)) {
+                            console.warn(`[France] "${groupName}" 그룹의 geometry 통합 실패`);
+                            return;
+                        }
+                        
+                        const baseId = groupName.toLowerCase().replace(/[^\w\uAC00-\uD7A3]/g, '_').replace(/__+/g, '_');
+                        let finalId = baseId;
+                        let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        // 실제 인구 및 면적 데이터 가져오기 (없으면 계산된 값 사용)
+                        const regionInfo = franceRegionData[groupName] || {};
+                        const population = regionInfo.population || Math.max(group.totalPopulation, 1000000);
+                        const area = regionInfo.area || Math.max(group.totalArea, 10000);
+                        const name_ko = regionInfo.name_ko || groupName;
+                        
+                        mergedFeatures.push({
+                            type: 'Feature',
+                            geometry: mergedGeometry,
+                            properties: {
+                                id: finalId,
+                                name: groupName,
+                                name_ko: name_ko,
+                                name_en: groupName,
+                                country: 'France',
+                                country_code: 'FR',
+                                admin_level: 'Region',
+                                population: population,
+                                area: area,
+                                ad_status: 'available',
+                                ad_price: 50000 + (mergedFeatures.length * 10000),
+                                revenue: 0,
+                                company: null,
+                                logo: null,
+                                color: '#5dade2',
+                                border_color: '#ffffff',
+                                border_width: 1,
+                                original_count: group.features.length
+                            }
+                        });
+                        
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                    });
+                    
+                    console.log(`[France] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    
+                    geoJsonData = {
+                        type: 'FeatureCollection',
+                        features: mergedFeatures
+                    };
+                } else {
+                    // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
+                    const idSet = new Set();
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
+                        const baseIdSrc = p.hasc || p.shapeID || rawName || `FRA_${index}`;
+                        let baseId = baseIdSrc.toString().toLowerCase()
+                            .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                        if (!baseId) baseId = `fra_region_${index}`;
+                        let finalId = baseId; let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: rawName,
+                            name_en: p.NAME_1 || p.name || rawName,
+                            country: 'France',
+                            country_code: 'FR',
+                            admin_level: 'Region',
+                            population: p.population || Math.floor(Math.random() * 5000000) + 500000,
+                            area: p.area || Math.floor(Math.random() * 50000) + 5000,
+                            ad_status: 'available',
+                            ad_price: Math.floor(Math.random() * 250000) + 180000,
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#5dade2',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        this.regionData.set(finalId, feature.properties);
+                    });
+                }
+                this.cachedGeoJsonData['france'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#5dade2'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('프랑스 데이터 로드 완료:', geoJsonData.features.length, '개 레지옹');
+            console.log('프랑스 데이터 샘플:', geoJsonData.features.slice(0, 3).map(f => f.properties));
+            
+            // 모든 프랑스 지역명 리스트업
+            const franceRegions = geoJsonData.features.map((f, idx) => {
+                const p = f.properties;
+                return `${idx + 1}. ${p.name || p.NAME_1 || p.region || `Region_${idx}`}`;
+            });
+            console.log('[France] 모든 지역명 리스트:');
+            console.log(franceRegions.join('\n'));
+            
+            if (geoJsonData.features.length === 0) {
+                throw new Error('프랑스 데이터가 비어있습니다.');
+            }
+            
+            this.showNotification(`프랑스 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('프랑스 데이터 로드 실패:', error);
+            console.error('프랑스 데이터 로드 실패 상세:', error.stack || error.message);
+            this.showNotification(`프랑스 데이터를 불러오는데 실패했습니다: ${error.message}`, 'error');
+        }
+    }
+
+    // 이탈리아 데이터 로드 (레지오네 단위)
+    async loadItalyData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['italy']) {
+                geoJsonData = this.cachedGeoJsonData['italy'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries ITA ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ITA/ADM1/geoBoundaries-ITA-ADM1.geojson',
+                    // click_that_hood italy
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/italy.geojson',
+                    // Natural Earth Italy regions
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 이탈리아만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'ITA' || admin === 'Italy' || iso2 === 'IT';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Italy] Filtered Natural Earth/global dataset to Italy only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = data;
+                            console.log('[Italy] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Italy] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Italy] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Italy] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Italy dataset available');
+                
+                // 50개 이상의 feature가 있으면 그룹화 필요 (프로빈치아 -> 레지오네)
+                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                
+                if (needsGrouping) {
+                    // 이탈리아 프로빈치아를 20개 레지오네로 그룹화하는 매핑
+                    const italyRegionMapping = {
+                        'Abruzzo': ['Chieti', 'L\'Aquila', 'Pescara', 'Teramo'],
+                        'Basilicata': ['Matera', 'Potenza'],
+                        'Calabria': ['Catanzaro', 'Cosenza', 'Crotone', 'Reggio Calabria', 'Vibo Valentia'],
+                        'Campania': ['Avellino', 'Benevento', 'Caserta', 'Naples', 'Salerno'],
+                        'Emilia-Romagna': ['Bologna', 'Ferrara', 'Forlì-Cesena', 'Modena', 'Parma', 'Piacenza', 'Ravenna', 'Reggio Emilia', 'Rimini'],
+                        'Friuli-Venezia Giulia': ['Gorizia', 'Pordenone', 'Trieste', 'Udine'],
+                        'Lazio': ['Frosinone', 'Latina', 'Rieti', 'Rome', 'Viterbo'],
+                        'Liguria': ['Genoa', 'Imperia', 'La Spezia', 'Savona'],
+                        'Lombardy': ['Bergamo', 'Brescia', 'Como', 'Cremona', 'Mantua', 'Milan', 'Pavia', 'Sondrio', 'Varese'],
+                        'Marche': ['Ancona', 'Ascoli Piceno', 'Fermo', 'Macerata', 'Pesaro and Urbino'],
+                        'Molise': ['Campobasso', 'Isernia'],
+                        'Piedmont': ['Alessandria', 'Asti', 'Biella', 'Cuneo', 'Novara', 'Turin', 'Verbano-Cusio-Ossola', 'Vercelli'],
+                        'Puglia': ['Bari', 'Barletta-Andria-Trani', 'Brindisi', 'Foggia', 'Lecce', 'Taranto'],
+                        'Sardinia': ['Cagliari', 'Carbonia-Iglesias', 'Medio Campidano', 'Nuoro', 'Ogliastra', 'Olbia-Tempio', 'Oristano', 'Sassari'],
+                        'Sicily': ['Agrigento', 'Caltanissetta', 'Catania', 'Enna', 'Messina', 'Palermo', 'Ragusa', 'Syracuse', 'Trapani'],
+                        'Trentino-Alto Adige': ['Bolzano', 'Trento'],
+                        'Tuscany': ['Arezzo', 'Florence', 'Grosseto', 'Livorno', 'Lucca', 'Massa-Carrara', 'Pisa', 'Pistoia', 'Prato', 'Siena'],
+                        'Umbria': ['Perugia', 'Terni'],
+                        'Valle d\'Aosta': ['Aosta'],
+                        'Veneto': ['Belluno', 'Padua', 'Rovigo', 'Treviso', 'Venice', 'Verona', 'Vicenza']
+                    };
+                    
+                    // 이탈리아 레지오네별 인구 및 면적 데이터 (2024 기준)
+                    const italyRegionData = {
+                        'Abruzzo': { name_ko: '아브루초', population: 1290000, area: 10832 },
+                        'Basilicata': { name_ko: '바실리카타', population: 530000, area: 9995 },
+                        'Calabria': { name_ko: '칼라브리아', population: 1870000, area: 15222 },
+                        'Campania': { name_ko: '캄파니아', population: 5640000, area: 13671 },
+                        'Emilia-Romagna': { name_ko: '에밀리아-로마냐', population: 4470000, area: 22453 },
+                        'Friuli-Venezia Giulia': { name_ko: '프리울리-베네치아 줄리아', population: 1190000, area: 7858 },
+                        'Lazio': { name_ko: '라치오', population: 5720000, area: 17203 },
+                        'Liguria': { name_ko: '리구리아', population: 1520000, area: 5416 },
+                        'Lombardy': { name_ko: '롬바르디아', population: 10140000, area: 23864 },
+                        'Marche': { name_ko: '마르케', population: 1470000, area: 9366 },
+                        'Molise': { name_ko: '몰리제', population: 290000, area: 4438 },
+                        'Piedmont': { name_ko: '피에몬테', population: 4280000, area: 25402 },
+                        'Puglia': { name_ko: '풀리아', population: 3940000, area: 19358 },
+                        'Sardinia': { name_ko: '사르데냐', population: 1580000, area: 24090 },
+                        'Sicily': { name_ko: '시칠리아', population: 4780000, area: 25711 },
+                        'Trentino-Alto Adige': { name_ko: '트렌티노-알토 아디제', population: 1090000, area: 13606 },
+                        'Tuscany': { name_ko: '토스카나', population: 3660000, area: 22987 },
+                        'Umbria': { name_ko: '움브리아', population: 850000, area: 8456 },
+                        'Valle d\'Aosta': { name_ko: '발레다오스타', population: 123000, area: 3263 },
+                        'Veneto': { name_ko: '베네토', population: 4880000, area: 18345 }
+                    };
+                    
+                    // 역매핑 생성 (프로빈치아 -> 레지오네)
+                    const reverseMapping = {};
+                    Object.keys(italyRegionMapping).forEach(region => {
+                        italyRegionMapping[region].forEach(province => {
+                            const provLower = province.toLowerCase();
+                            reverseMapping[provLower] = region;
+                            // 하이픈/공백 제거 변형
+                            reverseMapping[provLower.replace(/[-\s]+/g, ' ').trim()] = region;
+                            reverseMapping[provLower.replace(/[^\w\s]/g, '').trim()] = region;
+                            // 주요 도시명도 추가
+                            if (province.includes('-')) {
+                                const parts = province.split('-');
+                                parts.forEach(part => {
+                                    if (part.length > 3) {
+                                        reverseMapping[part.toLowerCase().trim()] = region;
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    
+                    // 지역 그룹화
+                    const groupedFeatures = new Map();
+                    const idSet = new Set();
+                    
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
+                        const nameLower = rawName.toLowerCase().trim();
+                        
+                        // 정확한 매칭 먼저 시도
+                        let groupName = reverseMapping[nameLower] || null;
+                        
+                        // 정확한 매칭이 없으면 부분 매칭 시도
+                        if (!groupName) {
+                            for (const [key, value] of Object.entries(reverseMapping)) {
+                                if (key.length > 3 && (nameLower.includes(key) || key.includes(nameLower))) {
+                                    groupName = value;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 그룹을 찾지 못한 경우 직접 매칭 시도
+                        if (!groupName) {
+                            for (const [region, provinces] of Object.entries(italyRegionMapping)) {
+                                for (const prov of provinces) {
+                                    const provLower = prov.toLowerCase();
+                                    if (nameLower === provLower || nameLower.includes(provLower) || provLower.includes(nameLower)) {
+                                        groupName = region;
+                                        break;
+                                    }
+                                }
+                                if (groupName) break;
+                            }
+                        }
+                        
+                        // 레지오네 이름으로 직접 매칭 시도
+                        if (!groupName) {
+                            const regionNames = Object.keys(italyRegionMapping);
+                            for (const region of regionNames) {
+                                const regionLower = region.toLowerCase();
+                                if (nameLower === regionLower || nameLower.includes(regionLower) || regionLower.includes(nameLower)) {
+                                    groupName = region;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 기본값: 그룹을 찾지 못한 경우 개별 지역으로 처리
+                        if (!groupName) {
+                            console.warn(`[Italy] 매칭되지 않은 지역: "${rawName}" - 개별 지역으로 처리`);
+                            groupName = rawName;
+                        }
+                        
+                        if (!groupedFeatures.has(groupName)) {
+                            groupedFeatures.set(groupName, {
+                                features: [],
+                                totalPopulation: 0,
+                                totalArea: 0
+                            });
+                        }
+                        
+                        const group = groupedFeatures.get(groupName);
+                        group.features.push(feature);
+                        group.totalPopulation += (p.population || 0);
+                        group.totalArea += (p.area || 0);
+                    });
+                    
+                    // 그룹화된 features를 하나의 feature로 통합
+                    const mergedFeatures = [];
+                    
+                    groupedFeatures.forEach((group, groupName) => {
+                        if (group.features.length === 0) return;
+                        
+                        // 개별 지역인 경우 (그룹명이 원본 지역명과 같은 경우) - 그룹화하지 않고 개별로 처리
+                        const isIndividualRegion = group.features.length === 1 || 
+                                                   !Object.keys(italyRegionMapping).includes(groupName);
+                        
+                        if (isIndividualRegion) {
+                            // 개별 지역으로 처리 (그룹화하지 않음)
+                            group.features.forEach((feature, idx) => {
+                                const p = feature.properties || {};
+                                const rawName = p.name || p.NAME_1 || p.region || groupName || `Region_${idx}`;
+                                
+                                if (!feature.geometry || !feature.geometry.coordinates) {
+                                    console.warn(`[Italy] "${rawName}" 지역에 유효한 geometry가 없습니다.`);
+                                    return;
+                                }
+                                
+                                const baseIdSrc = p.hasc || p.shapeID || rawName || `ita_${idx}`;
+                                let baseId = baseIdSrc.toString().toLowerCase()
+                                    .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                                    .replace(/__+/g, '_')
+                                    .replace(/^_|_$/g, '');
+                                if (!baseId) baseId = `ita_region_${mergedFeatures.length}`;
+                                let finalId = baseId;
+                                let c = 1;
+                                while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                                idSet.add(finalId);
+                                
+                                mergedFeatures.push({
+                                    type: 'Feature',
+                                    geometry: feature.geometry,
+                                    properties: {
+                                        ...p,
+                                        id: finalId,
+                                        name: rawName,
+                                        name_ko: rawName,
+                                        name_en: rawName,
+                                        country: 'Italy',
+                                        country_code: 'IT',
+                                        admin_level: 'Province',
+                                        population: p.population || Math.floor(Math.random() * 500000) + 50000,
+                                        area: p.area || Math.floor(Math.random() * 5000) + 1000,
+                                        ad_status: 'available',
+                                        ad_price: 50000 + (mergedFeatures.length * 5000),
+                                        revenue: 0,
+                                        company: null,
+                                        logo: null,
+                                        color: '#00d2d3',
+                                        border_color: '#ffffff',
+                                        border_width: 1
+                                    }
+                                });
+                                
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                            });
+                            return;
+                        }
+                        
+                        // 그룹화된 지역인 경우 - Geometry 통합 (MultiPolygon으로)
+                        const geometries = group.features.map(f => f.geometry).filter(g => g && g.coordinates);
+                        
+                        if (geometries.length === 0) {
+                            console.warn(`[Italy] "${groupName}" 그룹에 유효한 geometry가 없습니다.`);
+                            return;
+                        }
+                        
+                        let mergedGeometry;
+                        if (geometries.length === 1) {
+                            mergedGeometry = geometries[0];
+                        } else {
+                            const allCoordinates = [];
+                            geometries.forEach(g => {
+                                if (g.type === 'Polygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(g.coordinates);
+                                } else if (g.type === 'MultiPolygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(...g.coordinates);
+                                }
+                            });
+                            if (allCoordinates.length === 1) {
+                                mergedGeometry = { type: 'Polygon', coordinates: allCoordinates[0] };
+                            } else if (allCoordinates.length > 1) {
+                                mergedGeometry = { type: 'MultiPolygon', coordinates: allCoordinates };
+                            } else {
+                                mergedGeometry = geometries[0];
+                            }
+                        }
+                        
+                        // Geometry 검증
+                        if (!mergedGeometry || !mergedGeometry.coordinates || 
+                            (mergedGeometry.type === 'Polygon' && mergedGeometry.coordinates.length === 0) ||
+                            (mergedGeometry.type === 'MultiPolygon' && mergedGeometry.coordinates.length === 0)) {
+                            console.warn(`[Italy] "${groupName}" 그룹의 geometry 통합 실패`);
+                            return;
+                        }
+                        
+                        const baseId = groupName.toLowerCase().replace(/[^\w\uAC00-\uD7A3]/g, '_').replace(/__+/g, '_');
+                        let finalId = baseId;
+                        let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        // 레지오네 데이터 가져오기
+                        const regionInfo = italyRegionData[groupName] || {};
+                        const regionPopulation = regionInfo.population || Math.max(group.totalPopulation, Math.floor(Math.random() * 5000000) + 500000);
+                        const regionArea = regionInfo.area || Math.max(group.totalArea, Math.floor(Math.random() * 30000) + 3000);
+                        const regionNameKo = regionInfo.name_ko || groupName;
+                        
+                        mergedFeatures.push({
+                            type: 'Feature',
+                            geometry: mergedGeometry,
+                            properties: {
+                                id: finalId,
+                                name: groupName,
+                                name_ko: regionNameKo,
+                                name_en: groupName,
+                                country: 'Italy',
+                                country_code: 'IT',
+                                admin_level: 'Region',
+                                population: regionPopulation,
+                                area: regionArea,
+                                ad_status: 'available',
+                                ad_price: 50000 + (mergedFeatures.length * 10000),
+                                revenue: 0,
+                                company: null,
+                                logo: null,
+                                color: '#00d2d3',
+                                border_color: '#ffffff',
+                                border_width: 1,
+                                original_count: group.features.length
+                            }
+                        });
+                        
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                    });
+                    
+                    console.log(`[Italy] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    
+                    geoJsonData = {
+                        type: 'FeatureCollection',
+                        features: mergedFeatures
+                    };
+                } else {
+                    // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
+                    // 이탈리아 레지오네별 인구 및 면적 데이터 (2024 기준)
+                    const italyRegionData = {
+                        'Abruzzo': { name_ko: '아브루초', population: 1290000, area: 10832 },
+                        'Basilicata': { name_ko: '바실리카타', population: 530000, area: 9995 },
+                        'Calabria': { name_ko: '칼라브리아', population: 1870000, area: 15222 },
+                        'Campania': { name_ko: '캄파니아', population: 5640000, area: 13671 },
+                        'Emilia-Romagna': { name_ko: '에밀리아-로마냐', population: 4470000, area: 22453 },
+                        'Friuli-Venezia Giulia': { name_ko: '프리울리-베네치아 줄리아', population: 1190000, area: 7858 },
+                        'Lazio': { name_ko: '라치오', population: 5720000, area: 17203 },
+                        'Liguria': { name_ko: '리구리아', population: 1520000, area: 5416 },
+                        'Lombardy': { name_ko: '롬바르디아', population: 10140000, area: 23864 },
+                        'Marche': { name_ko: '마르케', population: 1470000, area: 9366 },
+                        'Molise': { name_ko: '몰리제', population: 290000, area: 4438 },
+                        'Piedmont': { name_ko: '피에몬테', population: 4280000, area: 25402 },
+                        'Puglia': { name_ko: '풀리아', population: 3940000, area: 19358 },
+                        'Sardinia': { name_ko: '사르데냐', population: 1580000, area: 24090 },
+                        'Sicily': { name_ko: '시칠리아', population: 4780000, area: 25711 },
+                        'Trentino-Alto Adige': { name_ko: '트렌티노-알토 아디제', population: 1090000, area: 13606 },
+                        'Tuscany': { name_ko: '토스카나', population: 3660000, area: 22987 },
+                        'Umbria': { name_ko: '움브리아', population: 850000, area: 8456 },
+                        'Valle d\'Aosta': { name_ko: '발레다오스타', population: 123000, area: 3263 },
+                        'Veneto': { name_ko: '베네토', population: 4880000, area: 18345 }
+                    };
+                    
+                    const idSet = new Set();
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
+                        const baseIdSrc = p.hasc || p.shapeID || rawName || `ITA_${index}`;
+                        let baseId = baseIdSrc.toString().toLowerCase()
+                            .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                        if (!baseId) baseId = `ita_region_${index}`;
+                        let finalId = baseId; let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        // 레지오네 데이터 매칭 (대소문자 무시)
+                        let regionInfo = null;
+                        for (const [regionName, regionData] of Object.entries(italyRegionData)) {
+                            if (rawName.toLowerCase() === regionName.toLowerCase() || 
+                                rawName.toLowerCase().includes(regionName.toLowerCase()) ||
+                                regionName.toLowerCase().includes(rawName.toLowerCase())) {
+                                regionInfo = regionData;
+                                break;
+                            }
+                        }
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: regionInfo ? regionInfo.name_ko : rawName,
+                            name_en: p.NAME_1 || p.name || rawName,
+                            country: 'Italy',
+                            country_code: 'IT',
+                            admin_level: 'Region',
+                            population: regionInfo ? regionInfo.population : (p.population || Math.floor(Math.random() * 5000000) + 500000),
+                            area: regionInfo ? regionInfo.area : (p.area || Math.floor(Math.random() * 30000) + 3000),
+                            ad_status: 'available',
+                            ad_price: Math.floor(Math.random() * 220000) + 160000,
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#00d2d3',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        this.regionData.set(finalId, feature.properties);
+                    });
+                }
+                this.cachedGeoJsonData['italy'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#00d2d3'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('이탈리아 데이터 로드 완료:', geoJsonData.features.length, '개 레지오네');
+            this.showNotification(`이탈리아 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('이탈리아 데이터 로드 실패:', error);
+            this.showNotification('이탈리아 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 브라질 데이터 로드 (주/Estado 단위)
+    async loadBrazilData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['brazil']) {
+                geoJsonData = this.cachedGeoJsonData['brazil'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries BRA ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/BRA/ADM1/geoBoundaries-BRA-ADM1.geojson',
+                    // click_that_hood brazil
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/brazil.geojson',
+                    // Natural Earth Brazil states
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 브라질만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'BRA' || admin === 'Brazil' || iso2 === 'BR';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Brazil] Filtered Natural Earth/global dataset to Brazil only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 15) {
+                            geoJsonData = data;
+                            console.log('[Brazil] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 15) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Brazil] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Brazil] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Brazil] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Brazil dataset available');
+                
+                // 브라질 주별 인구 및 면적 데이터 (2024 기준)
+                const brazilStateData = {
+                    'Acre': { name_ko: '아크리', code: 'AC', population: 910000, area: 164123 },
+                    'Alagoas': { name_ko: '알라고아스', code: 'AL', population: 3350000, area: 27778 },
+                    'Amapá': { name_ko: '아마파', code: 'AP', population: 920000, area: 142814 },
+                    'Amazonas': { name_ko: '아마조나스', code: 'AM', population: 4270000, area: 1559168 },
+                    'Bahia': { name_ko: '바이아', code: 'BA', population: 15050000, area: 564760 },
+                    'Ceará': { name_ko: '세아라', code: 'CE', population: 9550000, area: 148894 },
+                    'Distrito Federal': { name_ko: '연방구', code: 'DF', population: 3250000, area: 5802 },
+                    'Espírito Santo': { name_ko: '이스피리투 산투', code: 'ES', population: 4180000, area: 46077 },
+                    'Goiás': { name_ko: '고이아스', code: 'GO', population: 7360000, area: 340112 },
+                    'Maranhão': { name_ko: '마라냥', code: 'MA', population: 7240000, area: 331936 },
+                    'Mato Grosso': { name_ko: '마투 그로수', code: 'MT', population: 3780000, area: 903357 },
+                    'Mato Grosso do Sul': { name_ko: '마투 그로수 두 술', code: 'MS', population: 2940000, area: 357145 },
+                    'Minas Gerais': { name_ko: '미나스 제라이스', code: 'MG', population: 20540000, area: 586521 },
+                    'Pará': { name_ko: '파라', code: 'PA', population: 9220000, area: 1247689 },
+                    'Paraíba': { name_ko: '파라이바', code: 'PB', population: 4150000, area: 56439 },
+                    'Paraná': { name_ko: '파라나', code: 'PR', population: 11740000, area: 199307 },
+                    'Pernambuco': { name_ko: '페르남부쿠', code: 'PE', population: 9760000, area: 98312 },
+                    'Piauí': { name_ko: '피아우이', code: 'PI', population: 3320000, area: 251529 },
+                    'Rio de Janeiro': { name_ko: '리우데자네이루', code: 'RJ', population: 16420000, area: 43696 },
+                    'Rio Grande do Norte': { name_ko: '리우 그란지 두 노르치', code: 'RN', population: 3560000, area: 52811 },
+                    'Rio Grande do Sul': { name_ko: '리우 그란지 두 술', code: 'RS', population: 10980000, area: 281707 },
+                    'Rondônia': { name_ko: '론도니아', code: 'RO', population: 1620000, area: 237765 },
+                    'Roraima': { name_ko: '로라이마', code: 'RR', population: 660000, area: 224301 },
+                    'Santa Catarina': { name_ko: '산타 카타리나', code: 'SC', population: 7760000, area: 95730 },
+                    'São Paulo': { name_ko: '상파울루', code: 'SP', population: 46250000, area: 248222 },
+                    'Sergipe': { name_ko: '세르지피', code: 'SE', population: 2390000, area: 21910 },
+                    'Tocantins': { name_ko: '토칸칭스', code: 'TO', population: 1620000, area: 277720 }
+                };
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `BRA_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `bra_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    let stateInfo = null;
+                    for (const [stateName, stateData] of Object.entries(brazilStateData)) {
+                        const stateLower = stateName.toLowerCase();
+                        const rawLower = rawName.toLowerCase();
+                        // 정확한 매칭, 부분 매칭, 약어 매칭
+                        if (rawLower === stateLower || 
+                            rawLower.includes(stateLower) || 
+                            stateLower.includes(rawLower) ||
+                            rawLower === stateData.code.toLowerCase() ||
+                            rawLower.includes(stateData.code.toLowerCase())) {
+                            stateInfo = stateData;
+                            break;
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: stateInfo ? stateInfo.name_ko : rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Brazil',
+                        country_code: 'BR',
+                        admin_level: 'State',
+                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 15000000) + 1000000),
+                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 500000) + 20000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 280000) + 180000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#feca57',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['brazil'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#feca57'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('브라질 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`브라질 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('브라질 데이터 로드 실패:', error);
+            this.showNotification('브라질 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 호주 데이터 로드 (주/State 단위)
+    async loadAustraliaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['australia']) {
+                geoJsonData = this.cachedGeoJsonData['australia'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries AUS ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/AUS/ADM1/geoBoundaries-AUS-ADM1.geojson',
+                    // click_that_hood australia
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/australia.geojson',
+                    // Natural Earth Australia states
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 호주만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'AUS' || admin === 'Australia' || iso2 === 'AU';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Australia] Filtered Natural Earth/global dataset to Australia only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = data;
+                            console.log('[Australia] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Australia] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Australia] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Australia] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Australia dataset available');
+                
+                // 호주 주·준주별 인구 및 면적 데이터 (2024 기준)
+                const australiaStateData = {
+                    'New South Wales': { name_ko: '뉴사우스웨일스', code: 'NSW', population: 8480000, area: 801150 },
+                    'Victoria': { name_ko: '빅토리아', code: 'VIC', population: 6900000, area: 227444 },
+                    'Queensland': { name_ko: '퀸즐랜드', code: 'QLD', population: 5550000, area: 1729742 },
+                    'Western Australia': { name_ko: '서호주', code: 'WA', population: 2910000, area: 2527013 },
+                    'South Australia': { name_ko: '남호주', code: 'SA', population: 1830000, area: 984321 },
+                    'Tasmania': { name_ko: '타스마니아', code: 'TAS', population: 550000, area: 68401 },
+                    'Northern Territory': { name_ko: '노던 준주', code: 'NT', population: 250000, area: 1347791 },
+                    'Australian Capital Territory': { name_ko: '오스트레일리안 수도 준주', code: 'ACT', population: 460000, area: 2358 }
+                };
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `AUS_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `aus_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주/준주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    let stateInfo = null;
+                    for (const [stateName, stateData] of Object.entries(australiaStateData)) {
+                        const stateLower = stateName.toLowerCase();
+                        const rawLower = rawName.toLowerCase();
+                        // 정확한 매칭, 부분 매칭, 약어 매칭
+                        if (rawLower === stateLower || 
+                            rawLower.includes(stateLower) || 
+                            stateLower.includes(rawLower) ||
+                            rawLower === stateData.code.toLowerCase() ||
+                            rawLower.includes(stateData.code.toLowerCase())) {
+                            stateInfo = stateData;
+                            break;
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: stateInfo ? stateInfo.name_ko : rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Australia',
+                        country_code: 'AU',
+                        admin_level: 'State/Territory',
+                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 5000000) + 200000),
+                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 1500000) + 50000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 240000) + 160000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#ff6348',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['australia'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ff6348'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('호주 데이터 로드 완료:', geoJsonData.features.length, '개 주/영토');
+            this.showNotification(`호주 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('호주 데이터 로드 실패:', error);
+            this.showNotification('호주 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 멕시코 데이터 로드 (주/Estado 단위)
+    async loadMexicoData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['mexico']) {
+                geoJsonData = this.cachedGeoJsonData['mexico'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries MEX ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/MEX/ADM1/geoBoundaries-MEX-ADM1.geojson',
+                    // click_that_hood mexico
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/mexico.geojson',
+                    // Natural Earth Mexico states
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 멕시코만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'MEX' || admin === 'Mexico' || iso2 === 'MX';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Mexico] Filtered Natural Earth/global dataset to Mexico only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 20) {
+                            geoJsonData = data;
+                            console.log('[Mexico] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 20) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Mexico] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 20 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Mexico] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Mexico] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Mexico dataset available');
+                
+                // 멕시코 주별 인구 및 면적 데이터 (2024 기준)
+                const mexicoStateData = {
+                    'Aguascalientes': { name_ko: '아과스칼리엔테스', code: 'AGU', population: 1500000, area: 5618 },
+                    'Baja California': { name_ko: '바하칼리포르니아', code: 'BC', population: 4000000, area: 71450 },
+                    'Baja California Sur': { name_ko: '바하칼리포르니아 수르', code: 'BCS', population: 860000, area: 73922 },
+                    'Campeche': { name_ko: '캄페체', code: 'CAM', population: 980000, area: 57507 },
+                    'Chiapas': { name_ko: '치아파스', code: 'CHIS', population: 5750000, area: 73311 },
+                    'Chihuahua': { name_ko: '치와와', code: 'CHIH', population: 3950000, area: 247460 },
+                    'Coahuila': { name_ko: '코아우일라', code: 'COAH', population: 3300000, area: 151563 },
+                    'Colima': { name_ko: '콜리마', code: 'COL', population: 760000, area: 5191 },
+                    'Durango': { name_ko: '두랑고', code: 'DGO', population: 1800000, area: 123451 },
+                    'Guanajuato': { name_ko: '과나후아토', code: 'GTO', population: 6400000, area: 30608 },
+                    'Guerrero': { name_ko: '게레로', code: 'GRO', population: 3600000, area: 63596 },
+                    'Hidalgo': { name_ko: '이달고', code: 'HGO', population: 3100000, area: 20813 },
+                    'Jalisco': { name_ko: '할리스코', code: 'JAL', population: 8600000, area: 78599 },
+                    'México': { name_ko: '멕시코 주', code: 'MEX', population: 18200000, area: 22357 },
+                    'Mexico': { name_ko: '멕시코 주', code: 'MEX', population: 18200000, area: 22357 },
+                    'Michoacán': { name_ko: '미초아칸', code: 'MICH', population: 5000000, area: 58599 },
+                    'Michoacan': { name_ko: '미초아칸', code: 'MICH', population: 5000000, area: 58599 },
+                    'Morelos': { name_ko: '모렐로스', code: 'MOR', population: 2100000, area: 4893 },
+                    'Nayarit': { name_ko: '나야리트', code: 'NAY', population: 1400000, area: 27857 },
+                    'Nuevo León': { name_ko: '누에보레온', code: 'NL', population: 6000000, area: 64555 },
+                    'Nuevo Leon': { name_ko: '누에보레온', code: 'NL', population: 6000000, area: 64555 },
+                    'Oaxaca': { name_ko: '오아하카', code: 'OAX', population: 4300000, area: 93757 },
+                    'Puebla': { name_ko: '푸에블라', code: 'PUE', population: 6900000, area: 34306 },
+                    'Querétaro': { name_ko: '케레타로', code: 'QRO', population: 2500000, area: 11690 },
+                    'Queretaro': { name_ko: '케레타로', code: 'QRO', population: 2500000, area: 11690 },
+                    'Quintana Roo': { name_ko: '킨타나로오', code: 'QROO', population: 2100000, area: 50351 },
+                    'San Luis Potosí': { name_ko: '산루이스포토시', code: 'SLP', population: 2900000, area: 60983 },
+                    'San Luis Potosi': { name_ko: '산루이스포토시', code: 'SLP', population: 2900000, area: 60983 },
+                    'Sinaloa': { name_ko: '시날로아', code: 'SIN', population: 3200000, area: 58092 },
+                    'Sonora': { name_ko: '소노라', code: 'SON', population: 3200000, area: 179503 },
+                    'Tabasco': { name_ko: '타바스코', code: 'TAB', population: 2500000, area: 25267 },
+                    'Tamaulipas': { name_ko: '타마울리파스', code: 'TAMPS', population: 3800000, area: 80175 },
+                    'Tlaxcala': { name_ko: '틀락스칼라', code: 'TLAX', population: 1400000, area: 4016 },
+                    'Veracruz': { name_ko: '베라크루스', code: 'VER', population: 8000000, area: 71820 },
+                    'Yucatán': { name_ko: '유카탄', code: 'YUC', population: 2500000, area: 39524 },
+                    'Yucatan': { name_ko: '유카탄', code: 'YUC', population: 2500000, area: 39524 },
+                    'Zacatecas': { name_ko: '사카테카스', code: 'ZAC', population: 1700000, area: 75539 },
+                    'Ciudad de México': { name_ko: '멕시코시티', code: 'CDMX', population: 9500000, area: 1495 },
+                    'Mexico City': { name_ko: '멕시코시티', code: 'CDMX', population: 9500000, area: 1495 },
+                    'Distrito Federal': { name_ko: '멕시코시티', code: 'CDMX', population: 9500000, area: 1495 }
+                };
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `MEX_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `mex_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    let stateInfo = null;
+                    for (const [stateName, stateData] of Object.entries(mexicoStateData)) {
+                        const stateLower = stateName.toLowerCase();
+                        const rawLower = rawName.toLowerCase();
+                        // 정확한 매칭, 부분 매칭, 약어 매칭
+                        if (rawLower === stateLower || 
+                            rawLower.includes(stateLower) || 
+                            stateLower.includes(rawLower) ||
+                            rawLower === stateData.code.toLowerCase() ||
+                            rawLower.includes(stateData.code.toLowerCase())) {
+                            stateInfo = stateData;
+                            break;
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: stateInfo ? stateInfo.name_ko : rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Mexico',
+                        country_code: 'MX',
+                        admin_level: 'State',
+                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 8000000) + 500000),
+                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 200000) + 10000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 230000) + 170000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#10ac84',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['mexico'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#10ac84'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('멕시코 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`멕시코 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('멕시코 데이터 로드 실패:', error);
+            this.showNotification('멕시코 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 인도네시아 데이터 로드 (주/Provinsi 단위)
+    async loadIndonesiaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['indonesia']) {
+                geoJsonData = this.cachedGeoJsonData['indonesia'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries IDN ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IDN/ADM1/geoBoundaries-IDN-ADM1.geojson',
+                    // click_that_hood indonesia
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/indonesia.geojson',
+                    // Natural Earth Indonesia provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 인도네시아만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'IDN' || admin === 'Indonesia' || iso2 === 'ID';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Indonesia] Filtered Natural Earth/global dataset to Indonesia only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = data;
+                            console.log('[Indonesia] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 10) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Indonesia] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Indonesia] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Indonesia] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Indonesia dataset available');
+                
+                // 인도네시아 주별 인구 및 면적 데이터 (mid-2024 기준)
+                const indonesiaProvinceData = {
+                    'Aceh': { name_ko: '아체', code: 'AC', population: 5554800, area: 56835 },
+                    'North Sumatra': { name_ko: '북부 수마트라', code: 'SU', population: 15588500, area: 72981 },
+                    'West Sumatra': { name_ko: '서부 수마트라', code: 'SB', population: 5836200, area: 42120 },
+                    'Riau': { name_ko: '리아우', code: 'RI', population: 6728100, area: 89936 },
+                    'Jambi': { name_ko: '잠비', code: 'JA', population: 3724300, area: 49027 },
+                    'South Sumatra': { name_ko: '남부 수마트라', code: 'SS', population: 8837300, area: 86772 },
+                    'Bengkulu': { name_ko: '벵쿨루', code: 'BE', population: 2112200, area: 20128 },
+                    'Lampung': { name_ko: '람풍', code: 'LA', population: 9419600, area: 33570 },
+                    'Bangka Belitung Islands': { name_ko: '방카 블리퉁 제도', code: 'BB', population: 1531500, area: 16690 },
+                    'Riau Islands': { name_ko: '리아우 제도', code: 'KR', population: 2183300, area: 8270 },
+                    'Jakarta': { name_ko: '자카르타 특별수도지역', code: 'JK', population: 10684900, area: 661 },
+                    'DKI Jakarta': { name_ko: '자카르타 특별수도지역', code: 'JK', population: 10684900, area: 661 },
+                    'Jakarta Special Capital Region': { name_ko: '자카르타 특별수도지역', code: 'JK', population: 10684900, area: 661 },
+                    'West Java': { name_ko: '서부 자바', code: 'JB', population: 50345200, area: 37045 },
+                    'Central Java': { name_ko: '중부 자바', code: 'JT', population: 37892300, area: 34337 },
+                    'Yogyakarta': { name_ko: '욕야카르타 특별지역', code: 'YO', population: 3759500, area: 3171 },
+                    'Daerah Istimewa Yogyakarta': { name_ko: '욕야카르타 특별지역', code: 'YO', population: 3759500, area: 3171 },
+                    'East Java': { name_ko: '동부 자바', code: 'JI', population: 41814500, area: 48037 },
+                    'Banten': { name_ko: '반텐', code: 'BT', population: 12431400, area: 9353 },
+                    'Bali': { name_ko: '발리', code: 'BA', population: 4433300, area: 5590 },
+                    'West Nusa Tenggara': { name_ko: '서부 누사 텡가라', code: 'NB', population: 5646000, area: 19676 },
+                    'East Nusa Tenggara': { name_ko: '동부 누사 텡가라', code: 'NT', population: 5656000, area: 46447 },
+                    'West Kalimantan': { name_ko: '서부 칼리만탄', code: 'KB', population: 5695500, area: 147037 },
+                    'Central Kalimantan': { name_ko: '중부 칼리만탄', code: 'KT', population: 2809700, area: 153444 },
+                    'South Kalimantan': { name_ko: '남부 칼리만탄', code: 'KS', population: 4273400, area: 37135 },
+                    'East Kalimantan': { name_ko: '동부 칼리만탄', code: 'KI', population: 4045900, area: 126981 },
+                    'North Kalimantan': { name_ko: '북부 칼리만탄', code: 'KU', population: 739800, area: 70101 },
+                    'North Sulawesi': { name_ko: '북부 술라웨시', code: 'SA', population: 2701800, area: 14500 },
+                    'Central Sulawesi': { name_ko: '중부 술라웨시', code: 'ST', population: 3121800, area: 61606 },
+                    'South Sulawesi': { name_ko: '남부 술라웨시', code: 'SN', population: 9463400, area: 45331 },
+                    'Southeast Sulawesi': { name_ko: '동남 술라웨시', code: 'SG', population: 2793100, area: 36160 },
+                    'Gorontalo': { name_ko: '고론탈로', code: 'GO', population: 1227800, area: 12025 },
+                    'West Sulawesi': { name_ko: '서부 술라웨시', code: 'SR', population: 1503200, area: 16595 },
+                    'Maluku': { name_ko: '말루쿠', code: 'MA', population: 1945600, area: 46158 },
+                    'North Maluku': { name_ko: '북부 말루쿠', code: 'MU', population: 1355600, area: 32999 },
+                    'Papua': { name_ko: '파푸아', code: 'PA', population: 1060600, area: 82681 },
+                    'West Papua': { name_ko: '서부 파푸아', code: 'PB', population: 578700, area: 60275 }
+                };
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `IDN_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `idn_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    let provinceInfo = null;
+                    for (const [provinceName, provinceData] of Object.entries(indonesiaProvinceData)) {
+                        const provinceLower = provinceName.toLowerCase();
+                        const rawLower = rawName.toLowerCase();
+                        // 정확한 매칭, 부분 매칭, 약어 매칭
+                        if (rawLower === provinceLower || 
+                            rawLower.includes(provinceLower) || 
+                            provinceLower.includes(rawLower) ||
+                            rawLower === provinceData.code.toLowerCase() ||
+                            rawLower.includes(provinceData.code.toLowerCase())) {
+                            provinceInfo = provinceData;
+                            break;
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: provinceInfo ? provinceInfo.name_ko : rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Indonesia',
+                        country_code: 'ID',
+                        admin_level: 'Province',
+                        population: provinceInfo ? provinceInfo.population : (p.population || Math.floor(Math.random() * 8000000) + 500000),
+                        area: provinceInfo ? provinceInfo.area : (p.area || Math.floor(Math.random() * 200000) + 10000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 200000) + 120000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#ffa502',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['indonesia'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ffa502'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('인도네시아 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`인도네시아 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('인도네시아 데이터 로드 실패:', error);
+            this.showNotification('인도네시아 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 사우디아라비아 데이터 로드 (주/Province 단위)
+    async loadSaudiArabiaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['saudi-arabia']) {
+                geoJsonData = this.cachedGeoJsonData['saudi-arabia'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries SAU ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/SAU/ADM1/geoBoundaries-SAU-ADM1.geojson',
+                    // click_that_hood saudi-arabia
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/saudi-arabia.geojson',
+                    // Natural Earth Saudi Arabia provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 사우디아라비아만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'SAU' || admin === 'Saudi Arabia' || iso2 === 'SA';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Saudi Arabia] Filtered Natural Earth/global dataset to Saudi Arabia only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = data;
+                            console.log('[Saudi Arabia] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Saudi Arabia] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Saudi Arabia] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Saudi Arabia] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Saudi Arabia dataset available');
+                
+                // 사우디 아라비아 주별 인구 및 면적 데이터 (2022 기준)
+                const saudiArabiaProvinceData = {
+                    'Riyadh': { name_ko: '리야드', population: 8591748, area: 404240 },
+                    'Makkah': { name_ko: '메카', population: 7769994, area: 153128 },
+                    'Madinah': { name_ko: '메디나', population: 2389452, area: 151990 },
+                    'Al-Qassim': { name_ko: '카심', population: 1336179, area: 58046 },
+                    'Eastern Province': { name_ko: '동부 주', population: 5125254, area: 672522 },
+                    'Al-Sharqiyah': { name_ko: '알샤르키야', population: 5125254, area: 672522 },
+                    'Asir': { name_ko: '아시르', population: 2024285, area: 76693 },
+                    'Tabuk': { name_ko: '타부크', population: 886036, area: 146072 },
+                    'Hail': { name_ko: '하일', population: 746406, area: 103887 },
+                    'Northern Borders': { name_ko: '북부 변경 주', population: 373577, area: 111797 },
+                    'Al-Hudud ash-Shamaliyah': { name_ko: '알후두드 아샤말리야', population: 373577, area: 111797 },
+                    'Jazan': { name_ko: '자잔', population: 1404997, area: 11671 },
+                    'Jizan': { name_ko: '자잔', population: 1404997, area: 11671 },
+                    'Najran': { name_ko: '나즈란', population: 592300, area: 149511 },
+                    'Al-Baha': { name_ko: '바하', population: 339174, area: 9921 },
+                    'Al-Jawf': { name_ko: '알자우프', population: 500000, area: 100212 }
+                };
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `SAU_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `sau_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    let provinceInfo = null;
+                    for (const [provinceName, provinceData] of Object.entries(saudiArabiaProvinceData)) {
+                        const provinceLower = provinceName.toLowerCase();
+                        const rawLower = rawName.toLowerCase();
+                        // 정확한 매칭, 부분 매칭
+                        if (rawLower === provinceLower || 
+                            rawLower.includes(provinceLower) || 
+                            provinceLower.includes(rawLower)) {
+                            provinceInfo = provinceData;
+                            break;
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: provinceInfo ? provinceInfo.name_ko : rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Saudi Arabia',
+                        country_code: 'SA',
+                        admin_level: 'Province',
+                        population: provinceInfo ? provinceInfo.population : (p.population || Math.floor(Math.random() * 5000000) + 300000),
+                        area: provinceInfo ? provinceInfo.area : (p.area || Math.floor(Math.random() * 500000) + 50000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 250000) + 200000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#0652DD',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['saudi-arabia'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#0652DD'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('사우디아라비아 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`사우디아라비아 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('사우디아라비아 데이터 로드 실패:', error);
+            this.showNotification('사우디아라비아 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 터키 데이터 로드 (주/Province 단위)
+    async loadTurkeyData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['turkey']) {
+                geoJsonData = this.cachedGeoJsonData['turkey'];
+            } else {
+                const candidateUrls = [
+                    // geoBoundaries TUR ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/TUR/ADM1/geoBoundaries-TUR-ADM1.geojson',
+                    // click_that_hood turkey
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/turkey.geojson',
+                    // Natural Earth Turkey provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 터키만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'TUR' || admin === 'Turkey' || iso2 === 'TR';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Turkey] Filtered Natural Earth/global dataset to Turkey only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 50) {
+                            geoJsonData = data;
+                            console.log('[Turkey] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 50) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Turkey] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Turkey] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Turkey] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Turkey dataset available');
+                
+                // 81개 이상의 feature가 있으면 그룹화 필요 (주 -> 지역)
+                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                
+                if (needsGrouping) {
+                    // 튀르키예 주를 7개 지역으로 그룹화하는 매핑
+                    const turkeyRegionMapping = {
+                        'Marmara Region': ['Balıkesir', 'Bilecik', 'Bursa', 'Çanakkale', 'Edirne', 'İstanbul', 'Istanbul', 'Kırklareli', 'Kocaeli', 'Sakarya', 'Tekirdağ', 'Tekirdag', 'Yalova'],
+                        'Aegean Region': ['Afyonkarahisar', 'Aydın', 'Aydin', 'Denizli', 'İzmir', 'Izmir', 'Kütahya', 'Kutahya', 'Manisa', 'Muğla', 'Mugla', 'Uşak', 'Usak'],
+                        'Mediterranean Region': ['Adana', 'Antalya', 'Burdur', 'Hatay', 'Isparta', 'Mersin', 'Osmaniye', 'Kahramanmaraş', 'Kahramanmaraş', 'Kahramanmaras'],
+                        'Central Anatolia Region': ['Aksaray', 'Ankara', 'Çankırı', 'Cankiri', 'Eskişehir', 'Eskisehir', 'Karaman', 'Kayseri', 'Kırıkkale', 'Kirikkale', 'Kırşehir', 'Kirsehir', 'Konya', 'Nevşehir', 'Nevsehir', 'Niğde', 'Nigde', 'Sivas', 'Yozgat'],
+                        'Black Sea Region': ['Amasya', 'Artvin', 'Bartın', 'Bartin', 'Bayburt', 'Bolu', 'Çorum', 'Corum', 'Düzce', 'Duzce', 'Giresun', 'Gümüşhane', 'Gumushane', 'Karabük', 'Karabuk', 'Kastamonu', 'Ordu', 'Rize', 'Samsun', 'Sinop', 'Tokat', 'Trabzon', 'Zonguldak'],
+                        'Eastern Anatolia Region': ['Ağrı', 'Agri', 'Ardahan', 'Bingöl', 'Bingol', 'Bitlis', 'Elazığ', 'Elazig', 'Erzincan', 'Erzurum', 'Hakkâri', 'Hakkari', 'Iğdır', 'Igdir', 'Kars', 'Malatya', 'Muş', 'Mus', 'Tunceli', 'Van'],
+                        'Southeastern Anatolia Region': ['Adıyaman', 'Adiyaman', 'Batman', 'Diyarbakır', 'Diyarbakir', 'Gaziantep', 'Kilis', 'Mardin', 'Siirt', 'Şanlıurfa', 'Sanliurfa', 'Şırnak', 'Sirnak']
+                    };
+                    
+                    // 튀르키예 지역별 인구 및 면적 데이터
+                    const turkeyRegionData = {
+                        'Marmara Region': { name_ko: '마르마라', population: 26650000, area: 67000 },
+                        'Aegean Region': { name_ko: '에게해', population: 10974000, area: 90000 },
+                        'Mediterranean Region': { name_ko: '지중해', population: 10584000, area: 89500 },
+                        'Central Anatolia Region': { name_ko: '중앙 아나톨리아', population: 12000000, area: 65000 },
+                        'Black Sea Region': { name_ko: '흑해', population: 8500000, area: 70000 },
+                        'Eastern Anatolia Region': { name_ko: '동부 아나톨리아', population: 6500000, area: 165000 },
+                        'Southeastern Anatolia Region': { name_ko: '동남부 아나톨리아', population: 9490000, area: 76200 }
+                    };
+                    
+                    // 역매핑 생성 (주 -> 지역)
+                    const reverseMapping = {};
+                    Object.keys(turkeyRegionMapping).forEach(region => {
+                        turkeyRegionMapping[region].forEach(province => {
+                            const provLower = province.toLowerCase();
+                            reverseMapping[provLower] = region;
+                            // 터키어 특수문자 제거 변형
+                            reverseMapping[provLower.replace(/[çğıöşüÇĞIİÖŞÜ]/g, (m) => {
+                                const map = { 'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u',
+                                             'Ç': 'c', 'Ğ': 'g', 'İ': 'i', 'Ö': 'o', 'Ş': 's', 'Ü': 'u' };
+                                return map[m] || m;
+                            })] = region;
+                        });
+                    });
+                    
+                    // 지역 그룹화
+                    const groupedFeatures = new Map();
+                    const idSet = new Set();
+                    
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
+                        const nameLower = rawName.toLowerCase();
+                        
+                        // 정확한 매칭 먼저 시도
+                        let groupName = reverseMapping[nameLower] || null;
+                        
+                        // 정확한 매칭이 없으면 부분 매칭 시도
+                        if (!groupName) {
+                            for (const [key, value] of Object.entries(reverseMapping)) {
+                                if (key.length > 3 && (nameLower.includes(key) || key.includes(nameLower))) {
+                                    groupName = value;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 그룹을 찾지 못한 경우 직접 매칭 시도
+                        if (!groupName) {
+                            for (const [region, provinces] of Object.entries(turkeyRegionMapping)) {
+                                for (const prov of provinces) {
+                                    const provLower = prov.toLowerCase();
+                                    if (nameLower === provLower || nameLower.includes(provLower) || provLower.includes(nameLower)) {
+                                        groupName = region;
+                                        break;
+                                    }
+                                }
+                                if (groupName) break;
+                            }
+                        }
+                        
+                        // 지역 이름으로 직접 매칭 시도
+                        if (!groupName) {
+                            const regionNames = Object.keys(turkeyRegionMapping);
+                            for (const region of regionNames) {
+                                const regionLower = region.toLowerCase();
+                                if (nameLower === regionLower || nameLower.includes(regionLower) || regionLower.includes(nameLower)) {
+                                    groupName = region;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 기본값: 그룹을 찾지 못한 경우 개별 지역으로 처리
+                        if (!groupName) {
+                            console.warn(`[Turkey] 매칭되지 않은 주: "${rawName}" - 개별 주로 처리`);
+                            groupName = rawName;
+                        }
+                        
+                        if (!groupedFeatures.has(groupName)) {
+                            groupedFeatures.set(groupName, {
+                                features: [],
+                                totalPopulation: 0,
+                                totalArea: 0
+                            });
+                        }
+                        
+                        const group = groupedFeatures.get(groupName);
+                        group.features.push(feature);
+                        group.totalPopulation += (p.population || 0);
+                        group.totalArea += (p.area || 0);
+                    });
+                    
+                    // 그룹화된 features를 하나의 feature로 통합
+                    const mergedFeatures = [];
+                    
+                    groupedFeatures.forEach((group, groupName) => {
+                        if (group.features.length === 0) return;
+                        
+                        // 개별 주인 경우 (그룹명이 원본 주명과 같은 경우) - 그룹화하지 않고 개별로 처리
+                        const isIndividualProvince = group.features.length === 1 || 
+                                                   !Object.keys(turkeyRegionMapping).includes(groupName);
+                        
+                        if (isIndividualProvince) {
+                            // 개별 주로 처리 (그룹화하지 않음)
+                            group.features.forEach((feature, idx) => {
+                                const p = feature.properties || {};
+                                const rawName = p.name || p.NAME_1 || p.province || groupName || `Province_${idx}`;
+                                
+                                if (!feature.geometry || !feature.geometry.coordinates) {
+                                    console.warn(`[Turkey] "${rawName}" 주에 유효한 geometry가 없습니다.`);
+                                    return;
+                                }
+                                
+                                const baseIdSrc = p.hasc || p.shapeID || rawName || `tur_${idx}`;
+                                let baseId = baseIdSrc.toString().toLowerCase()
+                                    .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                                    .replace(/__+/g, '_')
+                                    .replace(/^_|_$/g, '');
+                                if (!baseId) baseId = `tur_province_${mergedFeatures.length}`;
+                                let finalId = baseId;
+                                let c = 1;
+                                while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                                idSet.add(finalId);
+                                
+                                mergedFeatures.push({
+                                    type: 'Feature',
+                                    geometry: feature.geometry,
+                                    properties: {
+                                        ...p,
+                                        id: finalId,
+                                        name: rawName,
+                                        name_ko: rawName,
+                                        name_en: rawName,
+                                        country: 'Turkey',
+                                        country_code: 'TR',
+                                        admin_level: 'Province',
+                                        population: p.population || Math.floor(Math.random() * 3000000) + 200000,
+                                        area: p.area || Math.floor(Math.random() * 50000) + 5000,
+                                        ad_status: 'available',
+                                        ad_price: 150000 + (mergedFeatures.length * 5000),
+                                        revenue: 0,
+                                        company: null,
+                                        logo: null,
+                                        color: '#ee5a6f',
+                                        border_color: '#ffffff',
+                                        border_width: 1
+                                    }
+                                });
+                                
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                            });
+                            return;
+                        }
+                        
+                        // 그룹화된 지역인 경우 - Geometry 통합 (MultiPolygon으로)
+                        const geometries = group.features.map(f => f.geometry).filter(g => g && g.coordinates);
+                        
+                        if (geometries.length === 0) {
+                            console.warn(`[Turkey] "${groupName}" 그룹에 유효한 geometry가 없습니다.`);
+                            return;
+                        }
+                        
+                        let mergedGeometry;
+                        if (geometries.length === 1) {
+                            mergedGeometry = geometries[0];
+                        } else {
+                            const allCoordinates = [];
+                            geometries.forEach(g => {
+                                if (g.type === 'Polygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(g.coordinates);
+                                } else if (g.type === 'MultiPolygon' && g.coordinates && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+                                    allCoordinates.push(...g.coordinates);
+                                }
+                            });
+                            if (allCoordinates.length === 1) {
+                                mergedGeometry = { type: 'Polygon', coordinates: allCoordinates[0] };
+                            } else if (allCoordinates.length > 1) {
+                                mergedGeometry = { type: 'MultiPolygon', coordinates: allCoordinates };
+                            } else {
+                                mergedGeometry = geometries[0];
+                            }
+                        }
+                        
+                        // Geometry 검증
+                        if (!mergedGeometry || !mergedGeometry.coordinates || 
+                            (mergedGeometry.type === 'Polygon' && mergedGeometry.coordinates.length === 0) ||
+                            (mergedGeometry.type === 'MultiPolygon' && mergedGeometry.coordinates.length === 0)) {
+                            console.warn(`[Turkey] "${groupName}" 그룹의 geometry 통합 실패`);
+                            return;
+                        }
+                        
+                        const baseId = groupName.toLowerCase().replace(/[^\w\uAC00-\uD7A3]/g, '_').replace(/__+/g, '_');
+                        let finalId = baseId;
+                        let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        // 지역 데이터 가져오기
+                        const regionInfo = turkeyRegionData[groupName] || {};
+                        const regionPopulation = regionInfo.population || Math.max(group.totalPopulation, Math.floor(Math.random() * 10000000) + 5000000);
+                        const regionArea = regionInfo.area || Math.max(group.totalArea, Math.floor(Math.random() * 100000) + 50000);
+                        const regionNameKo = regionInfo.name_ko || groupName;
+                        
+                        mergedFeatures.push({
+                            type: 'Feature',
+                            geometry: mergedGeometry,
+                            properties: {
+                                id: finalId,
+                                name: groupName,
+                                name_ko: regionNameKo,
+                                name_en: groupName,
+                                country: 'Turkey',
+                                country_code: 'TR',
+                                admin_level: 'Region',
+                                population: regionPopulation,
+                                area: regionArea,
+                                ad_status: 'available',
+                                ad_price: 150000 + (mergedFeatures.length * 15000),
+                                revenue: 0,
+                                company: null,
+                                logo: null,
+                                color: '#ee5a6f',
+                                border_color: '#ffffff',
+                                border_width: 1,
+                                original_count: group.features.length
+                            }
+                        });
+                        
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                    });
+                    
+                    console.log(`[Turkey] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    
+                    geoJsonData = {
+                        type: 'FeatureCollection',
+                        features: mergedFeatures
+                    };
+                } else {
+                    // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
+                    const idSet = new Set();
+                    geoJsonData.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
+                        const baseIdSrc = p.hasc || p.shapeID || rawName || `TUR_${index}`;
+                        let baseId = baseIdSrc.toString().toLowerCase()
+                            .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                        if (!baseId) baseId = `tur_province_${index}`;
+                        let finalId = baseId; let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: rawName,
+                            name_en: p.NAME_1 || p.name || rawName,
+                            country: 'Turkey',
+                            country_code: 'TR',
+                            admin_level: 'Province',
+                            population: p.population || Math.floor(Math.random() * 3000000) + 200000,
+                            area: p.area || Math.floor(Math.random() * 50000) + 5000,
+                            ad_status: 'available',
+                            ad_price: Math.floor(Math.random() * 210000) + 150000,
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#ee5a6f',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        this.regionData.set(finalId, feature.properties);
+                    });
+                }
+                this.cachedGeoJsonData['turkey'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ee5a6f'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('터키 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`터키 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('터키 데이터 로드 실패:', error);
+            this.showNotification('터키 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 남아프리카공화국 데이터 로드 (지구/District 단위 - 52개 행정구역)
+    async loadSouthAfricaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['south-africa']) {
+                geoJsonData = this.cachedGeoJsonData['south-africa'];
+            } else {
+                // 남아프리카공화국 9개 주와 52개 지구 매핑 (2024 추정 인구 및 면적)
+                const southAfricaProvinceMapping = {
+                    'Eastern Cape': {
+                        name_ko: '이스턴케이프',
+                        population: 6700000,
+                        area: 168966,
+                        districts: [
+                            'Buffalo City', 'Nelson Mandela Bay', 'Sarah Baartman', 'Amathole', 
+                            'Chris Hani', 'Joe Gqabi', 'OR Tambo', 'Alfred Nzo'
+                        ]
+                    },
+                    'Free State': {
+                        name_ko: '프리스테이트',
+                        population: 3000000,
+                        area: 129825,
+                        districts: [
+                            'Mangaung', 'Fezile Dabi', 'Lejweleputswa', 'Thabo Mofutsanyana', 'Xhariep'
+                        ]
+                    },
+                    'Gauteng': {
+                        name_ko: '하우텡',
+                        population: 16500000,
+                        area: 18176,
+                        districts: [
+                            'City of Johannesburg', 'City of Tshwane', 'City of Ekurhuleni', 
+                            'West Rand', 'Sedibeng', 'Metsweding'
+                        ]
+                    },
+                    'KwaZulu-Natal': {
+                        name_ko: '콰줄루나탈',
+                        population: 12400000,
+                        area: 94361,
+                        districts: [
+                            'eThekwini', 'iLembe', 'Ugu', 'uMgungundlovu', 'uMzinyathi', 
+                            'uThukela', 'Amajuba', 'Zululand', 'uMkhanyakude', 'uThungulu', 
+                            'King Cetshwayo'
+                        ]
+                    },
+                    'Limpopo': {
+                        name_ko: '림포포',
+                        population: 6200000,
+                        area: 125754,
+                        districts: [
+                            'Mopani', 'Vhembe', 'Capricorn', 'Waterberg', 'Sekhukhune'
+                        ]
+                    },
+                    'Mpumalanga': {
+                        name_ko: '음풀말랑가',
+                        population: 4900000,
+                        area: 76495,
+                        districts: [
+                            'Gert Sibande', 'Nkangala', 'Ehlanzeni'
+                        ]
+                    },
+                    'Northern Cape': {
+                        name_ko: '노던케이프',
+                        population: 1400000,
+                        area: 372889,
+                        districts: [
+                            'Namakwa', 'Pixley ka Seme', 'Siyanda', 'Frances Baard', 'Kgalagadi'
+                        ]
+                    },
+                    'North West': {
+                        name_ko: '노스웨스트',
+                        population: 4300000,
+                        area: 104882,
+                        districts: [
+                            'Bojanala Platinum', 'Ngaka Modiri Molema', 'Dr Ruth Segomotsi Mompati', 
+                            'Dr Kenneth Kaunda'
+                        ]
+                    },
+                    'Western Cape': {
+                        name_ko: '웨스턴케이프',
+                        population: 7400000,
+                        area: 129462,
+                        districts: [
+                            'City of Cape Town', 'West Coast', 'Cape Winelands', 'Overberg', 
+                            'Garden Route', 'Central Karoo'
+                        ]
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries ZAF ADM2 (52개 지구)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ZAF/ADM2/geoBoundaries-ZAF-ADM2.geojson',
+                    // geoBoundaries ZAF ADM1 (9개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ZAF/ADM1/geoBoundaries-ZAF-ADM1.geojson',
+                    // click_that_hood south-africa
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/south-africa.geojson',
+                    // Natural Earth South Africa provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 남아프리카공화국만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'ZAF' || admin === 'South Africa' || iso2 === 'ZA';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[South Africa] Filtered Natural Earth/global dataset to South Africa only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = data;
+                            console.log('[South Africa] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 5) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[South Africa] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[South Africa] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[South Africa] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No South Africa dataset available');
+                
+                // 주-지구 매핑을 클래스에 저장
+                this.southAfricaProvinceMapping = southAfricaProvinceMapping;
+                
+                // 지구 이름을 주 이름으로 매핑하는 역방향 맵 생성
+                const districtToProvinceMap = {};
+                Object.keys(southAfricaProvinceMapping).forEach(provinceName => {
+                    const province = southAfricaProvinceMapping[provinceName];
+                    province.districts.forEach(district => {
+                        districtToProvinceMap[district.toLowerCase()] = {
+                            province: provinceName,
+                            province_ko: province.name_ko
+                        };
+                    });
+                });
+                
+                const idSet = new Set();
+                const isDistrictLevel = geoJsonData.features.length > 40; // ADM2 데이터인 경우 (52개 지구)
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_2 || p.NAME_1 || p.province || p.district || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ZAF_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = isDistrictLevel ? `zaf_district_${index}` : `zaf_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 지구 이름으로 주 찾기
+                    let provinceInfo = null;
+                    let provinceData = null;
+                    if (isDistrictLevel) {
+                        const districtNameLower = rawName.toLowerCase();
+                        // 정확한 매칭 시도
+                        if (districtToProvinceMap[districtNameLower]) {
+                            provinceInfo = districtToProvinceMap[districtNameLower];
+                            provinceData = southAfricaProvinceMapping[provinceInfo.province];
+                        } else {
+                            // 부분 매칭 시도
+                            for (const [districtKey, provInfo] of Object.entries(districtToProvinceMap)) {
+                                if (districtNameLower.includes(districtKey) || districtKey.includes(districtNameLower)) {
+                                    provinceInfo = provInfo;
+                                    provinceData = southAfricaProvinceMapping[provInfo.province];
+                                    break;
+                                }
+                            }
+                        }
+                        // NAME_1에서 주 정보 가져오기 시도
+                        if (!provinceInfo && p.NAME_1) {
+                            const provinceName = p.NAME_1;
+                            if (southAfricaProvinceMapping[provinceName]) {
+                                provinceInfo = {
+                                    province: provinceName,
+                                    province_ko: southAfricaProvinceMapping[provinceName].name_ko
+                                };
+                                provinceData = southAfricaProvinceMapping[provinceName];
+                            }
+                        }
+                    } else {
+                        // 주 레벨 데이터인 경우
+                        if (p.NAME_1 && southAfricaProvinceMapping[p.NAME_1]) {
+                            provinceData = southAfricaProvinceMapping[p.NAME_1];
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 계산
+                    let population, area;
+                    if (isDistrictLevel && provinceData) {
+                        // 주의 총 인구/면적을 지구 수로 나누어 평균 계산
+                        const districtCount = provinceData.districts.length;
+                        population = p.population || Math.floor(provinceData.population / districtCount);
+                        area = p.area || Math.floor(provinceData.area / districtCount);
+                    } else if (!isDistrictLevel && provinceData) {
+                        // 주 레벨 데이터인 경우
+                        population = p.population || provinceData.population;
+                        area = p.area || provinceData.area;
+                    } else {
+                        // 기본값
+                        population = p.population || Math.floor(Math.random() * (isDistrictLevel ? 2000000 : 8000000)) + (isDistrictLevel ? 100000 : 500000);
+                        area = p.area || Math.floor(Math.random() * (isDistrictLevel ? 50000 : 200000)) + (isDistrictLevel ? 5000 : 30000);
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName,
+                        name_en: p.NAME_2 || p.NAME_1 || p.name || rawName,
+                        country: 'South Africa',
+                        country_code: 'ZA',
+                        admin_level: isDistrictLevel ? 'District' : 'Province',
+                        province: provinceInfo ? provinceInfo.province : (p.NAME_1 || null),
+                        province_ko: provinceInfo ? provinceInfo.province_ko : (southAfricaProvinceMapping[p.NAME_1] ? southAfricaProvinceMapping[p.NAME_1].name_ko : null),
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 220000) + 160000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#f39c12',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displaySouthAfricaGroupedRegions();
+                
+                this.cachedGeoJsonData['south-africa'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#f39c12'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            const isDistrictLevel = geoJsonData.features.length > 40;
+            const adminType = isDistrictLevel ? '지구' : '주';
+            console.log('남아프리카공화국 데이터 로드 완료:', geoJsonData.features.length, `개 ${adminType}`);
+            this.showNotification(`남아프리카공화국 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('남아프리카공화국 데이터 로드 실패:', error);
+            this.showNotification('남아프리카공화국 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 남아프리카공화국 그룹화된 지역 목록 표시
+    displaySouthAfricaGroupedRegions() {
+        if (!this.southAfricaProvinceMapping) {
+            console.log('[South Africa] Province mapping not available');
+            return;
+        }
+
+        console.log('\n=== 남아프리카공화국 행정구역 그룹화 (9개 주, 52개 지구) ===\n');
+        
+        // 주별 요약 테이블 헤더
+        console.log('📊 남아프리카공화국 9개 주 (Provinces) 인구 및 면적 요약');
+        console.log('─'.repeat(90));
+        console.log('순번 | 주 (영문 / 한글)'.padEnd(35) + '| 지구 수 | 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+        console.log('─'.repeat(90));
+        
+        // 주별 요약 출력
+        Object.keys(this.southAfricaProvinceMapping).forEach((provinceName, idx) => {
+            const province = this.southAfricaProvinceMapping[provinceName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${provinceName} – ${province.name_ko}`.padEnd(33);
+            const districts = province.districts.length.toString().padEnd(7);
+            const population = province.population.toLocaleString().padEnd(23);
+            const area = province.area.toLocaleString();
+            console.log(`${seq} | ${name} | ${districts} | ${population} | ${area}`);
+        });
+        console.log('─'.repeat(90));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const groupedRegions = {};
+        let totalDistricts = 0;
+
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'South Africa') {
+                const province = regionData.province || 'Unknown';
+                if (!groupedRegions[province]) {
+                    groupedRegions[province] = {
+                        name_ko: regionData.province_ko || province,
+                        districts: []
+                    };
+                }
+                groupedRegions[province].districts.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+                totalDistricts++;
+            }
+        });
+
+        // 주별로 출력
+        Object.keys(this.southAfricaProvinceMapping).forEach(provinceName => {
+            const province = this.southAfricaProvinceMapping[provinceName];
+            const loadedDistricts = groupedRegions[provinceName] || { districts: [] };
+            
+            console.log(`\n📌 ${provinceName} (${province.name_ko})`);
+            console.log(`   인구: ${province.population.toLocaleString()}명 (2024 추정)`);
+            console.log(`   면적: ${province.area.toLocaleString()} ㎢`);
+            console.log(`   지구 수: 총 ${province.districts.length}개 (로드됨: ${loadedDistricts.districts.length}개)`);
+            console.log('   ──────────────────────────────────────────');
+            
+            // 예상 지구 목록
+            province.districts.forEach((districtName, idx) => {
+                const loadedDistrict = loadedDistricts.districts.find(d => 
+                    d.name.toLowerCase().includes(districtName.toLowerCase()) ||
+                    districtName.toLowerCase().includes(d.name.toLowerCase())
+                );
+                
+                if (loadedDistrict) {
+                    console.log(`   ${idx + 1}. ${districtName} ✓`);
+                    console.log(`      └─ 로드된 이름: ${loadedDistrict.name}`);
+                    console.log(`      └─ ID: ${loadedDistrict.id}`);
+                    console.log(`      └─ 인구: ${loadedDistrict.population.toLocaleString()}명`);
+                    console.log(`      └─ 면적: ${loadedDistrict.area.toLocaleString()} km²`);
+                } else {
+                    console.log(`   ${idx + 1}. ${districtName} (데이터 없음)`);
+                }
+            });
+        });
+
+        console.log(`\n\n📊 총계:`);
+        console.log(`   • 주 (Provinces): ${Object.keys(this.southAfricaProvinceMapping).length}개`);
+        console.log(`   • 지구 (Districts): ${totalDistricts}개 로드됨`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateSouthAfricaGroupedHTML(groupedRegions);
+        console.log('%c남아프리카공화국 행정구역 그룹화', 'color: #4ecdc4; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateSouthAfricaGroupedHTML(groupedRegions) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #4ecdc4; margin-top: 0;">남아프리카공화국 행정구역 그룹화 (9개 주, 52개 지구)</h3>';
+        
+        // 주별 요약 테이블
+        html += '<div style="margin-bottom: 20px; overflow-x: auto;">';
+        html += '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+        html += '<thead><tr style="background: rgba(78, 205, 196, 0.2);">';
+        html += '<th style="padding: 8px; text-align: left; border: 1px solid rgba(78, 205, 196, 0.3);">순번</th>';
+        html += '<th style="padding: 8px; text-align: left; border: 1px solid rgba(78, 205, 196, 0.3);">주 (영문 / 한글)</th>';
+        html += '<th style="padding: 8px; text-align: center; border: 1px solid rgba(78, 205, 196, 0.3);">지구 수</th>';
+        html += '<th style="padding: 8px; text-align: right; border: 1px solid rgba(78, 205, 196, 0.3);">인구 (명, 2024 추정)</th>';
+        html += '<th style="padding: 8px; text-align: right; border: 1px solid rgba(78, 205, 196, 0.3);">면적 (㎢)</th>';
+        html += '</tr></thead><tbody>';
+        
+        Object.keys(this.southAfricaProvinceMapping).forEach((provinceName, idx) => {
+            const province = this.southAfricaProvinceMapping[provinceName];
+            html += '<tr style="border-bottom: 1px solid rgba(78, 205, 196, 0.1);">';
+            html += `<td style="padding: 8px; border: 1px solid rgba(78, 205, 196, 0.1);">${idx + 1}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid rgba(78, 205, 196, 0.1);">${provinceName} – ${province.name_ko}</td>`;
+            html += `<td style="padding: 8px; text-align: center; border: 1px solid rgba(78, 205, 196, 0.1);">${province.districts.length}</td>`;
+            html += `<td style="padding: 8px; text-align: right; border: 1px solid rgba(78, 205, 196, 0.1);">${province.population.toLocaleString()}</td>`;
+            html += `<td style="padding: 8px; text-align: right; border: 1px solid rgba(78, 205, 196, 0.1);">${province.area.toLocaleString()}</td>`;
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        
+        Object.keys(this.southAfricaProvinceMapping).forEach((provinceName, pIdx) => {
+            const province = this.southAfricaProvinceMapping[provinceName];
+            const loadedDistricts = groupedRegions[provinceName] || { districts: [] };
+            
+            html += `<div style="margin-bottom: 20px; padding: 15px; background: rgba(78, 205, 196, 0.1); border-left: 4px solid #4ecdc4; border-radius: 4px;">`;
+            html += `<h4 style="color: #feca57; margin: 0 0 10px 0;">${pIdx + 1}. ${provinceName} (${province.name_ko})</h4>`;
+            html += `<p style="color: #aaa; margin: 0 0 5px 0; font-size: 12px;">인구: <span style="color: #4ecdc4;">${province.population.toLocaleString()}명</span> (2024 추정) | 면적: <span style="color: #4ecdc4;">${province.area.toLocaleString()} ㎢</span></p>`;
+            html += `<p style="color: #aaa; margin: 0 0 10px 0; font-size: 12px;">지구 수: 총 ${province.districts.length}개 (로드됨: ${loadedDistricts.districts.length}개)</p>`;
+            html += `<ul style="margin: 0; padding-left: 20px; list-style: none;">`;
+            
+            province.districts.forEach((districtName, dIdx) => {
+                const loadedDistrict = loadedDistricts.districts.find(d => 
+                    d.name.toLowerCase().includes(districtName.toLowerCase()) ||
+                    districtName.toLowerCase().includes(d.name.toLowerCase())
+                );
+                
+                html += `<li style="margin: 5px 0; color: ${loadedDistrict ? '#4ecdc4' : '#666'};">
+                    ${dIdx + 1}. ${districtName} ${loadedDistrict ? '✓' : '(데이터 없음)'}
+                    ${loadedDistrict ? `<span style="color: #aaa; font-size: 11px;"> - 인구: ${loadedDistrict.population.toLocaleString()}명, 면적: ${loadedDistrict.area.toLocaleString()} km²</span>` : ''}
+                </li>`;
+            });
+            
+            html += `</ul></div>`;
+        });
+        
+        html += '</div>';
+        return html;
+    }
+
+    // 아르헨티나 데이터 로드 (주/Provincia 단위 - 23개 주)
+    async loadArgentinaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['argentina']) {
+                geoJsonData = this.cachedGeoJsonData['argentina'];
+            } else {
+                // 아르헨티나 23개 주 매핑 (2024 추정 인구 및 면적)
+                const argentinaProvinceMapping = {
+                    'Buenos Aires': {
+                        name_ko: '부에노스아이레스',
+                        population: 17500000,
+                        area: 307571
+                    },
+                    'Catamarca': {
+                        name_ko: '카타마르카',
+                        population: 430000,
+                        area: 102602
+                    },
+                    'Chaco': {
+                        name_ko: '차코',
+                        population: 1200000,
+                        area: 99633
+                    },
+                    'Chubut': {
+                        name_ko: '추부트',
+                        population: 600000,
+                        area: 224686
+                    },
+                    'Córdoba': {
+                        name_ko: '코르도바',
+                        population: 3800000,
+                        area: 165321
+                    },
+                    'Corrientes': {
+                        name_ko: '코리엔테스',
+                        population: 1300000,
+                        area: 88199
+                    },
+                    'Entre Ríos': {
+                        name_ko: '엔트레리오스',
+                        population: 1400000,
+                        area: 78781
+                    },
+                    'Formosa': {
+                        name_ko: '포르모사',
+                        population: 600000,
+                        area: 72066
+                    },
+                    'Jujuy': {
+                        name_ko: '후후이',
+                        population: 800000,
+                        area: 53219
+                    },
+                    'La Pampa': {
+                        name_ko: '라팜파',
+                        population: 360000,
+                        area: 143440
+                    },
+                    'La Rioja': {
+                        name_ko: '라리오하',
+                        population: 420000,
+                        area: 89680
+                    },
+                    'Mendoza': {
+                        name_ko: '멘도사',
+                        population: 2000000,
+                        area: 148827
+                    },
+                    'Misiones': {
+                        name_ko: '미시오네스',
+                        population: 1300000,
+                        area: 29801
+                    },
+                    'Neuquén': {
+                        name_ko: '네우켄',
+                        population: 700000,
+                        area: 94078
+                    },
+                    'Río Negro': {
+                        name_ko: '리오네그로',
+                        population: 750000,
+                        area: 203013
+                    },
+                    'Salta': {
+                        name_ko: '살타',
+                        population: 1500000,
+                        area: 155488
+                    },
+                    'San Juan': {
+                        name_ko: '산후안',
+                        population: 850000,
+                        area: 89651
+                    },
+                    'San Luis': {
+                        name_ko: '산루이스',
+                        population: 550000,
+                        area: 76748
+                    },
+                    'Santa Cruz': {
+                        name_ko: '산타크루스',
+                        population: 350000,
+                        area: 243943
+                    },
+                    'Santa Fe': {
+                        name_ko: '산타페',
+                        population: 3600000,
+                        area: 133007
+                    },
+                    'Santiago del Estero': {
+                        name_ko: '산티아고델에스테로',
+                        population: 1000000,
+                        area: 136351
+                    },
+                    'Tierra del Fuego': {
+                        name_ko: '티에라델푸에고',
+                        population: 190000,
+                        area: 21263
+                    },
+                    'Tucumán': {
+                        name_ko: '투쿠만',
+                        population: 1800000,
+                        area: 22524
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries ARG ADM1
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ARG/ADM1/geoBoundaries-ARG-ADM1.geojson',
+                    // click_that_hood argentina
+                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/argentina.geojson',
+                    // Natural Earth Argentina provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 아르헨티나만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'ARG' || admin === 'Argentina' || iso2 === 'AR';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Argentina] Filtered Natural Earth/global dataset to Argentina only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 15) {
+                            geoJsonData = data;
+                            console.log('[Argentina] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 15) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Argentina] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Argentina] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Argentina] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Argentina dataset available');
+                
+                // 주 매핑을 클래스에 저장
+                this.argentinaProvinceMapping = argentinaProvinceMapping;
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ARG_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `arg_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 이름으로 매핑 정보 찾기
+                    let provinceData = null;
+                    const provinceName = rawName;
+                    
+                    // 정확한 매칭 시도
+                    if (argentinaProvinceMapping[provinceName]) {
+                        provinceData = argentinaProvinceMapping[provinceName];
+                    } else {
+                        // 부분 매칭 시도 (대소문자 무시)
+                        const provinceNameLower = provinceName.toLowerCase();
+                        for (const [key, value] of Object.entries(argentinaProvinceMapping)) {
+                            if (key.toLowerCase() === provinceNameLower || 
+                                provinceNameLower.includes(key.toLowerCase()) ||
+                                key.toLowerCase().includes(provinceNameLower)) {
+                                provinceData = value;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 설정
+                    const population = p.population || (provinceData ? provinceData.population : Math.floor(Math.random() * 4000000) + 300000);
+                    const area = p.area || (provinceData ? provinceData.area : Math.floor(Math.random() * 300000) + 50000);
+                    const name_ko = provinceData ? provinceData.name_ko : rawName;
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: name_ko,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: 'Argentina',
+                        country_code: 'AR',
+                        admin_level: 'Province',
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 210000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#74b9ff',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayArgentinaGroupedRegions();
+                
+                this.cachedGeoJsonData['argentina'] = geoJsonData;
+            }
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#74b9ff'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('아르헨티나 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`아르헨티나 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('아르헨티나 데이터 로드 실패:', error);
+            this.showNotification('아르헨티나 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 아르헨티나 그룹화된 지역 목록 표시
+    displayArgentinaGroupedRegions() {
+        if (!this.argentinaProvinceMapping) {
+            console.log('[Argentina] Province mapping not available');
+            return;
+        }
+
+        console.log('\n=== 아르헨티나 행정구역 (23개 주) ===\n');
+        
+        // 주별 요약 테이블 헤더
+        console.log('📊 아르헨티나 23개 주 인구 및 면적 (2024 추정)');
+        console.log('─'.repeat(90));
+        console.log('순번 | 주 (영문 / 한글)'.padEnd(35) + '| 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+        console.log('─'.repeat(90));
+        
+        // 주별 요약 출력
+        Object.keys(this.argentinaProvinceMapping).forEach((provinceName, idx) => {
+            const province = this.argentinaProvinceMapping[provinceName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${provinceName} (${province.name_ko})`.padEnd(33);
+            const population = province.population.toLocaleString().padEnd(23);
+            const area = province.area.toLocaleString();
+            console.log(`${seq} | ${name} | ${population} | ${area}`);
+        });
+        console.log('─'.repeat(90));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const loadedProvinces = [];
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Argentina') {
+                loadedProvinces.push({
+                    name: regionData.name,
+                    name_ko: regionData.name_ko,
+                    name_en: regionData.name_en,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+            }
+        });
+
+        console.log(`\n📊 총계:`);
+        console.log(`   • 주 (Provinces): ${Object.keys(this.argentinaProvinceMapping).length}개`);
+        console.log(`   • 로드된 행정구역: ${loadedProvinces.length}개`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateArgentinaGroupedHTML(loadedProvinces);
+        console.log('%c아르헨티나 행정구역 그룹화', 'color: #74b9ff; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateArgentinaGroupedHTML(loadedProvinces) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #74b9ff; margin-top: 0;">아르헨티나 행정구역 (23개 주)</h3>';
+        
+        // 주별 요약 테이블
+        html += '<div style="margin-bottom: 20px; overflow-x: auto;">';
+        html += '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+        html += '<thead><tr style="background: rgba(116, 185, 255, 0.2);">';
+        html += '<th style="padding: 8px; text-align: left; border: 1px solid rgba(116, 185, 255, 0.3);">순번</th>';
+        html += '<th style="padding: 8px; text-align: left; border: 1px solid rgba(116, 185, 255, 0.3);">주 (영문 / 한글)</th>';
+        html += '<th style="padding: 8px; text-align: right; border: 1px solid rgba(116, 185, 255, 0.3);">인구 (명, 2024 추정)</th>';
+        html += '<th style="padding: 8px; text-align: right; border: 1px solid rgba(116, 185, 255, 0.3);">면적 (㎢)</th>';
+        html += '</tr></thead><tbody>';
+        
+        Object.keys(this.argentinaProvinceMapping).forEach((provinceName, idx) => {
+            const province = this.argentinaProvinceMapping[provinceName];
+            html += '<tr style="border-bottom: 1px solid rgba(116, 185, 255, 0.1);">';
+            html += `<td style="padding: 8px; border: 1px solid rgba(116, 185, 255, 0.1);">${idx + 1}</td>`;
+            html += `<td style="padding: 8px; border: 1px solid rgba(116, 185, 255, 0.1);">${provinceName} (${province.name_ko})</td>`;
+            html += `<td style="padding: 8px; text-align: right; border: 1px solid rgba(116, 185, 255, 0.1);">${province.population.toLocaleString()}</td>`;
+            html += `<td style="padding: 8px; text-align: right; border: 1px solid rgba(116, 185, 255, 0.1);">${province.area.toLocaleString()}</td>`;
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        html += '</div>';
+        return html;
+    }
+
+    async loadEuropeanUnionData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['european-union']) {
+                geoJsonData = this.cachedGeoJsonData['european-union'];
+            } else {
+                // EU 회원국 목록 (주요 27개 회원국)
+                const euCountries = [
+                    { code: 'DEU', name: 'Germany', name_ko: '독일' },
+                    { code: 'FRA', name: 'France', name_ko: '프랑스' },
+                    { code: 'ITA', name: 'Italy', name_ko: '이탈리아' },
+                    { code: 'ESP', name: 'Spain', name_ko: '스페인' },
+                    { code: 'POL', name: 'Poland', name_ko: '폴란드' },
+                    { code: 'NLD', name: 'Netherlands', name_ko: '네덜란드' },
+                    { code: 'BEL', name: 'Belgium', name_ko: '벨기에' },
+                    { code: 'GRC', name: 'Greece', name_ko: '그리스' },
+                    { code: 'PRT', name: 'Portugal', name_ko: '포르투갈' },
+                    { code: 'CZE', name: 'Czech Republic', name_ko: '체코' },
+                    { code: 'HUN', name: 'Hungary', name_ko: '헝가리' },
+                    { code: 'SWE', name: 'Sweden', name_ko: '스웨덴' },
+                    { code: 'AUT', name: 'Austria', name_ko: '오스트리아' },
+                    { code: 'DNK', name: 'Denmark', name_ko: '덴마크' },
+                    { code: 'FIN', name: 'Finland', name_ko: '핀란드' },
+                    { code: 'ROU', name: 'Romania', name_ko: '루마니아' },
+                    { code: 'BGR', name: 'Bulgaria', name_ko: '불가리아' },
+                    { code: 'HRV', name: 'Croatia', name_ko: '크로아티아' },
+                    { code: 'SVK', name: 'Slovakia', name_ko: '슬로바키아' },
+                    { code: 'IRL', name: 'Ireland', name_ko: '아일랜드' },
+                    { code: 'LTU', name: 'Lithuania', name_ko: '리투아니아' },
+                    { code: 'SVN', name: 'Slovenia', name_ko: '슬로베니아' },
+                    { code: 'LVA', name: 'Latvia', name_ko: '라트비아' },
+                    { code: 'EST', name: 'Estonia', name_ko: '에스토니아' },
+                    { code: 'CYP', name: 'Cyprus', name_ko: '키프로스' },
+                    { code: 'LUX', name: 'Luxembourg', name_ko: '룩셈부르크' },
+                    { code: 'MLT', name: 'Malta', name_ko: '몰타' }
+                ];
+                
+                const allFeatures = [];
+                const idSet = new Set();
+                
+                // EU 국가 ISO 코드 매핑 (2자리 코드)
+                const iso2Codes = {
+                    'DEU': 'DE', 'FRA': 'FR', 'ITA': 'IT', 'ESP': 'ES', 'POL': 'PL',
+                    'NLD': 'NL', 'BEL': 'BE', 'GRC': 'GR', 'PRT': 'PT', 'CZE': 'CZ',
+                    'HUN': 'HU', 'SWE': 'SE', 'AUT': 'AT', 'DNK': 'DK', 'FIN': 'FI',
+                    'ROU': 'RO', 'BGR': 'BG', 'HRV': 'HR', 'SVK': 'SK', 'IRL': 'IE',
+                    'LTU': 'LT', 'SVN': 'SI', 'LVA': 'LV', 'EST': 'EE', 'CYP': 'CY',
+                    'LUX': 'LU', 'MLT': 'MT'
+                };
+                
+                // 먼저 전세계 지도 한 번만 로드 시도 (더 효율적)
+                let worldData = null;
+                try {
+                    const worldResp = await fetch('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson', { cache: 'no-store' });
+                    if (worldResp.ok) {
+                        worldData = await worldResp.json();
+                        console.log('[EU] Loaded world data for filtering');
+                    }
+                } catch (e) {
+                    console.warn('[EU] Failed to load world data:', e.message);
+                }
+                
+                // 각 국가 데이터를 병렬로 로드
+                const loadPromises = euCountries.map(async (country, index) => {
+                    const iso2 = iso2Codes[country.code] || country.code.substring(0, 2);
+                    let countryData = null;
+                    
+                    // 방법 1: 전세계 지도에서 필터링 (가장 안정적)
+                    if (worldData && worldData.features) {
+                        const filtered = worldData.features.filter(f => {
+                            const props = f.properties || {};
+                            const name = (props.name || props.NAME || props.NAME_0 || '').toLowerCase();
+                            const code = (props.ISO_A2 || props.ISO_A3 || props.ADM0_A3 || props.iso_a2 || props.iso_a3 || '').toUpperCase();
+                            const iso2Upper = iso2.toUpperCase();
+                            const countryNameLower = country.name.toLowerCase();
+                            
+                            return name === countryNameLower ||
+                                   name.includes(countryNameLower.split(' ')[0]) ||
+                                   code === country.code ||
+                                   code === iso2Upper ||
+                                   (code.length === 2 && code === iso2Upper);
+                        });
+                        
+                        if (filtered.length > 0) {
+                            countryData = filtered;
+                            console.log(`[EU] Loaded ${country.name} from world data`);
+                        }
+                    }
+                    
+                    // 방법 2: 개별 국가 파일 시도
+                    if (!countryData) {
+                        const candidateUrls = [
+                            `https://raw.githubusercontent.com/johan/world.geo.json/master/countries/${iso2.toLowerCase()}.geo.json`,
+                            `https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/${country.code}/ADM1/geoBoundaries-${country.code}-ADM1.geojson`
+                        ];
+                        
+                        for (const url of candidateUrls) {
+                            try {
+                                const resp = await fetch(url, { cache: 'no-store' });
+                                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                const data = await resp.json();
+                                
+                                if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                                    countryData = data.features;
+                                    console.log(`[EU] Loaded ${country.name} from ${url}`);
+                                    break;
+                                } else if (data && data.type === 'Feature') {
+                                    countryData = [data];
+                                    console.log(`[EU] Loaded ${country.name} as single feature`);
+                                    break;
+                                }
+                            } catch (e) {
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    // 데이터 로드 실패 시 해당 국가 건너뛰기
+                    if (!countryData || countryData.length === 0) {
+                        console.warn(`[EU] Failed to load ${country.name} (${country.code}), skipping`);
+                        return null;
+                    }
+                    
+                    // 각 feature에 EU 속성 추가
+                    countryData.forEach((feature, featureIndex) => {
+                        const p = feature.properties || {};
+                        const rawName = p.NAME_0 || p.NAME || p.name || p.NAME_EN || country.name;
+                        const baseIdSrc = p.ISO_A3 || p.ISO_A2 || p.ADM0_A3 || country.code || rawName;
+                        let baseId = `${baseIdSrc.toString().toLowerCase().replace(/[^a-z0-9]/g, '_')}_eu`;
+                        let finalId = baseId;
+                        let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: country.name_ko,
+                            name_en: country.name,
+                            country: 'European Union',
+                            country_code: 'EU',
+                            eu_member: true,
+                            admin_level: 'Country',
+                            population: p.population || Math.floor(Math.random() * 10000000) + 1000000,
+                            area: p.area || Math.floor(Math.random() * 500000) + 10000,
+                            ad_status: 'available',
+                            ad_price: Math.floor(Math.random() * 500000) + 200000,
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#4ecdc4',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        
+                        allFeatures.push(feature);
+                    });
+                    
+                    return countryData; // 성공적으로 로드된 데이터 반환
+                });
+                
+                const loadedCountries = await Promise.all(loadPromises);
+                
+                // null 값 필터링 (로드 실패한 국가 제외)
+                const validFeatures = allFeatures.filter(f => f !== null && f !== undefined);
+                
+                geoJsonData = {
+                    type: 'FeatureCollection',
+                    features: validFeatures
+                };
+                
+                console.log(`[EU] Loaded ${validFeatures.length} features from ${euCountries.length} countries`);
+                this.cachedGeoJsonData['european-union'] = geoJsonData;
+                
+                // regionData에 저장 (유효한 features만)
+                validFeatures.forEach(feature => {
+                    if (feature && feature.properties && feature.properties.id) {
+                        this.regionData.set(feature.properties.id, feature.properties);
+                    }
+                });
+            }
+            
+            // 소스 업데이트 또는 생성
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            
+            // 레이어가 없으면 추가
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'ad_status'], 'occupied'],
+                            '#ff6b6b',
+                            ['==', ['get', 'ad_status'], 'selected'],
+                            '#feca57',
+                            '#4ecdc4'
+                        ],
+                        'fill-opacity': 0.6
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 1,
+                        'line-opacity': 0.8
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': '#feca57',
+                        'fill-opacity': 0
+                    },
+                    filter: ['==', 'id', '']
+                });
+                
+                if (!this.eventListenersAdded) {
+                    this.setupEventListeners();
+                    this.eventListenersAdded = true;
+                }
+            }
+            
+            console.log('유럽연합 데이터 로드 완료:', geoJsonData.features.length, '개 국가');
+            this.showNotification(`유럽연합 데이터 로드 완료: ${geoJsonData.features.length}개 국가`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('유럽연합 데이터 로드 실패:', error);
+            this.showNotification('유럽연합 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 15개 주요 유럽 경제국 데이터 로드 함수들
+    async loadEuropeanCountryData(countryCode, countryName, countryNameKo, countryCodeIso, color) {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData[countryCode]) {
+                geoJsonData = this.cachedGeoJsonData[countryCode];
+            } else {
+                // 여러 데이터 소스 시도 (프랑스/독일과 같은 방식 - ADM1 행정구역 데이터 우선)
+                const iso2 = countryCodeIso.substring(0, 2);
+                const candidateUrls = [
+                    `https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/${countryCodeIso}/ADM1/geoBoundaries-${countryCodeIso}-ADM1.geojson`,
+                    `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson`
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 전세계 데이터인 경우 해당 국가 행정구역만 필터링
+                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2Code = (p.iso_a2 || '').toUpperCase();
+                                return a3 === countryCodeIso || admin === countryName || iso2Code === iso2.toUpperCase();
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[${countryName}] Filtered Natural Earth/global dataset to ${countryName} only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        // ADM1 데이터인 경우 (행정구역 레벨)
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                            // ADM1 데이터는 보통 5개 이상의 행정구역을 가짐
+                            if (data.features.length >= 1) {
+                                geoJsonData = data;
+                                console.log(`[${countryName}] Loaded ADM1 from`, url, 'features:', data.features.length);
+                                break;
+                            }
+                        }
+                        
+                        if (Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log(`[${countryName}] Loaded (normalized) from`, url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log(`[${countryName}] Loaded (array -> FC) from`, url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn(`[${countryName}] Failed loading from`, url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error(`No ${countryName} dataset available`);
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `${countryCodeIso}_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `${countryCode.toLowerCase()}_region_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: rawName,
+                        name_en: p.NAME_1 || p.name || rawName,
+                        country: countryName,
+                        country_code: countryCodeIso.substring(0, 2),
+                        admin_level: 'Region/Province',
+                        population: p.population || Math.floor(Math.random() * 5000000) + 100000,
+                        area: p.area || Math.floor(Math.random() * 50000) + 1000,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: color,
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData[countryCode] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', color], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log(`${countryNameKo} 데이터 로드 완료:`, geoJsonData.features.length, '개 행정구역');
+            this.showNotification(`${countryNameKo} 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error(`${countryNameKo} 데이터 로드 실패:`, error);
+            this.showNotification(`${countryNameKo} 데이터를 불러오는데 실패했습니다.`, 'error');
+        }
+    }
+    
+    normalizeRegionKey(value) {
+        if (!value && value !== 0) return '';
+        return value.toString()
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9\s\-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    async fetchCountryGeoJson(countryKey, countryName, countryCodeIso, candidateUrls = []) {
+        if (!this.rawGeoJsonCache) {
+            this.rawGeoJsonCache = {};
+        }
+        if (this.rawGeoJsonCache[countryKey]) {
+            return JSON.parse(JSON.stringify(this.rawGeoJsonCache[countryKey]));
+        }
+
+        const iso3 = countryCodeIso.toUpperCase();
+        const iso2 = iso3.substring(0, 2).toUpperCase();
+        const defaultUrls = [
+            `https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/${iso3}/ADM1/geoBoundaries-${iso3}-ADM1.geojson`,
+            `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson`
+        ];
+        const urls = [...candidateUrls, ...defaultUrls].filter((url, idx, arr) => arr.indexOf(url) === idx);
+
+        let geoJsonData = null;
+        let lastError = null;
+
+        for (const url of urls) {
+            try {
+                const resp = await fetch(url, { cache: 'no-store' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
+                    const filtered = data.features.filter((feature) => {
+                        const p = feature.properties || {};
+                        const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                        const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                        const iso2Code = (p.iso_a2 || '').toUpperCase();
+                        return a3 === iso3 || admin === countryName || iso2Code === iso2;
+                    });
+                    if (filtered.length > 0) {
+                        console.log(`[${countryName}] Filtered Natural Earth/global dataset to ${countryName} only: ${filtered.length} features`);
+                        geoJsonData = { type: 'FeatureCollection', features: filtered };
+                        break;
+                    }
+                }
+
+                if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                    geoJsonData = data;
+                    console.log(`[${countryName}] Loaded from`, url, 'features:', data.features.length);
+                    break;
+                }
+                if (Array.isArray(data.features) && data.features.length > 0) {
+                    geoJsonData = { type: 'FeatureCollection', features: data.features };
+                    console.log(`[${countryName}] Loaded (normalized) from`, url, 'features:', data.features.length);
+                    break;
+                }
+                if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                    geoJsonData = { type: 'FeatureCollection', features: data };
+                    console.log(`[${countryName}] Loaded (array -> FC) from`, url, 'features:', data.length);
+                    break;
+                }
+                lastError = new Error('Invalid data shape');
+            } catch (error) {
+                lastError = error;
+                console.warn(`[${countryName}] Failed loading from`, url, error);
+            }
+        }
+
+        if (!geoJsonData) {
+            throw lastError || new Error(`No ${countryName} dataset available`);
+        }
+
+        this.rawGeoJsonCache[countryKey] = geoJsonData;
+        return JSON.parse(JSON.stringify(geoJsonData));
+    }
+
+    async loadCustomEuropeanCountry(options) {
+        const {
+            countryKey,
+            countryName,
+            countryNameKo,
+            countryCodeIso,
+            defaultColor = '#27ae60',
+            adminLevel = 'Region/Province',
+            mapping,
+            candidateUrls = [],
+            onAfterProcess
+        } = options;
+
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData[countryKey]) {
+                geoJsonData = this.cachedGeoJsonData[countryKey];
+            } else {
+                geoJsonData = await this.fetchCountryGeoJson(countryKey, countryName, countryCodeIso, candidateUrls);
+
+                const aliasMap = new Map();
+                Object.entries(mapping).forEach(([key, meta]) => {
+                    const aliases = [
+                        key,
+                        meta.name_en,
+                        meta.name_local,
+                        meta.name_native,
+                        ...(meta.aliases || [])
+                    ];
+                    aliases.forEach((alias) => {
+                        if (!alias) return;
+                        const normalized = this.normalizeRegionKey(alias);
+                        if (normalized && !aliasMap.has(normalized)) {
+                            aliasMap.set(normalized, key);
+                        }
+                    });
+                });
+
+                const idSet = new Set();
+                const iso2 = countryCodeIso.substring(0, 2).toUpperCase();
+
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = (p.name || p.NAME_1 || p.NAME || p.NAME_2 || p.admin || `Region_${index}`).toString();
+                    const normalizedRaw = this.normalizeRegionKey(rawName);
+
+                    let matchedKey = aliasMap.get(normalizedRaw);
+                    if (!matchedKey) {
+                        for (const [aliasKey, regionKey] of aliasMap.entries()) {
+                            if (!aliasKey) continue;
+                            if (normalizedRaw.includes(aliasKey) || aliasKey.includes(normalizedRaw)) {
+                                matchedKey = regionKey;
+                                break;
+                            }
+                        }
+                    }
+
+                    const meta = matchedKey ? mapping[matchedKey] : null;
+                    if (!meta) {
+                        console.warn(`[${countryName}] Unmatched region in dataset: ${rawName}`);
+                    }
+
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `${countryCodeIso}_${index}`;
+                    let baseId = this.normalizeRegionKey(baseIdSrc).replace(/\s+/g, '_');
+                    if (!baseId) baseId = `${countryKey}_region_${index}`;
+                    let finalId = baseId;
+                    let duplicateIndex = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = `${baseId}_${duplicateIndex++}`;
+                    }
+                    idSet.add(finalId);
+
+                    const population = meta?.population ?? p.population ?? (Math.floor(Math.random() * 500000) + 200000);
+                    const area = meta?.area ?? p.area ?? (Math.floor(Math.random() * 5000) + 2000);
+                    const englishName = meta?.name_en || rawName;
+                    const localName = meta?.name_local || rawName;
+
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: englishName,
+                        name_en: englishName,
+                        name_local: localName,
+                        name_ko: meta?.name_ko || rawName,
+                        country: countryName,
+                        country_code: iso2,
+                        admin_level: meta?.admin_level || adminLevel,
+                        population,
+                        area,
+                        ad_status: 'available',
+                        ad_price: meta?.ad_price || Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: meta?.color || defaultColor,
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+
+                    if (meta?.extra && typeof meta.extra === 'object') {
+                        Object.assign(feature.properties, meta.extra);
+                    }
+
+                    this.regionData.set(finalId, feature.properties);
+                });
+
+                this.cachedGeoJsonData[countryKey] = geoJsonData;
+
+                if (typeof onAfterProcess === 'function') {
+                    onAfterProcess(geoJsonData, mapping);
+                }
+            }
+
+            const fillColorExpression = ['case', ['==', ['get', 'ad_status'], 'occupied'], '#ff6b6b', ['coalesce', ['get', 'color'], defaultColor]];
+
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({
+                    id: 'regions-fill',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': fillColorExpression,
+                        'fill-opacity': 0.6
+                    }
+                });
+                this.map.addLayer({
+                    id: 'regions-border',
+                    type: 'line',
+                    source: 'world-regions',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 1,
+                        'line-opacity': 0.8
+                    }
+                });
+                this.map.addLayer({
+                    id: 'regions-hover',
+                    type: 'fill',
+                    source: 'world-regions',
+                    paint: {
+                        'fill-color': '#feca57',
+                        'fill-opacity': 0
+                    },
+                    filter: ['==', 'id', '']
+                });
+                if (!this.eventListenersAdded) {
+                    this.setupEventListeners();
+                    this.eventListenersAdded = true;
+                }
+            } else {
+                this.map.setPaintProperty('regions-fill', 'fill-color', fillColorExpression);
+            }
+
+            console.log(`${countryNameKo} 데이터 로드 완료:`, geoJsonData.features.length, '개 행정구역');
+            this.showNotification(`${countryNameKo} 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error(`${countryNameKo} 데이터 로드 실패:`, error);
+            this.showNotification(`${countryNameKo} 데이터를 불러오는데 실패했습니다.`, 'error');
+        }
+    }
+
+    // 스페인 데이터 로드 (17개 자치지역으로 그룹화)
+    async loadSpainData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['spain']) {
+                geoJsonData = this.cachedGeoJsonData['spain'];
+            } else {
+                // 스페인 17개 자치지역과 52개 주 매핑 (2024 기준 인구 및 면적)
+                const spainAutonomousCommunityMapping = {
+                    'Andalucía': {
+                        name_ko: '안달루시아',
+                        name_en: 'Andalucía',
+                        population: 8600000,
+                        area: 87268,
+                        provinces: [
+                            'Almería', 'Cádiz', 'Córdoba', 'Granada', 'Huelva', 'Jaén', 'Málaga', 'Sevilla'
+                        ]
+                    },
+                    'Aragón': {
+                        name_ko: '아라곤',
+                        name_en: 'Aragón',
+                        population: 1350000,
+                        area: 47720,
+                        provinces: [
+                            'Huesca', 'Zaragoza', 'Teruel'
+                        ]
+                    },
+                    'Asturias': {
+                        name_ko: '아스투리아스',
+                        name_en: 'Asturias',
+                        population: 1000000,
+                        area: 10603,
+                        provinces: [
+                            'Asturias', 'Oviedo'
+                        ]
+                    },
+                    'Islas Baleares': {
+                        name_ko: '발레아레스 제도',
+                        name_en: 'Balearic Islands',
+                        population: 1250000,
+                        area: 4992,
+                        provinces: [
+                            'Islas Baleares', 'Balears', 'Palma de Mallorca'
+                        ]
+                    },
+                    'País Vasco': {
+                        name_ko: '바스크 지방',
+                        name_en: 'Basque Country',
+                        population: 2200000,
+                        area: 7234,
+                        provinces: [
+                            'Álava', 'Gipuzkoa', 'Bizkaia', 'Vizcaya', 'Guipúzcoa'
+                        ]
+                    },
+                    'Islas Canarias': {
+                        name_ko: '카나리아 제도',
+                        name_en: 'Canary Islands',
+                        population: 2250000,
+                        area: 7447,
+                        provinces: [
+                            'Las Palmas', 'Santa Cruz de Tenerife'
+                        ]
+                    },
+                    'Cantabria': {
+                        name_ko: '칸타브리아',
+                        name_en: 'Cantabria',
+                        population: 590000,
+                        area: 5321,
+                        provinces: [
+                            'Cantabria', 'Santander'
+                        ]
+                    },
+                    'Castilla-La Mancha': {
+                        name_ko: '카스티야 라 만차',
+                        name_en: 'Castilla-La Mancha',
+                        population: 2100000,
+                        area: 79463,
+                        provinces: [
+                            'Albacete', 'Ciudad Real', 'Cuenca', 'Guadalajara', 'Toledo'
+                        ]
+                    },
+                    'Castilla y León': {
+                        name_ko: '카스티야 이 레온',
+                        name_en: 'Castilla y León',
+                        population: 2350000,
+                        area: 94224,
+                        provinces: [
+                            'Ávila', 'Burgos', 'León', 'Palencia', 'Salamanca', 'Segovia', 'Soria', 'Valladolid', 'Zamora'
+                        ]
+                    },
+                    'Cataluña': {
+                        name_ko: '카탈루냐',
+                        name_en: 'Catalonia',
+                        population: 7900000,
+                        area: 32114,
+                        provinces: [
+                            'Barcelona', 'Girona', 'Lleida', 'Tarragona'
+                        ]
+                    },
+                    'Extremadura': {
+                        name_ko: '에스트레마두라',
+                        name_en: 'Extremadura',
+                        population: 1050000,
+                        area: 41634,
+                        provinces: [
+                            'Badajoz', 'Cáceres'
+                        ]
+                    },
+                    'Galicia': {
+                        name_ko: '갈리시아',
+                        name_en: 'Galicia',
+                        population: 2700000,
+                        area: 29574,
+                        provinces: [
+                            'A Coruña', 'Lugo', 'Ourense', 'Pontevedra'
+                        ]
+                    },
+                    'Madrid': {
+                        name_ko: '마드리드',
+                        name_en: 'Madrid',
+                        population: 6900000,
+                        area: 8028,
+                        provinces: [
+                            'Madrid'
+                        ]
+                    },
+                    'Murcia': {
+                        name_ko: '무르시아',
+                        name_en: 'Murcia',
+                        population: 1600000,
+                        area: 11313,
+                        provinces: [
+                            'Murcia'
+                        ]
+                    },
+                    'Navarra': {
+                        name_ko: '나바라',
+                        name_en: 'Navarre',
+                        population: 690000,
+                        area: 10391,
+                        provinces: [
+                            'Navarra', 'Navarre', 'Pamplona'
+                        ]
+                    },
+                    'La Rioja': {
+                        name_ko: '라리오하',
+                        name_en: 'La Rioja',
+                        population: 320000,
+                        area: 5045,
+                        provinces: [
+                            'La Rioja', 'Logroño'
+                        ]
+                    },
+                    'Comunidad Valenciana': {
+                        name_ko: '발렌시아 공동체',
+                        name_en: 'Valencian Community',
+                        population: 5200000,
+                        area: 23255,
+                        provinces: [
+                            'Alicante', 'Castellón', 'Valencia'
+                        ]
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries ESP ADM1 (17개 자치지역 또는 50개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ESP/ADM1/geoBoundaries-ESP-ADM1.geojson',
+                    // geoBoundaries ESP ADM2 (52개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ESP/ADM2/geoBoundaries-ESP-ADM2.geojson',
+                    // Natural Earth Spain provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 스페인만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'ESP' || admin === 'Spain' || iso2 === 'ES';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Spain] Filtered Natural Earth/global dataset to Spain only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Spain] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Spain] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Spain] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Spain] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Spain dataset available');
+                
+                // 자치지역-주 매핑을 클래스에 저장
+                this.spainAutonomousCommunityMapping = spainAutonomousCommunityMapping;
+                
+                // 주 이름을 자치지역 이름으로 매핑하는 역방향 맵 생성
+                const provinceToCommunityMap = {};
+                Object.keys(spainAutonomousCommunityMapping).forEach(communityName => {
+                    const community = spainAutonomousCommunityMapping[communityName];
+                    community.provinces.forEach(province => {
+                        provinceToCommunityMap[province.toLowerCase()] = {
+                            community: communityName,
+                            community_ko: community.name_ko,
+                            community_en: community.name_en
+                        };
+                    });
+                });
+                
+                const idSet = new Set();
+                const isProvinceLevel = geoJsonData.features.length > 40; // ADM2 데이터인 경우 (52개 주)
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME_2 || p.province || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ESP_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = isProvinceLevel ? `esp_province_${index}` : `esp_community_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 이름으로 자치지역 찾기
+                    let communityInfo = null;
+                    let communityData = null;
+                    if (isProvinceLevel) {
+                        const provinceNameLower = rawName.toLowerCase();
+                        // 정확한 매칭 시도
+                        if (provinceToCommunityMap[provinceNameLower]) {
+                            communityInfo = provinceToCommunityMap[provinceNameLower];
+                            communityData = spainAutonomousCommunityMapping[communityInfo.community];
+                        } else {
+                            // 부분 매칭 시도
+                            for (const [provinceKey, commInfo] of Object.entries(provinceToCommunityMap)) {
+                                if (provinceNameLower.includes(provinceKey) || provinceKey.includes(provinceNameLower)) {
+                                    communityInfo = commInfo;
+                                    communityData = spainAutonomousCommunityMapping[commInfo.community];
+                                    break;
+                                }
+                            }
+                        }
+                        // NAME_1에서 자치지역 정보 가져오기 시도
+                        if (!communityInfo && p.NAME_1) {
+                            const communityName = p.NAME_1;
+                            if (spainAutonomousCommunityMapping[communityName]) {
+                                communityInfo = {
+                                    community: communityName,
+                                    community_ko: spainAutonomousCommunityMapping[communityName].name_ko,
+                                    community_en: spainAutonomousCommunityMapping[communityName].name_en
+                                };
+                                communityData = spainAutonomousCommunityMapping[communityName];
+                            }
+                        }
+                    } else {
+                        // 자치지역 레벨 데이터인 경우
+                        if (p.NAME_1 && spainAutonomousCommunityMapping[p.NAME_1]) {
+                            communityData = spainAutonomousCommunityMapping[p.NAME_1];
+                        }
+                    }
+                    
+                    // 자치지역 정보를 기반으로 인구와 면적 계산
+                    let population, area;
+                    if (isProvinceLevel && communityData) {
+                        // 자치지역의 총 인구/면적을 주 수로 나누어 평균 계산
+                        const provinceCount = communityData.provinces.length;
+                        population = p.population || Math.floor(communityData.population / provinceCount);
+                        area = p.area || Math.floor(communityData.area / provinceCount);
+                    } else if (!isProvinceLevel && communityData) {
+                        // 자치지역 레벨 데이터인 경우
+                        population = p.population || communityData.population;
+                        area = p.area || communityData.area;
+                    } else {
+                        // 기본값
+                        population = p.population || Math.floor(Math.random() * (isProvinceLevel ? 2000000 : 8000000)) + (isProvinceLevel ? 100000 : 500000);
+                        area = p.area || Math.floor(Math.random() * (isProvinceLevel ? 50000 : 200000)) + (isProvinceLevel ? 5000 : 30000);
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: communityInfo ? communityInfo.community_ko : (communityData ? communityData.name_ko : rawName),
+                        name_en: communityInfo ? communityInfo.community_en : (communityData ? communityData.name_en : (p.NAME_1 || p.name || rawName)),
+                        country: 'Spain',
+                        country_code: 'ES',
+                        admin_level: isProvinceLevel ? 'Province' : 'Autonomous Community',
+                        autonomous_community: communityInfo ? communityInfo.community : (p.NAME_1 || null),
+                        autonomous_community_ko: communityInfo ? communityInfo.community_ko : (communityData ? communityData.name_ko : null),
+                        autonomous_community_en: communityInfo ? communityInfo.community_en : (communityData ? communityData.name_en : null),
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#e74c3c',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                // 그룹화된 지역 목록 출력
+                this.displaySpainGroupedRegions();
+                
+                this.cachedGeoJsonData['spain'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#e74c3c'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            const isProvinceLevel = geoJsonData.features.length > 40;
+            const adminType = isProvinceLevel ? '주' : '자치지역';
+            console.log('스페인 데이터 로드 완료:', geoJsonData.features.length, `개 ${adminType}`);
+            this.showNotification(`스페인 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역 (17개 자치지역으로 그룹화)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('스페인 데이터 로드 실패:', error);
+            this.showNotification('스페인 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 스페인 자치지역 그룹화된 지역 목록 표시
+    displaySpainGroupedRegions() {
+        if (!this.spainAutonomousCommunityMapping) {
+            console.log('[Spain] Autonomous community mapping not available');
+            return;
+        }
+
+        console.log('\n=== 스페인 행정구역 그룹화 (17개 자치지역, 52개 주) ===\n');
+        
+        // 자치지역별 요약 테이블 헤더
+        console.log('📊 스페인 17개 자치지역 (Comunidades Autónomas) 인구 및 면적 요약');
+        console.log('─'.repeat(95));
+        console.log('순번 | 자치지역 (영문 / 한글)'.padEnd(40) + '| 주 수 | 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+        console.log('─'.repeat(95));
+        
+        // 자치지역별 요약 출력
+        Object.keys(this.spainAutonomousCommunityMapping).forEach((communityName, idx) => {
+            const community = this.spainAutonomousCommunityMapping[communityName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${communityName} (${community.name_ko})`.padEnd(38);
+            const provinces = community.provinces.length.toString().padEnd(5);
+            const population = community.population.toLocaleString().padEnd(23);
+            const area = community.area.toLocaleString();
+            console.log(`${seq} | ${name} | ${provinces} | ${population} | ${area}`);
+        });
+        console.log('─'.repeat(95));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const groupedRegions = {};
+        let totalProvinces = 0;
+
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Spain') {
+                const community = regionData.autonomous_community || 'Unknown';
+                if (!groupedRegions[community]) {
+                    groupedRegions[community] = {
+                        name_ko: regionData.autonomous_community_ko || community,
+                        name_en: regionData.autonomous_community_en || community,
+                        provinces: []
+                    };
+                }
+                groupedRegions[community].provinces.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+                totalProvinces++;
+            }
+        });
+
+        // 자치지역별로 출력
+        Object.keys(this.spainAutonomousCommunityMapping).forEach(communityName => {
+            const community = this.spainAutonomousCommunityMapping[communityName];
+            const loadedProvinces = groupedRegions[communityName] || { provinces: [] };
+            
+            console.log(`\n📌 ${communityName} (${community.name_ko})`);
+            console.log(`   인구: ${community.population.toLocaleString()}명 (2024 추정)`);
+            console.log(`   면적: ${community.area.toLocaleString()} ㎢`);
+            console.log(`   주 수: 총 ${community.provinces.length}개 (로드됨: ${loadedProvinces.provinces.length}개)`);
+            console.log('   ──────────────────────────────────────────');
+            
+            // 예상 주 목록
+            community.provinces.forEach((provinceName, idx) => {
+                const loadedProvince = loadedProvinces.provinces.find(p => 
+                    p.name.toLowerCase().includes(provinceName.toLowerCase()) ||
+                    provinceName.toLowerCase().includes(p.name.toLowerCase())
+                );
+                
+                if (loadedProvince) {
+                    console.log(`   ${idx + 1}. ${provinceName} ✓`);
+                    console.log(`      └─ 로드된 이름: ${loadedProvince.name}`);
+                    console.log(`      └─ ID: ${loadedProvince.id}`);
+                    console.log(`      └─ 인구: ${loadedProvince.population.toLocaleString()}명`);
+                    console.log(`      └─ 면적: ${loadedProvince.area.toLocaleString()} km²`);
+                } else {
+                    console.log(`   ${idx + 1}. ${provinceName} (데이터 없음)`);
+                }
+            });
+        });
+
+        console.log(`\n\n📊 총계:`);
+        console.log(`   • 자치지역 (Comunidades Autónomas): ${Object.keys(this.spainAutonomousCommunityMapping).length}개`);
+        console.log(`   • 주 (Provincias): ${totalProvinces}개 로드됨`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateSpainGroupedHTML(groupedRegions);
+        console.log('%c스페인 행정구역 그룹화', 'color: #e74c3c; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateSpainGroupedHTML(groupedRegions) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #e74c3c; margin-top: 0;">스페인 행정구역 그룹화 (17개 자치지역, 52개 주)</h3>';
+        
+        // 자치지역별 요약 테이블
+        html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+        html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">자치지역</th><th style="padding: 8px; text-align: right;">주 수</th><th style="padding: 8px; text-align: right;">인구 (명)</th><th style="padding: 8px; text-align: right;">면적 (㎢)</th></tr></thead>';
+        html += '<tbody>';
+        
+        Object.keys(this.spainAutonomousCommunityMapping).forEach((communityName, idx) => {
+            const community = this.spainAutonomousCommunityMapping[communityName];
+            html += `<tr style="border-bottom: 1px solid #333;">`;
+            html += `<td style="padding: 8px;">${idx + 1}</td>`;
+            html += `<td style="padding: 8px;">${communityName} (${community.name_ko})</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${community.provinces.length}</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${community.population.toLocaleString()}</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${community.area.toLocaleString()}</td>`;
+            html += `</tr>`;
+        });
+        
+        html += '</tbody></table>';
+        html += '</div>';
+        return html;
+    }
+    
+    // 네덜란드 데이터 로드 (12개 주)
+    async loadNetherlandsData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['netherlands']) {
+                geoJsonData = this.cachedGeoJsonData['netherlands'];
+            } else {
+                // 네덜란드 12개 주 매핑 (2024 기준 인구 및 면적)
+                const netherlandsProvinceMapping = {
+                    'Drenthe': {
+                        name_ko: '드렌터',
+                        name_nl: 'Drenthe',
+                        population: 503000,
+                        area: 2680
+                    },
+                    'Friesland': {
+                        name_ko: '프리슬란트',
+                        name_nl: 'Friesland',
+                        population: 650000,
+                        area: 5741
+                    },
+                    'Gelderland': {
+                        name_ko: '헬데를란트',
+                        name_nl: 'Gelderland',
+                        population: 2100000,
+                        area: 5136
+                    },
+                    'Groningen': {
+                        name_ko: '흐로닝언',
+                        name_nl: 'Groningen',
+                        population: 600000,
+                        area: 2960
+                    },
+                    'Limburg': {
+                        name_ko: '림뷔르흐',
+                        name_nl: 'Limburg',
+                        population: 1130000,
+                        area: 2209
+                    },
+                    'Noord-Brabant': {
+                        name_ko: '노르트브라반트',
+                        name_nl: 'Noord-Brabant',
+                        population: 2600000,
+                        area: 5082
+                    },
+                    'Noord-Holland': {
+                        name_ko: '노르트홀란트',
+                        name_nl: 'Noord-Holland',
+                        population: 2950000,
+                        area: 2662
+                    },
+                    'Overijssel': {
+                        name_ko: '오버레이설',
+                        name_nl: 'Overijssel',
+                        population: 1200000,
+                        area: 3420
+                    },
+                    'Utrecht': {
+                        name_ko: '위트레흐트',
+                        name_nl: 'Utrecht',
+                        population: 1400000,
+                        area: 1560
+                    },
+                    'Zeeland': {
+                        name_ko: '제일란트',
+                        name_nl: 'Zeeland',
+                        population: 390000,
+                        area: 1788
+                    },
+                    'Zuid-Holland': {
+                        name_ko: '자위트홀란트',
+                        name_nl: 'Zuid-Holland',
+                        population: 3800000,
+                        area: 2872
+                    },
+                    'Flevoland': {
+                        name_ko: '플레볼란트',
+                        name_nl: 'Flevoland',
+                        population: 450000,
+                        area: 2412
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries NLD ADM1 (12개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/NLD/ADM1/geoBoundaries-NLD-ADM1.geojson',
+                    // Natural Earth Netherlands provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 네덜란드만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'NLD' || admin === 'Netherlands' || iso2 === 'NL';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Netherlands] Filtered Natural Earth/global dataset to Netherlands only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Netherlands] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Netherlands] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Netherlands] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Netherlands] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Netherlands dataset available');
+                
+                const idSet = new Set();
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `NLD_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `nld_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 이름으로 매핑 데이터 찾기
+                    let provinceData = null;
+                    const provinceNameLower = rawName.toLowerCase();
+                    
+                    // 정확한 매칭 시도
+                    for (const [provinceKey, provinceInfo] of Object.entries(netherlandsProvinceMapping)) {
+                        if (provinceNameLower === provinceKey.toLowerCase() || 
+                            provinceNameLower === provinceInfo.name_nl.toLowerCase()) {
+                            provinceData = { key: provinceKey, ...provinceInfo };
+                            break;
+                        }
+                    }
+                    
+                    // 부분 매칭 시도
+                    if (!provinceData) {
+                        for (const [provinceKey, provinceInfo] of Object.entries(netherlandsProvinceMapping)) {
+                            if (provinceNameLower.includes(provinceKey.toLowerCase()) || 
+                                provinceKey.toLowerCase().includes(provinceNameLower) ||
+                                provinceNameLower.includes(provinceInfo.name_nl.toLowerCase()) ||
+                                provinceInfo.name_nl.toLowerCase().includes(provinceNameLower)) {
+                                provinceData = { key: provinceKey, ...provinceInfo };
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // NAME_1에서 주 정보 가져오기 시도
+                    if (!provinceData && p.NAME_1) {
+                        const provinceName = p.NAME_1;
+                        if (netherlandsProvinceMapping[provinceName]) {
+                            provinceData = { key: provinceName, ...netherlandsProvinceMapping[provinceName] };
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 설정
+                    const population = provinceData ? provinceData.population : (p.population || Math.floor(Math.random() * 3000000) + 300000);
+                    const area = provinceData ? provinceData.area : (p.area || Math.floor(Math.random() * 5000) + 1000);
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: provinceData ? provinceData.name_ko : rawName,
+                        name_en: provinceData ? provinceData.name_nl : (p.NAME_1 || p.name || rawName),
+                        country: 'Netherlands',
+                        country_code: 'NL',
+                        admin_level: 'Province',
+                        province: provinceData ? provinceData.key : rawName,
+                        province_ko: provinceData ? provinceData.name_ko : null,
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#ff9f43',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayNetherlandsGroupedRegions(netherlandsProvinceMapping);
+                
+                this.cachedGeoJsonData['netherlands'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#ff9f43'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('네덜란드 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`네덜란드 데이터 로드 완료: ${geoJsonData.features.length}개 주`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('네덜란드 데이터 로드 실패:', error);
+            this.showNotification('네덜란드 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 네덜란드 주 목록 표시
+    displayNetherlandsGroupedRegions(provinceMapping) {
+        console.log('\n=== 네덜란드 행정구역 (12개 주) ===\n');
+        
+        // 주별 요약 테이블 헤더
+        console.log('📊 네덜란드 12개 주 (Provinces) 인구 및 면적 요약');
+        console.log('─'.repeat(95));
+        console.log('순번 | 주 (영문 / 한글)'.padEnd(40) + '| 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+        console.log('─'.repeat(95));
+        
+        // 주별 요약 출력
+        Object.keys(provinceMapping).forEach((provinceName, idx) => {
+            const province = provinceMapping[provinceName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${provinceName} (${province.name_ko})`.padEnd(38);
+            const population = province.population.toLocaleString().padEnd(23);
+            const area = province.area.toLocaleString();
+            console.log(`${seq} | ${name} | ${population} | ${area}`);
+        });
+        console.log('─'.repeat(95));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const loadedProvinces = [];
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Netherlands') {
+                loadedProvinces.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    name_ko: regionData.name_ko,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+            }
+        });
+
+        console.log(`\n📊 총계:`);
+        console.log(`   • 주 (Provinces): ${Object.keys(provinceMapping).length}개`);
+        console.log(`   • 로드된 주: ${loadedProvinces.length}개`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateNetherlandsGroupedHTML(provinceMapping, loadedProvinces);
+        console.log('%c네덜란드 행정구역', 'color: #ff9f43; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateNetherlandsGroupedHTML(provinceMapping, loadedProvinces) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #ff9f43; margin-top: 0;">네덜란드 행정구역 (12개 주)</h3>';
+        
+        // 주별 요약 테이블
+        html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+        html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">주</th><th style="padding: 8px; text-align: right;">인구 (명)</th><th style="padding: 8px; text-align: right;">면적 (㎢)</th></tr></thead>';
+        html += '<tbody>';
+        
+        Object.keys(provinceMapping).forEach((provinceName, idx) => {
+            const province = provinceMapping[provinceName];
+            html += `<tr style="border-bottom: 1px solid #333;">`;
+            html += `<td style="padding: 8px;">${idx + 1}</td>`;
+            html += `<td style="padding: 8px;">${provinceName} (${province.name_ko})</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${province.population.toLocaleString()}</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${province.area.toLocaleString()}</td>`;
+            html += `</tr>`;
+        });
+        
+        html += '</tbody></table>';
+        html += '</div>';
+        return html;
+    }
+    
+    // 폴란드 데이터 로드 (16개 주)
+    async loadPolandData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['poland']) {
+                geoJsonData = this.cachedGeoJsonData['poland'];
+            } else {
+                // 폴란드 16개 주 매핑 (2024 기준 인구 및 면적)
+                const polandVoivodeshipMapping = {
+                    'Wielkopolskie': {
+                        name_ko: '그레이터폴란드',
+                        name_en: 'Greater Poland',
+                        name_pl: 'Wielkopolskie',
+                        population: 3470000,
+                        area: 29826
+                    },
+                    'Kujawsko-Pomorskie': {
+                        name_ko: '쿠야비안포모제',
+                        name_en: 'Kuyavian-Pomeranian',
+                        name_pl: 'Kujawsko-Pomorskie',
+                        population: 2030000,
+                        area: 17972
+                    },
+                    'Małopolskie': {
+                        name_ko: '레서폴란드',
+                        name_en: 'Lesser Poland',
+                        name_pl: 'Małopolskie',
+                        population: 3430000,
+                        area: 15190
+                    },
+                    'Łódzkie': {
+                        name_ko: '우치',
+                        name_en: 'Łódź',
+                        name_pl: 'Łódzkie',
+                        population: 2360000,
+                        area: 18219
+                    },
+                    'Dolnośląskie': {
+                        name_ko: '로워실레시아',
+                        name_en: 'Lower Silesian',
+                        name_pl: 'Dolnośląskie',
+                        population: 2850000,
+                        area: 19947
+                    },
+                    'Lubelskie': {
+                        name_ko: '루블린',
+                        name_en: 'Lublin',
+                        name_pl: 'Lubelskie',
+                        population: 2070000,
+                        area: 25122
+                    },
+                    'Lubuskie': {
+                        name_ko: '루부시',
+                        name_en: 'Lubusz',
+                        name_pl: 'Lubuskie',
+                        population: 1020000,
+                        area: 13987
+                    },
+                    'Mazowieckie': {
+                        name_ko: '마조비아',
+                        name_en: 'Masovian',
+                        name_pl: 'Mazowieckie',
+                        population: 5500000,
+                        area: 35558
+                    },
+                    'Opolskie': {
+                        name_ko: '오폴레',
+                        name_en: 'Opole',
+                        name_pl: 'Opolskie',
+                        population: 960000,
+                        area: 9412
+                    },
+                    'Podlaskie': {
+                        name_ko: '포들라스키에',
+                        name_en: 'Podlaskie',
+                        name_pl: 'Podlaskie',
+                        population: 1140000,
+                        area: 20187
+                    },
+                    'Pomorskie': {
+                        name_ko: '포메라니안',
+                        name_en: 'Pomeranian',
+                        name_pl: 'Pomorskie',
+                        population: 2450000,
+                        area: 18310
+                    },
+                    'Śląskie': {
+                        name_ko: '실레시아',
+                        name_en: 'Silesian',
+                        name_pl: 'Śląskie',
+                        population: 4440000,
+                        area: 12333
+                    },
+                    'Podkarpackie': {
+                        name_ko: '서브카르파티아',
+                        name_en: 'Subcarpathian',
+                        name_pl: 'Podkarpackie',
+                        population: 2110000,
+                        area: 17846
+                    },
+                    'Świętokrzyskie': {
+                        name_ko: '시비엥토크시스키에',
+                        name_en: 'Świętokrzyskie',
+                        name_pl: 'Świętokrzyskie',
+                        population: 1140000,
+                        area: 11672
+                    },
+                    'Warmińsko-Mazurskie': {
+                        name_ko: '바르미아마주리',
+                        name_en: 'Warmian-Masurian',
+                        name_pl: 'Warmińsko-Mazurskie',
+                        population: 1370000,
+                        area: 24173
+                    },
+                    'Zachodniopomorskie': {
+                        name_ko: '서포메라니안',
+                        name_en: 'West Pomeranian',
+                        name_pl: 'Zachodniopomorskie',
+                        population: 1660000,
+                        area: 22892
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries POL ADM1 (16개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/POL/ADM1/geoBoundaries-POL-ADM1.geojson',
+                    // Natural Earth Poland voivodeships
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 폴란드만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'POL' || admin === 'Poland' || iso2 === 'PL';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Poland] Filtered Natural Earth/global dataset to Poland only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Poland] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Poland] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Poland] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Poland] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Poland dataset available');
+                
+                const idSet = new Set();
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.voivodeship || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `POL_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `pol_voivodeship_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 이름으로 매핑 데이터 찾기
+                    let voivodeshipData = null;
+                    const voivodeshipNameLower = rawName.toLowerCase();
+                    
+                    // 정확한 매칭 시도
+                    for (const [voivodeshipKey, voivodeshipInfo] of Object.entries(polandVoivodeshipMapping)) {
+                        if (voivodeshipNameLower === voivodeshipKey.toLowerCase() || 
+                            voivodeshipNameLower === voivodeshipInfo.name_pl.toLowerCase() ||
+                            voivodeshipNameLower === voivodeshipInfo.name_en.toLowerCase()) {
+                            voivodeshipData = { key: voivodeshipKey, ...voivodeshipInfo };
+                            break;
+                        }
+                    }
+                    
+                    // 부분 매칭 시도
+                    if (!voivodeshipData) {
+                        for (const [voivodeshipKey, voivodeshipInfo] of Object.entries(polandVoivodeshipMapping)) {
+                            if (voivodeshipNameLower.includes(voivodeshipKey.toLowerCase()) || 
+                                voivodeshipKey.toLowerCase().includes(voivodeshipNameLower) ||
+                                voivodeshipNameLower.includes(voivodeshipInfo.name_pl.toLowerCase()) ||
+                                voivodeshipInfo.name_pl.toLowerCase().includes(voivodeshipNameLower) ||
+                                voivodeshipNameLower.includes(voivodeshipInfo.name_en.toLowerCase()) ||
+                                voivodeshipInfo.name_en.toLowerCase().includes(voivodeshipNameLower)) {
+                                voivodeshipData = { key: voivodeshipKey, ...voivodeshipInfo };
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // NAME_1에서 주 정보 가져오기 시도
+                    if (!voivodeshipData && p.NAME_1) {
+                        const voivodeshipName = p.NAME_1;
+                        if (polandVoivodeshipMapping[voivodeshipName]) {
+                            voivodeshipData = { key: voivodeshipName, ...polandVoivodeshipMapping[voivodeshipName] };
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 설정
+                    const population = voivodeshipData ? voivodeshipData.population : (p.population || Math.floor(Math.random() * 4000000) + 1000000);
+                    const area = voivodeshipData ? voivodeshipData.area : (p.area || Math.floor(Math.random() * 30000) + 10000);
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: voivodeshipData ? voivodeshipData.name_ko : rawName,
+                        name_en: voivodeshipData ? voivodeshipData.name_en : (p.NAME_1 || p.name || rawName),
+                        country: 'Poland',
+                        country_code: 'PL',
+                        admin_level: 'Voivodeship',
+                        voivodeship: voivodeshipData ? voivodeshipData.key : rawName,
+                        voivodeship_ko: voivodeshipData ? voivodeshipData.name_ko : null,
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#feca57',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayPolandGroupedRegions(polandVoivodeshipMapping);
+                
+                this.cachedGeoJsonData['poland'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#feca57'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('폴란드 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`폴란드 데이터 로드 완료: ${geoJsonData.features.length}개 주`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('폴란드 데이터 로드 실패:', error);
+            this.showNotification('폴란드 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 폴란드 주 목록 표시
+    displayPolandGroupedRegions(voivodeshipMapping) {
+        console.log('\n=== 폴란드 행정구역 (16개 주) ===\n');
+        
+        // 주별 요약 테이블 헤더
+        console.log('📊 폴란드 16개 주 (Voivodeships) 인구 및 면적 요약');
+        console.log('─'.repeat(100));
+        console.log('순번 | 주 (영문 / 한글)'.padEnd(45) + '| 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+        console.log('─'.repeat(100));
+        
+        // 주별 요약 출력
+        Object.keys(voivodeshipMapping).forEach((voivodeshipName, idx) => {
+            const voivodeship = voivodeshipMapping[voivodeshipName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${voivodeship.name_en} (${voivodeship.name_ko})`.padEnd(43);
+            const population = voivodeship.population.toLocaleString().padEnd(23);
+            const area = voivodeship.area.toLocaleString();
+            console.log(`${seq} | ${name} | ${population} | ${area}`);
+        });
+        console.log('─'.repeat(100));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const loadedVoivodeships = [];
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Poland') {
+                loadedVoivodeships.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    name_ko: regionData.name_ko,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+            }
+        });
+
+        console.log(`\n📊 총계:`);
+        console.log(`   • 주 (Voivodeships): ${Object.keys(voivodeshipMapping).length}개`);
+        console.log(`   • 로드된 주: ${loadedVoivodeships.length}개`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generatePolandGroupedHTML(voivodeshipMapping, loadedVoivodeships);
+        console.log('%c폴란드 행정구역', 'color: #feca57; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generatePolandGroupedHTML(voivodeshipMapping, loadedVoivodeships) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #feca57; margin-top: 0;">폴란드 행정구역 (16개 주)</h3>';
+        
+        // 주별 요약 테이블
+        html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+        html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">주</th><th style="padding: 8px; text-align: right;">인구 (명)</th><th style="padding: 8px; text-align: right;">면적 (㎢)</th></tr></thead>';
+        html += '<tbody>';
+        
+        Object.keys(voivodeshipMapping).forEach((voivodeshipName, idx) => {
+            const voivodeship = voivodeshipMapping[voivodeshipName];
+            html += `<tr style="border-bottom: 1px solid #333;">`;
+            html += `<td style="padding: 8px;">${idx + 1}</td>`;
+            html += `<td style="padding: 8px;">${voivodeship.name_en} (${voivodeship.name_ko})</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${voivodeship.population.toLocaleString()}</td>`;
+            html += `<td style="padding: 8px; text-align: right;">${voivodeship.area.toLocaleString()}</td>`;
+            html += `</tr>`;
+        });
+        
+        html += '</tbody></table>';
+        html += '</div>';
+        return html;
+    }
+    
+    // 벨기에 데이터 로드 (10개 주 + 브뤼셀 수도지역)
+    async loadBelgiumData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['belgium']) {
+                geoJsonData = this.cachedGeoJsonData['belgium'];
+            } else {
+                // 벨기에 10개 주 + 브뤼셀 수도지역 매핑 (2024 기준 인구 및 면적)
+                const belgiumProvinceMapping = {
+                    // 플랑드르 지역
+                    'Antwerpen': {
+                        name_ko: '안트베르펜',
+                        name_en: 'Antwerpen',
+                        region: 'Flanders',
+                        region_ko: '플랑드르 지역',
+                        population: 1940000,
+                        area: 2876
+                    },
+                    'Limburg': {
+                        name_ko: '림뷔르흐',
+                        name_en: 'Limburg',
+                        region: 'Flanders',
+                        region_ko: '플랑드르 지역',
+                        population: 900000,
+                        area: 2427
+                    },
+                    'Oost-Vlaanderen': {
+                        name_ko: '오스트플란데런',
+                        name_en: 'East Flanders',
+                        region: 'Flanders',
+                        region_ko: '플랑드르 지역',
+                        population: 1540000,
+                        area: 2982
+                    },
+                    'Vlaams-Brabant': {
+                        name_ko: '플람스브라반트',
+                        name_en: 'Flemish Brabant',
+                        region: 'Flanders',
+                        region_ko: '플랑드르 지역',
+                        population: 1200000,
+                        area: 2106
+                    },
+                    'West-Vlaanderen': {
+                        name_ko: '베스트플란데런',
+                        name_en: 'West Flanders',
+                        region: 'Flanders',
+                        region_ko: '플랑드르 지역',
+                        population: 1210000,
+                        area: 3125
+                    },
+                    // 왈롱 지역
+                    'Brabant Wallon': {
+                        name_ko: '브라방왈롱',
+                        name_en: 'Walloon Brabant',
+                        region: 'Walloon',
+                        region_ko: '왈롱 지역',
+                        population: 420000,
+                        area: 1090
+                    },
+                    'Hainaut': {
+                        name_ko: '에노',
+                        name_en: 'Hainaut',
+                        region: 'Walloon',
+                        region_ko: '왈롱 지역',
+                        population: 1340000,
+                        area: 3787
+                    },
+                    'Liège': {
+                        name_ko: '리에주',
+                        name_en: 'Liège',
+                        region: 'Walloon',
+                        region_ko: '왈롱 지역',
+                        population: 1110000,
+                        area: 3857
+                    },
+                    'Luxembourg': {
+                        name_ko: '뤽상부르',
+                        name_en: 'Luxembourg',
+                        region: 'Walloon',
+                        region_ko: '왈롱 지역',
+                        population: 290000,
+                        area: 4443
+                    },
+                    'Namur': {
+                        name_ko: '나뮈르',
+                        name_en: 'Namur',
+                        region: 'Walloon',
+                        region_ko: '왈롱 지역',
+                        population: 520000,
+                        area: 3666
+                    },
+                    // 브뤼셀 수도지역
+                    'Brussels-Capital': {
+                        name_ko: '브뤼셀 수도지역',
+                        name_en: 'Brussels-Capital Region',
+                        region: 'Brussels-Capital',
+                        region_ko: '브뤼셀 수도 지역',
+                        population: 1240000,
+                        area: 162
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries BEL ADM1 (10개 주 + 브뤼셀)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/BEL/ADM1/geoBoundaries-BEL-ADM1.geojson',
+                    // Natural Earth Belgium provinces
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 벨기에만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'BEL' || admin === 'Belgium' || iso2 === 'BE';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Belgium] Filtered Natural Earth/global dataset to Belgium only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Belgium] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Belgium] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Belgium] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Belgium] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Belgium dataset available');
+                
+                const idSet = new Set();
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.province || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `BEL_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `bel_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 주 이름으로 매핑 데이터 찾기
+                    let provinceData = null;
+                    const provinceNameLower = rawName.toLowerCase();
+                    
+                    // 정확한 매칭 시도
+                    for (const [provinceKey, provinceInfo] of Object.entries(belgiumProvinceMapping)) {
+                        if (provinceNameLower === provinceKey.toLowerCase() || 
+                            provinceNameLower === provinceInfo.name_en.toLowerCase() ||
+                            provinceNameLower.includes('brussels') && provinceKey === 'Brussels-Capital') {
+                            provinceData = { key: provinceKey, ...provinceInfo };
+                            break;
+                        }
+                    }
+                    
+                    // 부분 매칭 시도
+                    if (!provinceData) {
+                        for (const [provinceKey, provinceInfo] of Object.entries(belgiumProvinceMapping)) {
+                            if (provinceNameLower.includes(provinceKey.toLowerCase()) || 
+                                provinceKey.toLowerCase().includes(provinceNameLower) ||
+                                provinceNameLower.includes(provinceInfo.name_en.toLowerCase()) ||
+                                provinceInfo.name_en.toLowerCase().includes(provinceNameLower)) {
+                                provinceData = { key: provinceKey, ...provinceInfo };
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // NAME_1에서 주 정보 가져오기 시도
+                    if (!provinceData && p.NAME_1) {
+                        const provinceName = p.NAME_1;
+                        if (belgiumProvinceMapping[provinceName]) {
+                            provinceData = { key: provinceName, ...belgiumProvinceMapping[provinceName] };
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 설정
+                    const population = provinceData ? provinceData.population : (p.population || Math.floor(Math.random() * 2000000) + 300000);
+                    const area = provinceData ? provinceData.area : (p.area || Math.floor(Math.random() * 4000) + 1000);
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: provinceData ? provinceData.name_ko : rawName,
+                        name_en: provinceData ? provinceData.name_en : (p.NAME_1 || p.name || rawName),
+                        country: 'Belgium',
+                        country_code: 'BE',
+                        admin_level: provinceData && provinceData.key === 'Brussels-Capital' ? 'Capital Region' : 'Province',
+                        province: provinceData ? provinceData.key : rawName,
+                        province_ko: provinceData ? provinceData.name_ko : null,
+                        region: provinceData ? provinceData.region : null,
+                        region_ko: provinceData ? provinceData.region_ko : null,
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#5dade2',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayBelgiumGroupedRegions(belgiumProvinceMapping);
+                
+                this.cachedGeoJsonData['belgium'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#5dade2'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('벨기에 데이터 로드 완료:', geoJsonData.features.length, '개 행정구역');
+            this.showNotification(`벨기에 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역 (10개 주 + 브뤼셀 수도지역)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('벨기에 데이터 로드 실패:', error);
+            this.showNotification('벨기에 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 벨기에 주 목록 표시
+    displayBelgiumGroupedRegions(provinceMapping) {
+        console.log('\n=== 벨기에 행정구역 (10개 주 + 브뤼셀 수도지역) ===\n');
+        
+        // 지역별로 그룹화
+        const regions = {
+            'Flanders': { name_ko: '플랑드르 지역', provinces: [] },
+            'Walloon': { name_ko: '왈롱 지역', provinces: [] },
+            'Brussels-Capital': { name_ko: '브뤼셀 수도 지역', provinces: [] }
+        };
+        
+        Object.keys(provinceMapping).forEach(provinceKey => {
+            const province = provinceMapping[provinceKey];
+            if (regions[province.region]) {
+                regions[province.region].provinces.push({ key: provinceKey, ...province });
+            }
+        });
+        
+        // 지역별 요약 출력
+        Object.keys(regions).forEach(regionKey => {
+            const region = regions[regionKey];
+            console.log(`\n📌 ${region.name_ko} (${regionKey} Region)`);
+            console.log('─'.repeat(95));
+            console.log('순번 | 주 (영문 / 한글)'.padEnd(40) + '| 인구 (명, 2024 추정)'.padEnd(25) + '| 면적 (㎢)');
+            console.log('─'.repeat(95));
+            
+            region.provinces.forEach((province, idx) => {
+                const seq = (idx + 1).toString().padEnd(5);
+                const name = `${province.name_en} (${province.name_ko})`.padEnd(38);
+                const population = province.population.toLocaleString().padEnd(23);
+                const area = province.area.toLocaleString();
+                console.log(`${seq} | ${name} | ${population} | ${area}`);
+            });
+        });
+        
+        console.log('\n📊 총계:');
+        console.log(`   • 지역 (Regions): 3개`);
+        console.log(`   • 주 (Provinces): 10개`);
+        console.log(`   • 수도지역: 1개 (브뤼셀)`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateBelgiumGroupedHTML(provinceMapping, regions);
+        console.log('%c벨기에 행정구역', 'color: #5dade2; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateBelgiumGroupedHTML(provinceMapping, regions) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #5dade2; margin-top: 0;">벨기에 행정구역 (10개 주 + 브뤼셀 수도지역)</h3>';
+        
+        // 지역별 요약 테이블
+        Object.keys(regions).forEach(regionKey => {
+            const region = regions[regionKey];
+            html += `<h4 style="color: #5dade2; margin-top: 20px;">${region.name_ko}</h4>`;
+            html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+            html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">주</th><th style="padding: 8px; text-align: right;">인구 (명)</th><th style="padding: 8px; text-align: right;">면적 (㎢)</th></tr></thead>';
+            html += '<tbody>';
+            
+            region.provinces.forEach((province, idx) => {
+                html += `<tr style="border-bottom: 1px solid #333;">`;
+                html += `<td style="padding: 8px;">${idx + 1}</td>`;
+                html += `<td style="padding: 8px;">${province.name_en} (${province.name_ko})</td>`;
+                html += `<td style="padding: 8px; text-align: right;">${province.population.toLocaleString()}</td>`;
+                html += `<td style="padding: 8px; text-align: right;">${province.area.toLocaleString()}</td>`;
+                html += `</tr>`;
+            });
+            
+            html += '</tbody></table>';
+        });
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // 스웨덴 데이터 로드 (21개 주로 그룹화)
+    async loadSwedenData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['sweden']) {
+                geoJsonData = this.cachedGeoJsonData['sweden'];
+            } else {
+                // 스웨덴 21개 주(Län) 매핑 (인구 및 면적 포함, 2024 추정)
+                const swedenCountyMapping = {
+                    'Stockholm': { name_ko: '스톡홀름 주', name_en: 'Stockholm', name_sv: 'Stockholms län', population: 2460000, area: 6519 },
+                    'Uppsala': { name_ko: '웁살라 주', name_en: 'Uppsala', name_sv: 'Uppsala län', population: 410000, area: 8207 },
+                    'Södermanland': { name_ko: '쇠데르만란드 주', name_en: 'Södermanland', name_sv: 'Södermanlands län', population: 305000, area: 6072 },
+                    'Östergötland': { name_ko: '외스테르예틀란드 주', name_en: 'Östergötland', name_sv: 'Östergötlands län', population: 480000, area: 10562 },
+                    'Jönköping': { name_ko: '옌셰핑 주', name_en: 'Jönköping', name_sv: 'Jönköpings län', population: 370000, area: 10494 },
+                    'Kronoberg': { name_ko: '크로노베리 주', name_en: 'Kronoberg', name_sv: 'Kronobergs län', population: 210000, area: 8457 },
+                    'Kalmar': { name_ko: '칼마르 주', name_en: 'Kalmar', name_sv: 'Kalmar län', population: 250000, area: 11163 },
+                    'Gotland': { name_ko: '고틀란드 주', name_en: 'Gotland', name_sv: 'Gotlands län', population: 60000, area: 3184 },
+                    'Blekinge': { name_ko: '블레킹에 주', name_en: 'Blekinge', name_sv: 'Blekinge län', population: 160000, area: 3039 },
+                    'Skåne': { name_ko: '스코네 주', name_en: 'Skåne', name_sv: 'Skåne län', population: 1420000, area: 11303 },
+                    'Halland': { name_ko: '할란드 주', name_en: 'Halland', name_sv: 'Hallands län', population: 345000, area: 5427 },
+                    'Västra Götaland': { name_ko: '베스트라예탈란드 주', name_en: 'Västra Götaland', name_sv: 'Västra Götalands län', population: 1800000, area: 23942 },
+                    'Värmland': { name_ko: '베르믈란드 주', name_en: 'Värmland', name_sv: 'Värmlands län', population: 285000, area: 17583 },
+                    'Örebro': { name_ko: '외레브로 주', name_en: 'Örebro', name_sv: 'Örebro län', population: 320000, area: 8555 },
+                    'Västmanland': { name_ko: '베스트만란드 주', name_en: 'Västmanland', name_sv: 'Västmanlands län', population: 290000, area: 5146 },
+                    'Dalarna': { name_ko: '달라르나 주', name_en: 'Dalarna', name_sv: 'Dalarnas län', population: 285000, area: 28194 },
+                    'Gävleborg': { name_ko: '예블레보리 주', name_en: 'Gävleborg', name_sv: 'Gävleborgs län', population: 290000, area: 18186 },
+                    'Västernorrland': { name_ko: '베스테르노를란드 주', name_en: 'Västernorrland', name_sv: 'Västernorrlands län', population: 230000, area: 21683 },
+                    'Jämtland': { name_ko: '옘틀란드 주', name_en: 'Jämtland', name_sv: 'Jämtlands län', population: 130000, area: 49443 },
+                    'Västerbotten': { name_ko: '베스테르보텐 주', name_en: 'Västerbotten', name_sv: 'Västerbottens län', population: 280000, area: 55186 },
+                    'Norrbotten': { name_ko: '노를보텐 주', name_en: 'Norrbotten', name_sv: 'Norrbottens län', population: 250000, area: 106211 }
+                };
+
+                const candidateUrls = [
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/SWE/ADM1/geoBoundaries-SWE-ADM1.geojson',
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'SWE' || admin === 'Sweden' || iso2 === 'SE';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Sweden] Filtered Natural Earth/global dataset to Sweden only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = data;
+                            console.log('[Sweden] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Sweden] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Sweden] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Sweden] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Sweden dataset available');
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `SWE_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `swe_county_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 행정구역 이름 매칭
+                    let countyData = null;
+                    const rawNameLower = rawName.toLowerCase();
+                    for (const [countyKey, countyInfo] of Object.entries(swedenCountyMapping)) {
+                        const countyKeyLower = countyKey.toLowerCase();
+                        const nameEnLower = countyInfo.name_en.toLowerCase();
+                        const nameSvLower = countyInfo.name_sv.toLowerCase();
+                        if (rawNameLower.includes(countyKeyLower) || countyKeyLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameEnLower) || nameEnLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameSvLower) || nameSvLower.includes(rawNameLower)) {
+                            countyData = countyInfo;
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않은 경우 NAME_1에서도 확인
+                    if (!countyData && p.NAME_1) {
+                        const name1Lower = p.NAME_1.toLowerCase();
+                        for (const [countyKey, countyInfo] of Object.entries(swedenCountyMapping)) {
+                            const countyKeyLower = countyKey.toLowerCase();
+                            const nameEnLower = countyInfo.name_en.toLowerCase();
+                            const nameSvLower = countyInfo.name_sv.toLowerCase();
+                            if (name1Lower.includes(countyKeyLower) || countyKeyLower.includes(name1Lower) ||
+                                name1Lower.includes(nameEnLower) || nameEnLower.includes(name1Lower) ||
+                                name1Lower.includes(nameSvLower) || nameSvLower.includes(name1Lower)) {
+                                countyData = countyInfo;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: countyData ? countyData.name_ko : rawName,
+                        name_en: countyData ? countyData.name_en : (p.NAME_1 || p.name || rawName),
+                        country: 'Sweden',
+                        country_code: 'SE',
+                        admin_level: 'County (Län)',
+                        population: countyData ? countyData.population : (p.population || Math.floor(Math.random() * 500000) + 50000),
+                        area: countyData ? countyData.area : (p.area || Math.floor(Math.random() * 10000) + 1000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#3498db',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['sweden'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#3498db'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('스웨덴 데이터 로드 완료:', geoJsonData.features.length, '개 주');
+            this.showNotification(`스웨덴 데이터 로드 완료: ${geoJsonData.features.length}개 주 (Län)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('스웨덴 데이터 로드 실패:', error);
+            this.showNotification('스웨덴 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    // 오스트리아 데이터 로드 (9개 주로 그룹화)
+    async loadAustriaData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['austria']) {
+                geoJsonData = this.cachedGeoJsonData['austria'];
+            } else {
+                // 오스트리아 9개 연방주 매핑 (인구 및 면적 포함, 2024 추정)
+                const austriaStateMapping = {
+                    'Wien': {
+                        name_ko: '빈',
+                        name_en: 'Vienna',
+                        name_de: 'Wien',
+                        population: 1985000,
+                        area: 415,
+                        districts: ['Wien', 'Vienna']
+                    },
+                    'Niederösterreich': {
+                        name_ko: '니더외스터라이히',
+                        name_en: 'Lower Austria',
+                        name_de: 'Niederösterreich',
+                        population: 1720000,
+                        area: 19186,
+                        districts: ['Niederösterreich', 'Lower Austria', 'NÖ', 'NOE']
+                    },
+                    'Oberösterreich': {
+                        name_ko: '오버외스터라이히',
+                        name_en: 'Upper Austria',
+                        name_de: 'Oberösterreich',
+                        population: 1520000,
+                        area: 11982,
+                        districts: ['Oberösterreich', 'Upper Austria', 'OÖ', 'OOE']
+                    },
+                    'Steiermark': {
+                        name_ko: '슈타이어마르크',
+                        name_en: 'Styria',
+                        name_de: 'Steiermark',
+                        population: 1260000,
+                        area: 16401,
+                        districts: ['Steiermark', 'Styria', 'ST']
+                    },
+                    'Tirol': {
+                        name_ko: '티롤',
+                        name_en: 'Tyrol',
+                        name_de: 'Tirol',
+                        population: 770000,
+                        area: 12648,
+                        districts: ['Tirol', 'Tyrol', 'T']
+                    },
+                    'Kärnten': {
+                        name_ko: '케른텐',
+                        name_en: 'Carinthia',
+                        name_de: 'Kärnten',
+                        population: 570000,
+                        area: 9537,
+                        districts: ['Kärnten', 'Carinthia', 'K']
+                    },
+                    'Salzburg': {
+                        name_ko: '잘츠부르크',
+                        name_en: 'Salzburg',
+                        name_de: 'Salzburg',
+                        population: 570000,
+                        area: 7156,
+                        districts: ['Salzburg']
+                    },
+                    'Vorarlberg': {
+                        name_ko: '포어아를베르크',
+                        name_en: 'Vorarlberg',
+                        name_de: 'Vorarlberg',
+                        population: 410000,
+                        area: 2601,
+                        districts: ['Vorarlberg', 'V']
+                    },
+                    'Burgenland': {
+                        name_ko: '부르겐란트',
+                        name_en: 'Burgenland',
+                        name_de: 'Burgenland',
+                        population: 310000,
+                        area: 3965,
+                        districts: ['Burgenland', 'B']
+                    }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries AUT ADM1 (9개 주)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/AUT/ADM1/geoBoundaries-AUT-ADM1.geojson',
+                    // geoBoundaries AUT ADM2 (21개 구)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/AUT/ADM2/geoBoundaries-AUT-ADM2.geojson',
+                    // Natural Earth Austria states
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 오스트리아만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'AUT' || admin === 'Austria' || iso2 === 'AT';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Austria] Filtered Natural Earth/global dataset to Austria only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Austria] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Austria] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Austria] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Austria] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Austria dataset available');
+                
+                // 구 이름을 주 이름으로 매핑하는 역방향 맵 생성
+                const districtToStateMap = {};
+                Object.keys(austriaStateMapping).forEach(stateName => {
+                    const state = austriaStateMapping[stateName];
+                    state.districts.forEach(district => {
+                        districtToStateMap[district.toLowerCase()] = {
+                            state: stateName,
+                            state_ko: state.name_ko,
+                            state_en: state.name_en
+                        };
+                    });
+                });
+                
+                const idSet = new Set();
+                const isDistrictLevel = geoJsonData.features.length > 15; // ADM2 데이터인 경우 (21개 구)
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME_2 || p.district || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `AUT_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = isDistrictLevel ? `aut_district_${index}` : `aut_state_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 구 이름으로 주 찾기
+                    let stateInfo = null;
+                    let stateData = null;
+                    if (isDistrictLevel) {
+                        const districtNameLower = rawName.toLowerCase();
+                        // 정확한 매칭 시도
+                        if (districtToStateMap[districtNameLower]) {
+                            stateInfo = districtToStateMap[districtNameLower];
+                            stateData = austriaStateMapping[stateInfo.state];
+                        } else {
+                            // 부분 매칭 시도
+                            for (const [districtKey, stInfo] of Object.entries(districtToStateMap)) {
+                                if (districtNameLower.includes(districtKey) || districtKey.includes(districtNameLower)) {
+                                    stateInfo = stInfo;
+                                    stateData = austriaStateMapping[stInfo.state];
+                                    break;
+                                }
+                            }
+                        }
+                        // NAME_1에서 주 정보 가져오기 시도
+                        if (!stateInfo && p.NAME_1) {
+                            const stateName = p.NAME_1;
+                            if (austriaStateMapping[stateName]) {
+                                stateInfo = {
+                                    state: stateName,
+                                    state_ko: austriaStateMapping[stateName].name_ko,
+                                    state_en: austriaStateMapping[stateName].name_en
+                                };
+                                stateData = austriaStateMapping[stateName];
+                            } else {
+                                // NAME_1이 주 이름과 부분 매칭되는지 확인
+                                for (const [stateKey, stateInfoData] of Object.entries(austriaStateMapping)) {
+                                    if (stateName.toLowerCase().includes(stateKey.toLowerCase()) || 
+                                        stateKey.toLowerCase().includes(stateName.toLowerCase()) ||
+                                        stateInfoData.name_en.toLowerCase().includes(stateName.toLowerCase()) ||
+                                        stateInfoData.name_de.toLowerCase().includes(stateName.toLowerCase())) {
+                                        stateInfo = {
+                                            state: stateKey,
+                                            state_ko: stateInfoData.name_ko,
+                                            state_en: stateInfoData.name_en
+                                        };
+                                        stateData = stateInfoData;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // 주 레벨 데이터인 경우
+                        if (p.NAME_1 && austriaStateMapping[p.NAME_1]) {
+                            stateData = austriaStateMapping[p.NAME_1];
+                        } else if (p.NAME_1) {
+                            // NAME_1이 주 이름과 부분 매칭되는지 확인
+                            for (const [stateKey, stateInfoData] of Object.entries(austriaStateMapping)) {
+                                if (p.NAME_1.toLowerCase().includes(stateKey.toLowerCase()) || 
+                                    stateKey.toLowerCase().includes(p.NAME_1.toLowerCase()) ||
+                                    stateInfoData.name_en.toLowerCase().includes(p.NAME_1.toLowerCase()) ||
+                                    stateInfoData.name_de.toLowerCase().includes(p.NAME_1.toLowerCase())) {
+                                    stateData = stateInfoData;
+                                    stateInfo = {
+                                        state: stateKey,
+                                        state_ko: stateInfoData.name_ko,
+                                        state_en: stateInfoData.name_en
+                                    };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 주 정보를 기반으로 인구와 면적 계산
+                    let population, area;
+                    if (isDistrictLevel && stateData) {
+                        // 구 레벨 데이터인 경우 주의 평균 인구/면적 사용
+                        const avgPopulation = stateData.population ? Math.floor(stateData.population / stateData.districts.length) : (p.population || Math.floor(Math.random() * 500000) + 50000);
+                        const avgArea = stateData.area ? Math.floor(stateData.area / stateData.districts.length) : (p.area || Math.floor(Math.random() * 2000) + 500);
+                        population = p.population || avgPopulation;
+                        area = p.area || avgArea;
+                    } else if (!isDistrictLevel && stateData) {
+                        // 주 레벨 데이터인 경우 - 매핑된 실제 데이터 사용
+                        population = p.population || stateData.population || Math.floor(Math.random() * 2000000) + 200000;
+                        area = p.area || stateData.area || Math.floor(Math.random() * 10000) + 2000;
+                    } else {
+                        // 기본값
+                        population = p.population || Math.floor(Math.random() * (isDistrictLevel ? 500000 : 2000000)) + (isDistrictLevel ? 50000 : 200000);
+                        area = p.area || Math.floor(Math.random() * (isDistrictLevel ? 2000 : 10000)) + (isDistrictLevel ? 500 : 2000);
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: stateInfo ? stateInfo.state_ko : (stateData ? stateData.name_ko : rawName),
+                        name_en: stateInfo ? stateInfo.state_en : (stateData ? stateData.name_en : (p.NAME_1 || p.name || rawName)),
+                        country: 'Austria',
+                        country_code: 'AT',
+                        admin_level: isDistrictLevel ? 'District' : 'State',
+                        state: stateInfo ? stateInfo.state : (p.NAME_1 || null),
+                        state_ko: stateInfo ? stateInfo.state_ko : (stateData ? stateData.name_ko : null),
+                        state_en: stateInfo ? stateInfo.state_en : (stateData ? stateData.name_en : null),
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#9b59b6',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayAustriaGroupedRegions(austriaStateMapping);
+                
+                this.cachedGeoJsonData['austria'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#9b59b6'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            const isDistrictLevel = geoJsonData.features.length > 15;
+            const adminType = isDistrictLevel ? '구' : '주';
+            console.log('오스트리아 데이터 로드 완료:', geoJsonData.features.length, `개 ${adminType}`);
+            this.showNotification(`오스트리아 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역 (9개 주로 그룹화)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('오스트리아 데이터 로드 실패:', error);
+            this.showNotification('오스트리아 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 오스트리아 주 그룹화된 지역 목록 표시
+    displayAustriaGroupedRegions(stateMapping) {
+        console.log('\n=== 오스트리아 행정구역 그룹화 (9개 주) ===\n');
+        
+        // 주별 요약 테이블 헤더
+        console.log('📊 오스트리아 9개 연방주 (Bundesländer) 요약');
+        console.log('─'.repeat(95));
+        console.log('순번 | 주 (영문 / 한글)'.padEnd(40) + '| 독일어명'.padEnd(20) + '| 구 수 (추정)');
+        console.log('─'.repeat(95));
+        
+        // 주별 요약 출력
+        Object.keys(stateMapping).forEach((stateName, idx) => {
+            const state = stateMapping[stateName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${state.name_en} (${state.name_ko})`.padEnd(38);
+            const nameDe = state.name_de.padEnd(18);
+            const districtCount = state.districts.length.toString().padEnd(10);
+            console.log(`${seq} | ${name} | ${nameDe} | ${districtCount}`);
+        });
+        console.log('─'.repeat(95));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const groupedRegions = {};
+        let totalDistricts = 0;
+
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Austria') {
+                const state = regionData.state || 'Unknown';
+                if (!groupedRegions[state]) {
+                    groupedRegions[state] = {
+                        name_ko: regionData.state_ko || state,
+                        name_en: regionData.state_en || state,
+                        districts: []
+                    };
+                }
+                groupedRegions[state].districts.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+                totalDistricts++;
+            }
+        });
+
+        // 주별로 출력
+        Object.keys(stateMapping).forEach(stateName => {
+            const state = stateMapping[stateName];
+            const loadedDistricts = groupedRegions[stateName] || { districts: [] };
+            
+            console.log(`\n📌 ${state.name_en} (${state.name_ko})`);
+            console.log(`   독일어명: ${state.name_de}`);
+            console.log(`   구 수: 로드됨 ${loadedDistricts.districts.length}개`);
+            console.log('   ──────────────────────────────────────────');
+        });
+
+        console.log(`\n\n📊 총계:`);
+        console.log(`   • 연방주 (Bundesländer): ${Object.keys(stateMapping).length}개`);
+        console.log(`   • 구 (Bezirke): ${totalDistricts}개 로드됨`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateAustriaGroupedHTML(stateMapping, groupedRegions);
+        console.log('%c오스트리아 행정구역 그룹화', 'color: #9b59b6; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateAustriaGroupedHTML(stateMapping, groupedRegions) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #9b59b6; margin-top: 0;">오스트리아 행정구역 그룹화 (9개 주)</h3>';
+        
+        // 주별 요약 테이블
+        html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+        html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">주</th><th style="padding: 8px; text-align: left;">독일어명</th></tr></thead>';
+        html += '<tbody>';
+        
+        Object.keys(stateMapping).forEach((stateName, idx) => {
+            const state = stateMapping[stateName];
+            html += `<tr style="border-bottom: 1px solid #333;">`;
+            html += `<td style="padding: 8px;">${idx + 1}</td>`;
+            html += `<td style="padding: 8px;">${state.name_en} (${state.name_ko})</td>`;
+            html += `<td style="padding: 8px;">${state.name_de}</td>`;
+            html += `</tr>`;
+        });
+        
+        html += '</tbody></table>';
+        html += '</div>';
+        return html;
+    }
+    
+    // 덴마크 데이터 로드 (5개 지역으로 그룹화)
+    async loadDenmarkData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['denmark']) {
+                geoJsonData = this.cachedGeoJsonData['denmark'];
+            } else {
+                // 덴마크 5개 지역(Regioner) 매핑 (인구 및 면적 포함, 2024 추정)
+                const denmarkRegionMapping = {
+                    'Hovedstaden': { name_ko: '수도 지역', name_en: 'Capital Region', name_da: 'Region Hovedstaden', population: 1900000, area: 2560 },
+                    'Sjælland': { name_ko: '셀란 지역', name_en: 'Zealand Region', name_da: 'Region Sjælland', population: 850000, area: 7274 },
+                    'Syddanmark': { name_ko: '남덴마크 지역', name_en: 'Southern Denmark', name_da: 'Region Syddanmark', population: 1250000, area: 12192 },
+                    'Midtjylland': { name_ko: '중부 유틀란드 지역', name_en: 'Central Jutland', name_da: 'Region Midtjylland', population: 1350000, area: 13142 },
+                    'Nordjylland': { name_ko: '북유틀란드 지역', name_en: 'North Jutland', name_da: 'Region Nordjylland', population: 600000, area: 7874 }
+                };
+
+                const candidateUrls = [
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/DNK/ADM1/geoBoundaries-DNK-ADM1.geojson',
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'DNK' || admin === 'Denmark' || iso2 === 'DK';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Denmark] Filtered Natural Earth/global dataset to Denmark only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = data;
+                            console.log('[Denmark] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Denmark] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Denmark] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Denmark] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Denmark dataset available');
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `DNK_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `dnk_region_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 행정구역 이름 매칭
+                    let regionData = null;
+                    const rawNameLower = rawName.toLowerCase();
+                    for (const [regionKey, regionInfo] of Object.entries(denmarkRegionMapping)) {
+                        const regionKeyLower = regionKey.toLowerCase();
+                        const nameEnLower = regionInfo.name_en.toLowerCase();
+                        const nameDaLower = regionInfo.name_da.toLowerCase();
+                        if (rawNameLower.includes(regionKeyLower) || regionKeyLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameEnLower) || nameEnLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameDaLower) || nameDaLower.includes(rawNameLower)) {
+                            regionData = regionInfo;
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않은 경우 NAME_1에서도 확인
+                    if (!regionData && p.NAME_1) {
+                        const name1Lower = p.NAME_1.toLowerCase();
+                        for (const [regionKey, regionInfo] of Object.entries(denmarkRegionMapping)) {
+                            const regionKeyLower = regionKey.toLowerCase();
+                            const nameEnLower = regionInfo.name_en.toLowerCase();
+                            const nameDaLower = regionInfo.name_da.toLowerCase();
+                            if (name1Lower.includes(regionKeyLower) || regionKeyLower.includes(name1Lower) ||
+                                name1Lower.includes(nameEnLower) || nameEnLower.includes(name1Lower) ||
+                                name1Lower.includes(nameDaLower) || nameDaLower.includes(name1Lower)) {
+                                regionData = regionInfo;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: regionData ? regionData.name_ko : rawName,
+                        name_en: regionData ? regionData.name_en : (p.NAME_1 || p.name || rawName),
+                        country: 'Denmark',
+                        country_code: 'DK',
+                        admin_level: 'Region',
+                        population: regionData ? regionData.population : (p.population || Math.floor(Math.random() * 2000000) + 300000),
+                        area: regionData ? regionData.area : (p.area || Math.floor(Math.random() * 15000) + 2000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#1abc9c',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['denmark'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#1abc9c'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('덴마크 데이터 로드 완료:', geoJsonData.features.length, '개 지역');
+            this.showNotification(`덴마크 데이터 로드 완료: ${geoJsonData.features.length}개 지역 (Regioner)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('덴마크 데이터 로드 실패:', error);
+            this.showNotification('덴마크 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    // 핀란드 데이터 로드 (19개 지역으로 그룹화)
+    async loadFinlandData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['finland']) {
+                geoJsonData = this.cachedGeoJsonData['finland'];
+            } else {
+                // 핀란드 19개 지역(Maakunta) 매핑 (인구 및 면적 포함, 2024 추정)
+                const finlandRegionMapping = {
+                    'Uusimaa': { name_ko: '우시마', name_en: 'Uusimaa', name_fi: 'Uusimaa', population: 1750000, area: 9100 },
+                    'Varsinais-Suomi': { name_ko: '남서핀란드', name_en: 'Southwest Finland', name_fi: 'Varsinais-Suomi', population: 490000, area: 10900 },
+                    'Satakunta': { name_ko: '사타쿤타', name_en: 'Satakunta', name_fi: 'Satakunta', population: 215000, area: 8200 },
+                    'Kanta-Häme': { name_ko: '칸타헤메', name_en: 'Tavastia Proper', name_fi: 'Kanta-Häme', population: 185000, area: 5200 },
+                    'Päijät-Häme': { name_ko: '파이얘트해메', name_en: 'Päijänne Tavastia', name_fi: 'Päijät-Häme', population: 210000, area: 5100 },
+                    'Kymenlaakso': { name_ko: '키메넬락소', name_en: 'Kymenlaakso', name_fi: 'Kymenlaakso', population: 155000, area: 5100 },
+                    'Etelä-Karjala': { name_ko: '남카리알라', name_en: 'South Karelia', name_fi: 'Etelä-Karjala', population: 125000, area: 5700 },
+                    'Etelä-Savo': { name_ko: '남사보', name_en: 'South Savo', name_fi: 'Etelä-Savo', population: 140000, area: 18800 },
+                    'Pohjois-Savo': { name_ko: '북사보', name_en: 'North Savo', name_fi: 'Pohjois-Savo', population: 240000, area: 20400 },
+                    'Pohjois-Karjala': { name_ko: '북카리알라', name_en: 'North Karelia', name_fi: 'Pohjois-Karjala', population: 160000, area: 21600 },
+                    'Keski-Suomi': { name_ko: '중부핀란드', name_en: 'Central Finland', name_fi: 'Keski-Suomi', population: 280000, area: 19900 },
+                    'Etelä-Pohjanmaa': { name_ko: '남오스트로보스니아', name_en: 'South Ostrobothnia', name_fi: 'Etelä-Pohjanmaa', population: 195000, area: 14400 },
+                    'Pohjanmaa': { name_ko: '포흐얀마', name_en: 'Ostrobothnia', name_fi: 'Pohjanmaa', population: 180000, area: 7800 },
+                    'Keski-Pohjanmaa': { name_ko: '중부오스트로보스니아', name_en: 'Central Ostrobothnia', name_fi: 'Keski-Pohjanmaa', population: 70000, area: 5700 },
+                    'Pohjois-Pohjanmaa': { name_ko: '북오스트로보스니아', name_en: 'North Ostrobothnia', name_fi: 'Pohjois-Pohjanmaa', population: 420000, area: 37100 },
+                    'Kainuu': { name_ko: '카이누', name_en: 'Kainuu', name_fi: 'Kainuu', population: 70000, area: 22600 },
+                    'Lappi': { name_ko: '라플란드', name_en: 'Lapland', name_fi: 'Lappi', population: 175000, area: 98000 },
+                    'Pirkanmaa': { name_ko: '피르칸마', name_en: 'Pirkanmaa', name_fi: 'Pirkanmaa', population: 550000, area: 12300 },
+                    'Ahvenanmaa': { name_ko: '올란드 제도', name_en: 'Åland', name_fi: 'Ahvenanmaa', population: 30000, area: 1550 }
+                };
+
+                const candidateUrls = [
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/FIN/ADM1/geoBoundaries-FIN-ADM1.geojson',
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'FIN' || admin === 'Finland' || iso2 === 'FI';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Finland] Filtered Natural Earth/global dataset to Finland only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = data;
+                            console.log('[Finland] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 0) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Finland] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Finland] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Finland] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Finland dataset available');
+                
+                const idSet = new Set();
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `FIN_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = `fin_region_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 행정구역 이름 매칭
+                    let regionData = null;
+                    const rawNameLower = rawName.toLowerCase();
+                    for (const [regionKey, regionInfo] of Object.entries(finlandRegionMapping)) {
+                        const regionKeyLower = regionKey.toLowerCase();
+                        const nameEnLower = regionInfo.name_en.toLowerCase();
+                        const nameFiLower = regionInfo.name_fi.toLowerCase();
+                        if (rawNameLower.includes(regionKeyLower) || regionKeyLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameEnLower) || nameEnLower.includes(rawNameLower) ||
+                            rawNameLower.includes(nameFiLower) || nameFiLower.includes(rawNameLower)) {
+                            regionData = regionInfo;
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않은 경우 NAME_1에서도 확인
+                    if (!regionData && p.NAME_1) {
+                        const name1Lower = p.NAME_1.toLowerCase();
+                        for (const [regionKey, regionInfo] of Object.entries(finlandRegionMapping)) {
+                            const regionKeyLower = regionKey.toLowerCase();
+                            const nameEnLower = regionInfo.name_en.toLowerCase();
+                            const nameFiLower = regionInfo.name_fi.toLowerCase();
+                            if (name1Lower.includes(regionKeyLower) || regionKeyLower.includes(name1Lower) ||
+                                name1Lower.includes(nameEnLower) || nameEnLower.includes(name1Lower) ||
+                                name1Lower.includes(nameFiLower) || nameFiLower.includes(name1Lower)) {
+                                regionData = regionInfo;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: regionData ? regionData.name_ko : rawName,
+                        name_en: regionData ? regionData.name_en : (p.NAME_1 || p.name || rawName),
+                        country: 'Finland',
+                        country_code: 'FI',
+                        admin_level: 'Region (Maakunta)',
+                        population: regionData ? regionData.population : (p.population || Math.floor(Math.random() * 500000) + 50000),
+                        area: regionData ? regionData.area : (p.area || Math.floor(Math.random() * 10000) + 1000),
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#34495e',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                this.cachedGeoJsonData['finland'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#34495e'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            console.log('핀란드 데이터 로드 완료:', geoJsonData.features.length, '개 지역');
+            this.showNotification(`핀란드 데이터 로드 완료: ${geoJsonData.features.length}개 지역 (Maakunta)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('핀란드 데이터 로드 실패:', error);
+            this.showNotification('핀란드 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    // 아일랜드 데이터 로드 (4개 프로빈스로 그룹화)
+    async loadIrelandData() {
+        try {
+            let geoJsonData;
+            if (this.cachedGeoJsonData['ireland']) {
+                geoJsonData = this.cachedGeoJsonData['ireland'];
+            } else {
+                // 아일랜드 4개 프로빈스와 26개 카운티 매핑 (인구 및 면적 포함, 2024 추정)
+                const irelandProvinceMapping = {
+                    'Leinster': {
+                        name_ko: '렌스터',
+                        name_en: 'Leinster',
+                        population: 3200000,
+                        area: 19800,
+                        counties: [
+                            'Carlow', 'Dublin', 'Kildare', 'Kilkenny', 'Laois', 
+                            'Longford', 'Louth', 'Meath', 'Offaly', 'Westmeath', 
+                            'Wexford', 'Wicklow'
+                        ]
+                    },
+                    'Munster': {
+                        name_ko: '먼스터',
+                        name_en: 'Munster',
+                        population: 1350000,
+                        area: 24700,
+                        counties: [
+                            'Clare', 'Cork', 'Kerry', 'Limerick', 'Tipperary', 'Waterford'
+                        ]
+                    },
+                    'Connacht': {
+                        name_ko: '코노트',
+                        name_en: 'Connacht',
+                        population: 590000,
+                        area: 17700,
+                        counties: [
+                            'Galway', 'Leitrim', 'Mayo', 'Roscommon', 'Sligo'
+                        ]
+                    },
+                    'Ulster': {
+                        name_ko: '얼스터',
+                        name_en: 'Ulster',
+                        population: 300000,
+                        area: 8300,
+                        counties: [
+                            'Cavan', 'Donegal', 'Monaghan'
+                        ]
+                    }
+                };
+                
+                // 아일랜드 26개 카운티별 인구 및 면적 데이터 (2024 추정)
+                const irelandCountyData = {
+                    'Carlow': { name_ko: '칼로우', population: 65000, area: 900 },
+                    'Cavan': { name_ko: '캐번', population: 81000, area: 1930 },
+                    'Clare': { name_ko: '클레어', population: 128000, area: 3450 },
+                    'Cork': { name_ko: '코크', population: 580000, area: 7500 },
+                    'Donegal': { name_ko: '도네골', population: 165000, area: 4860 },
+                    'Dublin': { name_ko: '더블린', population: 1450000, area: 920 },
+                    'Galway': { name_ko: '골웨이', population: 280000, area: 6150 },
+                    'Kerry': { name_ko: '케리', population: 155000, area: 4800 },
+                    'Kildare': { name_ko: '킬데어', population: 250000, area: 1690 },
+                    'Kilkenny': { name_ko: '킬케니', population: 105000, area: 2070 },
+                    'Laois': { name_ko: '라오이스', population: 95000, area: 1720 },
+                    'Leitrim': { name_ko: '리트림', population: 35000, area: 1580 },
+                    'Limerick': { name_ko: '리머릭', population: 210000, area: 2750 },
+                    'Longford': { name_ko: '롱퍼드', population: 47000, area: 1090 },
+                    'Louth': { name_ko: '라우스', population: 140000, area: 820 },
+                    'Mayo': { name_ko: '메이오', population: 135000, area: 5400 },
+                    'Meath': { name_ko: '미스', population: 225000, area: 2330 },
+                    'Monaghan': { name_ko: '모나한', population: 65000, area: 1290 },
+                    'Offaly': { name_ko: '오펄리', population: 85000, area: 2000 },
+                    'Roscommon': { name_ko: '로스코먼', population: 70000, area: 2500 },
+                    'Sligo': { name_ko: '슬라이고', population: 65000, area: 1800 },
+                    'Tipperary': { name_ko: '티퍼레리', population: 165000, area: 4300 },
+                    'Waterford': { name_ko: '워터퍼드', population: 125000, area: 1850 },
+                    'Westmeath': { name_ko: '웨스트미스', population: 96000, area: 1840 },
+                    'Wexford': { name_ko: '웩스퍼드', population: 165000, area: 2350 },
+                    'Wicklow': { name_ko: '윅로우', population: 155000, area: 2030 }
+                };
+
+                const candidateUrls = [
+                    // geoBoundaries IRL ADM1 (26개 카운티)
+                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IRL/ADM1/geoBoundaries-IRL-ADM1.geojson',
+                    // Natural Earth Ireland counties
+                    'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+                ];
+                let lastError = null;
+                for (const url of candidateUrls) {
+                    try {
+                        const resp = await fetch(url, { cache: 'no-store' });
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        
+                        // Natural Earth 데이터인 경우 아일랜드만 필터링
+                        if (data && Array.isArray(data.features) && data.features.length > 300) {
+                            const filtered = data.features.filter((feature) => {
+                                const p = feature.properties || {};
+                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                                const iso2 = (p.iso_a2 || '').toUpperCase();
+                                return a3 === 'IRL' || admin === 'Ireland' || iso2 === 'IE';
+                            });
+                            if (filtered.length > 0) {
+                                console.log(`[Ireland] Filtered Natural Earth/global dataset to Ireland only: ${filtered.length} features`);
+                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                break;
+                            }
+                        }
+                        
+                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = data;
+                            console.log('[Ireland] Loaded from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data.features) && data.features.length > 1) {
+                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            console.log('[Ireland] Loaded (normalized) from', url, 'features:', data.features.length);
+                            break;
+                        }
+                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
+                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            console.log('[Ireland] Loaded (array -> FC) from', url, 'features:', data.length);
+                            break;
+                        }
+                        lastError = new Error('Invalid data shape');
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('[Ireland] Failed loading from', url, e);
+                    }
+                }
+                if (!geoJsonData) throw lastError || new Error('No Ireland dataset available');
+                
+                // 카운티 이름을 프로빈스 이름으로 매핑하는 역방향 맵 생성
+                const countyToProvinceMap = {};
+                Object.keys(irelandProvinceMapping).forEach(provinceName => {
+                    const province = irelandProvinceMapping[provinceName];
+                    province.counties.forEach(county => {
+                        countyToProvinceMap[county.toLowerCase()] = {
+                            province: provinceName,
+                            province_ko: province.name_ko,
+                            province_en: province.name_en
+                        };
+                    });
+                });
+                
+                const idSet = new Set();
+                const isCountyLevel = geoJsonData.features.length > 10; // 카운티 레벨 데이터인 경우 (26개 카운티)
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const p = feature.properties || {};
+                    const rawName = p.name || p.NAME_1 || p.county || `Region_${index}`;
+                    const baseIdSrc = p.hasc || p.shapeID || rawName || `IRL_${index}`;
+                    let baseId = baseIdSrc.toString().toLowerCase()
+                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                        .replace(/__+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    if (!baseId) baseId = isCountyLevel ? `irl_county_${index}` : `irl_province_${index}`;
+                    let finalId = baseId; let c = 1;
+                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    idSet.add(finalId);
+                    
+                    // 카운티 이름으로 프로빈스 찾기
+                    let provinceInfo = null;
+                    let provinceData = null;
+                    if (isCountyLevel) {
+                        const countyNameLower = rawName.toLowerCase();
+                        // 정확한 매칭 시도
+                        if (countyToProvinceMap[countyNameLower]) {
+                            provinceInfo = countyToProvinceMap[countyNameLower];
+                            provinceData = irelandProvinceMapping[provinceInfo.province];
+                        } else {
+                            // 부분 매칭 시도
+                            for (const [countyKey, provInfo] of Object.entries(countyToProvinceMap)) {
+                                if (countyNameLower.includes(countyKey) || countyKey.includes(countyNameLower)) {
+                                    provinceInfo = provInfo;
+                                    provinceData = irelandProvinceMapping[provInfo.province];
+                                    break;
+                                }
+                            }
+                        }
+                        // NAME_1에서 프로빈스 정보 가져오기 시도
+                        if (!provinceInfo && p.NAME_1) {
+                            const provinceName = p.NAME_1;
+                            if (irelandProvinceMapping[provinceName]) {
+                                provinceInfo = {
+                                    province: provinceName,
+                                    province_ko: irelandProvinceMapping[provinceName].name_ko,
+                                    province_en: irelandProvinceMapping[provinceName].name_en
+                                };
+                                provinceData = irelandProvinceMapping[provinceName];
+                            } else {
+                                // NAME_1이 프로빈스 이름과 부분 매칭되는지 확인
+                                for (const [provinceKey, provinceInfoData] of Object.entries(irelandProvinceMapping)) {
+                                    if (provinceName.toLowerCase().includes(provinceKey.toLowerCase()) || 
+                                        provinceKey.toLowerCase().includes(provinceName.toLowerCase()) ||
+                                        provinceInfoData.name_en.toLowerCase().includes(provinceName.toLowerCase())) {
+                                        provinceInfo = {
+                                            province: provinceKey,
+                                            province_ko: provinceInfoData.name_ko,
+                                            province_en: provinceInfoData.name_en
+                                        };
+                                        provinceData = provinceInfoData;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // 프로빈스 레벨 데이터인 경우
+                        if (p.NAME_1 && irelandProvinceMapping[p.NAME_1]) {
+                            provinceData = irelandProvinceMapping[p.NAME_1];
+                        } else if (p.NAME_1) {
+                            // NAME_1이 프로빈스 이름과 부분 매칭되는지 확인
+                            for (const [provinceKey, provinceInfoData] of Object.entries(irelandProvinceMapping)) {
+                                if (p.NAME_1.toLowerCase().includes(provinceKey.toLowerCase()) || 
+                                    provinceKey.toLowerCase().includes(p.NAME_1.toLowerCase()) ||
+                                    provinceInfoData.name_en.toLowerCase().includes(p.NAME_1.toLowerCase())) {
+                                    provinceData = provinceInfoData;
+                                    provinceInfo = {
+                                        province: provinceKey,
+                                        province_ko: provinceInfoData.name_ko,
+                                        province_en: provinceInfoData.name_en
+                                    };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 프로빈스 정보를 기반으로 인구와 면적 계산
+                    let population, area;
+                    if (isCountyLevel) {
+                        // 카운티 레벨 데이터인 경우 - 실제 카운티 데이터 사용
+                        const countyNameLower = rawName.toLowerCase();
+                        let countyData = null;
+                        for (const [countyKey, countyInfo] of Object.entries(irelandCountyData)) {
+                            if (countyNameLower === countyKey.toLowerCase() || countyNameLower.includes(countyKey.toLowerCase()) || countyKey.toLowerCase().includes(countyNameLower)) {
+                                countyData = countyInfo;
+                                break;
+                            }
+                        }
+                        if (countyData) {
+                            population = p.population || countyData.population;
+                            area = p.area || countyData.area;
+                        } else {
+                            // 매칭되지 않은 경우 프로빈스의 평균 인구/면적 사용
+                            const avgPopulation = provinceData && provinceData.population ? Math.floor(provinceData.population / provinceData.counties.length) : (p.population || Math.floor(Math.random() * 300000) + 30000);
+                            const avgArea = provinceData && provinceData.area ? Math.floor(provinceData.area / provinceData.counties.length) : (p.area || Math.floor(Math.random() * 3000) + 500);
+                            population = p.population || avgPopulation;
+                            area = p.area || avgArea;
+                        }
+                    } else if (!isCountyLevel && provinceData) {
+                        // 프로빈스 레벨 데이터인 경우 - 매핑된 실제 데이터 사용
+                        population = p.population || provinceData.population || Math.floor(Math.random() * 2000000) + 200000;
+                        area = p.area || provinceData.area || Math.floor(Math.random() * 15000) + 5000;
+                    } else {
+                        // 기본값
+                        population = p.population || Math.floor(Math.random() * (isCountyLevel ? 300000 : 2000000)) + (isCountyLevel ? 30000 : 200000);
+                        area = p.area || Math.floor(Math.random() * (isCountyLevel ? 3000 : 15000)) + (isCountyLevel ? 500 : 5000);
+                    }
+                    
+                    // 카운티 데이터에서 이름 정보 가져오기
+                    const countyNameLower = rawName.toLowerCase();
+                    let matchedCountyData = null;
+                    if (isCountyLevel) {
+                        for (const [countyKey, countyInfo] of Object.entries(irelandCountyData)) {
+                            if (countyNameLower === countyKey.toLowerCase() || countyNameLower.includes(countyKey.toLowerCase()) || countyKey.toLowerCase().includes(countyNameLower)) {
+                                matchedCountyData = countyInfo;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    feature.properties = {
+                        ...p,
+                        id: finalId,
+                        name: rawName,
+                        name_ko: isCountyLevel && matchedCountyData ? matchedCountyData.name_ko : (provinceInfo ? provinceInfo.province_ko : (provinceData ? provinceData.name_ko : rawName)),
+                        name_en: isCountyLevel ? (p.NAME_1 || p.name || rawName) : (provinceInfo ? provinceInfo.province_en : (provinceData ? provinceData.name_en : (p.NAME_1 || p.name || rawName))),
+                        country: 'Ireland',
+                        country_code: 'IE',
+                        admin_level: isCountyLevel ? 'County' : 'Province',
+                        province: provinceInfo ? provinceInfo.province : (p.NAME_1 || null),
+                        province_ko: provinceInfo ? provinceInfo.province_ko : (provinceData ? provinceData.name_ko : null),
+                        province_en: provinceInfo ? provinceInfo.province_en : (provinceData ? provinceData.name_en : null),
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 300000) + 150000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#16a085',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    this.regionData.set(finalId, feature.properties);
+                });
+                
+                // 그룹화된 지역 목록 출력
+                this.displayIrelandGroupedRegions(irelandProvinceMapping);
+                
+                this.cachedGeoJsonData['ireland'] = geoJsonData;
+            }
+            
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonData);
+            } else {
+                this.map.addSource('world-regions', { type: 'geojson', data: geoJsonData });
+            }
+            if (!this.map.getLayer('regions-fill')) {
+                this.map.addLayer({ id: 'regions-fill', type: 'fill', source: 'world-regions', paint: { 'fill-color': ['case', ['==', ['get','ad_status'], 'occupied'], '#ff6b6b', '#16a085'], 'fill-opacity': 0.6 } });
+                this.map.addLayer({ id: 'regions-border', type: 'line', source: 'world-regions', paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-opacity': 0.8 } });
+                this.map.addLayer({ id: 'regions-hover', type: 'fill', source: 'world-regions', paint: { 'fill-color': '#feca57', 'fill-opacity': 0 }, filter: ['==', 'id', ''] });
+                if (!this.eventListenersAdded) { this.setupEventListeners(); this.eventListenersAdded = true; }
+            }
+            const isCountyLevel = geoJsonData.features.length > 10;
+            const adminType = isCountyLevel ? '카운티' : '프로빈스';
+            console.log('아일랜드 데이터 로드 완료:', geoJsonData.features.length, `개 ${adminType}`);
+            this.showNotification(`아일랜드 데이터 로드 완료: ${geoJsonData.features.length}개 행정구역 (4개 프로빈스로 그룹화)`, 'info');
+            this.updateStatistics();
+        } catch (error) {
+            console.error('아일랜드 데이터 로드 실패:', error);
+            this.showNotification('아일랜드 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 아일랜드 프로빈스 그룹화된 지역 목록 표시
+    displayIrelandGroupedRegions(provinceMapping) {
+        console.log('\n=== 아일랜드 행정구역 그룹화 (4개 프로빈스, 26개 카운티) ===\n');
+        
+        // 프로빈스별 요약 테이블 헤더
+        console.log('📊 아일랜드 4개 프로빈스 (Provinces) 요약');
+        console.log('─'.repeat(95));
+        console.log('순번 | 프로빈스 (영문 / 한글)'.padEnd(40) + '| 카운티 수'.padEnd(15) + '| 카운티 목록');
+        console.log('─'.repeat(95));
+        
+        // 프로빈스별 요약 출력
+        Object.keys(provinceMapping).forEach((provinceName, idx) => {
+            const province = provinceMapping[provinceName];
+            const seq = (idx + 1).toString().padEnd(5);
+            const name = `${provinceName} (${province.name_ko})`.padEnd(38);
+            const countyCount = province.counties.length.toString().padEnd(13);
+            const counties = province.counties.join(', ');
+            console.log(`${seq} | ${name} | ${countyCount} | ${counties}`);
+        });
+        console.log('─'.repeat(95));
+        console.log('');
+        
+        // 실제 로드된 지역 데이터 수집
+        const groupedRegions = {};
+        let totalCounties = 0;
+
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.country === 'Ireland') {
+                const province = regionData.province || 'Unknown';
+                if (!groupedRegions[province]) {
+                    groupedRegions[province] = {
+                        name_ko: regionData.province_ko || province,
+                        name_en: regionData.province_en || province,
+                        counties: []
+                    };
+                }
+                groupedRegions[province].counties.push({
+                    name: regionData.name,
+                    name_en: regionData.name_en,
+                    id: regionId,
+                    population: regionData.population,
+                    area: regionData.area
+                });
+                totalCounties++;
+            }
+        });
+
+        // 프로빈스별로 출력
+        Object.keys(provinceMapping).forEach(provinceName => {
+            const province = provinceMapping[provinceName];
+            const loadedCounties = groupedRegions[provinceName] || { counties: [] };
+            
+            console.log(`\n📌 ${provinceName} (${province.name_ko})`);
+            console.log(`   카운티 수: 총 ${province.counties.length}개 (로드됨: ${loadedCounties.counties.length}개)`);
+            console.log('   ──────────────────────────────────────────');
+            
+            // 예상 카운티 목록
+            province.counties.forEach((countyName, idx) => {
+                const loadedCounty = loadedCounties.counties.find(c => 
+                    c.name.toLowerCase().includes(countyName.toLowerCase()) ||
+                    countyName.toLowerCase().includes(c.name.toLowerCase())
+                );
+                
+                if (loadedCounty) {
+                    console.log(`   ${idx + 1}. ${countyName} ✓`);
+                    console.log(`      └─ 로드된 이름: ${loadedCounty.name}`);
+                    console.log(`      └─ 인구: ${loadedCounty.population.toLocaleString()}명`);
+                    console.log(`      └─ 면적: ${loadedCounty.area.toLocaleString()} km²`);
+                } else {
+                    console.log(`   ${idx + 1}. ${countyName} (데이터 없음)`);
+                }
+            });
+        });
+
+        console.log(`\n\n📊 총계:`);
+        console.log(`   • 프로빈스 (Provinces): ${Object.keys(provinceMapping).length}개`);
+        console.log(`   • 카운티 (Counties): ${totalCounties}개 로드됨`);
+        console.log(`\n==========================================\n`);
+
+        // HTML 콘솔에도 표시 (브라우저 개발자 도구)
+        const groupedHtml = this.generateIrelandGroupedHTML(provinceMapping, groupedRegions);
+        console.log('%c아일랜드 행정구역 그룹화', 'color: #16a085; font-size: 16px; font-weight: bold;');
+        console.log(groupedHtml);
+    }
+
+    // HTML 형식으로 그룹화된 지역 목록 생성
+    generateIrelandGroupedHTML(provinceMapping, groupedRegions) {
+        let html = '<div style="font-family: monospace; background: #1a1a1a; padding: 20px; border-radius: 8px; color: #fff;">';
+        html += '<h3 style="color: #16a085; margin-top: 0;">아일랜드 행정구역 그룹화 (4개 프로빈스, 26개 카운티)</h3>';
+        
+        // 프로빈스별 요약 테이블
+        Object.keys(provinceMapping).forEach(provinceName => {
+            const province = provinceMapping[provinceName];
+            const loadedCounties = groupedRegions[provinceName] || { counties: [] };
+            
+            html += `<h4 style="color: #16a085; margin-top: 20px;">${provinceName} (${province.name_ko})</h4>`;
+            html += `<p style="color: #aaa; margin: 0 0 10px 0; font-size: 12px;">카운티 수: 총 ${province.counties.length}개 (로드됨: ${loadedCounties.counties.length}개)</p>`;
+            html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
+            html += '<thead><tr style="background: #2a2a2a;"><th style="padding: 8px; text-align: left;">순번</th><th style="padding: 8px; text-align: left;">카운티</th></tr></thead>';
+            html += '<tbody>';
+            
+            province.counties.forEach((countyName, idx) => {
+                const loadedCounty = loadedCounties.counties.find(c => 
+                    c.name.toLowerCase().includes(countyName.toLowerCase()) ||
+                    countyName.toLowerCase().includes(c.name.toLowerCase())
+                );
+                
+                html += `<tr style="border-bottom: 1px solid #333;">`;
+                html += `<td style="padding: 8px;">${idx + 1}</td>`;
+                html += `<td style="padding: 8px; color: ${loadedCounty ? '#16a085' : '#666'};">
+                    ${countyName} ${loadedCounty ? '✓' : '(데이터 없음)'}
+                </td>`;
+                html += `</tr>`;
+            });
+            
+            html += '</tbody></table>';
+        });
+        
+        html += '</div>';
+        return html;
+    }
+    
+    async loadPortugalData() {
+        const portugalRegions = {
+            'lisboa': { name_en: 'Lisboa', name_local: 'Lisboa', name_ko: '리스보아', population: 2300000, area: 2761, aliases: ['lisbon', 'distrito de lisboa'] },
+            'porto': { name_en: 'Porto', name_local: 'Porto', name_ko: '포르투', population: 1780000, area: 2395, aliases: ['oporto', 'distrito do porto'] },
+            'braga': { name_en: 'Braga', name_local: 'Braga', name_ko: '브라가', population: 850000, area: 2673 },
+            'aveiro': { name_en: 'Aveiro', name_local: 'Aveiro', name_ko: '아베이루', population: 720000, area: 2808 },
+            'setubal': { name_en: 'Setúbal', name_local: 'Setúbal', name_ko: '세투발', population: 910000, area: 5064, aliases: ['setubal'] },
+            'leiria': { name_en: 'Leiria', name_local: 'Leiria', name_ko: '레이리아', population: 460000, area: 3515 },
+            'santarem': { name_en: 'Santarém', name_local: 'Santarém', name_ko: '산타렘', population: 420000, area: 6747, aliases: ['santarem'] },
+            'coimbra': { name_en: 'Coimbra', name_local: 'Coimbra', name_ko: '코임브라', population: 420000, area: 3947 },
+            'faro': { name_en: 'Faro', name_local: 'Faro', name_ko: '파루', population: 460000, area: 4960, aliases: ['algarve'] },
+            'viseu': { name_en: 'Viseu', name_local: 'Viseu', name_ko: '비제우', population: 370000, area: 5007 },
+            'vila_real': { name_en: 'Vila Real', name_local: 'Vila Real', name_ko: '빌라 레알', population: 185000, area: 4328 },
+            'viana_do_castelo': { name_en: 'Viana do Castelo', name_local: 'Viana do Castelo', name_ko: '비아나 두 카스텔루', population: 240000, area: 2255 },
+            'braganca': { name_en: 'Bragança', name_local: 'Bragança', name_ko: '브라간사', population: 120000, area: 6608, aliases: ['braganca'] },
+            'guarda': { name_en: 'Guarda', name_local: 'Guarda', name_ko: '과르다', population: 140000, area: 5518 },
+            'castelo_branco': { name_en: 'Castelo Branco', name_local: 'Castelo Branco', name_ko: '카스텔루 브랑쿠', population: 170000, area: 6675 },
+            'portalegre': { name_en: 'Portalegre', name_local: 'Portalegre', name_ko: '포르탈레그리', population: 115000, area: 6065 },
+            'evora': { name_en: 'Évora', name_local: 'Évora', name_ko: '에보라', population: 150000, area: 7393, aliases: ['evora'] },
+            'beja': { name_en: 'Beja', name_local: 'Beja', name_ko: '베자', population: 140000, area: 10263 },
+            'acores': { name_en: 'Azores', name_local: 'Região Autónoma dos Açores', name_ko: '아조레스 제도', population: 240000, area: 2333, aliases: ['regiao autonoma dos acores', 'acores', 'azores', 'ilha dos acores'] },
+            'madeira': { name_en: 'Madeira', name_local: 'Região Autónoma da Madeira', name_ko: '마데이라 제도', population: 260000, area: 801, aliases: ['regiao autonoma da madeira', 'madeira'] }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'portugal',
+            countryName: 'Portugal',
+            countryNameKo: '포르투갈',
+            countryCodeIso: 'PRT',
+            defaultColor: '#27ae60',
+            adminLevel: 'District / Autonomous Region',
+            mapping: portugalRegions
+        });
+    }
+    
+    async loadGreeceData() {
+        const greeceRegions = {
+            'attica': { name_en: 'Attica', name_local: 'Αττική', name_ko: '아티키', population: 3780000, area: 3808, aliases: ['attiki', 'region of attica'] },
+            'central_macedonia': { name_en: 'Central Macedonia', name_local: 'Κεντρική Μακεδονία', name_ko: '중앙마케도니아', population: 1870000, area: 18810, aliases: ['kentriki makedonia'] },
+            'eastern_macedonia_thrace': { name_en: 'Eastern Macedonia and Thrace', name_local: 'Ανατολική Μακεδονία και Θράκη', name_ko: '동마케도니아 트라키아', population: 600000, area: 14150, aliases: ['anatoliki makedonia kai thraki'] },
+            'western_macedonia': { name_en: 'Western Macedonia', name_local: 'Δυτική Μακεδονία', name_ko: '서마케도니아', population: 250000, area: 9450, aliases: ['dytiki makedonia'] },
+            'epirus': { name_en: 'Epirus', name_local: 'Ήπειρος', name_ko: '이피로스', population: 330000, area: 9200, aliases: ['ipeiros'] },
+            'thessaly': { name_en: 'Thessaly', name_local: 'Θεσσαλία', name_ko: '테살리아', population: 720000, area: 14030, aliases: ['thessalia'] },
+            'western_greece': { name_en: 'Western Greece', name_local: 'Δυτική Ελλάδα', name_ko: '서그리스', population: 670000, area: 11300, aliases: ['dytiki ellada'] },
+            'central_greece': { name_en: 'Central Greece', name_local: 'Στερεά Ελλάδα', name_ko: '중부그리스', population: 540000, area: 15500, aliases: ['sterea ellada'] },
+            'peloponnese': { name_en: 'Peloponnese', name_local: 'Πελοπόννησος', name_ko: '펠로폰네소스', population: 570000, area: 15490, aliases: ['peloponnisos'] },
+            'ionian_islands': { name_en: 'Ionian Islands', name_local: 'Ιόνια Νησιά', name_ko: '이오니아 제도', population: 210000, area: 2300, aliases: ['ionia nisia', 'region of ionian islands'] },
+            'north_aegean': { name_en: 'North Aegean', name_local: 'Βόρειο Αιγαίο', name_ko: '북에게 제도', population: 190000, area: 3800, aliases: ['voreio aigaio'] },
+            'south_aegean': { name_en: 'South Aegean', name_local: 'Νότιο Αιγαίο', name_ko: '남에게 제도', population: 310000, area: 5900, aliases: ['notio aigaio'] },
+            'crete': { name_en: 'Crete', name_local: 'Κρήτη', name_ko: '크레타', population: 620000, area: 8336, aliases: ['kriti'] }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'greece',
+            countryName: 'Greece',
+            countryNameKo: '그리스',
+            countryCodeIso: 'GRC',
+            defaultColor: '#2980b9',
+            adminLevel: 'Region',
+            mapping: greeceRegions
+        });
+    }
+    
+    async loadCzechRepublicData() {
+        const czechRegions = {
+            'prague': { name_en: 'Prague', name_local: 'Hlavní město Praha', name_ko: '프라하', population: 1360000, area: 496, aliases: ['hlavni mesto praha', 'praha'] },
+            'central_bohemian': { name_en: 'Central Bohemian', name_local: 'Středočeský kraj', name_ko: '중부보헤미아', population: 1450000, area: 10929, aliases: ['stredocesky kraj'] },
+            'south_bohemian': { name_en: 'South Bohemian', name_local: 'Jihočeský kraj', name_ko: '남부보헤미아', population: 640000, area: 10056, aliases: ['jihocesky kraj'] },
+            'plzen': { name_en: 'Plzeň', name_local: 'Plzeňský kraj', name_ko: '플젠', population: 580000, area: 7561, aliases: ['plzensky kraj', 'plzen'] },
+            'karlovy_vary': { name_en: 'Karlovy Vary', name_local: 'Karlovarský kraj', name_ko: '카를로비바리', population: 290000, area: 3314, aliases: ['karlovarsky kraj'] },
+            'usti_nad_labem': { name_en: 'Ústí nad Labem', name_local: 'Ústecký kraj', name_ko: '우스티', population: 810000, area: 5335, aliases: ['ustecky kraj', 'usti nad labem'] },
+            'liberec': { name_en: 'Liberec', name_local: 'Liberecký kraj', name_ko: '리베레츠', population: 460000, area: 3163, aliases: ['liberecky kraj'] },
+            'hradec_kralove': { name_en: 'Hradec Králové', name_local: 'Královéhradecký kraj', name_ko: '흐라데츠크랄로베', population: 550000, area: 4758, aliases: ['kralovehradecky kraj', 'hradec kralove'] },
+            'pardubice': { name_en: 'Pardubice', name_local: 'Pardubický kraj', name_ko: '파르두비체', population: 520000, area: 4519, aliases: ['pardubicky kraj'] },
+            'vysocina': { name_en: 'Vysočina', name_local: 'Kraj Vysočina', name_ko: '비소치나', population: 505000, area: 6796, aliases: ['kraj vysocina', 'vysocina'] },
+            'south_moravian': { name_en: 'South Moravian', name_local: 'Jihomoravský kraj', name_ko: '남부모라비아', population: 1200000, area: 7196, aliases: ['jihomoravsky kraj'] },
+            'olomouc': { name_en: 'Olomouc', name_local: 'Olomoucký kraj', name_ko: '올로모우츠', population: 630000, area: 5206, aliases: ['olomoucky kraj'] },
+            'zlin': { name_en: 'Zlín', name_local: 'Zlínský kraj', name_ko: '즐린', population: 570000, area: 3964, aliases: ['zlinsky kraj'] },
+            'moravian_silesian': { name_en: 'Moravian-Silesian', name_local: 'Moravskoslezský kraj', name_ko: '모라비아슬레스카', population: 1160000, area: 5427, aliases: ['moravskoslezsky kraj', 'moravian silesian'] }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'czech-republic',
+            countryName: 'Czech Republic',
+            countryNameKo: '체코',
+            countryCodeIso: 'CZE',
+            defaultColor: '#8e44ad',
+            adminLevel: 'Region (Kraj)',
+            mapping: czechRegions
+        });
+    }
+    
+    async loadRomaniaData() {
+        const romaniaRegions = {
+            'alba': { name_en: 'Alba', name_local: 'Alba', name_ko: '알바', population: 320000, area: 6242 },
+            'arad': { name_en: 'Arad', name_local: 'Arad', name_ko: '아라드', population: 470000, area: 7754 },
+            'arges': { name_en: 'Argeș', name_local: 'Argeș', name_ko: '아르제슈', population: 610000, area: 6826, aliases: ['arges'] },
+            'bacau': { name_en: 'Bacău', name_local: 'Bacău', name_ko: '바커우', population: 610000, area: 6621, aliases: ['bacau'] },
+            'bihor': { name_en: 'Bihor', name_local: 'Bihor', name_ko: '비호르', population: 590000, area: 7544 },
+            'bistrita_nasaud': { name_en: 'Bistrița-Năsăud', name_local: 'Bistrița-Năsăud', name_ko: '비스트리차너서우드', population: 280000, area: 5355, aliases: ['bistrita-nasaud', 'bistrita nasaud'] },
+            'botosani': { name_en: 'Botoșani', name_local: 'Botoșani', name_ko: '보토샤니', population: 370000, area: 4986, aliases: ['botosani'] },
+            'brasov': { name_en: 'Brașov', name_local: 'Brașov', name_ko: '브라쇼브', population: 570000, area: 5363, aliases: ['brasov'] },
+            'braila': { name_en: 'Brăila', name_local: 'Brăila', name_ko: '브러일라', population: 300000, area: 4766, aliases: ['braila'] },
+            'buzau': { name_en: 'Buzău', name_local: 'Buzău', name_ko: '부저우', population: 430000, area: 6103, aliases: ['buzau'] },
+            'caras_severin': { name_en: 'Caraș-Severin', name_local: 'Caraș-Severin', name_ko: '카라슈세베린', population: 270000, area: 8514, aliases: ['caras severin', 'caras-severin'] },
+            'calarasi': { name_en: 'Călărași', name_local: 'Călărași', name_ko: '컬러라시', population: 270000, area: 5088, aliases: ['calarasi'] },
+            'cluj': { name_en: 'Cluj', name_local: 'Cluj', name_ko: '클루지', population: 740000, area: 6674 },
+            'constanta': { name_en: 'Constanța', name_local: 'Constanța', name_ko: '콘스탄차', population: 700000, area: 7071, aliases: ['constanta'] },
+            'covasna': { name_en: 'Covasna', name_local: 'Covasna', name_ko: '코바스나', population: 200000, area: 3710 },
+            'dambovita': { name_en: 'Dâmbovița', name_local: 'Dâmbovița', name_ko: '덤보비차', population: 500000, area: 4054, aliases: ['dambovita'] },
+            'dolj': { name_en: 'Dolj', name_local: 'Dolj', name_ko: '돌지', population: 580000, area: 7414 },
+            'galati': { name_en: 'Galați', name_local: 'Galați', name_ko: '갈라치', population: 530000, area: 4466, aliases: ['galati'] },
+            'giurgiu': { name_en: 'Giurgiu', name_local: 'Giurgiu', name_ko: '지우르지우', population: 250000, area: 3526 },
+            'gorj': { name_en: 'Gorj', name_local: 'Gorj', name_ko: '고르지', population: 320000, area: 5602 },
+            'harghita': { name_en: 'Harghita', name_local: 'Harghita', name_ko: '하르기타', population: 280000, area: 6639 },
+            'hunedoara': { name_en: 'Hunedoara', name_local: 'Hunedoara', name_ko: '후네도아라', population: 380000, area: 7063 },
+            'ialomita': { name_en: 'Ialomița', name_local: 'Ialomița', name_ko: '이알로미차', population: 250000, area: 4453, aliases: ['ialomita'] },
+            'iasi': { name_en: 'Iași', name_local: 'Iași', name_ko: '야시', population: 750000, area: 5476, aliases: ['iasi'] },
+            'ilfov': { name_en: 'Ilfov', name_local: 'Ilfov', name_ko: '일포브', population: 550000, area: 1583 },
+            'maramures': { name_en: 'Maramureș', name_local: 'Maramureș', name_ko: '마라무레슈', population: 470000, area: 6304, aliases: ['maramures'] },
+            'mehedinti': { name_en: 'Mehedinți', name_local: 'Mehedinți', name_ko: '메헤딘치', population: 260000, area: 4933, aliases: ['mehedinti'] },
+            'mures': { name_en: 'Mureș', name_local: 'Mureș', name_ko: '무레슈', population: 540000, area: 6714, aliases: ['mures'] },
+            'neamt': { name_en: 'Neamț', name_local: 'Neamț', name_ko: '네암츠', population: 470000, area: 5896, aliases: ['neamt'] },
+            'olt': { name_en: 'Olt', name_local: 'Olt', name_ko: '올트', population: 420000, area: 5498 },
+            'prahova': { name_en: 'Prahova', name_local: 'Prahova', name_ko: '프라호바', population: 800000, area: 4716 },
+            'satu_mare': { name_en: 'Satu Mare', name_local: 'Satu Mare', name_ko: '사투마레', population: 330000, area: 4418 },
+            'salaj': { name_en: 'Sălaj', name_local: 'Sălaj', name_ko: '설라주', population: 200000, area: 3850, aliases: ['salaj'] },
+            'sibiu': { name_en: 'Sibiu', name_local: 'Sibiu', name_ko: '시비우', population: 410000, area: 5432 },
+            'suceava': { name_en: 'Suceava', name_local: 'Suceava', name_ko: '수체아바', population: 620000, area: 8553 },
+            'teleorman': { name_en: 'Teleorman', name_local: 'Teleorman', name_ko: '텔레오르만', population: 320000, area: 5790 },
+            'timis': { name_en: 'Timiș', name_local: 'Timiș', name_ko: '티미슈', population: 760000, area: 8697, aliases: ['timis'] },
+            'tulcea': { name_en: 'Tulcea', name_local: 'Tulcea', name_ko: '툴체아', population: 200000, area: 8499 },
+            'vaslui': { name_en: 'Vaslui', name_local: 'Vaslui', name_ko: '바슬루이', population: 370000, area: 5318 },
+            'valcea': { name_en: 'Vâlcea', name_local: 'Vâlcea', name_ko: '블체아', population: 370000, area: 5768, aliases: ['valcea'] },
+            'vrancea': { name_en: 'Vrancea', name_local: 'Vrancea', name_ko: '브란체아', population: 330000, area: 4857 },
+            'bucharest': { name_en: 'Bucharest', name_local: 'Municipiul București', name_ko: '부쿠레슈티', population: 1700000, area: 228, aliases: ['municipiul bucuresti', 'bucuresti', 'bucharest'] }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'romania',
+            countryName: 'Romania',
+            countryNameKo: '루마니아',
+            countryCodeIso: 'ROU',
+            defaultColor: '#c0392b',
+            adminLevel: 'County (Județ)',
+            mapping: romaniaRegions
+        });
+    }
+    
+    // 헝가리 데이터 로드 (20개 주)
+    async loadHungaryData() {
+        const hungaryRegions = {
+            'budapest': { name_en: 'Budapest', name_local: 'Budapest', name_ko: '부다페스트', population: 1720000, area: 525, admin_level: 'Capital City', aliases: ['budapest fovaros', 'budapest főváros'] },
+            'bacs_kiskun': { name_en: 'Bács-Kiskun', name_local: 'Bács-Kiskun', name_ko: '버치키슈쿤', population: 490000, area: 8445, aliases: ['bacs-kiskun', 'bacs kiskun'] },
+            'baranya': { name_en: 'Baranya', name_local: 'Baranya', name_ko: '버러녀', population: 360000, area: 4430 },
+            'bekes': { name_en: 'Békés', name_local: 'Békés', name_ko: '베케시', population: 330000, area: 5630, aliases: ['bekes'] },
+            'borsod_abauj_zemplen': { name_en: 'Borsod-Abaúj-Zemplén', name_local: 'Borsod-Abaúj-Zemplén', name_ko: '보르쇼드어버우이젠플렌', population: 630000, area: 7247, aliases: ['borsod-abauj-zemplen', 'borsod abauj zemplen'] },
+            'csongrad_csanad': { name_en: 'Csongrád-Csanád', name_local: 'Csongrád-Csanád', name_ko: '촌그라드-차나드', population: 390000, area: 4263, aliases: ['csongrad-csanad', 'csongrad csanad', 'csongrad'] },
+            'fejer': { name_en: 'Fejér', name_local: 'Fejér', name_ko: '페예르', population: 420000, area: 4358, aliases: ['fejer'] },
+            'gyor_moson_sopron': { name_en: 'Győr-Moson-Sopron', name_local: 'Győr-Moson-Sopron', name_ko: '죄르-모숀-쇼프론', population: 480000, area: 4208, aliases: ['gyor-moson-sopron', 'gyor moson sopron'] },
+            'hajdu_bihar': { name_en: 'Hajdú-Bihar', name_local: 'Hajdú-Bihar', name_ko: '하이두비허르', population: 530000, area: 6210, aliases: ['hajdu-bihar', 'hajdu bihar'] },
+            'heves': { name_en: 'Heves', name_local: 'Heves', name_ko: '헤베시', population: 280000, area: 3637 },
+            'jasz_nagykun_szolnok': { name_en: 'Jász-Nagykun-Szolnok', name_local: 'Jász-Nagykun-Szolnok', name_ko: '야스너지쿤솔노크', population: 360000, area: 5582, aliases: ['jasz-nagykun-szolnok', 'jasz nagykun szolnok'] },
+            'komarom_esztergom': { name_en: 'Komárom-Esztergom', name_local: 'Komárom-Esztergom', name_ko: '코마롬-에스테르곰', population: 300000, area: 2265, aliases: ['komarom-esztergom', 'komarom esztergom'] },
+            'nograd': { name_en: 'Nógrád', name_local: 'Nógrád', name_ko: '노그라드', population: 180000, area: 2544, aliases: ['nograd'] },
+            'pest': { name_en: 'Pest', name_local: 'Pest', name_ko: '페슈트', population: 1350000, area: 6394 },
+            'somogy': { name_en: 'Somogy', name_local: 'Somogy', name_ko: '쇼머지', population: 280000, area: 6036 },
+            'szabolcs_szatmar_bereg': { name_en: 'Szabolcs-Szatmár-Bereg', name_local: 'Szabolcs-Szatmár-Bereg', name_ko: '서볼츠-서트머르-베레그', population: 525000, area: 5935, aliases: ['szabolcs-szatmar-bereg', 'szabolcs szatmar bereg'] },
+            'tolna': { name_en: 'Tolna', name_local: 'Tolna', name_ko: '톨너', population: 210000, area: 3703 },
+            'vas': { name_en: 'Vas', name_local: 'Vas', name_ko: '버시', population: 250000, area: 3336 },
+            'veszprem': { name_en: 'Veszprém', name_local: 'Veszprém', name_ko: '베스프렘', population: 340000, area: 4463, aliases: ['veszprem'] },
+            'zala': { name_en: 'Zala', name_local: 'Zala', name_ko: '졸러', population: 260000, area: 3784 }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'hungary',
+            countryName: 'Hungary',
+            countryNameKo: '헝가리',
+            countryCodeIso: 'HUN',
+            defaultColor: '#d35400',
+            adminLevel: 'County (Megye)',
+            mapping: hungaryRegions
+        });
+    }
+
+    async loadBulgariaData() {
+        const bulgariaRegions = {
+            'sofia_capital': { name_en: 'Sofia (Capital)', name_local: 'София-град', name_ko: '소피아 시', population: 1310000, area: 1349, admin_level: 'Capital Municipality', aliases: ['sofia grad', 'sofia-city', 'sofia city'] },
+            'sofia_province': { name_en: 'Sofia Province', name_local: 'Софийска област', name_ko: '소피아 주', population: 220000, area: 7059, aliases: ['sofiyska oblast', 'sofia oblast'] },
+            'plovdiv': { name_en: 'Plovdiv', name_local: 'Пловдив', name_ko: '플로브디프', population: 620000, area: 5972 },
+            'varna': { name_en: 'Varna', name_local: 'Варна', name_ko: '바르나', population: 470000, area: 3819 },
+            'burgas': { name_en: 'Burgas', name_local: 'Бургас', name_ko: '부르가스', population: 390000, area: 7748 },
+            'stara_zagora': { name_en: 'Stara Zagora', name_local: 'Стара Загора', name_ko: '스타라자고라', population: 300000, area: 5151, aliases: ['stara zagora'] },
+            'blagoevgrad': { name_en: 'Blagoevgrad', name_local: 'Благоевград', name_ko: '블라고에브그라드', population: 280000, area: 6449 },
+            'pleven': { name_en: 'Pleven', name_local: 'Плевен', name_ko: '플레벤', population: 240000, area: 4653 },
+            'sliven': { name_en: 'Sliven', name_local: 'Сливен', name_ko: '슬리벤', population: 180000, area: 3554 },
+            'dobrich': { name_en: 'Dobrich', name_local: 'Добрич', name_ko: '도브리치', population: 160000, area: 4719 },
+            'veliko_tarnovo': { name_en: 'Veliko Tarnovo', name_local: 'Велико Търново', name_ko: '벨리코터르노보', population: 220000, area: 4662, aliases: ['veliko tarnovo', 'veliko turnovo'] },
+            'haskovo': { name_en: 'Haskovo', name_local: 'Хасково', name_ko: '하스코보', population: 210000, area: 5543 },
+            'shumen': { name_en: 'Shumen', name_local: 'Шумен', name_ko: '슈멘', population: 170000, area: 3389 },
+            'yambol': { name_en: 'Yambol', name_local: 'Ямбол', name_ko: '얌볼', population: 110000, area: 3333 },
+            'ruse': { name_en: 'Ruse', name_local: 'Русе', name_ko: '루세', population: 200000, area: 2621, aliases: ['rousse', 'ruse'] },
+            'pernik': { name_en: 'Pernik', name_local: 'Перник', name_ko: '페르니크', population: 110000, area: 2392 },
+            'kyustendil': { name_en: 'Kyustendil', name_local: 'Кюстендил', name_ko: '큐스텐딜', population: 115000, area: 3084, aliases: ['kyustendil', 'kjustendil'] },
+            'gabrovo': { name_en: 'Gabrovo', name_local: 'Габрово', name_ko: '가브로보', population: 100000, area: 2023 },
+            'montana': { name_en: 'Montana', name_local: 'Монтана', name_ko: '몬타나', population: 125000, area: 3635 },
+            'vratsa': { name_en: 'Vratsa', name_local: 'Враца', name_ko: '브라차', population: 155000, area: 3619 },
+            'vidin': { name_en: 'Vidin', name_local: 'Видин', name_ko: '비딘', population: 80000, area: 3032 },
+            'lovech': { name_en: 'Lovech', name_local: 'Ловеч', name_ko: '로베치', population: 120000, area: 4128 },
+            'targovishte': { name_en: 'Targovishte', name_local: 'Търговище', name_ko: '터르고비쉬테', population: 110000, area: 2716, aliases: ['targovishte', 'turgovishte'] },
+            'razgrad': { name_en: 'Razgrad', name_local: 'Разград', name_ko: '라즈그라드', population: 110000, area: 2639 },
+            'silistra': { name_en: 'Silistra', name_local: 'Силистра', name_ko: '실리스트라', population: 105000, area: 2846 },
+            'smolyan': { name_en: 'Smolyan', name_local: 'Смолян', name_ko: '스몰랸', population: 100000, area: 3193, aliases: ['smoljan'] },
+            'kardzhali': { name_en: 'Kardzhali', name_local: 'Кърджали', name_ko: '커르잘리', population: 150000, area: 3209, aliases: ['kardjali', 'kurdzhali'] },
+            'pazardzhik': { name_en: 'Pazardzhik', name_local: 'Пазарджик', name_ko: '파자르지크', population: 270000, area: 4480, aliases: ['pazardjik', 'pazardzhik'] }
+        };
+
+        await this.loadCustomEuropeanCountry({
+            countryKey: 'bulgaria',
+            countryName: 'Bulgaria',
+            countryNameKo: '불가리아',
+            countryCodeIso: 'BGR',
+            defaultColor: '#7f8c8d',
+            adminLevel: 'Province (Oblast)',
+            mapping: bulgariaRegions
+        });
+    }
+
+    async loadKoreaData() {
+        try {
+            let geoJsonData;
+            
+            // 캐시된 데이터 무시하고 항상 새로 로드 (디버깅용)
+            // TODO: 나중에 다시 캐싱 활성화
+            // if (this.cachedGeoJsonData['korea']) {
+            //     geoJsonData = this.cachedGeoJsonData['korea'];
+            // } else {
+                // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
+                const response = await fetch('data/korea-cities-official.geojson');
+                geoJsonData = await response.json();
+                
+                // 한국 행정구역별 실제 인구 및 면적 데이터
+                const koreaRegionData = {
+                    // 서울특별시
+                    '종로구': { population: 139272, area: 23.91 },
+                    '중구': { population: 123766, area: 9.96 },
+                    '용산구': { population: 235326, area: 21.87 },
+                    '성동구': { population: 286490, area: 16.85 },
+                    '광진구': { population: 342710, area: 17.06 },
+                    '동대문구': { population: 342715, area: 14.22 },
+                    '중랑구': { population: 394214, area: 18.50 },
+                    '성북구': { population: 440186, area: 24.57 },
+                    '강북구': { population: 298527, area: 23.60 },
+                    '도봉구': { population: 316856, area: 20.71 },
+                    '노원구': { population: 540540, area: 35.44 },
+                    '은평구': { population: 456023, area: 29.71 },
+                    '서대문구': { population: 312823, area: 17.62 },
+                    '마포구': { population: 374756, area: 23.86 },
+                    '양천구': { population: 438640, area: 17.41 },
+                    '강서구': { population: 565785, area: 41.44 },
+                    '구로구': { population: 409129, area: 20.12 },
+                    '금천구': { population: 238168, area: 13.01 },
+                    '영등포구': { population: 385291, area: 24.56 },
+                    '동작구': { population: 392823, area: 16.36 },
+                    '관악구': { population: 500005, area: 29.57 },
+                    '서초구': { population: 405407, area: 47.00 },
+                    '강남구': { population: 537294, area: 39.55 },
+                    '송파구': { population: 655238, area: 33.89 },
+                    '강동구': { population: 453970, area: 24.59 },
+                    // 부산광역시
+                    '부산 중구': { population: 38423, area: 2.84 },
+                    '부산 서구': { population: 98703, area: 14.15 },
+                    '부산 동구': { population: 82653, area: 9.77 },
+                    '영도구': { population: 114202, area: 14.15 },
+                    '부산진구': { population: 343091, area: 29.70 },
+                    '동래구': { population: 259604, area: 16.63 },
+                    '부산 남구': { population: 270264, area: 26.81 },
+                    '부산 북구': { population: 301908, area: 39.37 },
+                    '해운대구': { population: 397996, area: 51.41 },
+                    '사하구': { population: 309070, area: 40.64 },
+                    '금정구': { population: 227568, area: 65.19 },
+                    '부산 강서구': { population: 169059, area: 181.58 },
+                    '연제구': { population: 214771, area: 12.38 },
+                    '수영구': { population: 171423, area: 10.16 },
+                    '사상구': { population: 213193, area: 35.56 },
+                    '기장군': { population: 169799, area: 218.02 },
+                    // 대구광역시
+                    '대구 중구': { population: 69595, area: 7.06 },
+                    '대구 동구': { population: 345558, area: 182.35 },
+                    '대구 서구': { population: 169819, area: 17.32 },
+                    '대구 남구': { population: 131412, area: 17.43 },
+                    '대구 북구': { population: 432714, area: 93.99 },
+                    '수성구': { population: 418466, area: 76.54 },
+                    '달서구': { population: 567112, area: 62.35 },
+                    '달성군': { population: 278185, area: 426.16 },
+                    // 인천광역시
+                    '인천 중구': { population: 139047, area: 128.17 },
+                    '인천 동구': { population: 63152, area: 7.19 },
+                    '미추홀구': { population: 377101, area: 24.38 },
+                    '연수구': { population: 385676, area: 50.77 },
+                    '남동구': { population: 534299, area: 57.99 },
+                    '부평구': { population: 532184, area: 32.91 },
+                    '계양구': { population: 310581, area: 45.61 },
+                    '인천 서구': { population: 642268, area: 122.49 },
+                    '강화군': { population: 69500, area: 411.35 },
+                    '옹진군': { population: 20800, area: 1141.19 },
+                    // 광주광역시
+                    '광주 동구': { population: 93284, area: 48.31 },
+                    '광주 서구': { population: 208347, area: 47.83 },
+                    '광주 남구': { population: 213655, area: 61.14 },
+                    '광주 북구': { population: 440297, area: 92.56 },
+                    '광산구': { population: 434509, area: 222.89 },
+                    // 대전광역시
+                    '대전 동구': { population: 189176, area: 136.61 },
+                    '대전 중구': { population: 230245, area: 62.09 },
+                    '대전 서구': { population: 493225, area: 95.35 },
+                    '유성구': { population: 362377, area: 176.47 },
+                    '대덕구': { population: 166249, area: 68.27 },
+                    // 울산광역시
+                    '울산 중구': { population: 205018, area: 37.18 },
+                    '울산 남구': { population: 341218, area: 72.06 },
+                    '울산 동구': { population: 167280, area: 36.94 },
+                    '울산 북구': { population: 212050, area: 80.31 },
+                    '울주군': { population: 236680, area: 733.14 },
+                    // 세종특별자치시
+                    '세종시': { population: 396141, area: 465.23 },
+                    // 경기도
+                    '수원시장안구': { population: 281250, area: 36.06 },
+                    '수원시권선구': { population: 351590, area: 47.10 },
+                    '수원시팔달구': { population: 174390, area: 22.76 },
+                    '수원시영통구': { population: 393808, area: 26.65 },
+                    '성남시수정구': { population: 240471, area: 42.86 },
+                    '성남시중원구': { population: 221787, area: 28.03 },
+                    '성남시분당구': { population: 445109, area: 66.73 },
+                    '의정부시': { population: 446070, area: 81.53 },
+                    '안양시만안구': { population: 186421, area: 16.58 },
+                    '안양시동안구': { population: 345620, area: 36.43 },
+                    '부천시': { population: 789655, area: 53.44 },
+                    '광명시': { population: 309756, area: 38.45 },
+                    '평택시': { population: 583626, area: 452.54 },
+                    '동두천시': { population: 95413, area: 95.67 },
+                    '안산시상록구': { population: 365482, area: 57.31 },
+                    '안산시단원구': { population: 358978, area: 57.35 },
+                    '고양시덕양구': { population: 495325, area: 165.53 },
+                    '고양시일산동구': { population: 288620, area: 58.89 },
+                    '고양시일산서구': { population: 302344, area: 58.89 },
+                    '과천시': { population: 58412, area: 35.87 },
+                    '구리시': { population: 185187, area: 33.29 },
+                    '남양주시': { population: 754213, area: 458.22 },
+                    '오산시': { population: 242683, area: 42.74 },
+                    '시흥시': { population: 567198, area: 131.82 },
+                    '군포시': { population: 262667, area: 36.39 },
+                    '의왕시': { population: 169839, area: 54.10 },
+                    '하남시': { population: 366455, area: 93.04 },
+                    '용인시처인구': { population: 304061, area: 591.25 },
+                    '용인시기흥구': { population: 528543, area: 84.46 },
+                    '용인시수지구': { population: 390258, area: 42.38 },
+                    '파주시': { population: 514337, area: 672.84 },
+                    '이천시': { population: 227452, area: 461.30 },
+                    '안성시': { population: 182049, area: 554.20 },
+                    '김포시': { population: 514880, area: 276.60 },
+                    '화성시': { population: 1011366, area: 845.19 },
+                    '광주시': { population: 396487, area: 431.16 },
+                    '양주시': { population: 235743, area: 310.04 },
+                    '포천시': { population: 148682, area: 826.89 },
+                    '여주시': { population: 117456, area: 608.02 },
+                    '연천군': { population: 44135, area: 675.22 },
+                    '가평군': { population: 59202, area: 843.77 },
+                    '양평군': { population: 118180, area: 877.43 },
+                    // 강원특별자치도
+                    '춘천시': { population: 285280, area: 1116.44 },
+                    '원주시': { population: 374640, area: 867.36 },
+                    '강릉시': { population: 213587, area: 1040.78 },
+                    '동해시': { population: 90622, area: 180.48 },
+                    '태백시': { population: 39021, area: 303.53 },
+                    '속초시': { population: 81692, area: 105.43 },
+                    '삼척시': { population: 63318, area: 1185.86 },
+                    '홍천군': { population: 67825, area: 1819.00 },
+                    '횡성군': { population: 44986, area: 920.94 },
+                    '영월군': { population: 35178, area: 1127.36 },
+                    '평창군': { population: 38964, area: 1464.14 },
+                    '정선군': { population: 33693, area: 1219.02 },
+                    '철원군': { population: 43204, area: 889.51 },
+                    '화천군': { population: 23912, area: 909.48 },
+                    '양구군': { population: 21332, area: 701.19 },
+                    '인제군': { population: 33055, area: 1646.56 },
+                    '고성군': { population: 26442, area: 664.68 },
+                    '양양군': { population: 27378, area: 630.56 },
+                    // 충청북도
+                    '청주시상당구': { population: 195024, area: 404.49 },
+                    '청주시서원구': { population: 256011, area: 122.17 },
+                    '청주시흥덕구': { population: 310884, area: 209.54 },
+                    '청주시청원구': { population: 203531, area: 214.99 },
+                    '충주시': { population: 211703, area: 983.84 },
+                    '제천시': { population: 131977, area: 882.47 },
+                    '보은군': { population: 29187, area: 584.13 },
+                    '옥천군': { population: 48416, area: 537.65 },
+                    '영동군': { population: 45162, area: 846.15 },
+                    '진천군': { population: 93407, area: 406.65 },
+                    '괴산군': { population: 35916, area: 849.87 },
+                    '음성군': { population: 97311, area: 520.84 },
+                    '단양군': { population: 28662, area: 781.06 },
+                    '증평군': { population: 36210, area: 81.84 },
+                    // 충청남도
+                    '천안시동남구': { population: 332674, area: 636.22 },
+                    '천안시서북구': { population: 493320, area: 401.43 },
+                    '공주시': { population: 113452, area: 864.11 },
+                    '보령시': { population: 104293, area: 569.54 },
+                    '아산시': { population: 352616, area: 542.25 },
+                    '서산시': { population: 177293, area: 741.32 },
+                    '논산시': { population: 114668, area: 554.09 },
+                    '계룡시': { population: 44928, area: 60.74 },
+                    '당진시': { population: 171149, area: 703.68 },
+                    '금산군': { population: 50803, area: 573.54 },
+                    '부여군': { population: 59010, area: 624.57 },
+                    '서천군': { population: 49001, area: 359.49 },
+                    '청양군': { population: 29689, area: 479.57 },
+                    '홍성군': { population: 94210, area: 443.09 },
+                    '예산군': { population: 82391, area: 542.46 },
+                    '태안군': { population: 62075, area: 503.48 },
+                    // 전북특별자치도
+                    '전주시완산구': { population: 335912, area: 105.29 },
+                    '전주시덕진구': { population: 287848, area: 81.62 },
+                    '군산시': { population: 263044, area: 402.20 },
+                    '익산시': { population: 276497, area: 506.36 },
+                    '정읍시': { population: 103965, area: 692.74 },
+                    '남원시': { population: 78697, area: 752.69 },
+                    '김제시': { population: 83981, area: 545.94 },
+                    '완주군': { population: 95707, area: 821.07 },
+                    '진안군': { population: 23434, area: 789.38 },
+                    '무주군': { population: 24612, area: 631.54 },
+                    '장수군': { population: 19469, area: 534.31 },
+                    '임실군': { population: 24317, area: 596.93 },
+                    '순창군': { population: 26155, area: 495.74 },
+                    '고창군': { population: 52804, area: 608.27 },
+                    '부안군': { population: 53994, area: 493.27 },
+                    // 전라남도
+                    '목포시': { population: 217669, area: 50.12 },
+                    '여수시': { population: 271487, area: 512.29 },
+                    '순천시': { population: 275334, area: 910.94 },
+                    '나주시': { population: 118318, area: 608.22 },
+                    '광양시': { population: 149224, area: 463.24 },
+                    '담양군': { population: 44266, area: 455.81 },
+                    '곡성군': { population: 26324, area: 547.41 },
+                    '구례군': { population: 24152, area: 443.02 },
+                    '고흥군': { population: 59281, area: 777.65 },
+                    '보성군': { population: 38693, area: 664.02 },
+                    '화순군': { population: 63759, area: 787.14 },
+                    '장흥군': { population: 38304, area: 618.45 },
+                    '강진군': { population: 34578, area: 501.81 },
+                    '해남군': { population: 65864, area: 1010.40 },
+                    '영암군': { population: 53620, area: 615.71 },
+                    '무안군': { population: 90618, area: 449.63 },
+                    '함평군': { population: 29639, area: 392.90 },
+                    '영광군': { population: 51004, area: 473.29 },
+                    '장성군': { population: 43761, area: 518.06 },
+                    '완도군': { population: 49210, area: 391.84 },
+                    '진도군': { population: 29750, area: 439.19 },
+                    '신안군': { population: 39020, area: 656.83 },
+                    // 경상북도
+                    '포항시남구': { population: 243412, area: 507.41 },
+                    '포항시북구': { population: 257948, area: 734.45 },
+                    '경주시': { population: 243687, area: 1324.94 },
+                    '김천시': { population: 133298, area: 989.55 },
+                    '안동시': { population: 156797, area: 1519.14 },
+                    '구미시': { population: 410775, area: 615.43 },
+                    '영주시': { population: 102748, area: 1254.73 },
+                    '영천시': { population: 100780, area: 920.55 },
+                    '상주시': { population: 94809, area: 1254.40 },
+                    '문경시': { population: 69856, area: 911.95 },
+                    '경산시': { population: 278411, area: 395.52 },
+                    '군위군': { population: 22412, area: 614.14 },
+                    '의성군': { population: 48355, area: 1175.16 },
+                    '청송군': { population: 23905, area: 846.53 },
+                    '영양군': { population: 15273, area: 815.13 },
+                    '영덕군': { population: 36257, area: 641.08 },
+                    '청도군': { population: 41246, area: 694.83 },
+                    '고령군': { population: 31944, area: 384.10 },
+                    '성주군': { population: 42155, area: 616.63 },
+                    '칠곡군': { population: 104315, area: 451.45 },
+                    '예천군': { population: 52432, area: 661.55 },
+                    '봉화군': { population: 31667, area: 1201.89 },
+                    '울진군': { population: 49337, area: 989.51 },
+                    '울릉군': { population: 9208, area: 72.86 },
+                    // 경상남도
+                    '창원시의창구': { population: 271158, area: 125.91 },
+                    '창원시성산구': { population: 243132, area: 70.73 },
+                    '창원시마산합포구': { population: 173118, area: 120.02 },
+                    '창원시마산회원구': { population: 191905, area: 67.21 },
+                    '창원시진해구': { population: 187096, area: 120.33 },
+                    '진주시': { population: 354745, area: 712.70 },
+                    '통영시': { population: 125563, area: 238.89 },
+                    '사천시': { population: 108803, area: 398.57 },
+                    '김해시': { population: 563397, area: 463.25 },
+                    '밀양시': { population: 97435, area: 799.24 },
+                    '거제시': { population: 238054, area: 401.66 },
+                    '양산시': { population: 374605, area: 485.23 },
+                    '의령군': { population: 24360, area: 482.64 },
+                    '함안군': { population: 59622, area: 415.89 },
+                    '창녕군': { population: 58029, area: 532.14 },
+                    '경남 고성군': { population: 49504, area: 517.98 },
+                    '남해군': { population: 42800, area: 357.71 },
+                    '하동군': { population: 43675, area: 675.34 },
+                    '산청군': { population: 33753, area: 792.06 },
+                    '함양군': { population: 38027, area: 725.05 },
+                    '거창군': { population: 61854, area: 803.05 },
+                    '합천군': { population: 41917, area: 983.34 },
+                    // 제주특별자치도
+                    '제주시': { population: 493621, area: 977.80 },
+                    '서귀포시': { population: 190311, area: 870.56 },
+                    // 독도
+                    '독도': { population: 2, area: 0.18745 }
+                };
+                
+                // 각 지역에 광고 정보 추가 (시 단위)
+                const idSet = new Set(); // 중복 ID 방지
+                
+                geoJsonData.features.forEach((feature, index) => {
+                    const props = feature.properties;
+                    
+                    // 시/구 단위 데이터의 속성 구조에 맞게 조정
+                    // 다양한 속성 이름 패턴 확인
+                    const sigNameKo = props.SIG_KOR_NM || props.sig_name_ko || props.name_ko || props.name;
+                    const sigNameEn = props.SIG_ENG_NM || props.sig_name_en || props.name_en || props.name_eng;
+                    let ctpNameKo = props.CTP_KOR_NM || props.ctp_name_ko || '';
+                    let ctpNameEn = props.CTP_ENG_NM || props.ctp_name_en || '';
+                    
+                    // 첫 번째 지역의 속성 구조 출력 (디버깅)
+                    if (index === 0) {
+                        console.log('첫 번째 지역 속성 구조:', Object.keys(props));
+                        console.log('첫 번째 지역 속성 값:', {
+                            CTP_KOR_NM: props.CTP_KOR_NM,
+                            SIG_KOR_NM: props.SIG_KOR_NM,
+                            name: props.name,
+                            name_ko: props.name_ko,
+                            sigNameKo,
+                            ctpNameKo
+                        });
+                    }
+                    
+                    // 시/구 이름 조합 및 표시 이름 생성
+                    let cityNameKo, cityNameEn;
+                    
+                    // 구 이름만 있는 경우 - code나 name_eng에서 시 이름 추출 (광역시/특별시만)
+                    let isMetropolitan = false; // 광역시/특별시 여부
+                    
+                    if (!ctpNameKo && sigNameKo && props.code) {
+                        // 행정구역 코드로 광역시/특별시 추출
+                        const codePrefix = props.code.substring(0, 2);
+                        // 광역시/특별시 코드만 (서울: 11, 부산: 21, 대구: 22, 인천: 23, 광주: 24, 대전: 25, 울산: 26)
+                        const metropolitanCityMap = {
+                            '11': '서울', '21': '부산', '22': '대구', '23': '인천',
+                            '24': '광주', '25': '대전', '26': '울산'
+                        };
+                        
+                        if (metropolitanCityMap[codePrefix]) {
+                            ctpNameKo = metropolitanCityMap[codePrefix];
+                            isMetropolitan = true;
+                        }
+                    }
+                    
+                    // name_eng에서도 광역시/특별시 이름 추출 시도
+                    if (!ctpNameKo && props.name_eng) {
+                        const nameEngParts = props.name_eng.split('-');
+                        if (nameEngParts.length > 0) {
+                            const cityEng = nameEngParts[0].toLowerCase();
+                            const metropolitanCityMapEng = {
+                                'seoul': '서울', 'busan': '부산', 'daegu': '대구', 'incheon': '인천',
+                                'gwangju': '광주', 'daejeon': '대전', 'ulsan': '울산'
+                            };
+                            if (metropolitanCityMapEng[cityEng]) {
+                                ctpNameKo = metropolitanCityMapEng[cityEng];
+                                isMetropolitan = true;
+                            }
+                        }
+                    }
+                    
+                    // 광역시/특별시인 경우만 시 이름 포함
+                    if (isMetropolitan && ctpNameKo && sigNameKo && sigNameKo !== ctpNameKo && !sigNameKo.includes(ctpNameKo)) {
+                        // 광역시/특별시와 구가 분리된 경우 - 표시 이름에 시 이름 포함
+                        cityNameKo = `${ctpNameKo} ${sigNameKo}`;
+                        cityNameEn = ctpNameEn && sigNameEn ? `${ctpNameEn} ${sigNameEn}` : 
+                                   (sigNameEn || props.name || cityNameKo);
+                    } else if (sigNameKo && sigNameKo.endsWith('구')) {
+                        // 구 단위인데 시 이름이 없는 경우 - name에서 추출 시도
+                        // 예: props.name = "부산광역시 사상구"
+                        const nameText = props.name || props.name_ko || '';
+                        if (nameText.includes('광역시') || nameText.includes('특별시')) {
+                            const nameParts = nameText.split(/\s+/);
+                            const ctpPart = nameParts.find(p => p.includes('광역시') || p.includes('특별시'));
+                            if (ctpPart) {
+                                const ctpShort = ctpPart.replace(/광역시|특별시/g, '').trim();
+                                cityNameKo = `${ctpShort} ${sigNameKo}`;
+                            } else {
+                                cityNameKo = sigNameKo;
+                            }
+                        } else {
+                            cityNameKo = sigNameKo;
+                        }
+                        cityNameEn = sigNameEn || props.name_eng || cityNameKo;
+                    } else {
+                        // 시/도 단위만 있는 경우
+                        cityNameKo = sigNameKo || props.name || `City_${index}`;
+                        cityNameEn = sigNameEn || props.name_eng || props.name || cityNameKo;
+                    }
+                    
+                    // 고유 ID 생성: 시_구 형태로 조합 (중복 방지)
+                    let finalCityId;
+                    if (ctpNameKo && sigNameKo && sigNameKo !== ctpNameKo) {
+                        // 시와 구가 분리된 경우 (예: 부산광역시_남구)
+                        const fullName = `${ctpNameKo}_${sigNameKo}`;
+                        finalCityId = fullName.toLowerCase()
+                            .replace(/[^\w가-힣]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                    } else {
+                        // 시/도 단위만 있는 경우
+                        const idSource = ctpNameKo || sigNameKo || props.name || `City_${index}`;
+                        finalCityId = idSource.toLowerCase()
+                            .replace(/[^\w가-힣]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                    }
+                    
+                    // 중복 방지: 같은 ID가 있으면 인덱스 추가
+                    let uniqueId = finalCityId;
+                    let counter = 1;
+                    while (idSet.has(uniqueId)) {
+                        uniqueId = `${finalCityId}_${counter}`;
+                        counter++;
+                    }
+                    idSet.add(uniqueId);
+                    finalCityId = uniqueId;
+                    
+                    // 최종 ID가 없으면 인덱스 사용
+                    if (!finalCityId) {
+                        finalCityId = `korea_region_${index}`;
+                    }
+                    
+                    // 지역 데이터 매칭 (여러 이름 패턴 시도)
+                    let regionData = null;
+                    const searchKeys = [
+                        cityNameKo, // 최종 표시 이름
+                        sigNameKo, // 시/군/구 이름
+                        props.name, // 원본 name
+                        props.SIG_KOR_NM, // SIG_KOR_NM
+                        `${ctpNameKo} ${sigNameKo}`, // 시도 + 시군구 조합
+                        `${sigNameKo}구`, // 구 이름 (구 제거)
+                        `${sigNameKo}시`, // 시 이름 (시 제거)
+                        `${sigNameKo}군` // 군 이름 (군 제거)
+                    ];
+                    
+                    for (const key of searchKeys) {
+                        if (key && koreaRegionData[key]) {
+                            regionData = koreaRegionData[key];
+                            break;
+                        }
+                    }
+                    
+                    // 매칭되지 않으면 기본값 사용
+                    const population = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 500000) + 50000);
+                    const area = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 1000) + 100);
+                    
+                    feature.properties = {
+                        ...props,
+                        id: finalCityId,
+                        name: cityNameKo,
+                        name_en: cityNameEn,
+                        name_ko: cityNameKo,
+                        sig_name_ko: sigNameKo,
+                        sig_name_en: sigNameEn,
+                        ctp_name_ko: ctpNameKo,
+                        ctp_name_en: ctpNameEn,
+                        country: 'South Korea',
+                        country_code: 'KR',
+                        admin_level: (sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) ? 'District' : 'City',
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 500000) + 100000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#4ecdc4',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    };
+                    
+                    // 디버깅: 구가 있는 지역 모두 출력
+                    if (sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) {
+                        console.log(`[${index}] 구 이름 처리:`, {
+                            원본_ctp: props.CTP_KOR_NM,
+                            원본_sig: props.SIG_KOR_NM,
+                            ctpNameKo,
+                            sigNameKo,
+                            표시이름: cityNameKo,
+                            finalId: finalCityId
+                        });
+                    }
+                    
+                    // regionData에 저장 (기존 중복 덮어쓰기)
+                    this.regionData.set(finalCityId, feature.properties);
+                });
+                
+                // 독도 별도 추가 (울릉군과 분리)
+                const dokdoData = koreaRegionData['독도'] || { population: 2, area: 0.18745 };
+                const dokdoFeature = {
+                    type: 'Feature',
+                    properties: {
+                        id: 'dokdo',
+                        name: '독도',
+                        name_en: 'Dokdo',
+                        name_ko: '독도',
+                        sig_name_ko: '독도',
+                        sig_name_en: 'Dokdo',
+                        ctp_name_ko: '',
+                        ctp_name_en: '',
+                        country: 'South Korea',
+                        country_code: 'KR',
+                        admin_level: 'Island',
+                        population: dokdoData.population,
+                        area: dokdoData.area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 500000) + 100000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#4ecdc4',
+                        border_color: '#ffffff',
+                        border_width: 1
+                    },
+                    geometry: {
+                        type: 'Polygon',
+                        // 독도 위치: 경도 131.87, 위도 37.24
+                        // 작은 섬이므로 작은 폴리곤으로 표현
+                        coordinates: [[
+                            [131.86, 37.239],
+                            [131.88, 37.239],
+                            [131.88, 37.241],
+                            [131.86, 37.241],
+                            [131.86, 37.239]
+                        ]]
+                    }
+                };
+                
+                // 독도 feature 추가
+                geoJsonData.features.push(dokdoFeature);
+                this.regionData.set('dokdo', dokdoFeature.properties);
+                
+                console.log('한국 데이터 처리 완료:', geoJsonData.features.length, '개 지역, 고유 ID:', idSet.size);
+                console.log('처리된 지역 샘플:', geoJsonData.features.slice(0, 5).map(f => ({
+                    id: f.properties.id,
+                    name: f.properties.name_ko || f.properties.name,
+                    sig: f.properties.sig_name_ko,
+                    ctp: f.properties.ctp_name_ko
+                })));
+                console.log('독도가 별도로 추가되었습니다.');
+                
+                // 캐시에 저장
+                this.cachedGeoJsonData['korea'] = geoJsonData;
+            // }
+        
+        // 소스 업데이트 또는 생성
+        if (this.map.getSource('world-regions')) {
+            // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
+            this.map.getSource('world-regions').setData(geoJsonData);
+        } else {
+            // 소스가 없으면 새로 생성
+            this.map.addSource('world-regions', {
+                type: 'geojson',
+                data: geoJsonData
+            });
+        }
+        
+        // 레이어가 없으면 추가
+        if (!this.map.getLayer('regions-fill')) {
+            this.map.addLayer({
+                id: 'regions-fill',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': [
+                        'case',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '#ff6b6b',
+                        '#4ecdc4'
+                    ],
+                    'fill-opacity': 0.6
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-border',
+                type: 'line',
+                source: 'world-regions',
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': 1,
+                    'line-opacity': 0.8
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-hover',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': '#feca57',
+                    'fill-opacity': 0
+                }
+            });
+            
+            // 이벤트 리스너 한 번만 추가
+            if (!this.eventListenersAdded) {
+                this.setupEventListeners();
+                this.eventListenersAdded = true;
+            }
+        }
+        
+        console.log('한국 데이터 로드 완료:', geoJsonData.features.length, '개 지역');
+        
+        // 통계 업데이트
+        this.updateStatistics();
+        
+        } catch (error) {
+            console.error('한국 데이터 로드 실패:', error);
+            this.showNotification('한국 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    generateSampleRegions() {
+        // 샘플 행정구역 데이터 생성
+        const regions = [
+            // 한국
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'seoul',
+                    name_ko: '서울특별시',
+                    name_en: 'Seoul',
+                    country: 'South Korea',
+                    admin_level: 'Metropolitan City',
+                    population: 9720846,
+                    area: 605.21,
+                    occupied: false,
+                    price: 50000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[126.8, 37.4], [127.2, 37.4], [127.2, 37.7], [126.8, 37.7], [126.8, 37.4]]]
+                }
+            },
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'busan',
+                    name_ko: '부산광역시',
+                    name_en: 'Busan',
+                    country: 'South Korea',
+                    admin_level: 'Metropolitan City',
+                    population: 3448737,
+                    area: 770.18,
+                    occupied: false,
+                    price: 30000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[128.8, 35.0], [129.2, 35.0], [129.2, 35.3], [128.8, 35.3], [128.8, 35.0]]]
+                }
+            },
+            // 미국
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'california',
+                    name_ko: '캘리포니아주',
+                    name_en: 'California',
+                    country: 'United States',
+                    admin_level: 'State',
+                    population: 39538223,
+                    area: 423967,
+                    occupied: false,
+                    price: 200000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[-124.5, 32.5], [-114.0, 32.5], [-114.0, 42.0], [-124.5, 42.0], [-124.5, 32.5]]]
+                }
+            },
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'newyork',
+                    name_ko: '뉴욕주',
+                    name_en: 'New York',
+                    country: 'United States',
+                    admin_level: 'State',
+                    population: 20201249,
+                    area: 141297,
+                    occupied: false,
+                    price: 150000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[-79.8, 40.5], [-71.9, 40.5], [-71.9, 45.0], [-79.8, 45.0], [-79.8, 40.5]]]
+                }
+            },
+            // 중국
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'guangdong',
+                    name_ko: '광둥성',
+                    name_en: 'Guangdong',
+                    country: 'China',
+                    admin_level: 'Province',
+                    population: 126012510,
+                    area: 179800,
+                    occupied: false,
+                    price: 100000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[109.7, 20.2], [117.2, 20.2], [117.2, 25.5], [109.7, 25.5], [109.7, 20.2]]]
+                }
+            },
+            // 일본
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'tokyo',
+                    name_ko: '도쿄도',
+                    name_en: 'Tokyo',
+                    country: 'Japan',
+                    admin_level: 'Prefecture',
+                    population: 13929286,
+                    area: 2194,
+                    occupied: false,
+                    price: 80000
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[138.7, 35.5], [139.9, 35.5], [139.9, 35.9], [138.7, 35.9], [138.7, 35.5]]]
+                }
+            }
+        ];
+        
+        return regions;
+    }
+    
+    setupEventListeners() {
+        // 지역 클릭 이벤트
+        this.map.on('click', 'regions-fill', (e) => {
+            e.preventDefault();
+            const feature = e.features[0];
+            this.selectRegion(feature);
+        });
+        
+        // 호버 효과 - mousemove 기반으로 변경 (행정구역간 이동 실시간 감지)
+        let lastHoverRegionId = null;
+        let hoverTimeout = null;
+        
+        // 행정구역 위에서 마우스 이동 시
+        this.map.on('mousemove', 'regions-fill', (e) => {
+            if (hoverTimeout) {
+                clearTimeout(hoverTimeout);
+                hoverTimeout = null;
+            }
+            
+            if (!e.features || e.features.length === 0) {
+                return;
+            }
+            
+            const feature = e.features[0];
+            const properties = feature.properties;
+            const regionId = properties.id;
+            
+            // 같은 지역이면 툴팁만 업데이트
+            if (lastHoverRegionId === regionId) {
+                this.showTooltip(e.point, properties);
+                return;
+            }
+            
+            // 다른 지역으로 이동
+            if (lastHoverRegionId && lastHoverRegionId !== regionId) {
+                this.clearHoverEffectImmediate();
+            }
+            
+            // 새 지역에 hover 효과 적용
+            lastHoverRegionId = regionId;
+            this.currentHoverRegionId = regionId;
+            this.applyHoverEffect(regionId);
+            
+            // 커서 및 툴팁
+            this.map.getCanvas().style.cursor = 'pointer';
+            this.showTooltip(e.point, properties);
+        });
+        
+        // 행정구역에서 벗어날 때 (debounce 처리)
+        this.map.on('mouseleave', 'regions-fill', () => {
+            // 약간의 지연을 두어 경계선을 넘어갈 때 flickering 방지
+            hoverTimeout = setTimeout(() => {
+                this.handleRegionHoverExit();
+                lastHoverRegionId = null;
+            }, 10);
+        });
+        
+        // 지도 클릭 시 선택 해제
+        this.map.on('click', (e) => {
+            if (!e.features || e.features.length === 0) {
+                this.hideInfoPanel();
+            }
+        });
+        
+        // 줌 컨트롤 이벤트
+        document.getElementById('zoom-world').addEventListener('click', () => {
+            this.zoomToLevel('world');
+        });
+        
+        document.getElementById('zoom-country').addEventListener('click', () => {
+            this.zoomToLevel('country');
+        });
+        
+        document.getElementById('zoom-region').addEventListener('click', () => {
+            this.zoomToLevel('region');
+        });
+        
+        // 패널 닫기
+        document.getElementById('close-panel').addEventListener('click', () => {
+            this.hideInfoPanel();
+        });
+        
+        // 구매 버튼 (정보 패널)
+        document.getElementById('purchase-btn').addEventListener('click', () => {
+            if (!this.currentRegion) {
+                this.showNotification('구매할 지역을 선택해주세요.', 'warning');
+                return;
+            }
+            // 로그인 체크
+            if (!this.currentUser) {
+                this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
+                this.showUserLoginModal();
+                return;
+            }
+            this.renderPayPalButtons('paypal-buttons', this.currentRegion);
+            const container = document.getElementById('paypal-buttons');
+            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        
+        // 도움말 버튼
+        document.getElementById('help-btn').addEventListener('click', () => {
+            this.showHelp();
+        });
+        
+        
+        // 메뉴 닫기
+        document.getElementById('close-menu').addEventListener('click', () => {
+            this.hideMenu();
+        });
+        
+        // 햄버거 메뉴 버튼
+        const hamburgerMenuBtn = document.getElementById('hamburger-menu-btn');
+        if (hamburgerMenuBtn) {
+            hamburgerMenuBtn.addEventListener('click', () => {
+                this.toggleSideMenu();
+            });
+        }
+        
+        // 사이드 메뉴 닫기
+        const closeSideMenu = document.getElementById('close-side-menu');
+        if (closeSideMenu) {
+            closeSideMenu.addEventListener('click', () => {
+                this.hideSideMenu();
+            });
+        }
+        
+        // 사이드 메뉴 외부 클릭 시 닫기 (오버레이)
+        document.addEventListener('click', (e) => {
+            const sideMenu = document.getElementById('side-menu');
+            const hamburgerBtn = document.getElementById('hamburger-menu-btn');
+            if (sideMenu && !sideMenu.classList.contains('hidden')) {
+                // 사이드 메뉴나 햄버거 버튼이 아닌 곳을 클릭했을 때만 닫기
+                if (!sideMenu.contains(e.target) && !hamburgerBtn.contains(e.target)) {
+                    this.hideSideMenu();
+                }
+            }
+        });
+        
+        // 사이드 메뉴 사용자 로그인 버튼
+        const sideUserLoginBtn = document.getElementById('side-user-login-btn');
+        if (sideUserLoginBtn) {
+            sideUserLoginBtn.addEventListener('click', () => {
+                this.showUserLoginModal();
+            });
+        }
+        
+        // 사이드 메뉴 사용자 로그아웃 버튼
+        const sideUserLogoutBtn = document.getElementById('side-user-logout-btn');
+        if (sideUserLogoutBtn) {
+            sideUserLogoutBtn.addEventListener('click', () => {
+                this.logoutUser();
+            });
+        }
+        
+        // 사이드 메뉴 관리자 로그인 버튼
+        const sideAdminLoginBtn = document.getElementById('side-admin-login-btn');
+        if (sideAdminLoginBtn) {
+            sideAdminLoginBtn.addEventListener('click', () => {
+                this.showAdminLoginModal();
+            });
+        }
+        
+        // 사이드 메뉴 관리자 로그아웃 버튼
+        const sideAdminLogoutBtn = document.getElementById('side-admin-logout-btn');
+        if (sideAdminLogoutBtn) {
+            sideAdminLogoutBtn.addEventListener('click', () => {
+                this.handleAdminLogout();
+            });
+        }
+        
+        // 사이드 메뉴 도움말 버튼
+        const sideHelpBtn = document.getElementById('side-help-btn');
+        if (sideHelpBtn) {
+            sideHelpBtn.addEventListener('click', () => {
+                this.showHelp();
+            });
+        }
+        
+        // 사용자 로그인 버튼
+        const userLoginBtn = document.getElementById('user-login-btn');
+        if (userLoginBtn) {
+            userLoginBtn.addEventListener('click', () => {
+                this.showUserLoginModal();
+            });
+        }
+        
+        // 사용자 로그아웃 버튼
+        const userLogoutBtn = document.getElementById('user-logout-btn');
+        if (userLogoutBtn) {
+            userLogoutBtn.addEventListener('click', () => {
+                this.logoutUser();
+            });
+        }
+        
+        // 사용자 로그인 모달 닫기
+        const closeUserLogin = document.getElementById('close-user-login');
+        if (closeUserLogin) {
+            closeUserLogin.addEventListener('click', () => {
+                this.hideUserLoginModal();
+            });
+        }
+        
+        // 사용자 로그인 제출
+        const userLoginSubmit = document.getElementById('user-login-submit');
+        if (userLoginSubmit) {
+            userLoginSubmit.addEventListener('click', () => {
+                const email = document.getElementById('user-email-input').value;
+                const password = document.getElementById('user-password-input').value;
+                this.loginUser(email, password).then(() => {
+                    this.hideUserLoginModal();
+                });
+            });
+        }
+        
+        // 구글 회원가입/로그인 버튼
+        const userGoogleSignupBtn = document.getElementById('user-google-signup-btn');
+        if (userGoogleSignupBtn) {
+            userGoogleSignupBtn.addEventListener('click', () => {
+                this.signInWithGoogle();
+            });
+        }
+        
+        // 관리자 로그인 버튼
+        const adminLoginBtn = document.getElementById('admin-login-btn');
+        if (adminLoginBtn) {
+            adminLoginBtn.addEventListener('click', () => {
+                console.log('Admin 버튼 클릭됨');
+                this.showAdminLoginModal();
+            });
+        } else {
+            console.error('admin-login-btn 요소를 찾을 수 없습니다');
+        }
+        
+        // 관리자 로그인 모달 닫기
+        document.getElementById('close-admin-login').addEventListener('click', () => {
+            this.hideAdminLoginModal();
+        });
+        
+        // 관리자 로그인 제출
+        document.getElementById('admin-login-submit').addEventListener('click', () => {
+            this.handleAdminLogin();
+        });
+        
+        // 관리자 로그아웃
+        const adminLogoutBtn = document.getElementById('admin-logout-btn');
+        if (adminLogoutBtn) {
+            adminLogoutBtn.addEventListener('click', () => {
+                this.handleAdminLogout();
+            });
+        }
+        
+        // 기업 정보 모달 닫기
+        const closeCompanyInfo = document.getElementById('close-company-info');
+        if (closeCompanyInfo) {
+            closeCompanyInfo.addEventListener('click', () => {
+                this.hideCompanyInfoModal();
+            });
+        }
+        
+        // 지역 정보 모달 닫기
+        const closeRegionInfo = document.getElementById('close-region-info');
+        if (closeRegionInfo) {
+            closeRegionInfo.addEventListener('click', () => {
+                this.hideRegionInfoModal();
+            });
+        }
+        
+        // 지역 구매 버튼 (모달)
+        const regionPurchaseBtn = document.getElementById('region-purchase-btn');
+        if (regionPurchaseBtn) {
+            regionPurchaseBtn.addEventListener('click', () => {
+                if (!this.currentRegion) {
+                    this.showNotification('구매할 지역을 선택해주세요.', 'warning');
+                    return;
+                }
+                // 로그인 체크
+                if (!this.currentUser) {
+                    this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
+                    this.showUserLoginModal();
+                    return;
+                }
+                this.renderPayPalButtons('region-paypal-buttons', this.currentRegion);
+                const container = document.getElementById('region-paypal-buttons');
+                if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+        
+        // 기업 정보 저장
+        const saveCompanyInfo = document.getElementById('save-company-info');
+        if (saveCompanyInfo) {
+            saveCompanyInfo.addEventListener('click', () => {
+                this.saveCompanyInfo();
+            });
+        }
+        
+        // 기업 정보 미리보기
+        const previewCompanyInfo = document.getElementById('preview-company-info');
+        if (previewCompanyInfo) {
+            previewCompanyInfo.addEventListener('click', () => {
+                this.previewCompanyInfo();
+            });
+        }
+        
+        // 지역 정보 저장
+        const saveRegionInfo = document.getElementById('save-region-info');
+        if (saveRegionInfo) {
+            saveRegionInfo.addEventListener('click', () => {
+                this.saveRegionInfo();
+            });
+        }
+        
+        // 모달에서 편집 버튼 클릭 이벤트
+        const companyEditBtn = document.getElementById('company-edit-btn');
+        if (companyEditBtn) {
+            companyEditBtn.addEventListener('click', () => {
+                this.openRegionEditFromModal();
+            });
+        }
+        
+        // 회사 모달 내 구매 버튼
+        const companyPurchaseBtn = document.getElementById('company-purchase-btn');
+        if (companyPurchaseBtn) {
+            companyPurchaseBtn.addEventListener('click', () => {
+                // 우선순위: 버튼 data-state-id → this.selectedStateId → this.currentRegion?.id
+                const btnStateId = companyPurchaseBtn.dataset.stateId;
+                const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
+                const region = targetStateId ? (this.regionData.get(targetStateId) || this.currentRegion) : this.currentRegion;
+                
+                if (!region) {
+                    this.showNotification('구매할 지역을 선택해주세요.', 'warning');
+                    return;
+                }
+                if (region.ad_status === 'occupied' || region.occupied) {
+                    this.showNotification('이미 광고가 진행 중인 지역입니다.', 'info');
+                    return;
+                }
+                // 로그인 체크
+                if (!this.currentUser) {
+                    this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
+                    this.showUserLoginModal();
+                    return;
+                }
+                this.renderPayPalButtons('company-paypal-buttons', region);
+                const container = document.getElementById('company-paypal-buttons');
+                if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+        
+        const regionEditBtn = document.getElementById('region-edit-btn');
+        if (regionEditBtn) {
+            regionEditBtn.addEventListener('click', () => {
+                this.openRegionEditFromModal();
+            });
+        }
+        
+        // 관리자 패널 이벤트 (요소가 존재할 때만)
+        const adminToggle = document.getElementById('admin-toggle');
+        if (adminToggle) {
+            adminToggle.addEventListener('click', () => {
+                this.toggleAdminMode();
+            });
+        }
+        
+        const logoEditMode = document.getElementById('logo-edit-mode');
+        if (logoEditMode) {
+            logoEditMode.addEventListener('click', () => {
+                this.toggleLogoEditMode();
+            });
+        }
+        
+        const closeAdmin = document.getElementById('close-admin');
+        if (closeAdmin) {
+            closeAdmin.addEventListener('click', () => {
+                this.toggleAdminMode();
+            });
+        }
+        
+        // 로고 관리 이벤트
+        const uploadLogo = document.getElementById('upload-logo');
+        if (uploadLogo) {
+            uploadLogo.addEventListener('click', () => {
+                this.uploadLogo();
+            });
+        }
+        
+        const saveLogo = document.getElementById('save-logo');
+        if (saveLogo) {
+            saveLogo.addEventListener('click', () => {
+                this.saveLogo();
+            });
+        }
+        
+        const removeLogo = document.getElementById('remove-logo');
+        if (removeLogo) {
+            removeLogo.addEventListener('click', () => {
+                this.removeLogo();
+            });
+        }
+        
+        const resetLogo = document.getElementById('reset-logo');
+        if (resetLogo) {
+            resetLogo.addEventListener('click', () => {
+                this.resetLogo();
+            });
+        }
+        
+        // 로고 설정 슬라이더 이벤트
+        const logoSize = document.getElementById('logo-size');
+        if (logoSize) {
+            logoSize.addEventListener('input', (e) => {
+                this.updateLogoPreview();
+            });
+        }
+        
+        const logoOpacity = document.getElementById('logo-opacity');
+        if (logoOpacity) {
+            logoOpacity.addEventListener('input', (e) => {
+                this.updateLogoPreview();
+            });
+        }
+        
+        const logoRotation = document.getElementById('logo-rotation');
+        if (logoRotation) {
+            logoRotation.addEventListener('input', (e) => {
+                this.updateLogoPreview();
+            });
+        }
+        
+        // 색상 설정 이벤트는 setupColorPresetListeners에서 처리
+        
+        // 지도 줌 레벨 변경 감지
+        this.map.on('zoom', () => {
+            this.updateZoomLevel();
+        });
+        
+        // 키보드 단축키
+        document.addEventListener('keydown', (e) => {
+            this.handleKeyboardShortcuts(e);
+        });
+    }
+    
+    // 국가 전환 함수
+    switchCountry(countryCode) {
+        console.log('국가 전환:', countryCode);
+        
+        const country = this.g20Countries[countryCode];
+        if (!country) {
+            console.error('지원하지 않는 국가:', countryCode);
+            return;
+        }
+        
+        // 지도 중심과 줌 레벨 변경
+        this.map.flyTo({
+            center: country.center,
+            zoom: country.zoom,
+            duration: 2000,
+            essential: true
+        });
+        
+        // 현재 지도 모드 업데이트
+        this.currentMapMode = countryCode;
+        
+        // 알림 표시
+        this.showNotification(`${country.flag} ${country.name}으로 전환되었습니다.`, 'success');
+        
+        // 해당 국가의 데이터가 있는지 확인하고 로드
+        this.loadCountryData(countryCode);
+    }
+    
+    // 국가별 데이터 로드 함수
+    async loadCountryData(countryCode) {
+        try {
+            // 현재는 기본 데이터만 로드
+            // 향후 각 국가별 GeoJSON 데이터를 로드할 수 있도록 확장 가능
+            console.log(`${countryCode} 데이터 로드 중...`);
+            
+            // 기존 레이어 제거
+            if (this.map.getLayer('regions-fill')) {
+                this.map.removeLayer('regions-fill');
+            }
+            if (this.map.getSource('world-regions')) {
+                this.map.removeSource('world-regions');
+            }
+            
+            // 국가별 데이터 로드 (현재는 기본 데이터 사용)
+            await this.loadWorldData();
+            
+        } catch (error) {
+            console.error('국가 데이터 로드 중 오류:', error);
+            this.showNotification('국가 데이터를 불러오는 중 오류가 발생했습니다.', 'error');
+        }
+    }
+    
+    selectRegion(feature) {
+        const properties = feature.properties;
+        this.currentRegion = properties;
+        this.selectedStateId = properties.id; // 새로운 변수에 저장
+        
+        console.log('지역 선택됨:', {
+            region: properties,
+            selectedStateId: this.selectedStateId,
+            isAdminLoggedIn: this.isAdminLoggedIn,
+            adminMode: this.adminMode,
+            currentMapMode: this.currentMapMode
+        });
+        
+        // selectedStateId가 제대로 설정되었는지 확인
+        if (!this.selectedStateId) {
+            console.error('selectedStateId가 설정되지 않았습니다!', {
+                properties: properties,
+                id: properties.id,
+                name: properties.name,
+                name_ko: properties.name_ko
+            });
+        }
+        
+        // 이전 선택 해제
+        this.map.setFilter('regions-hover', ['==', 'id', '']);
+        
+        // 현재 지역 하이라이트
+        this.map.setFilter('regions-hover', ['==', 'id', properties.id]);
+        this.map.setPaintProperty('regions-hover', 'fill-opacity', 0.3);
+        
+        // 관리자 모드일 때는 관리자 기능만 실행
+        if (this.isAdminLoggedIn && this.adminMode) {
+            console.log('관리자 모드: 관리자 패널만 표시 (일반 사용자 모드 비활성화)');
+            this.updateAdminPanelForRegion(properties);
+            // 관리자 모드에서는 기업 정보 모달을 절대 표시하지 않음
+            return; // 여기서 함수 종료하여 일반 사용자 기능 차단
+        }
+        
+        // 일반 사용자 모드일 때만 기업 정보 표시
+        console.log('일반 사용자 모드: 기업 정보 모달 표시');
+        this.showCompanyInfoModal(properties.id);
+    }
+    
+    // 관리자 패널을 선택된 주에 맞게 업데이트
+    updateAdminPanelForRegion(region) {
+        console.log('관리자 패널 업데이트:', region);
+        
+        const selectedStateName = document.getElementById('selected-state-name');
+        if (selectedStateName) {
+            const displayName = this.getRegionDisplayName(region);
+            selectedStateName.textContent = displayName;
+            console.log('선택된 주 이름 설정:', displayName);
+        } else {
+            console.error('selected-state-name 요소를 찾을 수 없습니다');
+        }
+        
+        this.updateLogoPreview();
+        this.updateColorPreview();
+        this.loadCompanyInfoForEdit(region.id);
+        
+        console.log('관리자 패널 업데이트 완료');
+    }
+    
+    // 기업 정보 모달 표시
+    showCompanyInfoModal(stateId) {
+        console.log('기업 정보 모달 표시 시도:', stateId);
+        console.log('현재 지도 모드:', this.currentMapMode);
+        
+        // 현재 지도 모드에 따라 적절한 데이터 사용
+        const companyData = this.currentMapMode === 'korea' 
+            ? this.koreaCompanyData[stateId] 
+            : this.currentMapMode === 'japan'
+            ? this.japanCompanyData[stateId]
+            : this.companyData[stateId];
+            
+        console.log('현재 companyData:', this.currentMapMode === 'korea' ? this.koreaCompanyData : this.companyData);
+        console.log('선택된 stateId의 companyData:', companyData);
+        const modal = document.getElementById('company-info-modal');
+        if (!modal) {
+            console.error('company-info-modal 요소를 찾을 수 없습니다');
+            return;
+        }
+        
+        // 지역명 가져오기 (국가별 언어 우선순위 적용)
+        const regionName = this.getRegionDisplayName(this.currentRegion) || stateId;
+        
+        console.log('지역명:', regionName, 'currentRegion:', this.currentRegion);
+        
+        // 항상 기업 정보 모달 표시 (기업 정보가 없어도 지역 정보 포함)
+        console.log('기업 정보 모달 표시 (통합 모달)');
+        
+        // 모달 제목 설정 (언어 변환 적용)
+        const regionInfoText = this.getLanguageText('Region Information');
+        const companyInfoText = this.getLanguageText('Company Information');
+        const companyNameElement = document.getElementById('company-name');
+        const companyNameTitleElement = document.getElementById('company-name-title');
+        if (companyNameElement) {
+            const titleText = (companyData && companyData.name) ? companyData.name : regionInfoText.primary;
+            companyNameElement.textContent = titleText;
+        }
+        if (companyNameTitleElement) {
+            const titleText = (companyData && companyData.name) ? companyData.name : regionInfoText.primary;
+            companyNameTitleElement.textContent = titleText;
+        }
+        
+        // 지역 정보 설정
+        const companyRegionElement = document.getElementById('company-region');
+        if (companyRegionElement) {
+            companyRegionElement.textContent = regionName;
+        }
+        
+        // 섹션 제목 및 라벨 설정 (언어 변환 적용)
+        const updateLabelWithTranslation = (secondaryId, key) => {
+            const text = this.getLanguageText(key);
+            const secondaryEl = document.getElementById(secondaryId);
+            const secondaryParent = secondaryEl?.parentElement;
+            const primaryEl = secondaryParent?.querySelector('.label-primary');
+            
+            if (primaryEl) primaryEl.textContent = text.primary;
+            if (secondaryEl) {
+                if (text.secondary) {
+                    secondaryEl.textContent = ` (${text.secondary})`;
+                    secondaryEl.style.display = 'inline';
+                } else {
+                    secondaryEl.style.display = 'none';
+                }
+            }
+        };
+        
+        // 섹션 제목 업데이트
+        updateLabelWithTranslation('company-region-section-label-en', 'Region Information');
+        updateLabelWithTranslation('company-info-section-label-en', 'Company Information');
+        
+        // 지역 정보 라벨 업데이트
+        updateLabelWithTranslation('company-region-label-en', 'Region');
+        updateLabelWithTranslation('company-region-population-label-en', 'Population');
+        updateLabelWithTranslation('company-region-area-label-en', 'Area');
+        updateLabelWithTranslation('company-region-admin-level-label-en', 'Administrative Level');
+        updateLabelWithTranslation('company-region-price-label-en', 'Advertising Price');
+        updateLabelWithTranslation('company-region-status-label-en', 'Status');
+        
+        // 기업 정보 라벨 업데이트
+        updateLabelWithTranslation('company-industry-label-en', 'Industry');
+        updateLabelWithTranslation('company-founded-label-en', 'Founded');
+        updateLabelWithTranslation('company-employees-label-en', 'Employees');
+        updateLabelWithTranslation('company-website-label-en', 'Website');
+        updateLabelWithTranslation('company-description-label-en', 'Company Description');
+        updateLabelWithTranslation('company-features-label-en', 'Key Features');
+        
+        if (companyData && companyData.name) {
+            // 기업 정보 설정
+            const elements = {
+                'company-industry': companyData.industry || '-',
+                'company-founded': companyData.founded || '-',
+                'company-employees': companyData.employees || '-',
+                'company-website': companyData.website || '-'
+            };
+            
+            Object.entries(elements).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                    if (id === 'company-website') {
+                        element.href = companyData.website || '#';
+                    }
+                }
+            });
+            
+            // 설명 설정
+            const descriptionElement = document.getElementById('company-description-text');
+            if (descriptionElement) {
+                descriptionElement.textContent = companyData.description || '-';
+            }
+            
+            // 로고 표시
+            const logoImg = document.getElementById('company-logo');
+            if (logoImg) {
+                if (companyData.logo && companyData.logo.trim() !== '') {
+                    logoImg.src = companyData.logo;
+                    logoImg.style.display = 'block';
+                    console.log('로고 표시:', companyData.logo);
+                } else {
+                    logoImg.style.display = 'none';
+                    console.log('로고 없음 - 숨김');
+                }
+            }
+            
+            // 특징 목록
+            const featuresList = document.getElementById('company-features-list');
+            if (featuresList) {
+                if (companyData.features && companyData.features.length > 0) {
+                    featuresList.innerHTML = '';
+                    companyData.features.forEach(feature => {
+                        if (feature && feature.trim() !== '') {
+                            const li = document.createElement('li');
+                            li.textContent = feature;
+                            featuresList.appendChild(li);
+                        }
+                    });
+                } else {
+                    const noFeaturesText = this.getLanguageText('Key Features');
+                    featuresList.innerHTML = `<li>-</li>`;
+                }
+            }
+        } else {
+            // 기업 정보가 없는 경우 기본값 설정
+            const elements = {
+                'company-industry': '-',
+                'company-founded': '-',
+                'company-employees': '-',
+                'company-website': '-'
+            };
+            
+            Object.entries(elements).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                    if (id === 'company-website') {
+                        element.href = '#';
+                    }
+                }
+            });
+            
+            const descriptionElement = document.getElementById('company-description-text');
+            if (descriptionElement) {
+                // 언어 변환은 기본 메시지이므로 영어로만 표시하거나, 필요시 추가
+                descriptionElement.textContent = 'No company information available for this region.';
+            }
+            
+            const logoImg = document.getElementById('company-logo');
+            if (logoImg) {
+                logoImg.style.display = 'none';
+            }
+            
+            const featuresList = document.getElementById('company-features-list');
+            if (featuresList) {
+                featuresList.innerHTML = '<li>등록된 특징이 없습니다.</li>';
+            }
+        }
+        
+        // 지역 정보 표시 (모든 경우)
+        const regionData = this.currentRegion;
+        if (regionData) {
+            // 구매 버튼에 현재 stateId 저장 (onclick에서 활용)
+            const companyPurchaseBtnEl = document.getElementById('company-purchase-btn');
+            if (companyPurchaseBtnEl && stateId) {
+                companyPurchaseBtnEl.dataset.stateId = stateId;
+            }
+            
+            // 인구, 면적, 행정구역 레벨, 광고 가격 등 지역 정보 표시 (regionData에서 정확한 값 가져오기)
+            const regionDataFromMap = this.regionData.get(stateId) || regionData;
+            const populationEl = document.getElementById('company-region-population');
+            const areaEl = document.getElementById('company-region-area');
+            const adminLevelEl = document.getElementById('company-region-admin-level');
+            const priceEl = document.getElementById('company-region-price');
+            const statusEl = document.getElementById('company-region-status');
+            
+            if (populationEl) {
+                const population = regionDataFromMap.population || regionData.population || 0;
+                populationEl.textContent = population ? population.toLocaleString() : '-';
+            }
+            if (areaEl) {
+                const area = regionDataFromMap.area || regionData.area || 0;
+                areaEl.textContent = area ? `${area.toLocaleString()} km²` : '-';
+            }
+            if (adminLevelEl) {
+                adminLevelEl.textContent = regionDataFromMap.admin_level || regionData.admin_level || '-';
+            }
+            if (priceEl) {
+                const adPrice = regionDataFromMap.ad_price || regionData.ad_price || 0;
+                priceEl.textContent = adPrice ? `$${adPrice.toLocaleString()}` : '-';
+            }
+            if (statusEl) {
+                const status = regionDataFromMap.ad_status || regionData.ad_status || 'available';
+                const availableText = this.getLanguageText('Available');
+                const occupiedText = this.getLanguageText('Occupied');
+                statusEl.textContent = status === 'occupied' ? occupiedText.primary : availableText.primary;
+                statusEl.style.color = status === 'occupied' ? '#ff6b6b' : '#4ecdc4';
+            }
+            
+            // 구매 버튼 표시/숨김 제어 (기업 모달)
+            const companyPurchaseBtn = companyPurchaseBtnEl || document.getElementById('company-purchase-btn');
+            if (companyPurchaseBtn) {
+                const isOccupied = (regionDataFromMap.ad_status || regionData.ad_status) === 'occupied' || regionDataFromMap.occupied || regionData.occupied;
+                if (isOccupied) {
+                    companyPurchaseBtn.classList.add('hidden');
+                } else {
+                    companyPurchaseBtn.classList.remove('hidden');
+                }
+            }
+            
+            console.log('지역 정보 표시 완료:', regionData);
+        }
+        
+        // 관리자 모드일 때 편집 버튼 표시
+        const companyEditBtn = document.getElementById('company-edit-btn');
+        if (companyEditBtn) {
+            if (this.isAdminLoggedIn) {
+                companyEditBtn.classList.remove('hidden');
+            } else {
+                companyEditBtn.classList.add('hidden');
+            }
+        }
+        
+        modal.classList.remove('hidden');
+        console.log('통합 정보 모달 표시 완료');
+    }
+    
+    // 기업 정보 모달 숨기기
+    hideCompanyInfoModal() {
+        const modal = document.getElementById('company-info-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    // 기업 정보 편집을 위해 로드
+    loadCompanyInfoForEdit(stateId) {
+        const companyData = this.currentMapMode === 'korea' 
+            ? (this.koreaCompanyData[stateId] || {})
+            : (this.companyData[stateId] || {});
+        
+        document.getElementById('company-name-input').value = companyData.name || '';
+        document.getElementById('company-industry-input').value = companyData.industry || '';
+        document.getElementById('company-founded-input').value = companyData.founded || '';
+        document.getElementById('company-employees-input').value = companyData.employees || '';
+        document.getElementById('company-website-input').value = companyData.website || '';
+        document.getElementById('company-description-input').value = companyData.description || '';
+        document.getElementById('company-features-input').value = companyData.features ? companyData.features.join('\n') : '';
+    }
+    
+    // 기업 정보 저장
+    saveCompanyInfo() {
+        console.log('기업 정보 저장 시도:', {
+            selectedStateId: this.selectedStateId,
+            adminMode: this.adminMode,
+            isAdminLoggedIn: this.isAdminLoggedIn
+        });
+        
+        if (!this.selectedStateId) {
+            this.showNotification('저장할 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        const companyData = {
+            name: document.getElementById('company-name-input').value,
+            industry: document.getElementById('company-industry-input').value,
+            founded: document.getElementById('company-founded-input').value,
+            employees: document.getElementById('company-employees-input').value,
+            website: document.getElementById('company-website-input').value,
+            description: document.getElementById('company-description-input').value,
+            features: document.getElementById('company-features-input').value.split('\n').filter(f => f.trim()),
+            region: this.getRegionDisplayName(this.currentRegion),
+            logo: this.logoData[this.selectedStateId]?.src || ''
+        };
+        
+        console.log('저장할 기업 데이터:', companyData);
+        
+        // 현재 지도 모드에 따라 적절한 데이터 저장소에 저장
+        if (this.currentMapMode === 'korea') {
+            this.koreaCompanyData[this.selectedStateId] = companyData;
+        } else {
+            this.companyData[this.selectedStateId] = companyData;
+        }
+        
+        this.showNotification('기업 정보가 저장되었습니다!', 'success');
+        console.log('기업 정보 저장 완료:', this.selectedStateId, companyData, '모드:', this.currentMapMode);
+    }
+    
+    // 기업 정보 미리보기
+    previewCompanyInfo() {
+        if (!this.selectedStateId) {
+            this.showNotification('미리보기할 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        // 임시 데이터로 미리보기
+        const tempData = {
+            name: document.getElementById('company-name-input').value || '기업명',
+            industry: document.getElementById('company-industry-input').value || '산업',
+            founded: document.getElementById('company-founded-input').value || '설립년도',
+            employees: document.getElementById('company-employees-input').value || '직원 수',
+            website: document.getElementById('company-website-input').value || '웹사이트',
+            description: document.getElementById('company-description-input').value || '기업 소개',
+            features: document.getElementById('company-features-input').value.split('\n').filter(f => f.trim()),
+            region: this.getRegionDisplayName(this.currentRegion),
+            logo: this.logoData[this.selectedStateId]?.src || ''
+        };
+        
+        // 임시로 저장
+        const originalData = this.companyData[this.selectedStateId];
+        this.companyData[this.selectedStateId] = tempData;
+        
+        // 미리보기 표시
+        this.showCompanyInfoModal(this.selectedStateId);
+        
+        // 원래 데이터 복원
+        this.companyData[this.selectedStateId] = originalData;
+    }
+    
+    // 색상 미리보기 업데이트
+    updateColorPreview() {
+        if (!this.selectedStateId) return;
+        
+        const regionColor = document.getElementById('region-color').value;
+        const borderColor = document.getElementById('border-color').value;
+        const borderWidth = document.getElementById('border-width').value;
+        
+        // 값 표시 업데이트
+        document.getElementById('region-color-value').textContent = regionColor;
+        document.getElementById('border-color-value').textContent = borderColor;
+        document.getElementById('border-width-value').textContent = borderWidth + 'px';
+        
+        // 색상 데이터 저장
+        this.colorData[this.selectedStateId] = {
+            regionColor: regionColor,
+            borderColor: borderColor,
+            borderWidth: parseInt(borderWidth)
+        };
+    }
+    
+    // 색상 프리셋 적용
+    applyColorPreset(preset) {
+        const regionColor = preset.dataset.color;
+        const borderColor = preset.dataset.border;
+        
+        // 색상 입력 필드 업데이트
+        document.getElementById('region-color').value = regionColor;
+        document.getElementById('border-color').value = borderColor;
+        
+        // 프리셋 선택 상태 업데이트
+        document.querySelectorAll('.color-preset').forEach(p => p.classList.remove('selected'));
+        preset.classList.add('selected');
+        
+        // 미리보기 업데이트
+        this.updateColorPreview();
+        
+        console.log('색상 프리셋 적용:', regionColor, borderColor);
+    }
+    
+    // 지도에 색상 적용
+    applyColorToMap(stateId, colorData) {
+        if (!this.map || !colorData) return;
+        
+        // 지도 레이어의 색상 업데이트
+        this.map.setPaintProperty('regions-fill', 'fill-color', [
+            'case',
+            ['==', ['get', 'id'], stateId],
+            colorData.regionColor,
+            [
+                'case',
+                ['==', ['get', 'ad_status'], 'occupied'],
+                '#ff6b6b',
+                '#4ecdc4'
+            ]
+        ]);
+        
+        this.map.setPaintProperty('regions-border', 'line-color', [
+            'case',
+            ['==', ['get', 'id'], stateId],
+            colorData.borderColor,
+            '#ffffff'
+        ]);
+        
+        this.map.setPaintProperty('regions-border', 'line-width', [
+            'case',
+            ['==', ['get', 'id'], stateId],
+            colorData.borderWidth,
+            1
+        ]);
+        
+        console.log('지도에 색상 적용 완료:', stateId, colorData);
+    }
+    
+    showInfoPanel(region) {
+        const panel = document.getElementById('info-panel');
+        const regionName = document.getElementById('region-name');
+        const countryName = document.getElementById('country-name');
+        const adminLevel = document.getElementById('admin-level');
+        const population = document.getElementById('population');
+        const area = document.getElementById('area');
+        const adStatus = document.getElementById('ad-status');
+        const adPrice = document.getElementById('ad-price');
+        
+        // 현재 모드에 따라 표시할 이름 결정
+        regionName.textContent = this.getRegionDisplayName(region);
+        
+        if (this.currentMapMode === 'japan') {
+            adminLevel.textContent = 'Prefecture';
+            adStatus.textContent = region.ad_status === 'occupied' ? 'Occupied' : 'Available';
+        } else if (this.currentMapMode === 'spain' && region.autonomous_community_ko) {
+            // 스페인의 경우 자치지역 정보 표시
+            adminLevel.textContent = `${region.admin_level} (자치지역: ${region.autonomous_community_ko})`;
+            adStatus.textContent = region.ad_status === 'occupied' ? '광고 중' : '사용 가능';
+        } else {
+            const englishCountries = ['usa', 'uk', 'canada', 'australia', 'south-africa'];
+            const isEnglishCountry = englishCountries.includes(this.currentMapMode);
+            adminLevel.textContent = region.admin_level;
+            adStatus.textContent = isEnglishCountry 
+                ? (region.occupied ? 'Occupied' : 'Available')
+                : (region.occupied ? '광고 중' : '사용 가능');
+        }
+        countryName.textContent = region.country;
+        population.textContent = region.population.toLocaleString();
+        area.textContent = `${region.area.toLocaleString()} km²`;
+        adStatus.style.color = region.ad_status === 'occupied' ? '#ff6b6b' : '#4ecdc4';
+        adPrice.textContent = `$${region.ad_price.toLocaleString()}`;
+        
+        panel.classList.remove('hidden');
+    }
+    
+    hideInfoPanel() {
+        const panel = document.getElementById('info-panel');
+        panel.classList.add('hidden');
+        
+        // 하이라이트 제거
+        this.map.setFilter('regions-hover', ['==', 'id', '']);
+        this.currentRegion = null;
+    }
+    
+    // 로그인 성공 시 자동으로 PayPal 버튼 렌더링
+    autoRenderPayPalButtons() {
+        if (!this.currentRegion || !this.currentUser) {
+            return;
+        }
+        
+        // 현재 열려있는 모달/패널 확인
+        const infoPanel = document.getElementById('info-panel');
+        const regionModal = document.getElementById('region-info-modal');
+        const companyModal = document.getElementById('company-info-modal');
+        
+        // 정보 패널이 열려있으면
+        if (infoPanel && !infoPanel.classList.contains('hidden')) {
+            this.renderPayPalButtons('paypal-buttons', this.currentRegion);
+        }
+        // 지역 정보 모달이 열려있으면
+        else if (regionModal && !regionModal.classList.contains('hidden')) {
+            this.renderPayPalButtons('region-paypal-buttons', this.currentRegion);
+        }
+        // 기업 정보 모달이 열려있으면
+        else if (companyModal && !companyModal.classList.contains('hidden')) {
+            this.renderPayPalButtons('company-paypal-buttons', this.currentRegion);
+        }
+    }
+    
+    // PayPal 버튼 렌더링
+    renderPayPalButtons(containerId, region) {
+        try {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            // 비어있게 초기화 (중복 렌더 제거)
+            container.innerHTML = '';
+            
+            if (!(window.paypal && window.paypal.Buttons)) {
+                this.showNotification('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
+                return;
+            }
+            
+            const amount = this.uniformAdPrice || 1000;
+            const description = `${region.country} - ${this.getRegionDisplayName(region)} (${region.id})`;
+            
+            window.paypal.Buttons({
+                style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'paypal' },
+                createOrder: (data, actions) => {
+                    return actions.order.create({
+                        purchase_units: [{
+                            description: description,
+                            amount: {
+                                currency_code: 'USD',
+                                value: String(amount)
+                            }
+                        }]
+                    });
+                },
+                onApprove: async (data, actions) => {
+                    try {
+                        const details = await actions.order.capture();
+                        
+                        // 구매자 이메일 추출 (PayPal 결제 정보에서)
+                        const buyerEmail = details.payer?.email_address || details.payer?.payer_info?.email || null;
+                        const orderId = details.id;
+                        
+                        // Firestore에 구매 기록 저장
+                        if (this.isFirebaseInitialized) {
+                            await this.savePurchaseToFirestore(
+                                region.id,
+                                this.getRegionDisplayName(region),
+                                orderId,
+                                buyerEmail || 'unknown@example.com',
+                                amount
+                            );
+                        }
+                        
+                        // 결제 성공 처리: 지역 점유로 표시
+                        region.ad_status = 'occupied';
+                        // 지역 상태 업데이트
+                        this.updateRegionStatus(region.id, true);
+                        this.showNotification('구매가 완료되었습니다! 지역이 광고 중 상태로 변경되었습니다.', 'success');
+                        // 패널/모달 UI 갱신
+                        this.showInfoPanel(region);
+                        // 통계 업데이트
+                        this.updateStatistics();
+                        // 버튼 비활성화
+                        container.innerHTML = '<div style="color:#2ecc71;font-weight:600;">결제가 완료되었습니다.</div>';
+                        console.log('PayPal capture result:', details);
+                    } catch (err) {
+                        console.error('Capture error:', err);
+                        this.showNotification('결제 처리 중 오류가 발생했습니다.', 'error');
+                    }
+                },
+                onCancel: () => {
+                    this.showNotification('결제가 취소되었습니다.', 'info');
+                },
+                onError: (err) => {
+                    console.error('PayPal error:', err);
+                    this.showNotification('결제 초기화 중 오류가 발생했습니다.', 'error');
+                }
+            }).render(`#${containerId}`);
+        } catch (e) {
+            console.error('renderPayPalButtons error:', e);
+            this.showNotification('결제 버튼 렌더링에 실패했습니다.', 'error');
+        }
+    }
+    
+    zoomToLevel(level) {
+        const zoom = this.zoomLevels[level];
+        this.map.easeTo({
+            zoom: zoom,
+            duration: 1000
+        });
+    }
+    
+    updateZoomLevel() {
+        const currentZoom = this.map.getZoom();
+        // 디버그 로그 제거 (성능 향상)
+        // console.log('현재 줌 레벨:', currentZoom);
+        
+        // 줌 레벨에 따른 행정구역 표시 조정
+        if (currentZoom < 3) {
+            // 전 세계 레벨 - 국가만 표시
+            this.map.setLayoutProperty('regions-fill', 'visibility', 'visible');
+        } else if (currentZoom < 6) {
+            // 국가 레벨 - 주/성 단위 표시
+            this.map.setLayoutProperty('regions-fill', 'visibility', 'visible');
+        } else {
+            // 지역 레벨 - 시/군/구 단위 표시
+            this.map.setLayoutProperty('regions-fill', 'visibility', 'visible');
+        }
+    }
+    
+    purchaseRegion() {
+        if (!this.currentRegion) {
+            this.showNotification('구매할 지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        if (this.currentRegion.occupied) {
+            this.showNotification('이미 광고가 진행 중인 지역입니다.', 'error');
+            return;
+        }
+        
+        // 구매 확인 모달 표시
+        this.showPurchaseModal(this.currentRegion);
+    }
+    
+    showPurchaseModal(region) {
+        // 기존 모달 제거
+        this.hidePurchaseModal();
+        
+        // 모달 생성
+        const modal = document.createElement('div');
+        modal.id = 'purchase-modal';
+        modal.className = 'purchase-modal';
+        modal.innerHTML = `
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>지역 광고 구매</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="region-summary">
+                        <h4>${this.getRegionDisplayName(region)}</h4>
+                        <p><strong>국가:</strong> ${region.country}</p>
+                        <p><strong>인구:</strong> ${region.population.toLocaleString()}명</p>
+                        <p><strong>면적:</strong> ${region.area.toLocaleString()} km²</p>
+                        <p><strong>1인당 GDP:</strong> $${region.gdp_per_capita.toLocaleString()}</p>
+                    </div>
+                    <div class="pricing-info">
+                        <h4>가격 정보</h4>
+                        <div class="price-breakdown">
+                            <p>기본 가격: $${region.price.toLocaleString()}</p>
+                            <p>인구 가중치: ${(region.population / 1000000).toFixed(1)}M</p>
+                            <p>면적 가중치: ${(region.area / 1000).toFixed(1)}K km²</p>
+                        </div>
+                        <div class="total-price">
+                            <strong>총 가격: $${region.price.toLocaleString()}</strong>
+                        </div>
+                    </div>
+                    <div class="purchase-form">
+                        <h4>광고 정보</h4>
+                        <input type="text" id="advertiser-name" placeholder="광고주명" required>
+                        <input type="url" id="advertiser-website" placeholder="웹사이트 URL">
+                        <textarea id="ad-description" placeholder="광고 설명 (선택사항)" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel">취소</button>
+                    <button class="btn-purchase">구매하기</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // 이벤트 리스너 추가
+        modal.querySelector('.modal-close').addEventListener('click', () => {
+            this.hidePurchaseModal();
+        });
+        
+        modal.querySelector('.modal-overlay').addEventListener('click', () => {
+            this.hidePurchaseModal();
+        });
+        
+        modal.querySelector('.btn-cancel').addEventListener('click', () => {
+            this.hidePurchaseModal();
+        });
+        
+        modal.querySelector('.btn-purchase').addEventListener('click', () => {
+            this.processPurchase(region);
+        });
+    }
+    
+    hidePurchaseModal() {
+        const modal = document.getElementById('purchase-modal');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    processPurchase(region) {
+        const advertiserName = document.getElementById('advertiser-name').value;
+        const advertiserWebsite = document.getElementById('advertiser-website').value;
+        const adDescription = document.getElementById('ad-description').value;
+        
+        if (!advertiserName.trim()) {
+            this.showNotification('광고주명을 입력해주세요.', 'warning');
+            return;
+        }
+        
+        // 구매 처리
+        const purchaseData = {
+            regionId: region.id,
+            regionName: this.getRegionDisplayName(region),
+            advertiserName: advertiserName,
+            advertiserWebsite: advertiserWebsite,
+            adDescription: adDescription,
+            price: region.price,
+            purchaseDate: new Date().toISOString()
+        };
+        
+        // 실제로는 서버에 구매 요청을 보내야 함
+        console.log('구매 데이터:', purchaseData);
+        
+        // 로컬 상태 업데이트
+        this.currentRegion.occupied = true;
+        this.currentRegion.advertiser = advertiserName;
+        this.currentRegion.advertiserWebsite = advertiserWebsite;
+        this.currentRegion.adDescription = adDescription;
+        
+        this.updateRegionStatus(this.currentRegion.id, true);
+        this.hidePurchaseModal();
+        this.showNotification('구매가 완료되었습니다!', 'success');
+        this.showInfoPanel(this.currentRegion);
+        
+        // 통계 업데이트
+        this.updateStatistics();
+    }
+    
+    showNotification(message, type = 'info') {
+        // 기존 알림 제거
+        this.hideNotification();
+        
+        const notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <div class="notification-content">
+                <span class="notification-icon">${this.getNotificationIcon(type)}</span>
+                <span class="notification-message">${message}</span>
+                <button class="notification-close">&times;</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // 자동 제거
+        setTimeout(() => {
+            this.hideNotification();
+        }, 5000);
+        
+        // 수동 제거
+        notification.querySelector('.notification-close').addEventListener('click', () => {
+            this.hideNotification();
+        });
+    }
+    
+    hideNotification() {
+        const notification = document.getElementById('notification');
+        if (notification) {
+            notification.remove();
+        }
+    }
+    
+    getNotificationIcon(type) {
+        const icons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️'
+        };
+        return icons[type] || icons.info;
+    }
+    
+    updateStatistics() {
+        // 지도 소스에서 실제 데이터 가져오기
+        const source = this.map.getSource('world-regions');
+        if (!source || !source._data) return;
+        
+        const features = source._data.features;
+        const totalRegions = features.length;
+        const occupiedRegions = features.filter(f => f.properties.occupied).length;
+        const totalRevenue = features
+            .filter(f => f.properties.occupied)
+            .reduce((sum, f) => sum + f.properties.price, 0);
+        const occupancyRate = totalRegions > 0 ? Math.round((occupiedRegions / totalRegions) * 100) : 0;
+        
+        // UI 업데이트
+        document.getElementById('total-regions').textContent = totalRegions;
+        document.getElementById('occupied-regions').textContent = occupiedRegions;
+        document.getElementById('total-revenue').textContent = `$${totalRevenue.toLocaleString()}`;
+        document.getElementById('occupancy-rate').textContent = `${occupancyRate}%`;
+        
+        console.log(`통계 업데이트: ${occupiedRegions}/${totalRegions} 지역 광고 중, 총 수익: $${totalRevenue.toLocaleString()}, 점유율: ${occupancyRate}%`);
+    }
+    
+    updateRegionStatus(regionId, occupied) {
+        // 지도 데이터 업데이트
+        const source = this.map.getSource('world-regions');
+        if (source && source._data) {
+            const features = source._data.features;
+            const feature = features.find(f => f.properties.id === regionId);
+            if (feature) {
+                feature.properties.occupied = occupied;
+                source.setData(source._data);
+            }
+        }
+    }
+    
+    hideLoading() {
+        const loading = document.getElementById('loading');
+        loading.style.display = 'none';
+    }
+    
+    showTooltip(point, properties) {
+        // 기존 툴팁 제거
+        this.hideTooltip();
+        
+        // 툴팁 요소 생성
+        const tooltip = document.createElement('div');
+        tooltip.id = 'map-tooltip';
+        tooltip.className = 'map-tooltip';
+        // 현재 모드에 따라 표시할 이름 결정
+        let displayName, subName;
+        
+        if (this.currentMapMode === 'japan') {
+            displayName = properties.name_en || properties.name;
+            subName = properties.name_ja;
+        } else if (this.currentMapMode === 'korea') {
+            // 한국 모드: name_ko가 이미 "부산 부산진구" 형태로 설정되어 있어야 함
+            displayName = properties.name_ko || properties.name || properties.sig_name_ko;
+            // 시 이름이 별도로 있으면 서브 이름으로 표시
+            if (properties.ctp_name_ko && properties.sig_name_ko && properties.ctp_name_ko !== properties.sig_name_ko) {
+                const ctpShort = properties.ctp_name_ko.replace(/광역시|특별시|시$/g, '').trim();
+                if (!displayName.includes(ctpShort)) {
+                    displayName = `${ctpShort} ${displayName}`;
+                }
+            }
+            subName = properties.name_en || properties.sig_name_en;
+        } else {
+            displayName = properties.name_ko || properties.name;
+            subName = properties.name_en;
+        }
+            
+        tooltip.innerHTML = `
+            <div class="tooltip-content">
+                <h4>${displayName}</h4>
+                ${subName ? `<p>${subName}</p>` : ''}
+                <p><strong>${properties.country}</strong></p>
+                <p>Population: ${properties.population.toLocaleString()}</p>
+                <p>Price: $${properties.ad_price.toLocaleString()}</p>
+                <p class="status ${properties.ad_status === 'occupied' ? 'occupied' : 'available'}">
+                    ${properties.ad_status === 'occupied' ? 'Occupied' : 'Available'}
+                </p>
+            </div>
+        `;
+        
+        // 툴팁 위치 설정
+        tooltip.style.left = point.x + 10 + 'px';
+        tooltip.style.top = point.y - 10 + 'px';
+        
+        document.body.appendChild(tooltip);
+    }
+    
+    hideTooltip() {
+        const existingTooltip = document.getElementById('map-tooltip');
+        if (existingTooltip) {
+            existingTooltip.remove();
+        }
+    }
+    
+    handleKeyboardShortcuts(e) {
+        // P키 연타 처리
+        if (e.key.toLowerCase() === 'p') {
+            e.preventDefault();
+            this.handlePKeyPress();
+            return;
+        }
+        
+        // ESC 키로 패널 닫기
+        if (e.key === 'Escape') {
+            this.hideInfoPanel();
+            this.hidePurchaseModal();
+        }
+        
+        // UI가 보이지 않으면 다른 단축키 무시
+        if (!this.uiVisible) {
+            return;
+        }
+        
+        // 숫자 키로 줌 레벨 변경
+        if (e.key === '1') {
+            this.zoomToLevel('world');
+        } else if (e.key === '2') {
+            this.zoomToLevel('country');
+        } else if (e.key === '3') {
+            this.zoomToLevel('region');
+        }
+        
+        // Enter 키로 구매 (선택된 지역이 있을 때)
+        if (e.key === 'Enter' && this.currentRegion && !this.currentRegion.occupied) {
+            this.purchaseRegion();
+        }
+        
+        // H 키로 도움말 표시
+        if (e.key === 'h' || e.key === 'H') {
+            this.showHelp();
+        }
+    }
+    
+    // P키 연타 처리
+    handlePKeyPress() {
+        this.pKeyCount++;
+        
+        // 기존 타이머 클리어
+        if (this.pKeyTimer) {
+            clearTimeout(this.pKeyTimer);
+        }
+        
+        // 3번 연타 시 UI 토글
+        if (this.pKeyCount >= 3) {
+            this.toggleUI();
+            this.pKeyCount = 0;
+            this.showNotification('UI 패널이 토글되었습니다.', 'info');
+        } else {
+            // 1초 후 카운트 리셋
+            this.pKeyTimer = setTimeout(() => {
+                this.pKeyCount = 0;
+            }, 1000);
+        }
+    }
+    
+    // UI 토글
+    toggleUI() {
+        this.uiVisible = !this.uiVisible;
+        
+        if (this.uiVisible) {
+            this.showUI();
+        } else {
+            this.hideUI();
+        }
+    }
+    
+    // UI 표시 (헤더 버튼들 - P키 연타로 표시)
+    showUI() {
+        // 헤더 액션 버튼들 표시
+        const helpBtn = document.getElementById('help-btn');
+        const adminLoginBtn = document.getElementById('admin-login-btn');
+        const adminLogoutBtn = document.getElementById('admin-logout-btn');
+        
+        if (helpBtn) helpBtn.classList.remove('hidden');
+        if (adminLoginBtn) adminLoginBtn.classList.remove('hidden');
+        
+        if (this.isAdminLoggedIn && adminLogoutBtn) {
+            adminLogoutBtn.classList.remove('hidden');
+            // 관리자 로그인 상태일 때만 관리자 패널 표시
+            this.showAdminPanel();
+        }
+        
+        // 헤더 자동 조정
+        this.adjustHeader();
+        
+        console.log('UI 표시됨');
+    }
+    
+    // UI 숨김 (헤더 버튼들 - P키 연타로 숨김)
+    hideUI() {
+        // 헤더 액션 버튼들 숨김
+        const helpBtn = document.getElementById('help-btn');
+        const adminLoginBtn = document.getElementById('admin-login-btn');
+        const adminLogoutBtn = document.getElementById('admin-logout-btn');
+        
+        if (helpBtn) helpBtn.classList.add('hidden');
+        if (adminLoginBtn) adminLoginBtn.classList.add('hidden');
+        if (adminLogoutBtn) adminLogoutBtn.classList.add('hidden');
+        
+        // 관리자 패널과 좌측 패널 숨김
+        this.hideAdminPanel();
+        this.hideMenu();
+        
+        // 헤더 자동 조정
+        this.adjustHeader();
+        
+        console.log('UI 숨김됨');
+    }
+    
+    // 헤더 자동 조정
+    adjustHeader() {
+        const header = document.querySelector('.header');
+        const headerActions = document.querySelector('.header-actions');
+        
+        if (this.uiVisible) {
+            // UI가 보일 때는 원래 스타일
+            header.style.gap = '30px';
+            headerActions.style.display = 'flex';
+        } else {
+            // UI가 숨겨질 때는 중앙 정렬
+            header.style.gap = '0';
+            headerActions.style.display = 'none';
+        }
+    }
+    
+    showHelp() {
+        const helpModal = document.createElement('div');
+        helpModal.id = 'help-modal';
+        helpModal.className = 'purchase-modal';
+        helpModal.innerHTML = `
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>도움말 - 키보드 단축키</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="help-section">
+                        <h4>🎮 기본 조작</h4>
+                        <ul>
+                            <li><strong>마우스 휠:</strong> 줌 인/아웃</li>
+                            <li><strong>드래그:</strong> 지도 이동</li>
+                            <li><strong>클릭:</strong> 지역 선택</li>
+                            <li><strong>호버:</strong> 지역 정보 미리보기</li>
+                        </ul>
+                    </div>
+                    <div class="help-section">
+                        <h4>⌨️ 키보드 단축키</h4>
+                        <ul>
+                            <li><strong>1:</strong> 전 세계 보기</li>
+                            <li><strong>2:</strong> 국가별 보기</li>
+                            <li><strong>3:</strong> 지역별 보기</li>
+                            <li><strong>Enter:</strong> 선택된 지역 구매</li>
+                            <li><strong>ESC:</strong> 패널 닫기</li>
+                            <li><strong>H:</strong> 이 도움말 표시</li>
+                        </ul>
+                    </div>
+                    <div class="help-section">
+                        <h4>🎨 색상 의미</h4>
+                        <ul>
+                            <li><span style="color: #4ecdc4;">●</span> 청록색: 사용 가능한 지역</li>
+                            <li><span style="color: #ff6b6b;">●</span> 빨간색: 광고 중인 지역</li>
+                            <li><span style="color: #feca57;">●</span> 노란색: 선택된 지역</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel">닫기</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(helpModal);
+        
+        // 이벤트 리스너
+        helpModal.querySelector('.modal-close').addEventListener('click', () => {
+            helpModal.remove();
+        });
+        
+        helpModal.querySelector('.modal-overlay').addEventListener('click', () => {
+            helpModal.remove();
+        });
+        
+        helpModal.querySelector('.btn-cancel').addEventListener('click', () => {
+            helpModal.remove();
+        });
+    }
+    
+    // 관리자 모드 토글
+    // 햄버거 메뉴 토글 (관리자 전용)
+    toggleMenu() {
+        if (!this.isAdminLoggedIn) {
+            this.showAdminLoginModal();
+            return;
+        }
+        
+        const controlPanel = document.getElementById('control-panel');
+        controlPanel.classList.toggle('hidden');
+    }
+    
+    // 메뉴 숨기기
+    hideMenu() {
+        const controlPanel = document.getElementById('control-panel');
+        controlPanel.classList.add('hidden');
+    }
+    
+    // 사용자 로그인 모달 표시
+    showUserLoginModal() {
+        const modal = document.getElementById('user-login-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+    
+    // 사용자 로그인 모달 숨기기
+    hideUserLoginModal() {
+        const modal = document.getElementById('user-login-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            // 입력 필드 초기화
+            const emailInput = document.getElementById('user-email-input');
+            const passwordInput = document.getElementById('user-password-input');
+            const errorDiv = document.getElementById('user-login-error');
+            if (emailInput) emailInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+            if (errorDiv) errorDiv.classList.add('hidden');
+        }
+    }
+    
+    // 사용자 상태 UI 업데이트
+    updateUserUI() {
+        // 헤더의 로그인 버튼들
+        const loginBtn = document.getElementById('user-login-btn');
+        const logoutBtn = document.getElementById('user-logout-btn');
+        const userEmail = document.getElementById('user-email');
+        
+        // 사이드 메뉴의 로그인 버튼들
+        const sideLoginBtn = document.getElementById('side-user-login-btn');
+        const sideLogoutBtn = document.getElementById('side-user-logout-btn');
+        const sideUserEmail = document.getElementById('side-user-email');
+        
+        if (this.currentUser) {
+            // 로그인 상태
+            if (loginBtn) loginBtn.classList.add('hidden');
+            if (logoutBtn) logoutBtn.classList.remove('hidden');
+            if (userEmail) {
+                userEmail.textContent = this.currentUser.email;
+                userEmail.classList.remove('hidden');
+            }
+            
+            // 사이드 메뉴 업데이트
+            if (sideLoginBtn) sideLoginBtn.classList.add('hidden');
+            if (sideLogoutBtn) sideLogoutBtn.classList.remove('hidden');
+            if (sideUserEmail) {
+                sideUserEmail.textContent = this.currentUser.email;
+                sideUserEmail.classList.remove('hidden');
+            }
+        } else {
+            // 로그아웃 상태
+            if (loginBtn) loginBtn.classList.remove('hidden');
+            if (logoutBtn) logoutBtn.classList.add('hidden');
+            if (userEmail) {
+                userEmail.textContent = '';
+                userEmail.classList.add('hidden');
+            }
+            
+            // 사이드 메뉴 업데이트
+            if (sideLoginBtn) sideLoginBtn.classList.remove('hidden');
+            if (sideLogoutBtn) sideLogoutBtn.classList.add('hidden');
+            if (sideUserEmail) {
+                sideUserEmail.textContent = '';
+                sideUserEmail.classList.add('hidden');
+            }
+        }
+    }
+    
+    // 사이드 메뉴 토글
+    toggleSideMenu() {
+        const sideMenu = document.getElementById('side-menu');
+        if (sideMenu) {
+            sideMenu.classList.toggle('hidden');
+        }
+    }
+    
+    // 사이드 메뉴 표시
+    showSideMenu() {
+        const sideMenu = document.getElementById('side-menu');
+        if (sideMenu) {
+            sideMenu.classList.remove('hidden');
+        }
+    }
+    
+    // 사이드 메뉴 숨김
+    hideSideMenu() {
+        const sideMenu = document.getElementById('side-menu');
+        if (sideMenu) {
+            sideMenu.classList.add('hidden');
+        }
+    }
+    
+    // 관리자 로그인 모달 표시
+    showAdminLoginModal() {
+        console.log('관리자 로그인 모달 표시 시도');
+        const modal = document.getElementById('admin-login-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            console.log('관리자 로그인 모달 표시됨');
+        } else {
+            console.error('admin-login-modal 요소를 찾을 수 없습니다');
+        }
+    }
+    
+    // 관리자 로그인 모달 숨기기
+    hideAdminLoginModal() {
+        const modal = document.getElementById('admin-login-modal');
+        modal.classList.add('hidden');
+        // 입력 필드 초기화
+        document.getElementById('admin-username').value = '';
+        document.getElementById('admin-password').value = '';
+        document.getElementById('login-error').classList.add('hidden');
+    }
+    
+    // 관리자 로그인 처리
+    handleAdminLogin() {
+        const username = document.getElementById('admin-username').value;
+        const password = document.getElementById('admin-password').value;
+        const errorDiv = document.getElementById('login-error');
+        
+        // 간단한 인증 (실제로는 서버에서 처리해야 함)
+        if (username === 'admin' && password === 'admin123') {
+            this.isAdminLoggedIn = true;
+            this.hideAdminLoginModal();
+            this.switchToAdminMode();
+            
+            // 관리자 로그인 시 UI 자동 표시
+            if (!this.uiVisible) {
+                this.showUI();
+                this.uiVisible = true;
+            }
+            
+            this.showNotification('관리자로 로그인되었습니다.', 'success');
+            console.log('관리자 로그인 성공');
+        } else {
+            errorDiv.classList.remove('hidden');
+            this.showNotification('잘못된 로그인 정보입니다.', 'error');
+        }
+    }
+    
+    // 관리자 로그아웃 처리
+    handleAdminLogout() {
+        this.isAdminLoggedIn = false;
+        this.adminMode = false;
+        
+        // 관리자 모드에서 열린 모든 모달 닫기
+        this.hideCompanyInfoModal();
+        
+        this.switchToUserMode();
+        
+        // UI가 보이는 상태라면 UI도 숨기기
+        if (this.uiVisible) {
+            this.hideUI();
+        }
+        
+        this.showNotification('관리자에서 로그아웃되었습니다.', 'info');
+        console.log('관리자 로그아웃');
+    }
+    
+    // 관리자 모드로 전환
+    switchToAdminMode() {
+        this.adminMode = true; // 관리자 모드 활성화
+        
+        // 기존에 열린 기업 정보 모달 닫기
+        this.hideCompanyInfoModal();
+        
+        // 헤더 버튼 상태 변경 (UI가 보일 때만)
+        if (this.uiVisible) {
+            const adminLoginBtn = document.getElementById('admin-login-btn');
+            const adminLogoutBtn = document.getElementById('admin-logout-btn');
+            if (adminLoginBtn) adminLoginBtn.classList.add('hidden');
+            if (adminLogoutBtn) adminLogoutBtn.classList.remove('hidden');
+        }
+        
+        // 사이드 메뉴 버튼 상태 변경 (관리자 섹션은 숨김)
+        const sideAdminSection = document.getElementById('side-admin-section');
+        if (sideAdminSection) {
+            sideAdminSection.style.display = 'none'; // 관리자 섹션 숨기기
+        }
+        
+        // 관리자 패널은 P키 연타로만 표시 (여기서는 표시하지 않음)
+        // this.showAdminPanel(); // 제거
+        
+        console.log('관리자 모드로 전환');
+    }
+    
+    // 일반 사용자 모드로 전환
+    switchToUserMode() {
+        this.adminMode = false; // 관리자 모드 비활성화
+        
+        // 헤더 버튼 상태 변경 (UI가 보일 때만)
+        if (this.uiVisible) {
+            const adminLoginBtn = document.getElementById('admin-login-btn');
+            const adminLogoutBtn = document.getElementById('admin-logout-btn');
+            if (adminLoginBtn) adminLoginBtn.classList.remove('hidden');
+            if (adminLogoutBtn) adminLogoutBtn.classList.add('hidden');
+        }
+        
+        // 사이드 메뉴 버튼 상태 변경 (관리자 섹션은 숨김)
+        const sideAdminSection = document.getElementById('side-admin-section');
+        if (sideAdminSection) {
+            sideAdminSection.style.display = 'none'; // 관리자 섹션 숨기기
+        }
+        
+        // 관리자 패널 숨기기
+        this.hideAdminPanel();
+        
+        // 관리자 모드 해제 시 선택된 지역 하이라이트도 해제
+        this.map.setFilter('regions-hover', ['==', 'id', '']);
+        // 선택된 지역 정보도 초기화
+        this.selectedStateId = null;
+        this.currentRegion = null;
+        
+        // 좌측 패널 숨기기
+        this.hideMenu();
+        
+        console.log('일반 사용자 모드로 전환');
+    }
+    
+    toggleAdminMode() {
+        if (!this.isAdminLoggedIn) {
+            this.showAdminLoginModal();
+            return;
+        }
+        
+        this.adminMode = !this.adminMode;
+        
+        if (this.adminMode) {
+            this.showAdminPanel();
+            this.showNotification('관리자 모드가 활성화되었습니다.', 'success');
+        } else {
+            this.hideAdminPanel();
+            // 관리자 모드 해제 시 선택된 지역 하이라이트도 해제
+            this.map.setFilter('regions-hover', ['==', 'id', '']);
+            // 선택된 지역 정보도 초기화
+            this.selectedStateId = null;
+            this.currentRegion = null;
+            this.showNotification('관리자 모드가 비활성화되었습니다.', 'info');
+        }
+    }
+    
+    // 로고 편집 모드 토글
+    toggleLogoEditMode() {
+        this.logoEditMode = !this.logoEditMode;
+        const logoEditBtn = document.getElementById('logo-edit-mode');
+        
+        if (this.logoEditMode) {
+            logoEditBtn.textContent = '로고 편집 (ON)';
+            logoEditBtn.classList.add('active');
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else {
+            logoEditBtn.textContent = '로고 편집';
+            logoEditBtn.classList.remove('active');
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+    
+    // 관리자 패널 표시
+    showAdminPanel() {
+        const panel = document.getElementById('admin-panel');
+        if (panel) {
+            panel.classList.remove('hidden');
+            console.log('관리자 패널 표시됨');
+        } else {
+            console.error('admin-panel 요소를 찾을 수 없습니다');
+        }
+    }
+    
+    // 관리자 패널 숨기기
+    hideAdminPanel() {
+        const panel = document.getElementById('admin-panel');
+        panel.classList.add('hidden');
+    }
+    
+    // 새로운 간단한 로고 업로드
+    uploadLogo() {
+        if (!this.selectedStateId) {
+            this.showNotification('먼저 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        const fileInput = document.getElementById('logo-file-input');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            this.showNotification('파일을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        if (!file.type.startsWith('image/')) {
+            this.showNotification('이미지 파일만 업로드 가능합니다.', 'error');
+            return;
+        }
+        
+        // 간단한 FileReader 사용
+        const reader = new FileReader();
+        reader.onload = (e) => {
+        // 현재 지도 모드에 따라 적절한 로고 데이터 저장소에 저장
+        const logoData = {
+            src: e.target.result,
+            size: 80, // 기본 크기를 50에서 80으로 증가
+            opacity: 0.8,
+            rotation: 0
+        };
+        
+        if (this.currentMapMode === 'korea') {
+            this.koreaLogoData[this.selectedStateId] = logoData;
+        } else {
+            this.logoData[this.selectedStateId] = logoData;
+        }
+            
+            this.updateLogoPreview();
+            this.showNotification('로고가 업로드되었습니다!', 'success');
+            console.log('로고 업로드 완료:', this.selectedStateId);
+        };
+        
+        reader.onerror = () => {
+            this.showNotification('파일 읽기 오류가 발생했습니다.', 'error');
+        };
+        
+        reader.readAsDataURL(file);
+    }
+    
+    // 새로운 간단한 로고 미리보기 업데이트
+    updateLogoPreview() {
+        if (!this.selectedStateId) return;
+        
+        const logoData = this.currentMapMode === 'korea' 
+            ? this.koreaLogoData[this.selectedStateId]
+            : this.logoData[this.selectedStateId];
+        const currentLogoImg = document.getElementById('current-logo-img');
+        const noLogo = document.getElementById('no-logo');
+        const sizeValue = document.getElementById('logo-size-value');
+        const opacityValue = document.getElementById('logo-opacity-value');
+        const rotationValue = document.getElementById('logo-rotation-value');
+        
+        if (logoData) {
+            currentLogoImg.src = logoData.src;
+            currentLogoImg.style.display = 'block';
+            noLogo.style.display = 'none';
+            
+            // 슬라이더 값 업데이트
+            document.getElementById('logo-size').value = logoData.size;
+            document.getElementById('logo-opacity').value = logoData.opacity;
+            document.getElementById('logo-rotation').value = logoData.rotation;
+            
+            // 미리보기 스타일 적용
+            currentLogoImg.style.width = logoData.size + 'px';
+            currentLogoImg.style.height = logoData.size + 'px';
+            currentLogoImg.style.opacity = logoData.opacity;
+            currentLogoImg.style.transform = `rotate(${logoData.rotation}deg)`;
+            
+            // 값 표시 업데이트
+            sizeValue.textContent = logoData.size + 'px';
+            opacityValue.textContent = Math.round(logoData.opacity * 100) + '%';
+            rotationValue.textContent = logoData.rotation + '°';
+        } else {
+            currentLogoImg.style.display = 'none';
+            noLogo.style.display = 'block';
+        }
+    }
+    
+    // 새로운 간단한 로고 저장 (색상 포함)
+    saveLogo() {
+        if (!this.selectedStateId) {
+            this.showNotification('저장할 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        // 현재 지도 모드에 따라 적절한 데이터 저장소에서 가져오기
+        const logoData = this.currentMapMode === 'korea' 
+            ? this.koreaLogoData[this.selectedStateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanLogoData[this.selectedStateId]
+            : this.logoData[this.selectedStateId];
+        const colorData = this.currentMapMode === 'korea' 
+            ? this.koreaColorData[this.selectedStateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanColorData[this.selectedStateId]
+            : this.colorData[this.selectedStateId];
+        
+        // 로고 데이터 업데이트
+        if (logoData) {
+            logoData.size = parseInt(document.getElementById('logo-size').value) || 80; // 기본값을 50에서 80으로 증가
+            logoData.opacity = parseFloat(document.getElementById('logo-opacity').value) || 0.8;
+            logoData.rotation = parseInt(document.getElementById('logo-rotation').value) || 0;
+            
+            // 현재 지도 모드에 따라 적절한 저장소에 저장
+            if (this.currentMapMode === 'korea') {
+                this.koreaLogoData[this.selectedStateId] = logoData;
+            } else if (this.currentMapMode === 'japan') {
+                this.japanLogoData[this.selectedStateId] = logoData;
+            } else {
+                this.logoData[this.selectedStateId] = logoData;
+            }
+            
+            // 지도에 로고 표시
+            this.displayLogoOnMapSimple(this.selectedStateId, logoData);
+        }
+        
+        // 색상 데이터 업데이트 및 적용
+        const currentColorData = this.currentMapMode === 'korea' 
+            ? this.koreaColorData[this.selectedStateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanColorData[this.selectedStateId]
+            : this.colorData[this.selectedStateId];
+            
+        console.log('saveLogo에서 색상 데이터 확인:', this.selectedStateId, currentColorData, '모드:', this.currentMapMode);
+        console.log('한국 색상 데이터:', this.koreaColorData);
+        console.log('미국 색상 데이터:', this.colorData);
+            
+        if (currentColorData) {
+            // 색상 데이터 형식 통일 (regionColor -> fillColor)
+            const normalizedColorData = {
+                fillColor: currentColorData.fillColor || currentColorData.regionColor || '#4ecdc4',
+                borderColor: currentColorData.borderColor || '#ffffff',
+                borderWidth: currentColorData.borderWidth || 1
+            };
+            this.applyColorToMap(this.selectedStateId, normalizedColorData);
+        } else {
+            console.warn('색상 데이터가 없습니다. 기본 색상으로 설정합니다.');
+            // 기본 색상 데이터 생성
+            const defaultColorData = {
+                fillColor: '#4ecdc4',
+                borderColor: '#ffffff',
+                borderWidth: 1
+            };
+            
+            // 현재 모드에 따라 색상 데이터 저장
+            if (this.currentMapMode === 'korea') {
+                this.koreaColorData[this.selectedStateId] = defaultColorData;
+            } else if (this.currentMapMode === 'japan') {
+                this.japanColorData[this.selectedStateId] = defaultColorData;
+            } else {
+                this.colorData[this.selectedStateId] = defaultColorData;
+            }
+            
+            this.applyColorToMap(this.selectedStateId, defaultColorData);
+        }
+        
+        this.showNotification('설정이 저장되었습니다!', 'success');
+        console.log('로고 및 색상 저장 완료:', this.selectedStateId, { logoData, currentColorData });
+    }
+    
+    // 색상 프리셋 적용
+    applyPresetColor(fillColor, borderColor) {
+        if (!this.selectedStateId) {
+            this.showNotification('색상을 적용할 지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        console.log('색상 프리셋 적용:', fillColor, borderColor);
+        
+        // 색상 입력 필드 업데이트
+        const regionColorInput = document.getElementById('region-color');
+        const borderColorInput = document.getElementById('border-color');
+        
+        if (regionColorInput) regionColorInput.value = fillColor;
+        if (borderColorInput) borderColorInput.value = borderColor;
+        
+        // 색상 데이터 저장
+        const colorData = {
+            fillColor: fillColor,
+            borderColor: borderColor,
+            borderWidth: 1
+        };
+        
+        // 현재 지도 모드에 따라 적절한 저장소에 저장
+        if (this.currentMapMode === 'korea') {
+            this.koreaColorData[this.selectedStateId] = colorData;
+        } else if (this.currentMapMode === 'japan') {
+            this.japanColorData[this.selectedStateId] = colorData;
+        } else {
+            this.colorData[this.selectedStateId] = colorData;
+        }
+        
+        // 지도에 색상 적용
+        this.applyColorToMap(this.selectedStateId, colorData);
+        
+        // 색상이 즉시 적용되도록 지도 새로고침
+        this.map.triggerRepaint();
+        
+        this.showNotification('색상이 적용되었습니다!', 'success');
+        console.log('색상 프리셋 적용 완료:', this.selectedStateId, colorData);
+    }
+    
+    // 색상 프리셋 이벤트 리스너 설정
+    setupColorPresetListeners() {
+        // 색상 프리셋 버튼들에 클릭 이벤트 추가
+        const colorPresets = document.querySelectorAll('.color-preset');
+        colorPresets.forEach(preset => {
+            preset.addEventListener('click', () => {
+                const fillColor = preset.getAttribute('data-color');
+                const borderColor = preset.getAttribute('data-border');
+                this.applyPresetColor(fillColor, borderColor);
+            });
+        });
+        
+        // 커스텀 색상 입력 필드 이벤트 리스너 추가
+        const regionColorInput = document.getElementById('region-color');
+        const borderColorInput = document.getElementById('border-color');
+        const borderWidthInput = document.getElementById('border-width');
+        
+        if (regionColorInput) {
+            regionColorInput.addEventListener('change', () => {
+                this.applyCustomColor();
+            });
+            regionColorInput.addEventListener('input', () => {
+                this.applyCustomColor();
+            });
+        }
+        
+        if (borderColorInput) {
+            borderColorInput.addEventListener('change', () => {
+                this.applyCustomColor();
+            });
+            borderColorInput.addEventListener('input', () => {
+                this.applyCustomColor();
+            });
+        }
+        
+        if (borderWidthInput) {
+            borderWidthInput.addEventListener('change', () => {
+                this.applyCustomColor();
+            });
+            borderWidthInput.addEventListener('input', () => {
+                this.applyCustomColor();
+            });
+        }
+        
+        console.log('색상 프리셋 이벤트 리스너 설정 완료:', colorPresets.length, '개');
+        console.log('커스텀 색상 입력 필드 이벤트 리스너 설정 완료');
+    }
+    
+    // 커스텀 색상 적용
+    applyCustomColor() {
+        if (!this.selectedStateId) {
+            console.warn('선택된 지역이 없습니다');
+            return;
+        }
+        
+        const fillColor = document.getElementById('region-color')?.value || '#4ecdc4';
+        const borderColor = document.getElementById('border-color')?.value || '#ffffff';
+        const borderWidth = parseInt(document.getElementById('border-width')?.value) || 1;
+        
+        console.log('커스텀 색상 적용:', fillColor, borderColor, borderWidth);
+        
+        // 색상 데이터 저장
+        const colorData = {
+            fillColor: fillColor,
+            borderColor: borderColor,
+            borderWidth: borderWidth
+        };
+        
+        // 현재 지도 모드에 따라 적절한 저장소에 저장
+        if (this.currentMapMode === 'korea') {
+            this.koreaColorData[this.selectedStateId] = colorData;
+        } else if (this.currentMapMode === 'japan') {
+            this.japanColorData[this.selectedStateId] = colorData;
+        } else {
+            this.colorData[this.selectedStateId] = colorData;
+        }
+        
+        // 지도에 색상 적용
+        this.applyColorToMap(this.selectedStateId, colorData);
+        
+        this.showNotification('커스텀 색상이 적용되었습니다!', 'success');
+    }
+    
+    // 새로운 간단한 로고 제거 (색상 포함)
+    removeLogo() {
+        if (!this.selectedStateId) {
+            this.showNotification('제거할 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        // 로고 제거
+        delete this.logoData[this.selectedStateId];
+        this.removeLogoFromMap(this.selectedStateId);
+        
+        // 색상 제거 및 기본 색상으로 복원
+        delete this.colorData[this.selectedStateId];
+        this.resetRegionColor(this.selectedStateId);
+        
+        this.updateLogoPreview();
+        this.updateColorPreview();
+        this.showNotification('로고와 색상이 제거되었습니다.', 'success');
+        console.log('로고 및 색상 제거 완료:', this.selectedStateId);
+    }
+    
+    // 지역 색상을 기본값으로 복원
+    resetRegionColor(stateId) {
+        if (!this.map) return;
+        
+        // 기본 색상으로 복원
+        this.map.setPaintProperty('regions-fill', 'fill-color', [
+            'case',
+            ['==', ['get', 'ad_status'], 'occupied'],
+            '#ff6b6b',
+            '#4ecdc4'
+        ]);
+        
+        this.map.setPaintProperty('regions-border', 'line-color', '#ffffff');
+        this.map.setPaintProperty('regions-border', 'line-width', 1);
+        
+        console.log('지역 색상 복원 완료:', stateId);
+    }
+    
+    // 새로운 간단한 로고 설정 초기화 (색상 포함)
+    resetLogo() {
+        if (!this.selectedStateId) return;
+        
+        // 로고 설정 초기화
+        const logoData = this.logoData[this.selectedStateId];
+        if (logoData) {
+            logoData.size = 80; // 기본 크기를 50에서 80으로 증가
+            logoData.opacity = 0.8;
+            logoData.rotation = 0;
+            this.logoData[this.selectedStateId] = logoData;
+        }
+        
+        // 색상 설정 초기화
+        const defaultColorData = {
+            regionColor: '#4ecdc4',
+            borderColor: '#ffffff',
+            borderWidth: 1
+        };
+        this.colorData[this.selectedStateId] = defaultColorData;
+        
+        // UI 초기화
+        document.getElementById('region-color').value = defaultColorData.regionColor;
+        document.getElementById('border-color').value = defaultColorData.borderColor;
+        document.getElementById('border-width').value = defaultColorData.borderWidth;
+        
+        // 프리셋 선택 해제
+        document.querySelectorAll('.color-preset').forEach(p => p.classList.remove('selected'));
+        
+        this.updateLogoPreview();
+        this.updateColorPreview();
+        this.showNotification('모든 설정이 초기화되었습니다.', 'success');
+    }
+    
+    // 새로운 간단한 로고 표시 함수 (줌 레벨에 따른 크기 조정)
+    displayLogoOnMapSimple(stateId, logoData) {
+        console.log('로고 표시 시작:', stateId, logoData);
+        
+        // 기존 로고 제거
+        this.removeLogoFromMap(stateId);
+        
+        // 주의 중심점을 간단하게 계산
+        const centerCoords = this.getStateCenter(stateId);
+        if (!centerCoords) {
+            console.error('주 중심점을 찾을 수 없습니다:', stateId);
+            return;
+        }
+        
+        // 로고 요소 생성
+        const logoElement = document.createElement('div');
+        logoElement.id = `logo-${stateId}`;
+        logoElement.className = 'state-logo';
+        logoElement.innerHTML = `<img src="${logoData.src}" alt="${stateId} Logo">`;
+        
+        // 기본 스타일 적용
+        logoElement.style.position = 'absolute';
+        logoElement.style.pointerEvents = 'none';
+        logoElement.style.zIndex = '1000';
+        logoElement.style.opacity = logoData.opacity;
+        logoElement.style.transform = `rotate(${logoData.rotation}deg)`;
+        
+        // 줌 레벨에 따른 크기 계산 함수 (더 크게 표시)
+        const calculateLogoSize = (zoomLevel) => {
+            const baseSize = logoData.size || 80; // 기본 크기를 50에서 80으로 증가
+            const zoomFactor = Math.pow(2, zoomLevel - 4); // 줌 레벨 4를 기준으로 함
+            return Math.max(30, Math.min(300, baseSize * zoomFactor)); // 최소 30px, 최대 300px로 증가
+        };
+        
+        // 위치 및 크기 업데이트 함수
+        const updatePositionAndSize = () => {
+            const currentZoom = this.map.getZoom();
+            const currentSize = calculateLogoSize(currentZoom);
+            
+            // 크기 업데이트
+            logoElement.style.width = currentSize + 'px';
+            logoElement.style.height = currentSize + 'px';
+            
+            // 위치 업데이트
+            const point = this.map.project(centerCoords);
+            logoElement.style.left = (point.x - currentSize / 2) + 'px';
+            logoElement.style.top = (point.y - currentSize / 2) + 'px';
+            
+            console.log(`로고 크기 조정: 줌 ${currentZoom.toFixed(2)}, 크기 ${currentSize.toFixed(1)}px`);
+        };
+        
+        // 초기 설정
+        updatePositionAndSize();
+        
+        // 지도 이동 및 줌 시 업데이트
+        this.map.on('move', updatePositionAndSize);
+        this.map.on('zoom', updatePositionAndSize);
+        
+        // 지도에 추가
+        const mapContainer = document.getElementById('map');
+        mapContainer.appendChild(logoElement);
+        
+        console.log('로고 표시 완료 (줌 반응형):', stateId);
+    }
+    
+    // 모든 로고의 크기를 줌 레벨에 맞게 업데이트
+    updateAllLogoSizes() {
+        const currentZoom = this.map.getZoom();
+        
+        // 모든 로고 데이터에 대해 크기 업데이트
+        Object.keys(this.logoData).forEach(stateId => {
+            const logoElement = document.getElementById(`logo-${stateId}`);
+            if (logoElement && this.logoData[stateId]) {
+                const logoData = this.logoData[stateId];
+                const baseSize = logoData.size || 80; // 기본 크기를 50에서 80으로 증가
+                const zoomFactor = Math.pow(2, currentZoom - 4);
+                const newSize = Math.max(30, Math.min(300, baseSize * zoomFactor)); // 최소 30px, 최대 300px로 증가
+                
+                // 크기 업데이트
+                logoElement.style.width = newSize + 'px';
+                logoElement.style.height = newSize + 'px';
+                
+                // 위치도 다시 계산
+                const centerCoords = this.getStateCenter(stateId);
+                if (centerCoords) {
+                    const point = this.map.project(centerCoords);
+                    logoElement.style.left = (point.x - newSize / 2) + 'px';
+                    logoElement.style.top = (point.y - newSize / 2) + 'px';
+                }
+            }
+        });
+        
+    }
+    
+    // 주의 중심점을 간단하게 계산하는 함수
+    getStateCenter(stateId) {
+        const source = this.map.getSource('world-regions');
+        if (!source || !source._data) return null;
+        
+        const feature = source._data.features.find(f => f.properties.id === stateId);
+        if (!feature) return null;
+        
+        const coordinates = feature.geometry.coordinates[0];
+        if (!coordinates || coordinates.length === 0) return null;
+        
+        let centerLng = 0, centerLat = 0;
+        coordinates.forEach(coord => {
+            centerLng += coord[0];
+            centerLat += coord[1];
+        });
+        
+        return [centerLng / coordinates.length, centerLat / coordinates.length];
+    }
+    
+    // 지도에서 로고 제거
+    removeLogoFromMap(stateId) {
+        const logoElement = document.getElementById(`logo-${stateId}`);
+        if (logoElement) {
+            logoElement.remove();
+        }
+    }
+    
+    getKoreanStateName(englishName) {
+        const stateNames = {
+            'Alabama': '앨라배마주',
+            'Alaska': '알래스카주',
+            'Arizona': '애리조나주',
+            'Arkansas': '아칸소주',
+            'California': '캘리포니아주',
+            'Colorado': '콜로라도주',
+            'Connecticut': '코네티컷주',
+            'Delaware': '델라웨어주',
+            'Florida': '플로리다주',
+            'Georgia': '조지아주',
+            'Hawaii': '하와이주',
+            'Idaho': '아이다호주',
+            'Illinois': '일리노이주',
+            'Indiana': '인디애나주',
+            'Iowa': '아이오와주',
+            'Kansas': '캔자스주',
+            'Kentucky': '켄터키주',
+            'Louisiana': '루이지애나주',
+            'Maine': '메인주',
+            'Maryland': '메릴랜드주',
+            'Massachusetts': '매사추세츠주',
+            'Michigan': '미시간주',
+            'Minnesota': '미네소타주',
+            'Mississippi': '미시시피주',
+            'Missouri': '미주리주',
+            'Montana': '몬태나주',
+            'Nebraska': '네브래스카주',
+            'Nevada': '네바다주',
+            'New Hampshire': '뉴햄프셔주',
+            'New Jersey': '뉴저지주',
+            'New Mexico': '뉴멕시코주',
+            'New York': '뉴욕주',
+            'North Carolina': '노스캐롤라이나주',
+            'North Dakota': '노스다코타주',
+            'Ohio': '오하이오주',
+            'Oklahoma': '오클라호마주',
+            'Oregon': '오리건주',
+            'Pennsylvania': '펜실베이니아주',
+            'Rhode Island': '로드아일랜드주',
+            'South Carolina': '사우스캐롤라이나주',
+            'South Dakota': '사우스다코타주',
+            'Tennessee': '테네시주',
+            'Texas': '텍사스주',
+            'Utah': '유타주',
+            'Vermont': '버몬트주',
+            'Virginia': '버지니아주',
+            'Washington': '워싱턴주',
+            'West Virginia': '웨스트버지니아주',
+            'Wisconsin': '위스콘신주',
+            'Wyoming': '와이오밍주'
+        };
+        return stateNames[englishName] || englishName;
+    }
+    
+    // 색상을 밝게 만드는 헬퍼 함수 (hover 효과용)
+    lightenColor(color, percent) {
+        // HEX 색상을 RGB로 변환
+        const num = parseInt(color.replace("#", ""), 16);
+        const r = Math.min(255, ((num >> 16) & 0xff) + Math.round(255 * percent / 100));
+        const g = Math.min(255, ((num >> 8) & 0xff) + Math.round(255 * percent / 100));
+        const b = Math.min(255, (num & 0xff) + Math.round(255 * percent / 100));
+        
+        // RGB를 HEX로 변환
+        return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+    
+    // hover 효과 적용 함수 (즉시 적용)
+    applyHoverEffect(regionId) {
+        // hover 레이어에 해당 지역만 표시
+        if (this.map.getLayer('regions-hover')) {
+            this.map.setFilter('regions-hover', ['==', 'id', regionId]);
+            this.map.setPaintProperty('regions-hover', 'fill-opacity', 0.5);
+            this.map.setPaintProperty('regions-hover', 'fill-color', '#feca57');
+        }
+        
+        // 저장된 색상 데이터 가져오기
+        const currentColorData = this.currentMapMode === 'korea' 
+            ? this.koreaColorData 
+            : this.currentMapMode === 'japan'
+            ? this.japanColorData
+            : this.colorData;
+        
+        // 경계선 두께 강조 (저장된 두께 + 호버 강조)
+        if (this.map.getLayer('regions-border')) {
+            let borderWidthConditions = ['case'];
+            
+            // 저장된 색상이 있으면 해당 지역은 두꺼운 경계선, 나머지는 저장된 두께
+            if (Object.keys(currentColorData).length > 0) {
+                Object.keys(currentColorData).forEach(id => {
+                    const regionColor = currentColorData[id];
+                    if (regionColor && regionColor.borderWidth) {
+                        borderWidthConditions.push(['==', ['get', 'id'], id]);
+                        borderWidthConditions.push(regionColor.borderWidth);
+                    }
+                });
+            }
+            
+            // 호버 지역은 3으로 강조
+            borderWidthConditions.push(['==', ['get', 'id'], regionId]);
+            borderWidthConditions.push(3);
+            borderWidthConditions.push(1); // 기본값
+            
+            this.map.setPaintProperty('regions-border', 'line-width', borderWidthConditions);
+            this.map.setPaintProperty('regions-border', 'line-opacity', [
+                'case',
+                ['==', ['get', 'id'], regionId],
+                1,
+                0.8
+            ]);
+        }
+        
+        // fill 색상 밝게 (저장된 색상 유지 + 호버 지역만 강조)
+        if (this.map.getLayer('regions-fill')) {
+            const currentMode = this.currentMapMode;
+            let hoverColorExpr = ['case'];
+            
+            // 저장된 색상이 있으면 적용
+            if (Object.keys(currentColorData).length > 0) {
+                Object.keys(currentColorData).forEach(id => {
+                    const regionColor = currentColorData[id];
+                    if (regionColor && regionColor.fillColor && id !== regionId) {
+                        hoverColorExpr.push(['==', ['get', 'id'], id]);
+                        hoverColorExpr.push(regionColor.fillColor);
+                    }
+                });
+            }
+            
+            // occupied 상태
+            hoverColorExpr.push(['==', ['get', 'ad_status'], 'occupied']);
+            hoverColorExpr.push('#ff6b6b');
+            
+            // 호버 지역은 밝은 색상
+            hoverColorExpr.push(['==', ['get', 'id'], regionId]);
+            hoverColorExpr.push('#6dd5d8');
+            
+            // 기본 색상
+            hoverColorExpr.push('#4ecdc4');
+            
+            this.map.setPaintProperty('regions-fill', 'fill-color', hoverColorExpr);
+        }
+    }
+    
+    // hover 효과 즉시 제거 함수 (transition 없음)
+    clearHoverEffectImmediate() {
+        if (!this.currentHoverRegionId) return;
+        
+        // hover 레이어 제거
+        if (this.map.getLayer('regions-hover')) {
+            this.map.setFilter('regions-hover', ['==', 'id', '']);
+            this.map.setPaintProperty('regions-hover', 'fill-opacity', 0);
+        }
+        
+        // 경계선 원래대로 복원 (저장된 색상 유지)
+        if (this.map.getLayer('regions-border')) {
+            // 저장된 색상 데이터 가져오기
+            const currentColorData = this.currentMapMode === 'korea' 
+                ? this.koreaColorData 
+                : this.currentMapMode === 'japan'
+                ? this.japanColorData
+                : this.colorData;
+            
+            // 저장된 경계선 색상이 있으면 복원, 없으면 기본값
+            if (Object.keys(currentColorData).length > 0) {
+                let borderColorConditions = ['case'];
+                let borderWidthConditions = ['case'];
+                
+                Object.keys(currentColorData).forEach(regionId => {
+                    const regionColor = currentColorData[regionId];
+                    if (regionColor && regionColor.borderColor) {
+                        borderColorConditions.push(['==', ['get', 'id'], regionId]);
+                        borderColorConditions.push(regionColor.borderColor);
+                    }
+                    if (regionColor && regionColor.borderWidth) {
+                        borderWidthConditions.push(['==', ['get', 'id'], regionId]);
+                        borderWidthConditions.push(regionColor.borderWidth);
+                    }
+                });
+                borderColorConditions.push('#ffffff');
+                borderWidthConditions.push(1);
+                
+                this.map.setPaintProperty('regions-border', 'line-color', borderColorConditions);
+                this.map.setPaintProperty('regions-border', 'line-width', borderWidthConditions);
+            } else {
+                this.map.setPaintProperty('regions-border', 'line-width', 1);
+            }
+            this.map.setPaintProperty('regions-border', 'line-opacity', 0.8);
+        }
+        
+        // fill 색상 원래대로 복원 (저장된 색상 유지)
+        if (this.map.getLayer('regions-fill')) {
+            const currentMode = this.currentMapMode;
+            const currentColorData = this.currentMapMode === 'korea' 
+                ? this.koreaColorData 
+                : this.currentMapMode === 'japan'
+                ? this.japanColorData
+                : this.colorData;
+            
+            let fillColorExpr;
+            
+            // 저장된 색상이 있으면 복원
+            if (Object.keys(currentColorData).length > 0) {
+                fillColorExpr = ['case'];
+                Object.keys(currentColorData).forEach(regionId => {
+                    const regionColor = currentColorData[regionId];
+                    if (regionColor && regionColor.fillColor) {
+                        fillColorExpr.push(['==', ['get', 'id'], regionId]);
+                        fillColorExpr.push(regionColor.fillColor);
+                    }
+                });
+                
+                // 기본 색상 (occupied 상태에 따라)
+                fillColorExpr.push([
+                    'case',
+                    ['==', ['get', 'ad_status'], 'occupied'],
+                    '#ff6b6b',
+                    '#4ecdc4'
+                ]);
+            } else {
+                // 저장된 색상이 없으면 기본값
+                if (currentMode === 'japan') {
+                    fillColorExpr = [
+                        'case',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '#ff6b6b',
+                        ['==', ['get', 'ad_status'], 'selected'],
+                        '#feca57',
+                        '#4ecdc4'
+                    ];
+                } else {
+                    fillColorExpr = [
+                        'case',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '#ff6b6b',
+                        '#4ecdc4'
+                    ];
+                }
+            }
+            
+            this.map.setPaintProperty('regions-fill', 'fill-color', fillColorExpr);
+        }
+        
+        this.currentHoverRegionId = null;
+    }
+    
+    // hover 효과 제거 함수 (transition 포함 - 호환성용)
+    clearHoverEffect() {
+        this.clearHoverEffectImmediate();
+    }
+    
+    // 행정구역 hover 종료 처리
+    handleRegionHoverExit() {
+        this.map.getCanvas().style.cursor = '';
+        this.clearHoverEffectImmediate();
+        this.hideTooltip();
+    }
+    
+    showError(message) {
+        const loading = document.getElementById('loading');
+        loading.innerHTML = `
+            <div style="color: #ff6b6b; font-size: 1.2rem;">
+                <p>❌ 오류 발생</p>
+                <p style="font-size: 0.9rem; margin-top: 10px;">${message}</p>
+            </div>
+        `;
+    }
+    
+    // 언어 변환 헬퍼 함수
+    getLanguageText(key, includeSecondary = true) {
+        let countryCode = this.currentMapMode;
+        
+        // 'korea' 모드를 'south-korea' 언어 매핑으로 변환
+        if (countryCode === 'korea') {
+            countryCode = 'south-korea';
+        }
+        
+        const langData = this.countryLanguages[countryCode];
+        
+        if (!langData) {
+            // 기본값으로 영어 반환
+            return {
+                primary: key,
+                secondary: includeSecondary && Object.keys(this.countryLanguages['usa']?.primary || {}).includes(key) 
+                    ? this.countryLanguages['usa'].primary[key] 
+                    : null
+            };
+        }
+        
+        const primary = langData.primary[key] || key;
+        const secondary = includeSecondary && langData.secondary && Object.keys(langData.secondary).length > 0
+            ? langData.secondary[key] || null
+            : null;
+        
+        return { primary, secondary };
+    }
+    
+    // 지역 표시 이름 가져오기 (국가별 언어 우선순위 적용)
+    getRegionDisplayName(regionData) {
+        if (!regionData) return '';
+        
+        const englishCountries = ['usa', 'uk', 'canada', 'australia', 'south-africa'];
+        const isEnglishCountry = englishCountries.includes(this.currentMapMode);
+        
+        if (this.currentMapMode === 'japan') {
+            return `${regionData.name_en || ''}${regionData.name_ja ? ` (${regionData.name_ja})` : ''}`;
+        } else if (this.currentMapMode === 'korea') {
+            let displayName = regionData.name_ko || regionData.name;
+            if (regionData.ctp_name_ko && regionData.sig_name_ko && regionData.sig_name_ko !== regionData.ctp_name_ko) {
+                const ctpShort = regionData.ctp_name_ko.replace(/광역시|특별시|시$/g, '').trim();
+                if (!displayName.includes(ctpShort)) {
+                    displayName = `${ctpShort} ${regionData.sig_name_ko || displayName}`;
+                }
+            }
+            return `${displayName}${regionData.name_en ? ` (${regionData.name_en})` : ''}`;
+        } else if (isEnglishCountry) {
+            // 영어권 국가: 영어만 표시
+            return regionData.name_en || regionData.name_ko || regionData.name || '';
+        } else {
+            // 그 외: 현지어 (영어)
+            return `${regionData.name_ko || regionData.name}${regionData.name_en ? ` (${regionData.name_en})` : ''}`;
+        }
+    }
+    
+    // 색상을 지도에 적용 (한국 모드 지원)
+    applyColorToMap(stateId, colorData) {
+        if (!this.map.getLayer('regions-fill')) {
+            console.error('regions-fill 레이어를 찾을 수 없습니다');
+            return;
+        }
+        
+        // colorData가 유효한지 확인
+        if (!colorData || !colorData.fillColor) {
+            console.warn('유효하지 않은 색상 데이터:', colorData);
+            return;
+        }
+        
+        // 현재 지도 모드에 따라 적절한 색상 데이터 저장
+        if (this.currentMapMode === 'korea') {
+            this.koreaColorData[stateId] = colorData;
+        } else if (this.currentMapMode === 'japan') {
+            this.japanColorData[stateId] = colorData;
+        } else {
+            this.colorData[stateId] = colorData;
+        }
+        
+        console.log('색상 데이터 저장:', stateId, colorData, '모드:', this.currentMapMode);
+        
+        // 선택된 지역의 색상 업데이트 (미국 지도와 동일한 방식)
+        console.log('색상 적용 시작:', stateId, colorData.fillColor);
+        
+        // 레이어 존재 확인
+        if (!this.map.getLayer('regions-fill')) {
+            console.error('regions-fill 레이어를 찾을 수 없습니다');
+            return;
+        }
+        
+        // 현재 모드의 모든 색상 데이터를 가져와서 조건 생성
+        const currentColorData = this.currentMapMode === 'korea' 
+            ? this.koreaColorData 
+            : this.currentMapMode === 'japan'
+            ? this.japanColorData
+            : this.colorData;
+        
+        // 색상 조건을 단계별로 구성
+        let colorConditions = ['case'];
+        
+        // 각 지역의 색상 조건 추가
+        Object.keys(currentColorData).forEach(regionId => {
+            const regionColor = currentColorData[regionId];
+            if (regionColor && regionColor.fillColor) {
+                colorConditions.push(['==', ['get', 'id'], regionId]);
+                colorConditions.push(regionColor.fillColor);
+                console.log(`색상 조건 추가: ${regionId} -> ${regionColor.fillColor}`);
+            }
+        });
+        
+        // 기본 색상 (occupied 상태에 따라)
+        colorConditions.push([
+            'case',
+            ['==', ['get', 'ad_status'], 'occupied'],
+            '#ff6b6b', // 광고 중인 지역
+            '#4ecdc4'  // 사용 가능한 지역
+        ]);
+        
+        console.log('최종 색상 조건:', colorConditions);
+        
+        // 색상 적용
+        try {
+            this.map.setPaintProperty('regions-fill', 'fill-color', colorConditions);
+            console.log('색상 적용 성공:', stateId, colorData.fillColor);
+            
+            // 지도 강제 새로고침
+            this.map.triggerRepaint();
+            
+        } catch (error) {
+            console.error('색상 적용 실패:', error);
+        }
+        
+        console.log('색상 paint property 업데이트:', stateId, colorData.fillColor);
+        
+        // 경계선 색상과 두께는 regions-border 레이어에 적용 (모든 지역 통합 적용)
+        if (this.map.getLayer('regions-border')) {
+            try {
+                // 경계선 색상 조건 생성 (모든 지역 적용)
+                let borderColorConditions = ['case'];
+                Object.keys(currentColorData).forEach(regionId => {
+                    const regionColor = currentColorData[regionId];
+                    if (regionColor && regionColor.borderColor) {
+                        borderColorConditions.push(['==', ['get', 'id'], regionId]);
+                        borderColorConditions.push(regionColor.borderColor);
+                    }
+                });
+                borderColorConditions.push('#ffffff'); // 기본 색상
+                
+                this.map.setPaintProperty('regions-border', 'line-color', borderColorConditions);
+                console.log('경계선 색상 적용 성공');
+            } catch (error) {
+                console.warn('경계선 색상 적용 실패:', error);
+            }
+            
+            try {
+                // 경계선 두께 조건 생성 (모든 지역 적용)
+                let borderWidthConditions = ['case'];
+                Object.keys(currentColorData).forEach(regionId => {
+                    const regionColor = currentColorData[regionId];
+                    if (regionColor && regionColor.borderWidth) {
+                        borderWidthConditions.push(['==', ['get', 'id'], regionId]);
+                        borderWidthConditions.push(regionColor.borderWidth);
+                    }
+                });
+                borderWidthConditions.push(1); // 기본 두께
+                
+                this.map.setPaintProperty('regions-border', 'line-width', borderWidthConditions);
+                console.log('경계선 두께 적용 성공');
+            } catch (error) {
+                console.warn('경계선 두께 적용 실패:', error);
+            }
+        }
+        
+        console.log('색상 적용 완료:', stateId, colorData, '모드:', this.currentMapMode);
+    }
+    
+    // 로고를 지도에 표시 (간단한 버전)
+    displayLogoOnMapSimple(stateId, logoData) {
+        console.log('로고 표시 시작:', stateId, logoData, '모드:', this.currentMapMode);
+        
+        // 기존 로고 제거
+        this.removeLogoFromMap(stateId);
+        
+        // 주의 중심점을 간단하게 계산
+        const centerCoords = this.getStateCenter(stateId);
+        if (!centerCoords) {
+            console.error('주 중심점을 찾을 수 없습니다:', stateId);
+            return;
+        }
+        
+        console.log('중심점 좌표:', stateId, centerCoords, '모드:', this.currentMapMode);
+        
+        // 로고 요소 생성
+        const logoElement = document.createElement('div');
+        logoElement.id = `logo-${stateId}`;
+        logoElement.className = 'state-logo';
+        logoElement.innerHTML = `<img src="${logoData.src}" alt="${stateId} Logo">`;
+        
+        // 기본 스타일 적용
+        logoElement.style.position = 'absolute';
+        logoElement.style.pointerEvents = 'none';
+        logoElement.style.zIndex = '1000';
+        logoElement.style.opacity = logoData.opacity || 0.8;
+        logoElement.style.transform = `rotate(${logoData.rotation || 0}deg)`;
+        logoElement.style.display = 'block';
+        logoElement.style.visibility = 'visible';
+        
+        // 줌 레벨에 따른 크기 계산 함수 (미국 시스템과 동일한 방식)
+        const calculateLogoSize = (zoomLevel) => {
+            const baseSize = logoData.size || 80;
+            
+            // 줌 레벨에 따른 스케일링 (미국 시스템과 동일)
+            let scaleFactor;
+            if (zoomLevel <= 3) {
+                scaleFactor = 0.3; // 매우 작게
+            } else if (zoomLevel <= 4) {
+                scaleFactor = 0.5; // 작게
+            } else if (zoomLevel <= 5) {
+                scaleFactor = 0.7; // 중간
+            } else if (zoomLevel <= 6) {
+                scaleFactor = 1.0; // 기본 크기
+            } else if (zoomLevel <= 7) {
+                scaleFactor = 1.3; // 크게
+            } else if (zoomLevel <= 8) {
+                scaleFactor = 1.6; // 매우 크게
+            } else {
+                scaleFactor = 2.0; // 최대 크기
+            }
+            
+            const finalSize = baseSize * scaleFactor;
+            return Math.max(20, Math.min(400, finalSize)); // 최소 20px, 최대 400px
+        };
+        
+        // 위치 및 크기 업데이트 함수
+        const updatePositionAndSize = () => {
+            const currentZoom = this.map.getZoom();
+            const currentSize = calculateLogoSize(currentZoom);
+            
+            // 크기 업데이트
+            logoElement.style.width = currentSize + 'px';
+            logoElement.style.height = currentSize + 'px';
+            
+            // 위치 업데이트
+            const point = this.map.project(centerCoords);
+            logoElement.style.left = (point.x - currentSize / 2) + 'px';
+            logoElement.style.top = (point.y - currentSize / 2) + 'px';
+            
+            console.log(`로고 크기 조정: 줌 ${currentZoom.toFixed(2)}, 크기 ${currentSize.toFixed(1)}px`);
+        };
+        
+        // 초기 설정
+        updatePositionAndSize();
+        
+        // 지도 이동 및 줌 시 업데이트
+        this.map.on('move', updatePositionAndSize);
+        this.map.on('zoom', updatePositionAndSize);
+        
+        // 지도에 추가
+        const mapContainer = document.getElementById('map');
+        mapContainer.appendChild(logoElement);
+        
+        console.log('로고 표시 완료 (줌 반응형):', stateId);
+    }
+    
+    // 로고를 지도에서 제거
+    removeLogoFromMap(stateId) {
+        const existingLogo = document.getElementById(`logo-${stateId}`);
+        if (existingLogo) {
+            existingLogo.remove();
+        }
+    }
+    
+    // 주의 중심점 계산
+    getStateCenter(stateId) {
+        // 미국 주 중심점 매핑
+        const usStateCenters = {
+            'california': [-119.4179, 36.7783],
+            'texas': [-99.9018, 31.9686],
+            'florida': [-81.5158, 27.7663],
+            'new_york': [-74.9481, 42.1657],
+            'pennsylvania': [-77.1945, 41.2033],
+            'illinois': [-89.3985, 40.3363],
+            'ohio': [-82.7649, 40.3888],
+            'georgia': [-83.1136, 32.1656],
+            'north_carolina': [-79.0193, 35.6301],
+            'michigan': [-84.5467, 43.3266],
+            'new_jersey': [-74.4057, 40.2989],
+            'virginia': [-78.1694, 37.7693],
+            'washington': [-121.4905, 47.4009],
+            'arizona': [-111.4312, 33.7298],
+            'massachusetts': [-71.5376, 42.2302],
+            'tennessee': [-86.7816, 35.7478],
+            'indiana': [-86.1349, 39.7909],
+            'missouri': [-92.1893, 38.4561],
+            'maryland': [-76.8021, 39.0458],
+            'wisconsin': [-89.6165, 44.2685],
+            'colorado': [-105.3111, 39.0598],
+            'minnesota': [-94.6859, 46.7296],
+            'south_carolina': [-80.9007, 33.8569],
+            'alabama': [-86.7911, 32.8067],
+            'louisiana': [-92.4737, 31.1695],
+            'kentucky': [-84.6701, 37.6681],
+            'oregon': [-122.0709, 44.5721],
+            'oklahoma': [-97.5164, 35.5653],
+            'connecticut': [-72.7273, 41.5978],
+            'utah': [-111.8926, 40.1500],
+            'iowa': [-93.6205, 42.0115],
+            'nevada': [-117.0554, 38.3135],
+            'arkansas': [-92.3731, 34.9697],
+            'mississippi': [-89.3985, 32.7416],
+            'kansas': [-98.4842, 38.5266],
+            'new_mexico': [-106.2485, 34.8405],
+            'nebraska': [-99.9018, 41.1254],
+            'west_virginia': [-80.9696, 38.3495],
+            'idaho': [-114.4788, 44.2405],
+            'hawaii': [-157.4983, 21.0943],
+            'new_hampshire': [-71.5653, 43.4525],
+            'maine': [-69.7653, 44.3235],
+            'montana': [-110.4544, 47.0526],
+            'rhode_island': [-71.5118, 41.6809],
+            'delaware': [-75.5267, 39.3185],
+            'south_dakota': [-99.9018, 44.2998],
+            'north_dakota': [-101.0020, 47.5289],
+            'alaska': [-152.4044, 61.3707],
+            'vermont': [-72.7317, 44.0459],
+            'wyoming': [-107.3025, 42.7550]
+        };
+        
+        // 한국 도시 중심점 매핑 (더 많은 도시 추가)
+        const koreanCityCenters = {
+            '화성si': [126.8, 37.2],
+            'seoul': [126.98, 37.57],
+            'busan': [129.08, 35.18],
+            'daegu': [128.6, 35.87],
+            'incheon': [126.7, 37.46],
+            'gwangju': [126.85, 35.16],
+            'daejeon': [127.39, 36.35],
+            'ulsan': [129.31, 35.54],
+            'sejong': [127.29, 36.48],
+            'suwon': [127.0, 37.3],
+            'yongin': [127.2, 37.2],
+            'seongnam': [127.1, 37.4],
+            'bucheon': [126.8, 37.5],
+            'ansan': [126.8, 37.3],
+            'anyang': [126.9, 37.4],
+            'namyangju': [127.2, 37.6],
+            'hwasong': [126.8, 37.2],
+            'pyeongtaek': [127.0, 37.0],
+            'siheung': [126.8, 37.4],
+            'goyang': [126.8, 37.7],
+            'gimpo': [126.7, 37.6],
+            'hanam': [127.2, 37.5],
+            'osan': [127.1, 37.1],
+            'icheon': [127.4, 37.3],
+            'yangju': [127.0, 37.8],
+            'dongducheon': [127.1, 37.9],
+            'guri': [127.1, 37.6],
+            'gwangmyeong': [126.9, 37.5],
+            'gunpo': [126.9, 37.4],
+            'uiwang': [127.0, 37.4],
+            'yeoju': [127.6, 37.3],
+            'yangpyeong': [127.5, 37.5],
+            'gapyeong': [127.5, 37.8],
+            'yeoncheon': [127.1, 38.1]
+        };
+        
+        // 현재 지도 모드에 따라 적절한 중심점 반환
+        if (this.currentMapMode === 'korea') {
+            return koreanCityCenters[stateId] || [127.5, 36.0]; // 기본값: 한국 중심
+        } else {
+            return usStateCenters[stateId] || [-98.5795, 39.8283]; // 기본값: 미국 중심
+        }
+    }
+    
+    // 기존 레이어와 소스 제거
+    removeExistingLayersAndSources() {
+        try {
+            // 레이어 제거
+            const layersToRemove = ['regions-fill', 'regions-border', 'regions-hover'];
+            layersToRemove.forEach(layerId => {
+                if (this.map.getLayer(layerId)) {
+                    this.map.removeLayer(layerId);
+                    console.log('레이어 제거:', layerId);
+                }
+            });
+            
+            // 소스 제거
+            const sourcesToRemove = ['regions', 'world-regions'];
+            sourcesToRemove.forEach(sourceId => {
+                if (this.map.getSource(sourceId)) {
+                    this.map.removeSource(sourceId);
+                    console.log('소스 제거:', sourceId);
+                }
+            });
+            
+            // 기존 로고들 제거
+            this.removeAllLogosFromMap();
+            
+        } catch (error) {
+            console.warn('레이어/소스 제거 중 오류:', error);
+        }
+    }
+    
+    // 모든 로고를 지도에서 제거
+    removeAllLogosFromMap() {
+        const mapContainer = document.getElementById('map');
+        if (mapContainer) {
+            const allLogos = mapContainer.querySelectorAll('.state-logo');
+            allLogos.forEach(logo => logo.remove());
+            console.log('모든 로고 제거 완료:', allLogos.length, '개');
+        }
+    }
+    
+    // 현재 모드의 모든 로고와 색상 표시
+    displayAllLogosForCurrentMode() {
+        const logoData = this.currentMapMode === 'korea' ? this.koreaLogoData : this.currentMapMode === 'japan' ? this.japanLogoData : this.logoData;
+        const colorData = this.currentMapMode === 'korea' ? this.koreaColorData : this.currentMapMode === 'japan' ? this.japanColorData : this.colorData;
+        
+        // 로고 표시
+        Object.keys(logoData).forEach(stateId => {
+            const logo = logoData[stateId];
+            if (logo && logo.src) {
+                this.displayLogoOnMapSimple(stateId, logo);
+            }
+        });
+        
+        // 색상 복원
+        Object.keys(colorData).forEach(stateId => {
+            const color = colorData[stateId];
+            if (color) {
+                // 색상 데이터 형식 통일
+                const normalizedColorData = {
+                    fillColor: color.fillColor || color.regionColor || '#4ecdc4',
+                    borderColor: color.borderColor || '#ffffff',
+                    borderWidth: color.borderWidth || 1
+                };
+                this.applyColorToMap(stateId, normalizedColorData);
+            }
+        });
+        
+        // 모든 로고 크기 업데이트 (줌 레벨에 맞게)
+        this.updateAllLogoSizes();
+        
+        console.log('현재 모드 로고 및 색상 표시 완료:', this.currentMapMode, 
+                   '로고:', Object.keys(logoData).length, '개', 
+                   '색상:', Object.keys(colorData).length, '개');
+    }
+    
+    // 모든 로고 크기 업데이트 (줌 레벨에 맞게) - 강화된 버전
+    updateAllLogoSizes() {
+        const logoData = this.currentMapMode === 'korea' ? this.koreaLogoData : this.currentMapMode === 'japan' ? this.japanLogoData : this.logoData;
+        const currentZoom = this.map.getZoom();
+        
+        // 로고가 없으면 업데이트하지 않음
+        if (Object.keys(logoData).length === 0) {
+            return;
+        }
+        
+        // 모든 로고 요소를 직접 찾아서 업데이트
+        const allLogoElements = document.querySelectorAll('.state-logo');
+        
+        // DOM의 모든 로고 요소를 직접 업데이트
+        allLogoElements.forEach(logoElement => {
+            const stateId = logoElement.id.replace('logo-', '');
+            const logo = logoData[stateId];
+            
+            if (logo && logo.src) {
+                const baseSize = logo.size || 80;
+                
+                // 줌 레벨에 따른 스케일링 (미국 지도와 동일)
+                let scaleFactor;
+                if (currentZoom <= 3) {
+                    scaleFactor = 0.3;
+                } else if (currentZoom <= 4) {
+                    scaleFactor = 0.5;
+                } else if (currentZoom <= 5) {
+                    scaleFactor = 0.7;
+                } else if (currentZoom <= 6) {
+                    scaleFactor = 1.0;
+                } else if (currentZoom <= 7) {
+                    scaleFactor = 1.3;
+                } else if (currentZoom <= 8) {
+                    scaleFactor = 1.6;
+                } else {
+                    scaleFactor = 2.0;
+                }
+                
+                const currentSize = Math.max(20, Math.min(400, baseSize * scaleFactor));
+                
+                // 크기 업데이트 (강제 적용)
+                logoElement.style.width = currentSize + 'px';
+                logoElement.style.height = currentSize + 'px';
+                logoElement.style.display = 'block';
+                logoElement.style.visibility = 'visible';
+                
+                // CSS transition 추가로 부드러운 크기 변화
+                logoElement.style.transition = 'width 0.3s ease, height 0.3s ease, left 0.3s ease, top 0.3s ease';
+                
+                // 위치 업데이트
+                const centerCoords = this.getStateCenter(stateId);
+                if (centerCoords) {
+                    const point = this.map.project(centerCoords);
+                    logoElement.style.left = (point.x - currentSize / 2) + 'px';
+                    logoElement.style.top = (point.y - currentSize / 2) + 'px';
+                }
+                
+                console.log(`로고 크기 업데이트: ${stateId}, 줌 ${currentZoom.toFixed(2)}, 크기 ${currentSize.toFixed(1)}px, 스케일 ${scaleFactor.toFixed(2)}x`);
+            }
+        });
+        
+        // 데이터에 있지만 DOM에 없는 로고 요소들 재생성
+        Object.keys(logoData).forEach(stateId => {
+            const logo = logoData[stateId];
+            if (logo && logo.src) {
+                const logoElement = document.getElementById(`logo-${stateId}`);
+                if (!logoElement) {
+                    console.log(`로고 요소가 없어서 다시 생성: ${stateId}`);
+                    this.displayLogoOnMapSimple(stateId, logo);
+                }
+            }
+        });
+        
+        
+        // 강제로 지도 새로고침하여 변경사항 적용
+        this.map.triggerRepaint();
+    }
+    
+    
+    // 지역 정보 모달 표시 (광고가 없을 때)
+    showRegionInfoModal(stateId) {
+        console.log('지역 정보 모달 표시:', stateId, '모드:', this.currentMapMode);
+        
+        // 현재 지역 정보 가져오기
+        const regionData = this.regionData.get(stateId);
+        if (!regionData) {
+            console.error('지역 데이터를 찾을 수 없습니다:', stateId);
+            return;
+        }
+        
+        // 국가별 플래그 설정
+        const getCountryFlag = (country) => {
+            switch(country) {
+                case 'USA': return '🇺🇸';
+                case 'South Korea': return '🇰🇷';
+                case 'Japan': return '🇯🇵';
+                default: return '🏴';
+            }
+        };
+        
+        // 모달 제목 설정 (언어 변환 적용)
+        const titleText = this.getLanguageText('Region Information');
+        const titlePrimary = document.querySelector('#region-modal-title.label-primary') || document.getElementById('region-modal-title');
+        const titleSecondary = document.getElementById('region-modal-title-en');
+        if (titlePrimary) titlePrimary.textContent = titleText.primary;
+        if (titleSecondary && titleText.secondary) {
+            titleSecondary.textContent = ` (${titleText.secondary})`;
+            titleSecondary.style.display = 'inline';
+        } else if (titleSecondary) {
+            titleSecondary.style.display = 'none';
+        }
+        
+        // 지역 이름 설정 (국가별 언어 우선순위 적용)
+        const regionName = this.getRegionDisplayName(regionData);
+        document.getElementById('region-modal-name').textContent = regionName;
+        
+        // 국가 정보 설정
+        document.getElementById('region-modal-country').textContent = regionData.country;
+        document.getElementById('region-flag').textContent = getCountryFlag(regionData.country);
+        
+        // 상세 정보 설정 (regionData에서 정확한 값 가져오기)
+        const population = regionData.population || 0;
+        const area = regionData.area || 0;
+        const adminLevel = regionData.admin_level || (this.currentMapMode === 'japan' 
+            ? 'Prefecture'
+            : this.currentMapMode === 'korea'
+            ? 'City'
+            : 'State');
+        const adPrice = regionData.ad_price || 0;
+        
+        document.getElementById('region-modal-population').textContent = population ? population.toLocaleString() : '-';
+        document.getElementById('region-modal-area').textContent = area ? `${area.toLocaleString()} km²` : '-';
+        document.getElementById('region-modal-admin-level').textContent = adminLevel;
+        document.getElementById('region-modal-price').textContent = adPrice ? `$${adPrice.toLocaleString()}` : '-';
+        
+        // 라벨 텍스트 설정 (언어 변환 적용)
+        const regionLabel = this.getLanguageText('Region');
+        const populationLabel = this.getLanguageText('Population');
+        const areaLabel = this.getLanguageText('Area');
+        const adminLevelLabel = this.getLanguageText('Administrative Level');
+        const priceLabel = this.getLanguageText('Advertising Price');
+        const statusLabel = this.getLanguageText('Status');
+        
+        // Primary 라벨 업데이트
+        const updateRegionModalLabel = (secondaryId, text) => {
+            const secondaryEl = document.getElementById(secondaryId);
+            const primaryEl = secondaryEl?.parentElement?.querySelector('.label-primary');
+            if (primaryEl) primaryEl.textContent = text.primary;
+        };
+        
+        // 지역명 라벨 업데이트는 region-modal-name이 지역 이름을 표시하므로, 여기서는 제외
+        updateRegionModalLabel('region-modal-population-label-en', populationLabel);
+        updateRegionModalLabel('region-modal-area-label-en', areaLabel);
+        updateRegionModalLabel('region-modal-admin-level-label-en', adminLevelLabel);
+        updateRegionModalLabel('region-modal-price-label-en', priceLabel);
+        
+        // Secondary 라벨 업데이트
+        const populationLabelEn = document.getElementById('region-modal-population-label-en');
+        const areaLabelEn = document.getElementById('region-modal-area-label-en');
+        const adminLevelLabelEn = document.getElementById('region-modal-admin-level-label-en');
+        const priceLabelEn = document.getElementById('region-modal-price-label-en');
+        const statusLabelEn = document.getElementById('region-modal-status-label-en');
+        
+        if (populationLabelEn) {
+            if (populationLabel.secondary) {
+                populationLabelEn.textContent = ` (${populationLabel.secondary})`;
+                populationLabelEn.style.display = 'inline';
+            } else {
+                populationLabelEn.style.display = 'none';
+            }
+        }
+        if (areaLabelEn) {
+            if (areaLabel.secondary) {
+                areaLabelEn.textContent = ` (${areaLabel.secondary})`;
+                areaLabelEn.style.display = 'inline';
+            } else {
+                areaLabelEn.style.display = 'none';
+            }
+        }
+        if (adminLevelLabelEn) {
+            if (adminLevelLabel.secondary) {
+                adminLevelLabelEn.textContent = ` (${adminLevelLabel.secondary})`;
+                adminLevelLabelEn.style.display = 'inline';
+            } else {
+                adminLevelLabelEn.style.display = 'none';
+            }
+        }
+        if (priceLabelEn) {
+            if (priceLabel.secondary) {
+                priceLabelEn.textContent = ` (${priceLabel.secondary})`;
+                priceLabelEn.style.display = 'inline';
+            } else {
+                priceLabelEn.style.display = 'none';
+            }
+        }
+        if (statusLabelEn) {
+            if (statusLabel.secondary) {
+                statusLabelEn.textContent = ` (${statusLabel.secondary})`;
+                statusLabelEn.style.display = 'inline';
+            } else {
+                statusLabelEn.style.display = 'none';
+            }
+        }
+        
+        // 광고 상태 설정
+        const statusElement = document.getElementById('region-modal-status');
+        const statusIcon = statusElement.querySelector('.status-icon');
+        const statusText = statusElement.querySelector('.status-text');
+        
+        const availableText = this.getLanguageText('Available');
+        const occupiedText = this.getLanguageText('Occupied');
+        
+        if (regionData.ad_status === 'occupied') {
+            statusElement.className = 'status-badge occupied';
+            statusIcon.textContent = '❌';
+            statusText.textContent = occupiedText.primary;
+        } else {
+            statusElement.className = 'status-badge available';
+            statusIcon.textContent = '✅';
+            statusText.textContent = availableText.primary;
+        }
+        
+        // 상태 설명 설정
+        const statusDescription = document.querySelector('.status-description');
+        const descriptionPrimary = statusDescription?.querySelector('.description-primary');
+        const descriptionSecondary = document.getElementById('region-modal-status-description-en');
+        
+        if (regionData.ad_status === 'occupied') {
+            const occupiedDesc = this.getLanguageText('This region is currently occupied by an advertisement.');
+            if (descriptionPrimary) descriptionPrimary.textContent = occupiedDesc.primary;
+            if (descriptionSecondary && occupiedDesc.secondary) {
+                descriptionSecondary.textContent = ` (${occupiedDesc.secondary})`;
+                descriptionSecondary.style.display = 'inline';
+            } else if (descriptionSecondary) {
+                descriptionSecondary.style.display = 'none';
+            }
+        } else {
+            const availableDesc = this.getLanguageText('This region is available for advertisement registration.');
+            if (descriptionPrimary) descriptionPrimary.textContent = availableDesc.primary;
+            if (descriptionSecondary && availableDesc.secondary) {
+                descriptionSecondary.textContent = ` (${availableDesc.secondary})`;
+                descriptionSecondary.style.display = 'inline';
+            } else if (descriptionSecondary) {
+                descriptionSecondary.style.display = 'none';
+            }
+        }
+        
+        // 구매 버튼 텍스트 설정
+        const purchaseText = this.getLanguageText('Purchase This Region');
+        const purchaseBtn = document.getElementById('region-purchase-btn');
+        if (purchaseBtn) {
+        purchaseBtn.textContent = purchaseText.primary;
+        }
+        
+        // 관리자 모드일 때 편집 버튼 표시
+        const regionEditBtn = document.getElementById('region-edit-btn');
+        if (regionEditBtn) {
+            if (this.isAdminLoggedIn) {
+                regionEditBtn.classList.remove('hidden');
+            } else {
+                regionEditBtn.classList.add('hidden');
+            }
+        }
+        
+        // 모달 표시
+        const modal = document.getElementById('region-info-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.style.display = 'block';
+        }
+    }
+    
+    // 기업 정보 모달 숨기기
+    hideCompanyInfoModal() {
+        const modal = document.getElementById('company-info-modal');
+        modal.classList.add('hidden');
+    }
+    
+    // 지역 정보 모달 숨기기
+    hideRegionInfoModal() {
+        const modal = document.getElementById('region-info-modal');
+        modal.classList.add('hidden');
+    }
+    
+    // 기업 정보 로드 (편집용)
+    loadCompanyInfoForEdit(stateId) {
+        console.log('기업 정보 로드 (편집용):', stateId, '모드:', this.currentMapMode);
+        
+        // 현재 지도 모드에 따라 적절한 데이터 사용
+        const companyData = this.currentMapMode === 'korea' 
+            ? this.koreaCompanyData[stateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanCompanyData[stateId]
+            : this.companyData[stateId];
+            
+        if (companyData) {
+            // 폼 필드들에 데이터 채우기
+            document.getElementById('company-name-input').value = companyData.name || '';
+            document.getElementById('company-industry-input').value = companyData.industry || '';
+            document.getElementById('company-founded-input').value = companyData.founded || '';
+            document.getElementById('company-employees-input').value = companyData.employees || '';
+            document.getElementById('company-website-input').value = companyData.website || '';
+            document.getElementById('company-description-input').value = companyData.description || '';
+            
+            // 특징 배열을 문자열로 변환
+            const featuresText = companyData.features ? companyData.features.join('\n') : '';
+            document.getElementById('company-features-input').value = featuresText;
+            
+            console.log('기업 정보 로드 완료:', companyData);
+        } else {
+            // 기본값으로 초기화
+            document.getElementById('company-name-input').value = '';
+            document.getElementById('company-industry-input').value = '';
+            document.getElementById('company-founded-input').value = '';
+            document.getElementById('company-employees-input').value = '';
+            document.getElementById('company-website-input').value = '';
+            document.getElementById('company-description-input').value = '';
+            document.getElementById('company-features-input').value = '';
+            
+            console.log('기업 정보 없음, 기본값으로 초기화');
+        }
+    }
+    
+    // 기업 정보 저장 (모드별 데이터 처리)
+    async saveCompanyInfo() {
+        if (!this.selectedStateId) {
+            this.showNotification('저장할 주를 선택해주세요.', 'warning');
+            return;
+        }
+        
+        // 권한 확인: 관리자이거나 해당 지역의 소유자인지 확인
+        if (!this.isAdminLoggedIn) {
+            // 일반 사용자인 경우 소유권 확인
+            const isOwner = await this.checkRegionOwnership(this.selectedStateId);
+            if (!isOwner) {
+                this.showNotification('이 지역의 소유자만 기업 정보를 수정할 수 있습니다. 먼저 해당 지역을 구매해주세요.', 'error');
+                return;
+            }
+        }
+        
+        // 폼에서 데이터 수집
+        const companyData = {
+            name: document.getElementById('company-name-input').value,
+            industry: document.getElementById('company-industry-input').value,
+            founded: document.getElementById('company-founded-input').value,
+            employees: document.getElementById('company-employees-input').value,
+            website: document.getElementById('company-website-input').value,
+            description: document.getElementById('company-description-input').value,
+            features: document.getElementById('company-features-input').value.split('\n').filter(f => f.trim()),
+            logo: this.currentMapMode === 'korea' 
+                ? (this.koreaLogoData[this.selectedStateId]?.src || '')
+                : (this.logoData[this.selectedStateId]?.src || '')
+        };
+        
+        // 현재 지도 모드에 따라 적절한 저장소에 저장
+        if (this.currentMapMode === 'korea') {
+            this.koreaCompanyData[this.selectedStateId] = companyData;
+        } else if (this.currentMapMode === 'japan') {
+            this.japanCompanyData[this.selectedStateId] = companyData;
+        } else {
+            this.companyData[this.selectedStateId] = companyData;
+        }
+        
+        this.showNotification('기업 정보가 저장되었습니다!', 'success');
+        console.log('기업 정보 저장 완료:', this.selectedStateId, companyData, '모드:', this.currentMapMode);
+    }
+    
+    
+    // 관리자 패널 업데이트
+    updateAdminPanel(stateId, stateName) {
+        console.log('관리자 패널 업데이트:', stateId, stateName);
+        
+        // 현재 지도 모드에 따라 적절한 데이터 사용
+        const logoData = this.currentMapMode === 'korea' 
+            ? this.koreaLogoData[stateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanLogoData[stateId]
+            : this.logoData[stateId];
+        const colorData = this.currentMapMode === 'korea' 
+            ? this.koreaColorData[stateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanColorData[stateId]
+            : this.colorData[stateId];
+        const companyData = this.currentMapMode === 'korea' 
+            ? this.koreaCompanyData[stateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanCompanyData[stateId]
+            : this.companyData[stateId];
+        
+        // 선택된 주 이름 표시
+        const selectedStateElement = document.getElementById('selected-state-name');
+        if (selectedStateElement) {
+            selectedStateElement.textContent = stateName;
+        } else {
+            console.warn('selected-state-name 요소를 찾을 수 없습니다');
+        }
+        
+        // 로고 미리보기 업데이트
+        this.updateLogoPreview();
+        
+        // 색상 설정 업데이트
+        if (colorData) {
+            const fillColorInput = document.getElementById('region-color');
+            const borderColorInput = document.getElementById('border-color');
+            const borderWidthInput = document.getElementById('border-width');
+            
+            if (fillColorInput) {
+                fillColorInput.value = colorData.fillColor || '#4ecdc4';
+            }
+            if (borderColorInput) {
+                borderColorInput.value = colorData.borderColor || '#ffffff';
+            }
+            if (borderWidthInput) {
+                borderWidthInput.value = colorData.borderWidth || 1;
+            }
+        }
+        
+        // 기업 정보 로드
+        this.loadCompanyInfoForEdit(stateId);
+        
+        // 지역 정보 로드
+        this.loadRegionInfoForEdit(stateId);
+        
+        console.log('관리자 패널 업데이트 완료');
+    }
+    
+    // 로고 미리보기 업데이트
+    updateLogoPreview() {
+        const previewImg = document.getElementById('current-logo-img');
+        const noLogoMsg = document.getElementById('no-logo');
+        
+        // 요소가 존재하는지 확인
+        if (!previewImg || !noLogoMsg) {
+            console.warn('로고 미리보기 요소를 찾을 수 없습니다:', { previewImg, noLogoMsg });
+            return;
+        }
+        
+        // 현재 지도 모드에 따라 적절한 데이터 사용
+        const logoData = this.currentMapMode === 'korea' 
+            ? this.koreaLogoData[this.selectedStateId]
+            : this.currentMapMode === 'japan'
+            ? this.japanLogoData[this.selectedStateId]
+            : this.logoData[this.selectedStateId];
+        
+        if (logoData && logoData.src) {
+            previewImg.src = logoData.src;
+            previewImg.style.display = 'block';
+            noLogoMsg.style.display = 'none';
+            console.log('로고 미리보기 업데이트:', logoData.src);
+        } else {
+            previewImg.style.display = 'none';
+            noLogoMsg.style.display = 'block';
+            console.log('로고 데이터 없음, 기본 메시지 표시');
+        }
+    }
+    
+    // 지역 정보 편집용 로드
+    loadRegionInfoForEdit(stateId) {
+        console.log('지역 정보 로드 (편집용):', stateId);
+        
+        const regionData = this.regionData.get(stateId);
+        if (!regionData) {
+            console.warn('지역 데이터를 찾을 수 없습니다:', stateId);
+            return;
+        }
+        
+        // 폼 필드에 데이터 채우기
+        const nameKoInput = document.getElementById('region-name-ko-input');
+        const nameEnInput = document.getElementById('region-name-en-input');
+        const countryInput = document.getElementById('region-country-input');
+        const adminLevelInput = document.getElementById('region-admin-level-input');
+        const populationInput = document.getElementById('region-population-input');
+        const areaInput = document.getElementById('region-area-input');
+        const adPriceInput = document.getElementById('region-ad-price-input');
+        const adStatusInput = document.getElementById('region-ad-status-input');
+        
+        if (nameKoInput) nameKoInput.value = regionData.name_ko || regionData.name || '';
+        if (nameEnInput) nameEnInput.value = regionData.name_en || regionData.name || '';
+        if (countryInput) countryInput.value = regionData.country || '';
+        if (adminLevelInput) adminLevelInput.value = regionData.admin_level || '';
+        if (populationInput) populationInput.value = regionData.population || 0;
+        if (areaInput) areaInput.value = regionData.area || 0;
+        if (adPriceInput) adPriceInput.value = regionData.ad_price || 0;
+        if (adStatusInput) adStatusInput.value = regionData.ad_status || 'available';
+        
+        console.log('지역 정보 로드 완료:', regionData);
+    }
+    
+    // 지역 정보 저장
+    saveRegionInfo() {
+        if (!this.selectedStateId) {
+            this.showNotification('저장할 지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        const regionData = this.regionData.get(this.selectedStateId);
+        if (!regionData) {
+            this.showNotification('지역 데이터를 찾을 수 없습니다.', 'error');
+            return;
+        }
+        
+        // 폼에서 데이터 수집
+        const nameKoInput = document.getElementById('region-name-ko-input');
+        const nameEnInput = document.getElementById('region-name-en-input');
+        const countryInput = document.getElementById('region-country-input');
+        const adminLevelInput = document.getElementById('region-admin-level-input');
+        const populationInput = document.getElementById('region-population-input');
+        const areaInput = document.getElementById('region-area-input');
+        const adPriceInput = document.getElementById('region-ad-price-input');
+        const adStatusInput = document.getElementById('region-ad-status-input');
+        
+        // 지역 데이터 업데이트
+        regionData.name_ko = nameKoInput?.value || regionData.name_ko || '';
+        regionData.name_en = nameEnInput?.value || regionData.name_en || regionData.name || '';
+        regionData.country = countryInput?.value || regionData.country || '';
+        regionData.admin_level = adminLevelInput?.value || regionData.admin_level || '';
+        regionData.population = parseInt(populationInput?.value) || regionData.population || 0;
+        regionData.area = parseInt(areaInput?.value) || regionData.area || 0;
+        regionData.ad_price = this.uniformAdPrice;
+        regionData.ad_status = adStatusInput?.value || regionData.ad_status || 'available';
+        
+        if (adPriceInput) {
+            adPriceInput.value = this.uniformAdPrice;
+        }
+
+        // regionData Map 업데이트
+        this.regionData.set(this.selectedStateId, regionData);
+        
+        // GeoJSON 소스 업데이트 (지도에 반영)
+        if (this.map && this.map.getSource('world-regions')) {
+            const source = this.map.getSource('world-regions');
+            const geoJsonData = source._data;
+            
+            // 해당 feature의 properties 업데이트
+            const feature = geoJsonData.features.find(f => f.properties.id === this.selectedStateId);
+            if (feature) {
+                Object.assign(feature.properties, regionData);
+                source.setData(geoJsonData);
+            }
+        }
+        
+        // 현재 국가별 GeoJSON 소스도 업데이트
+        const sourceId = this.getCurrentSourceId();
+        if (this.map && this.map.getSource(sourceId)) {
+            const source = this.map.getSource(sourceId);
+            const geoJsonData = source._data;
+            
+            const feature = geoJsonData.features.find(f => f.properties.id === this.selectedStateId);
+            if (feature) {
+                Object.assign(feature.properties, regionData);
+                source.setData(geoJsonData);
+            }
+        }
+        
+        this.showNotification('지역 정보가 저장되었습니다!', 'success');
+        console.log('지역 정보 저장 완료:', this.selectedStateId, regionData);
+    }
+    
+    // 모달에서 편집 버튼 클릭 시 관리자 패널 열기
+    openRegionEditFromModal() {
+        if (!this.isAdminLoggedIn) {
+            this.showNotification('관리자 로그인이 필요합니다.', 'warning');
+            return;
+        }
+        
+        // 모달 닫기
+        this.hideCompanyInfoModal();
+        this.hideRegionInfoModal();
+        
+        // 관리자 패널 표시
+        const adminPanel = document.getElementById('admin-panel');
+        if (adminPanel) {
+            adminPanel.classList.remove('hidden');
+        }
+        
+        // 관리자 모드 활성화
+        this.adminMode = true;
+        
+        // 지역 정보 로드
+        if (this.currentRegion && this.currentRegion.id) {
+            this.selectedStateId = this.currentRegion.id;
+            const regionName = this.getRegionDisplayName(this.currentRegion);
+            this.updateAdminPanel(this.selectedStateId, regionName);
+        }
+    }
+    
+    // 현재 소스 ID 가져오기
+    getCurrentSourceId() {
+        const sourceMap = {
+            'usa': 'world-regions',
+            'korea': 'korea-regions',
+            'japan': 'japan-regions',
+            'china': 'china-regions',
+            'russia': 'russia-regions',
+            'india': 'india-regions',
+            'canada': 'canada-regions',
+            'germany': 'germany-regions',
+            'uk': 'uk-regions',
+            'france': 'france-regions',
+            'italy': 'italy-regions',
+            'brazil': 'brazil-regions',
+            'australia': 'australia-regions',
+            'mexico': 'mexico-regions',
+            'indonesia': 'indonesia-regions',
+            'saudi-arabia': 'saudi-arabia-regions',
+            'turkey': 'turkey-regions',
+            'south-africa': 'south-africa-regions',
+            'argentina': 'argentina-regions',
+            'european-union': 'european-union-regions',
+            'spain': 'spain-regions',
+            'netherlands': 'netherlands-regions',
+            'poland': 'poland-regions',
+            'belgium': 'belgium-regions',
+            'sweden': 'sweden-regions',
+            'austria': 'austria-regions',
+            'denmark': 'denmark-regions',
+            'finland': 'finland-regions',
+            'ireland': 'ireland-regions',
+            'portugal': 'portugal-regions',
+            'greece': 'greece-regions',
+            'czech-republic': 'czech-republic-regions',
+            'romania': 'romania-regions',
+            'hungary': 'hungary-regions',
+            'bulgaria': 'bulgaria-regions'
+        };
+        
+        return sourceMap[this.currentMapMode] || 'world-regions';
+    }
+    
+    
+}
+
+// 페이지 로드 시 지도 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    new BillionaireMap();
+});
+

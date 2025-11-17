@@ -1,0 +1,27 @@
+사우디 아라비아 행정지역명 리스트 (13개 주)
+
+순번 | 주명 (영문) | 한글명 | 아랍어명 | 유형
+1 | Riyadh | 리야드 | الرياض | 주 (Province)
+2 | Makkah | 메카 | مكة | 주 (Province)
+3 | Madinah | 메디나 | المدينة المنورة | 주 (Province)
+4 | Al-Qassim | 카심 | القصيم | 주 (Province)
+5 | Eastern Province | 동부 주 | المنطقة الشرقية | 주 (Province)
+   또는 Al-Sharqiyah | 알샤르키야 | | |
+6 | Asir | 아시르 | عسير | 주 (Province)
+7 | Tabuk | 타부크 | تبوك | 주 (Province)
+8 | Hail | 하일 | حائل | 주 (Province)
+9 | Northern Borders | 북부 변경 주 | الحدود الشمالية | 주 (Province)
+   또는 Al-Hudud ash-Shamaliyah | 알후두드 아샤말리야 | | |
+10 | Jazan | 자잔 | جازان | 주 (Province)
+11 | Najran | 나즈란 | نجران | 주 (Province)
+12 | Al-Baha | 바하 | الباحة | 주 (Province)
+13 | Al-Jawf | 알자우프 | الجوف | 주 (Province)
+
+총 13개 행정구역 (13개 주)
+
+참고: 코드에서는 GeoJSON 데이터 소스의 name, NAME_1, province 속성에서 이름을 가져옵니다.
+실제 표시되는 이름은 데이터 소스에 따라 다를 수 있습니다.
+일부 데이터 소스에서는 아랍어 이름이나 다른 영문 표기가 사용될 수 있습니다.
+
+
+
