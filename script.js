@@ -1395,7 +1395,10 @@ class BillionaireMap {
                     geoJsonData = await response.json();
                 } catch (error) {
                     console.error('API 데이터 로드 실패:', error);
-                    const localResponse = await fetch('data/us-states.geojson');
+                    const localResponse = await fetch('./data/us-states.geojson');
+                    if (!localResponse.ok) {
+                        throw new Error(`HTTP ${localResponse.status}: ${localResponse.statusText}`);
+                    }
                     geoJsonData = await localResponse.json();
                 }
                 
@@ -2964,7 +2967,10 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                const response = await fetch('data/japan-prefectures-accurate.geojson');
+                const response = await fetch('./data/japan-prefectures-accurate.geojson');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 geoJsonData = await response.json();
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
@@ -3120,7 +3126,8 @@ class BillionaireMap {
             
         } catch (error) {
             console.error('일본 데이터 로드 실패:', error);
-            this.showNotification('일본 데이터를 불러오는데 실패했습니다.', 'error');
+            console.error('파일 경로 확인: ./data/japan-prefectures-accurate.geojson');
+            this.showNotification('일본 데이터를 불러오는데 실패했습니다. 콘솔을 확인하세요.', 'error');
         }
     }
 
@@ -3267,7 +3274,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('data/china-provinces.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('./data/china-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         if (localData && Array.isArray(localData.features) && localData.features.length > 10) {
@@ -3530,7 +3537,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('data/russia-regions.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('./data/russia-regions.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -3964,7 +3971,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('data/india-states.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('./data/india-states.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -4189,7 +4196,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('data/canada-provinces.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('./data/canada-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -11399,7 +11406,10 @@ class BillionaireMap {
             //     geoJsonData = this.cachedGeoJsonData['korea'];
             // } else {
                 // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
-                const response = await fetch('data/korea-cities-official.geojson');
+                const response = await fetch('./data/korea-cities-official.geojson');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 geoJsonData = await response.json();
                 
                 // 한국 행정구역별 실제 인구 및 면적 데이터
@@ -11987,7 +11997,8 @@ class BillionaireMap {
         
         } catch (error) {
             console.error('한국 데이터 로드 실패:', error);
-            this.showNotification('한국 데이터를 불러오는데 실패했습니다.', 'error');
+            console.error('파일 경로 확인: ./data/korea-cities-official.geojson');
+            this.showNotification('한국 데이터를 불러오는데 실패했습니다. 콘솔을 확인하세요.', 'error');
         }
     }
     
