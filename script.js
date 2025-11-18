@@ -2967,12 +2967,55 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                const dataPath = new URL('data/japan-prefectures-accurate.geojson', window.location.href).href;
-                const response = await fetch(dataPath);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                // 대체 파일 목록 (우선순위 순)
+                const japanDataFiles = [
+                    'data/japan-prefectures-accurate.geojson',
+                    'data/japan-prefectures-detailed.geojson',
+                    'data/japan-prefectures.geojson',
+                    'data/japan-detailed.geojson',
+                    'data/japan-real.geojson',
+                    'data/japan-prefectures-natural-earth.geojson'
+                ];
+                
+                let loaded = false;
+                for (const filePath of japanDataFiles) {
+                    try {
+                        const dataPath = new URL(filePath, window.location.href).href;
+                        const response = await fetch(dataPath);
+                        
+                        if (!response.ok) {
+                            console.warn(`파일 로드 실패 (${response.status}): ${filePath}`);
+                            continue;
+                        }
+                        
+                        // Content-Type 확인
+                        const contentType = response.headers.get('content-type') || '';
+                        if (contentType.includes('text/html')) {
+                            console.warn(`HTML 응답 받음 (파일이 아닌 페이지): ${filePath}`);
+                            continue;
+                        }
+                        
+                        // 응답 텍스트 미리보기로 HTML 체크
+                        const text = await response.text();
+                        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
+                            console.warn(`HTML 응답 감지: ${filePath}`);
+                            continue;
+                        }
+                        
+                        // JSON 파싱 시도
+                        geoJsonData = JSON.parse(text);
+                        console.log(`일본 데이터 로드 성공: ${filePath}`);
+                        loaded = true;
+                        break;
+                    } catch (err) {
+                        console.warn(`파일 로드 오류 (${filePath}):`, err.message);
+                        continue;
+                    }
                 }
-                geoJsonData = await response.json();
+                
+                if (!loaded) {
+                    throw new Error('모든 일본 데이터 파일 로드 실패');
+                }
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
                 geoJsonData.features.forEach((feature, index) => {
@@ -3127,9 +3170,15 @@ class BillionaireMap {
             
         } catch (error) {
             console.error('일본 데이터 로드 실패:', error);
-            const dataPath = new URL('data/japan-prefectures-accurate.geojson', window.location.href).href;
-            console.error('파일 경로 확인:', dataPath);
-            this.showNotification('일본 데이터를 불러오는데 실패했습니다. 콘솔을 확인하세요.', 'error');
+            console.error('시도한 파일들:', [
+                'data/japan-prefectures-accurate.geojson',
+                'data/japan-prefectures-detailed.geojson',
+                'data/japan-prefectures.geojson',
+                'data/japan-detailed.geojson',
+                'data/japan-real.geojson',
+                'data/japan-prefectures-natural-earth.geojson'
+            ]);
+            this.showNotification('일본 데이터를 불러오는데 실패했습니다. 네트워크 연결과 서버 설정을 확인하세요.', 'error');
         }
     }
 
