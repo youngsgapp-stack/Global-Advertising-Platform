@@ -1,0 +1,23 @@
+[build]
+  # 빌드 명령어 (정적 사이트이므로 빌드 불필요)
+  command = ""
+  # 배포 디렉토리 (루트 디렉토리)
+  publish = "."
+
+[[headers]]
+  # 모든 파일에 대한 헤더 설정
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  # GeoJSON 파일에 대한 CORS 헤더 설정
+  for = "/data/*.geojson"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Content-Type = "application/geo+json"
+    Cache-Control = "public, max-age=3600"
+
