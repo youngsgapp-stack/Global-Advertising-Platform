@@ -2967,7 +2967,8 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                const response = await fetch('/data/japan-prefectures-accurate.geojson');
+                const dataPath = new URL('data/japan-prefectures-accurate.geojson', window.location.href).href;
+                const response = await fetch(dataPath);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -3126,7 +3127,8 @@ class BillionaireMap {
             
         } catch (error) {
             console.error('일본 데이터 로드 실패:', error);
-            console.error('파일 경로 확인: /data/japan-prefectures-accurate.geojson');
+            const dataPath = new URL('data/japan-prefectures-accurate.geojson', window.location.href).href;
+            console.error('파일 경로 확인:', dataPath);
             this.showNotification('일본 데이터를 불러오는데 실패했습니다. 콘솔을 확인하세요.', 'error');
         }
     }
@@ -11406,7 +11408,8 @@ class BillionaireMap {
             //     geoJsonData = this.cachedGeoJsonData['korea'];
             // } else {
                 // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
-                const response = await fetch('/data/korea-cities-official.geojson');
+                const dataPath = new URL('data/korea-cities-official.geojson', window.location.href).href;
+                const response = await fetch(dataPath);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -11997,7 +12000,8 @@ class BillionaireMap {
         
         } catch (error) {
             console.error('한국 데이터 로드 실패:', error);
-            console.error('파일 경로 확인: /data/korea-cities-official.geojson');
+            const dataPath = new URL('data/korea-cities-official.geojson', window.location.href).href;
+            console.error('파일 경로 확인:', dataPath);
             this.showNotification('한국 데이터를 불러오는데 실패했습니다. 콘솔을 확인하세요.', 'error');
         }
     }
