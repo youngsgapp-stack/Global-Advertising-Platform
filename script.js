@@ -13574,14 +13574,14 @@ class BillionaireMap {
             clearTimeout(this.pKeyTimer);
         }
         
-        // 3번 연타 시 UI 토글 및 관리자 패널 표시
+        // 3번 연타 시 UI 토글 및 관리자 로그인 모달 표시
         if (this.pKeyCount >= 3) {
-            console.log('P키 3번 연타 감지 - UI 토글 및 관리자 패널 표시');
+            console.log('P키 3번 연타 감지 - UI 토글 및 관리자 로그인 모달 표시');
             this.toggleUI();
-            // 관리자 패널도 바로 표시
-            this.showAdminPanelDirectly();
+            // 관리자 로그인 모달 먼저 표시
+            this.showAdminLoginModal();
             this.pKeyCount = 0;
-            this.showNotification('관리자 모드 UI가 표시되었습니다.', 'info');
+            this.showNotification('관리자 로그인 모달이 표시되었습니다.', 'info');
         } else {
             // 1초 후 카운트 리셋
             this.pKeyTimer = setTimeout(() => {
@@ -13886,6 +13886,9 @@ class BillionaireMap {
                 this.showUI();
                 this.uiVisible = true;
             }
+            
+            // 관리자 패널 자동 표시
+            this.showAdminPanel();
             
             this.showNotification('관리자로 로그인되었습니다.', 'success');
             console.log('관리자 로그인 성공');
