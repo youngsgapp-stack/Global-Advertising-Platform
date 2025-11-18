@@ -67,7 +67,18 @@ class BillionaireMap {
             'bulgaria': null
         };
         this.rawGeoJsonCache = {};
-        this.assetBaseUrl = window.__ASSET_BASE_URL__ || window.location.origin;
+        let resolvedBaseUrl = window.__ASSET_BASE_URL__ || null;
+        if (!resolvedBaseUrl && typeof document !== 'undefined') {
+            const baseTag = document.querySelector('base');
+            if (baseTag && baseTag.href) {
+                resolvedBaseUrl = baseTag.href;
+            } else if (document.currentScript && document.currentScript.src) {
+                resolvedBaseUrl = new URL('.', document.currentScript.src).href;
+            } else if (document.baseURI) {
+                resolvedBaseUrl = document.baseURI;
+            }
+        }
+        this.assetBaseUrl = resolvedBaseUrl || window.location.href;
         this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
         this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
         this.isAdminLoggedIn = false; // 관리자 로그인 상태
@@ -875,8 +886,13 @@ class BillionaireMap {
     getAssetUrl(relativePath) {
         if (!relativePath) return relativePath;
         if (/^https?:\/\//i.test(relativePath)) return relativePath;
-        const normalizedPath = relativePath.replace(/^\/+/, '');
-        return `${this.assetBaseUrl}/${normalizedPath}`;
+        const sanitizedPath = relativePath.startsWith('./') ? relativePath.slice(2) : relativePath;
+        try {
+            return new URL(sanitizedPath, this.assetBaseUrl).toString();
+        } catch (error) {
+            console.warn('에셋 경로를 해결하지 못했습니다:', sanitizedPath, error);
+            return sanitizedPath;
+        }
     }
     
     async init() {
