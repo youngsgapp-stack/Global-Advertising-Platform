@@ -5,19 +5,6 @@
   publish = "."
 
 # 리다이렉트 규칙 (SPA 리다이렉트보다 우선)
-# /data/* 경로는 정적 파일로 직접 제공
-[[redirects]]
-  from = "/data/*.geojson"
-  to = "/data/:splat.geojson"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/data/*.json"
-  to = "/data/:splat.json"
-  status = 200
-  force = true
-
 [[redirects]]
   from = "/data/*"
   to = "/data/:splat"
