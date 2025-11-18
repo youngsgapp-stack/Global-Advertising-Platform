@@ -1211,24 +1211,9 @@ class BillionaireMap {
             }
         } catch (error) {
             console.error('구글 로그인 오류:', error);
-            let errorMsg = '구글 로그인에 실패했습니다.';
-            
-            if (error.code === 'auth/popup-closed-by-user') {
-                errorMsg = '로그인 창이 닫혔습니다.';
-            } else if (error.code === 'auth/popup-blocked') {
-                errorMsg = '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.';
-            } else if (error.code === 'auth/configuration-not-found') {
-                errorMsg = 'Firebase 설정 오류: Google 로그인이 활성화되지 않았거나 도메인이 승인되지 않았습니다. Firebase Console에서 설정을 확인해주세요.';
-                console.error('Firebase 설정 확인 필요:', {
-                    message: '1. Firebase Console > Authentication > Sign-in method > Google 활성화',
-                    message2: '2. Firebase Console > Authentication > Settings > Authorized domains에 현재 도메인 추가',
-                    currentDomain: window.location.hostname
-                });
-            } else if (error.code === 'auth/unauthorized-domain') {
-                errorMsg = '현재 도메인이 Firebase에서 승인되지 않았습니다. Firebase Console에서 도메인을 추가해주세요.';
-                console.error('도메인 승인 필요:', window.location.hostname);
-            }
-            
+            const errorMsg = error.code === 'auth/popup-closed-by-user' ? '로그인 창이 닫혔습니다.'
+                : error.code === 'auth/popup-blocked' ? '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.'
+                : '구글 로그인에 실패했습니다.';
             this.showNotification(errorMsg, 'error');
         }
     }
@@ -1288,16 +1273,13 @@ class BillionaireMap {
                     }
                 ],
                 // 대기 및 조명 효과 (구글어스/nullschool 스타일)
-                lights: [
-                    {
-                        id: 'main-light',
-                        type: 'flat',
-                        anchor: 'viewport',
-                        color: '#ffffff',
-                        intensity: 0.4,          // 차분한 조명 (야광 효과 제거)
-                        position: [0.3, 0.3, 1.2] // 태양 위치 조정
-                    }
-                ],
+                lights: {
+                    type: 'flat',
+                    anchor: 'viewport',
+                    color: '#ffffff',
+                    intensity: 0.4,          // 차분한 조명 (야광 효과 제거)
+                    position: [0.3, 0.3, 1.2] // 태양 위치 조정
+                },
                 sky: {
                     'sky-type': 'atmosphere',
                     'sky-atmosphere-sun': [0.0, 0.0],
@@ -1395,10 +1377,7 @@ class BillionaireMap {
                     geoJsonData = await response.json();
                 } catch (error) {
                     console.error('API 데이터 로드 실패:', error);
-                    const localResponse = await fetch('/data/us-states.geojson');
-                    if (!localResponse.ok) {
-                        throw new Error(`HTTP ${localResponse.status}: ${localResponse.statusText}`);
-                    }
+                    const localResponse = await fetch('data/us-states.geojson');
                     geoJsonData = await localResponse.json();
                 }
                 
@@ -2967,55 +2946,8 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                // 대체 파일 목록 (우선순위 순)
-                const japanDataFiles = [
-                    'data/japan-prefectures-accurate.geojson',
-                    'data/japan-prefectures-detailed.geojson',
-                    'data/japan-prefectures.geojson',
-                    'data/japan-detailed.geojson',
-                    'data/japan-real.geojson',
-                    'data/japan-prefectures-natural-earth.geojson'
-                ];
-                
-                let loaded = false;
-                for (const filePath of japanDataFiles) {
-                    try {
-                        const dataPath = new URL(filePath, window.location.href).href;
-                        const response = await fetch(dataPath);
-                        
-                        if (!response.ok) {
-                            console.warn(`파일 로드 실패 (${response.status}): ${filePath}`);
-                            continue;
-                        }
-                        
-                        // Content-Type 확인
-                        const contentType = response.headers.get('content-type') || '';
-                        if (contentType.includes('text/html')) {
-                            console.warn(`HTML 응답 받음 (파일이 아닌 페이지): ${filePath}`);
-                            continue;
-                        }
-                        
-                        // 응답 텍스트 미리보기로 HTML 체크
-                        const text = await response.text();
-                        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
-                            console.warn(`HTML 응답 감지: ${filePath}`);
-                            continue;
-                        }
-                        
-                        // JSON 파싱 시도
-                        geoJsonData = JSON.parse(text);
-                        console.log(`일본 데이터 로드 성공: ${filePath}`);
-                        loaded = true;
-                        break;
-                    } catch (err) {
-                        console.warn(`파일 로드 오류 (${filePath}):`, err.message);
-                        continue;
-                    }
-                }
-                
-                if (!loaded) {
-                    throw new Error('모든 일본 데이터 파일 로드 실패');
-                }
+                const response = await fetch('data/japan-prefectures-accurate.geojson');
+                geoJsonData = await response.json();
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
                 geoJsonData.features.forEach((feature, index) => {
@@ -3170,15 +3102,7 @@ class BillionaireMap {
             
         } catch (error) {
             console.error('일본 데이터 로드 실패:', error);
-            console.error('시도한 파일들:', [
-                'data/japan-prefectures-accurate.geojson',
-                'data/japan-prefectures-detailed.geojson',
-                'data/japan-prefectures.geojson',
-                'data/japan-detailed.geojson',
-                'data/japan-real.geojson',
-                'data/japan-prefectures-natural-earth.geojson'
-            ]);
-            this.showNotification('일본 데이터를 불러오는데 실패했습니다. 네트워크 연결과 서버 설정을 확인하세요.', 'error');
+            this.showNotification('일본 데이터를 불러오는데 실패했습니다.', 'error');
         }
     }
 
@@ -3325,7 +3249,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('/data/china-provinces.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('data/china-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         if (localData && Array.isArray(localData.features) && localData.features.length > 10) {
@@ -3588,7 +3512,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('/data/russia-regions.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('data/russia-regions.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -4022,7 +3946,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('/data/india-states.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('data/india-states.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -4247,7 +4171,7 @@ class BillionaireMap {
                 // 로컬 폴백
                 if (!geoJsonData) {
                     try {
-                        const localResp = await fetch('/data/canada-provinces.geojson', { cache: 'no-store' });
+                        const localResp = await fetch('data/canada-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
@@ -11457,55 +11381,8 @@ class BillionaireMap {
             //     geoJsonData = this.cachedGeoJsonData['korea'];
             // } else {
                 // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
-                // 대체 파일 목록 (우선순위 순)
-                const koreaDataFiles = [
-                    'data/korea-cities-official.geojson',
-                    'data/korea-cities.geojson',
-                    'data/korea-accurate.geojson',
-                    'data/korea-official.geojson',
-                    'data/korea-detailed.geojson',
-                    'data/korea-proper.geojson'
-                ];
-                
-                let loaded = false;
-                for (const filePath of koreaDataFiles) {
-                    try {
-                        const dataPath = new URL(filePath, window.location.href).href;
-                        const response = await fetch(dataPath);
-                        
-                        if (!response.ok) {
-                            console.warn(`파일 로드 실패 (${response.status}): ${filePath}`);
-                            continue;
-                        }
-                        
-                        // Content-Type 확인
-                        const contentType = response.headers.get('content-type') || '';
-                        if (contentType.includes('text/html')) {
-                            console.warn(`HTML 응답 받음 (파일이 아닌 페이지): ${filePath}`);
-                            continue;
-                        }
-                        
-                        // 응답 텍스트 미리보기로 HTML 체크
-                        const text = await response.text();
-                        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
-                            console.warn(`HTML 응답 감지: ${filePath}`);
-                            continue;
-                        }
-                        
-                        // JSON 파싱 시도
-                        geoJsonData = JSON.parse(text);
-                        console.log(`한국 데이터 로드 성공: ${filePath}`);
-                        loaded = true;
-                        break;
-                    } catch (err) {
-                        console.warn(`파일 로드 오류 (${filePath}):`, err.message);
-                        continue;
-                    }
-                }
-                
-                if (!loaded) {
-                    throw new Error('모든 한국 데이터 파일 로드 실패');
-                }
+                const response = await fetch('data/korea-cities-official.geojson');
+                geoJsonData = await response.json();
                 
                 // 한국 행정구역별 실제 인구 및 면적 데이터
                 const koreaRegionData = {
@@ -12092,15 +11969,7 @@ class BillionaireMap {
         
         } catch (error) {
             console.error('한국 데이터 로드 실패:', error);
-            console.error('시도한 파일들:', [
-                'data/korea-cities-official.geojson',
-                'data/korea-cities.geojson',
-                'data/korea-accurate.geojson',
-                'data/korea-official.geojson',
-                'data/korea-detailed.geojson',
-                'data/korea-proper.geojson'
-            ]);
-            this.showNotification('한국 데이터를 불러오는데 실패했습니다. 네트워크 연결과 서버 설정을 확인하세요.', 'error');
+            this.showNotification('한국 데이터를 불러오는데 실패했습니다.', 'error');
         }
     }
     
@@ -13680,25 +13549,20 @@ class BillionaireMap {
     // P키 연타 처리
     handlePKeyPress() {
         this.pKeyCount++;
-        console.log(`P키 연타 카운트: ${this.pKeyCount}/3`);
         
         // 기존 타이머 클리어
         if (this.pKeyTimer) {
             clearTimeout(this.pKeyTimer);
         }
         
-        // 3번 연타 시 UI 토글 및 관리자 로그인 모달 표시
+        // 3번 연타 시 UI 토글
         if (this.pKeyCount >= 3) {
-            console.log('P키 3번 연타 감지 - UI 토글 및 관리자 로그인 모달 표시');
             this.toggleUI();
-            // 관리자 로그인 모달 먼저 표시
-            this.showAdminLoginModal();
             this.pKeyCount = 0;
-            this.showNotification('관리자 로그인 모달이 표시되었습니다.', 'info');
+            this.showNotification('UI 패널이 토글되었습니다.', 'info');
         } else {
             // 1초 후 카운트 리셋
             this.pKeyTimer = setTimeout(() => {
-                console.log('P키 연타 타이머 만료 - 카운트 리셋');
                 this.pKeyCount = 0;
             }, 1000);
         }
@@ -13717,35 +13581,24 @@ class BillionaireMap {
     
     // UI 표시 (헤더 버튼들 - P키 연타로 표시)
     showUI() {
-        console.log('showUI() 호출됨, isAdminLoggedIn:', this.isAdminLoggedIn);
-        
         // 헤더 액션 버튼들 표시
         const helpBtn = document.getElementById('help-btn');
         const adminLoginBtn = document.getElementById('admin-login-btn');
         const adminLogoutBtn = document.getElementById('admin-logout-btn');
         
-        if (helpBtn) {
-            helpBtn.classList.remove('hidden');
-            console.log('Help 버튼 표시됨');
-        }
-        if (adminLoginBtn) {
-            adminLoginBtn.classList.remove('hidden');
-            console.log('Admin 로그인 버튼 표시됨');
-        }
+        if (helpBtn) helpBtn.classList.remove('hidden');
+        if (adminLoginBtn) adminLoginBtn.classList.remove('hidden');
         
         if (this.isAdminLoggedIn && adminLogoutBtn) {
             adminLogoutBtn.classList.remove('hidden');
-            console.log('Admin 로그아웃 버튼 표시됨 (로그인 상태)');
             // 관리자 로그인 상태일 때만 관리자 패널 표시
             this.showAdminPanel();
-        } else {
-            console.log('관리자 미로그인 상태 - 관리자 패널은 표시되지 않음');
         }
         
         // 헤더 자동 조정
         this.adjustHeader();
         
-        console.log('UI 표시 완료');
+        console.log('UI 표시됨');
     }
     
     // UI 숨김 (헤더 버튼들 - P키 연타로 숨김)
@@ -14000,9 +13853,6 @@ class BillionaireMap {
                 this.uiVisible = true;
             }
             
-            // 관리자 패널 자동 표시
-            this.showAdminPanel();
-            
             this.showNotification('관리자로 로그인되었습니다.', 'success');
             console.log('관리자 로그인 성공');
         } else {
@@ -14134,18 +13984,6 @@ class BillionaireMap {
         if (panel) {
             panel.classList.remove('hidden');
             console.log('관리자 패널 표시됨');
-        } else {
-            console.error('admin-panel 요소를 찾을 수 없습니다');
-        }
-    }
-    
-    // P키 연타로 관리자 패널 직접 표시 (로그인 없이)
-    showAdminPanelDirectly() {
-        const panel = document.getElementById('admin-panel');
-        if (panel) {
-            panel.classList.remove('hidden');
-            console.log('관리자 패널 직접 표시됨 (P키 연타)');
-            this.showNotification('관리자 패널이 표시되었습니다. 로그인이 필요할 수 있습니다.', 'info');
         } else {
             console.error('admin-panel 요소를 찾을 수 없습니다');
         }
