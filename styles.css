@@ -1188,6 +1188,33 @@ body {
     opacity: 0;
 }
 
+.admin-exit-btn {
+    position: fixed;
+    right: 30px;
+    bottom: 30px;
+    z-index: 1100;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+    border: none;
+    border-radius: 999px;
+    color: #ffffff;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(255, 107, 107, 0.35);
+    transition: all 0.3s ease;
+    letter-spacing: 0.5px;
+}
+
+.admin-exit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 35px rgba(255, 107, 107, 0.5);
+}
+
+.admin-exit-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 6px 18px rgba(255, 107, 107, 0.4);
+}
+
 .admin-header {
     display: flex;
     justify-content: space-between;
@@ -2250,6 +2277,13 @@ body {
     .current-logo, .logo-upload, .logo-settings {
         padding: 10px;
         margin-bottom: 15px;
+    }
+    
+    .admin-exit-btn {
+        right: 15px;
+        bottom: 15px;
+        width: calc(100% - 30px);
+        text-align: center;
     }
     
     .region-modal {

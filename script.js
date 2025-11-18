@@ -5,11 +5,6 @@ class BillionaireMap {
         this.currentRegion = null;
         this.regionData = new Map();
         this.uniformAdPrice = 1000;
-        const originalRegionDataSet = this.regionData.set.bind(this.regionData);
-        this.regionData.set = (key, value) => {
-            const enforcedValue = this.enforceUniformAdPrice(value);
-            return originalRegionDataSet(key, enforcedValue);
-        };
         this.advertisingData = new Map();
         this.logoData = {}; // 간단한 객체로 변경
         this.colorData = {}; // 색상 데이터 저장
@@ -1079,25 +1074,6 @@ class BillionaireMap {
         requestAnimationFrame(() => this.animateStars());
     }
     
-    enforceUniformAdPrice(region) {
-        if (!region || typeof region !== 'object') {
-            return region;
-        }
-
-        const descriptor = Object.getOwnPropertyDescriptor(region, 'ad_price');
-
-        if (!descriptor || !descriptor.get) {
-            Object.defineProperty(region, 'ad_price', {
-                configurable: true,
-                enumerable: true,
-                get: () => this.uniformAdPrice,
-                set: () => {},
-            });
-        }
-
-        return region;
-    }
-
     // Firebase 초기화
     async initializeFirebase() {
         try {
@@ -12558,6 +12534,17 @@ class BillionaireMap {
             });
         }
         
+        const adminExitBtn = document.getElementById('admin-exit-btn');
+        if (adminExitBtn) {
+            adminExitBtn.addEventListener('click', () => {
+                if (!this.isAdminLoggedIn) {
+                    this.showNotification('관리자 로그인이 필요합니다.', 'warning');
+                    return;
+                }
+                this.disableAdminMode();
+            });
+        }
+        
         // 로고 관리 이벤트
         const uploadLogo = document.getElementById('upload-logo');
         if (uploadLogo) {
@@ -13232,7 +13219,9 @@ class BillionaireMap {
                 return;
             }
             
-            const amount = this.uniformAdPrice || 1000;
+            const amount = (region && typeof region.ad_price === 'number' && region.ad_price > 0)
+                ? region.ad_price
+                : (this.uniformAdPrice || 1000);
             const description = `${region.country} - ${this.getRegionDisplayName(region)} (${region.id})`;
             
             window.paypal.Buttons({
@@ -13990,7 +13979,7 @@ class BillionaireMap {
     // 관리자 로그아웃 처리
     handleAdminLogout() {
         this.isAdminLoggedIn = false;
-        this.adminMode = false;
+        this.disableAdminMode({ silent: true });
         
         // 관리자 모드에서 열린 모든 모달 닫기
         this.hideCompanyInfoModal();
@@ -14009,6 +13998,7 @@ class BillionaireMap {
     // 관리자 모드로 전환
     switchToAdminMode() {
         this.adminMode = true; // 관리자 모드 활성화
+        this.updateAdminModeControls();
         
         // 기존에 열린 기업 정보 모달 닫기
         this.hideCompanyInfoModal();
@@ -14035,7 +14025,7 @@ class BillionaireMap {
     
     // 일반 사용자 모드로 전환
     switchToUserMode() {
-        this.adminMode = false; // 관리자 모드 비활성화
+        this.disableAdminMode({ silent: true });
         
         // 헤더 버튼 상태 변경 (UI가 보일 때만)
         if (this.uiVisible) {
@@ -14050,20 +14040,50 @@ class BillionaireMap {
         if (sideAdminSection) {
             sideAdminSection.style.display = 'none'; // 관리자 섹션 숨기기
         }
-        
-        // 관리자 패널 숨기기
-        this.hideAdminPanel();
-        
-        // 관리자 모드 해제 시 선택된 지역 하이라이트도 해제
-        this.map.setFilter('regions-hover', ['==', 'id', '']);
-        // 선택된 지역 정보도 초기화
-        this.selectedStateId = null;
-        this.currentRegion = null;
-        
+
         // 좌측 패널 숨기기
         this.hideMenu();
         
         console.log('일반 사용자 모드로 전환');
+    }
+    
+    updateAdminModeControls() {
+        const adminExitBtn = document.getElementById('admin-exit-btn');
+        if (adminExitBtn) {
+            if (this.isAdminLoggedIn && this.adminMode) {
+                adminExitBtn.classList.remove('hidden');
+            } else {
+                adminExitBtn.classList.add('hidden');
+            }
+        }
+    }
+    
+    disableAdminMode(options = {}) {
+        const { silent = false } = options;
+        
+        if (!this.adminMode) {
+            this.updateAdminModeControls();
+            return;
+        }
+        
+        this.adminMode = false;
+        this.hideAdminPanel();
+        
+        if (this.map && this.map.setFilter) {
+            try {
+                this.map.setFilter('regions-hover', ['==', 'id', '']);
+            } catch (error) {
+                console.warn('regions-hover 필터 초기화 실패:', error);
+            }
+        }
+        
+        this.selectedStateId = null;
+        this.currentRegion = null;
+        this.updateAdminModeControls();
+        
+        if (!silent) {
+            this.showNotification('관리자 모드가 비활성화되었습니다.', 'info');
+        }
     }
     
     toggleAdminMode() {
@@ -14072,20 +14092,15 @@ class BillionaireMap {
             return;
         }
         
-        this.adminMode = !this.adminMode;
-        
         if (this.adminMode) {
-            this.showAdminPanel();
-            this.showNotification('관리자 모드가 활성화되었습니다.', 'success');
-        } else {
-            this.hideAdminPanel();
-            // 관리자 모드 해제 시 선택된 지역 하이라이트도 해제
-            this.map.setFilter('regions-hover', ['==', 'id', '']);
-            // 선택된 지역 정보도 초기화
-            this.selectedStateId = null;
-            this.currentRegion = null;
-            this.showNotification('관리자 모드가 비활성화되었습니다.', 'info');
+            this.disableAdminMode();
+            return;
         }
+        
+        this.adminMode = true;
+        this.showAdminPanel();
+        this.updateAdminModeControls();
+        this.showNotification('관리자 모드가 활성화되었습니다.', 'success');
     }
     
     // 로고 편집 모드 토글
@@ -14118,7 +14133,9 @@ class BillionaireMap {
     // 관리자 패널 숨기기
     hideAdminPanel() {
         const panel = document.getElementById('admin-panel');
-        panel.classList.add('hidden');
+        if (panel) {
+            panel.classList.add('hidden');
+        }
     }
     
     // 새로운 간단한 로고 업로드
@@ -15845,12 +15862,15 @@ class BillionaireMap {
         regionData.admin_level = adminLevelInput?.value || regionData.admin_level || '';
         regionData.population = parseInt(populationInput?.value) || regionData.population || 0;
         regionData.area = parseInt(areaInput?.value) || regionData.area || 0;
-        regionData.ad_price = this.uniformAdPrice;
-        regionData.ad_status = adStatusInput?.value || regionData.ad_status || 'available';
         
-        if (adPriceInput) {
-            adPriceInput.value = this.uniformAdPrice;
+        const parsedAdPrice = parseFloat(adPriceInput?.value);
+        if (!Number.isNaN(parsedAdPrice) && parsedAdPrice >= 0) {
+            regionData.ad_price = parsedAdPrice;
+        } else if (typeof regionData.ad_price !== 'number') {
+            regionData.ad_price = this.uniformAdPrice;
         }
+        
+        regionData.ad_status = adStatusInput?.value || regionData.ad_status || 'available';
 
         // regionData Map 업데이트
         this.regionData.set(this.selectedStateId, regionData);
@@ -15904,6 +15924,7 @@ class BillionaireMap {
         
         // 관리자 모드 활성화
         this.adminMode = true;
+        this.updateAdminModeControls();
         
         // 지역 정보 로드
         if (this.currentRegion && this.currentRegion.id) {
