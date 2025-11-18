@@ -13634,7 +13634,7 @@ class BillionaireMap {
         }
     }
     
-    // P키 연타 처리
+    // P키 연타 처리 - 관리자 로그인 모달 표시
     handlePKeyPress() {
         this.pKeyCount++;
         
@@ -13643,11 +13643,16 @@ class BillionaireMap {
             clearTimeout(this.pKeyTimer);
         }
         
-        // 3번 연타 시 UI 토글
+        // 3번 연타 시 관리자 로그인 모달 표시
         if (this.pKeyCount >= 3) {
-            this.toggleUI();
+            // 이미 로그인되어 있지 않은 경우에만 모달 표시
+            if (!this.isAdminLoggedIn) {
+                this.showAdminLoginModal();
+                this.showNotification('관리자 로그인 모달이 열렸습니다.', 'info');
+            } else {
+                this.showNotification('이미 관리자로 로그인되어 있습니다.', 'info');
+            }
             this.pKeyCount = 0;
-            this.showNotification('UI 패널이 토글되었습니다.', 'info');
         } else {
             // 1초 후 카운트 리셋
             this.pKeyTimer = setTimeout(() => {
@@ -13923,29 +13928,62 @@ class BillionaireMap {
         document.getElementById('login-error').classList.add('hidden');
     }
     
-    // 관리자 로그인 처리
-    handleAdminLogin() {
+    // 해시 함수 (SHA-256)
+    async hashString(str) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    
+    // 관리자 로그인 처리 (보안 강화: 해싱된 자격증명 사용)
+    async handleAdminLogin() {
         const username = document.getElementById('admin-username').value;
         const password = document.getElementById('admin-password').value;
         const errorDiv = document.getElementById('login-error');
         
-        // 간단한 인증 (실제로는 서버에서 처리해야 함)
-        if (username === 'admin' && password === 'admin123') {
-            this.isAdminLoggedIn = true;
-            this.hideAdminLoginModal();
-            this.switchToAdminMode();
-            
-            // 관리자 로그인 시 UI 자동 표시
-            if (!this.uiVisible) {
-                this.showUI();
-                this.uiVisible = true;
-            }
-            
-            this.showNotification('관리자로 로그인되었습니다.', 'success');
-            console.log('관리자 로그인 성공');
-        } else {
+        // 입력값 검증
+        if (!username || !password) {
             errorDiv.classList.remove('hidden');
-            this.showNotification('잘못된 로그인 정보입니다.', 'error');
+            this.showNotification('사용자명과 비밀번호를 입력해주세요.', 'error');
+            return;
+        }
+        
+        try {
+            // 입력값 해싱
+            const usernameHash = await this.hashString(username.trim());
+            const passwordHash = await this.hashString(password);
+            
+            // 해싱된 관리자 자격증명 (평문 노출 방지)
+            // 주의: 완전한 보안을 위해서는 서버 기반 인증 시스템이 필요합니다.
+            // 이 방법은 최소한의 보안 조치로, 소스 코드에서 평문 자격증명을 숨깁니다.
+            // 해시값은 SHA-256으로 생성되었으며, 평문은 코드에 포함되지 않습니다.
+            const ADMIN_USERNAME_HASH = '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918';
+            const ADMIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+            
+            // 해싱된 값 비교
+            if (usernameHash === ADMIN_USERNAME_HASH && passwordHash === ADMIN_PASSWORD_HASH) {
+                this.isAdminLoggedIn = true;
+                this.hideAdminLoginModal();
+                this.switchToAdminMode();
+                
+                // 관리자 로그인 시 UI 자동 표시
+                if (!this.uiVisible) {
+                    this.showUI();
+                    this.uiVisible = true;
+                }
+                
+                this.showNotification('관리자로 로그인되었습니다.', 'success');
+                // 보안: 콘솔에 로그인 성공 메시지 출력하지 않음
+            } else {
+                errorDiv.classList.remove('hidden');
+                this.showNotification('잘못된 로그인 정보입니다.', 'error');
+            }
+        } catch (error) {
+            console.error('로그인 처리 중 오류:', error);
+            errorDiv.classList.remove('hidden');
+            this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
         }
     }
     
