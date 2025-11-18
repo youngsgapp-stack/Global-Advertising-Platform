@@ -67,6 +67,7 @@ class BillionaireMap {
             'bulgaria': null
         };
         this.rawGeoJsonCache = {};
+        this.assetBaseUrl = window.__ASSET_BASE_URL__ || window.location.origin;
         this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
         this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
         this.isAdminLoggedIn = false; // 관리자 로그인 상태
@@ -870,6 +871,13 @@ class BillionaireMap {
         
         this.init();
     }
+
+    getAssetUrl(relativePath) {
+        if (!relativePath) return relativePath;
+        if (/^https?:\/\//i.test(relativePath)) return relativePath;
+        const normalizedPath = relativePath.replace(/^\/+/, '');
+        return `${this.assetBaseUrl}/${normalizedPath}`;
+    }
     
     async init() {
         try {
@@ -1276,11 +1284,11 @@ class BillionaireMap {
                 lights: [
                     {
                         id: 'sun-light',
-                        type: 'flat',
+                        type: 'directional',
                         anchor: 'viewport',
                         color: '#ffffff',
-                        intensity: 0.4,          // 차분한 조명 (야광 효과 제거)
-                        position: [0.3, 0.3, 1.2] // 태양 위치 조정
+                        intensity: 0.4,
+                        position: [0.3, 0.3, 1.2]
                     }
                 ],
                 sky: {
@@ -2949,7 +2957,7 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                const response = await fetch('data/japan-prefectures-accurate.geojson');
+                const response = await fetch(this.getAssetUrl('data/japan-prefectures-accurate.geojson'), { cache: 'no-store' });
                 geoJsonData = await response.json();
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
@@ -11384,7 +11392,7 @@ class BillionaireMap {
             //     geoJsonData = this.cachedGeoJsonData['korea'];
             // } else {
                 // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
-                const response = await fetch('data/korea-cities-official.geojson');
+                const response = await fetch(this.getAssetUrl('data/korea-cities-official.geojson'), { cache: 'no-store' });
                 geoJsonData = await response.json();
                 
                 // 한국 행정구역별 실제 인구 및 면적 데이터
