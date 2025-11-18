@@ -1211,9 +1211,24 @@ class BillionaireMap {
             }
         } catch (error) {
             console.error('구글 로그인 오류:', error);
-            const errorMsg = error.code === 'auth/popup-closed-by-user' ? '로그인 창이 닫혔습니다.'
-                : error.code === 'auth/popup-blocked' ? '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.'
-                : '구글 로그인에 실패했습니다.';
+            let errorMsg = '구글 로그인에 실패했습니다.';
+            
+            if (error.code === 'auth/popup-closed-by-user') {
+                errorMsg = '로그인 창이 닫혔습니다.';
+            } else if (error.code === 'auth/popup-blocked') {
+                errorMsg = '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.';
+            } else if (error.code === 'auth/configuration-not-found') {
+                errorMsg = 'Firebase 설정 오류: Google 로그인이 활성화되지 않았거나 도메인이 승인되지 않았습니다. Firebase Console에서 설정을 확인해주세요.';
+                console.error('Firebase 설정 확인 필요:', {
+                    message: '1. Firebase Console > Authentication > Sign-in method > Google 활성화',
+                    message2: '2. Firebase Console > Authentication > Settings > Authorized domains에 현재 도메인 추가',
+                    currentDomain: window.location.hostname
+                });
+            } else if (error.code === 'auth/unauthorized-domain') {
+                errorMsg = '현재 도메인이 Firebase에서 승인되지 않았습니다. Firebase Console에서 도메인을 추가해주세요.';
+                console.error('도메인 승인 필요:', window.location.hostname);
+            }
+            
             this.showNotification(errorMsg, 'error');
         }
     }

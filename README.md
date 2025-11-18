@@ -76,6 +76,189 @@ npx http-server
 http://localhost:8000
 ```
 
+## 🌐 Netlify 배포 및 도메인 설정
+
+### Netlify 배포
+1. Netlify 대시보드에서 새 사이트 생성
+2. 프로젝트 폴더를 드래그 앤 드롭하거나 Git 저장소 연결
+3. 빌드 설정 없음 (정적 사이트)
+
+### 가비아 도메인을 Netlify에 연결하기
+
+가비아에서 도메인을 구매한 경우, DNS 설정을 통해 Netlify와 연결해야 합니다.
+
+#### 방법 1: Netlify DNS 사용 (권장)
+
+1. **Netlify에서 도메인 추가**
+   - Netlify 대시보드 → Site settings → Domain management
+   - "Add domain alias" 클릭
+   - `worldadvertisingmap.com` 입력
+
+2. **Netlify DNS 서버 정보 확인**
+   - Domain management에서 도메인 선택
+   - Netlify가 제공하는 DNS 서버 주소 확인 (예: `dns1.p01.nsone.net`, `dns2.p01.nsone.net`)
+
+3. **가비아에서 DNS 서버 변경**
+   - 가비아 로그인 → 마이페이지 → 도메인 관리
+   - `worldadvertisingmap.com` 선택 → DNS 관리
+   - **네임서버 변경** 메뉴 선택
+   - Netlify에서 제공한 DNS 서버 주소 입력
+   - 저장 후 24-48시간 대기 (일반적으로 몇 시간 내 완료)
+
+#### 방법 2: 가비아 DNS에서 레코드 직접 설정
+
+1. **Netlify에서 도메인 추가**
+   - Netlify 대시보드 → Site settings → Domain management
+   - "Add domain alias" 클릭
+   - `worldadvertisingmap.com` 입력
+
+2. **Netlify IP 주소 확인**
+   - Domain management에서 도메인 선택
+   - "Verify DNS configuration" 또는 "Check DNS" 클릭
+   - Netlify가 제공하는 IP 주소 확인 (일반적으로 여러 개의 IP 주소)
+
+3. **가비아에서 DNS 레코드 설정**
+   - 가비아 로그인 → 마이페이지 → 도메인 관리
+   - `worldadvertisingmap.com` 선택 → DNS 관리
+   - 다음 레코드 추가:
+
+   **A 레코드 (루트 도메인용):**
+   ```
+   호스트: @ (또는 비워두기)
+   타입: A
+   값: Netlify에서 제공한 IP 주소 (여러 개면 모두 추가)
+   TTL: 3600 (또는 기본값)
+   ```
+
+   **CNAME 레코드 (www 서브도메인용):**
+   ```
+   호스트: www
+   타입: CNAME
+   값: worldadvertisingmap.com (또는 Netlify가 제공한 값)
+   TTL: 3600 (또는 기본값)
+   ```
+
+4. **DNS 전파 대기**
+   - DNS 변경 사항이 전 세계에 전파되기까지 24-48시간 소요
+   - 온라인 DNS 체크 도구로 확인 가능:
+     - https://dnschecker.org
+     - https://www.whatsmydns.net
+
+### SSL/TLS 인증서 설정
+
+1. **Let's Encrypt 인증서 자동 발급**
+   - DNS 설정이 완료되면 Netlify가 자동으로 Let's Encrypt 인증서 발급
+   - 보통 몇 분에서 몇 시간 소요
+
+2. **인증서 발급 실패 시 확인 사항**
+   - DNS 설정이 올바르게 전파되었는지 확인
+   - 도메인이 Netlify를 가리키고 있는지 확인:
+     ```bash
+     # 터미널에서 확인
+     nslookup worldadvertisingmap.com
+     dig worldadvertisingmap.com
+     ```
+   - Netlify 대시보드에서 "Renew certificate" 버튼 클릭
+
+3. **문제 해결**
+
+   **"worldadvertisingmap.com doesn't appear to be served by Netlify" 오류 발생 시:**
+   
+   **단계 1: 네임서버 확인**
+   ```powershell
+   # PowerShell에서 실행
+   nslookup -type=NS worldadvertisingmap.com
+   ```
+   - 결과에 `dns1.p07.nsone.net`, `dns2.p07.nsone.net` 등이 보이면 네임서버는 올바르게 설정됨
+   - 보이지 않으면 가비아에서 네임서버 변경이 완료되었는지 확인
+   
+   **단계 2: DNS 전파 상태 확인**
+   - 온라인 도구 사용:
+     - https://dnschecker.org → `worldadvertisingmap.com` 입력
+     - 전 세계 여러 위치에서 DNS 전파 상태 확인
+     - 모든 위치에서 Netlify IP로 조회되면 전파 완료
+   
+   **단계 3: 대기 및 재시도**
+   - DNS 전파는 보통 몇 시간~24시간 소요
+   - 네임서버가 올바르게 설정되어 있다면 시간이 지나면 자동으로 해결됨
+   - 24시간 후에도 문제가 지속되면:
+     - Netlify 대시보드 → Domain management → "Renew certificate" 클릭
+     - 또는 Netlify 지원팀에 문의
+   
+   **단계 4: DNS 캐시 클리어**
+   ```powershell
+   # Windows에서 DNS 캐시 클리어
+   ipconfig /flushdns
+   ```
+
+### 확인 방법
+
+1. **DNS 전파 확인**
+   ```bash
+   # 터미널에서 실행
+   nslookup worldadvertisingmap.com
+   # 또는
+   dig worldadvertisingmap.com
+   ```
+
+2. **웹사이트 접속 확인**
+   - `http://worldadvertisingmap.com` 접속
+   - `https://worldadvertisingmap.com` 접속 (SSL 인증서 발급 후)
+   
+   **접속이 안 될 때 해결 방법:**
+   - **브라우저 캐시 클리어:**
+     - Chrome/Edge: `Ctrl + Shift + Delete` → 캐시된 이미지 및 파일 삭제
+     - 또는 시크릿 모드로 접속: `Ctrl + Shift + N`
+   - **DNS 캐시 클리어:**
+     ```powershell
+     ipconfig /flushdns
+     ```
+   - **다른 브라우저로 시도** (Chrome, Firefox, Edge 등)
+   - **다른 네트워크로 시도** (모바일 데이터 등)
+
+3. **Netlify 대시보드 확인**
+   - Domain management에서 도메인 상태 확인
+   - HTTPS 섹션에서 인증서 상태 확인
+   - Site overview에서 배포 상태 확인
+
+## 🔥 Firebase 설정 (Google 로그인)
+
+### Firebase Console 설정
+
+1. **Firebase 프로젝트 접속**
+   - https://console.firebase.google.com/ 접속
+   - 프로젝트 선택: `worldad-8be07`
+
+2. **Google 로그인 활성화**
+   - Authentication → Sign-in method
+   - Google 제공업체 클릭
+   - "사용 설정" 토글 활성화
+   - 프로젝트 지원 이메일 선택
+   - 저장
+
+3. **승인된 도메인 추가**
+   - Authentication → Settings → Authorized domains
+   - "도메인 추가" 클릭
+   - 다음 도메인 추가:
+     - `worldadvertisingmap.com`
+     - `www.worldadvertisingmap.com`
+     - `zesty-sherbet-9a9e5e.netlify.app` (Netlify 기본 도메인)
+   - 저장
+
+### 콘솔 오류 해결
+
+**Firebase 오류 (`auth/configuration-not-found`):**
+- Firebase Console에서 Google 로그인 활성화 확인
+- 승인된 도메인 목록에 현재 도메인 추가 확인
+
+**Mapbox 경고 (anchor, color, intensity, position):**
+- Mapbox 라이브러리 내부 경고로 기능에는 영향 없음
+- 무시해도 됨
+
+**WebGL 경고:**
+- 브라우저 하드웨어 가속 관련 경고
+- 기능에는 영향 없음
+
 ## 🎮 사용법
 
 ### 기본 조작
