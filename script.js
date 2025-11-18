@@ -13567,20 +13567,25 @@ class BillionaireMap {
     // P키 연타 처리
     handlePKeyPress() {
         this.pKeyCount++;
+        console.log(`P키 연타 카운트: ${this.pKeyCount}/3`);
         
         // 기존 타이머 클리어
         if (this.pKeyTimer) {
             clearTimeout(this.pKeyTimer);
         }
         
-        // 3번 연타 시 UI 토글
+        // 3번 연타 시 UI 토글 및 관리자 패널 표시
         if (this.pKeyCount >= 3) {
+            console.log('P키 3번 연타 감지 - UI 토글 및 관리자 패널 표시');
             this.toggleUI();
+            // 관리자 패널도 바로 표시
+            this.showAdminPanelDirectly();
             this.pKeyCount = 0;
-            this.showNotification('UI 패널이 토글되었습니다.', 'info');
+            this.showNotification('관리자 모드 UI가 표시되었습니다.', 'info');
         } else {
             // 1초 후 카운트 리셋
             this.pKeyTimer = setTimeout(() => {
+                console.log('P키 연타 타이머 만료 - 카운트 리셋');
                 this.pKeyCount = 0;
             }, 1000);
         }
@@ -13599,24 +13604,35 @@ class BillionaireMap {
     
     // UI 표시 (헤더 버튼들 - P키 연타로 표시)
     showUI() {
+        console.log('showUI() 호출됨, isAdminLoggedIn:', this.isAdminLoggedIn);
+        
         // 헤더 액션 버튼들 표시
         const helpBtn = document.getElementById('help-btn');
         const adminLoginBtn = document.getElementById('admin-login-btn');
         const adminLogoutBtn = document.getElementById('admin-logout-btn');
         
-        if (helpBtn) helpBtn.classList.remove('hidden');
-        if (adminLoginBtn) adminLoginBtn.classList.remove('hidden');
+        if (helpBtn) {
+            helpBtn.classList.remove('hidden');
+            console.log('Help 버튼 표시됨');
+        }
+        if (adminLoginBtn) {
+            adminLoginBtn.classList.remove('hidden');
+            console.log('Admin 로그인 버튼 표시됨');
+        }
         
         if (this.isAdminLoggedIn && adminLogoutBtn) {
             adminLogoutBtn.classList.remove('hidden');
+            console.log('Admin 로그아웃 버튼 표시됨 (로그인 상태)');
             // 관리자 로그인 상태일 때만 관리자 패널 표시
             this.showAdminPanel();
+        } else {
+            console.log('관리자 미로그인 상태 - 관리자 패널은 표시되지 않음');
         }
         
         // 헤더 자동 조정
         this.adjustHeader();
         
-        console.log('UI 표시됨');
+        console.log('UI 표시 완료');
     }
     
     // UI 숨김 (헤더 버튼들 - P키 연타로 숨김)
@@ -14002,6 +14018,18 @@ class BillionaireMap {
         if (panel) {
             panel.classList.remove('hidden');
             console.log('관리자 패널 표시됨');
+        } else {
+            console.error('admin-panel 요소를 찾을 수 없습니다');
+        }
+    }
+    
+    // P키 연타로 관리자 패널 직접 표시 (로그인 없이)
+    showAdminPanelDirectly() {
+        const panel = document.getElementById('admin-panel');
+        if (panel) {
+            panel.classList.remove('hidden');
+            console.log('관리자 패널 직접 표시됨 (P키 연타)');
+            this.showNotification('관리자 패널이 표시되었습니다. 로그인이 필요할 수 있습니다.', 'info');
         } else {
             console.error('admin-panel 요소를 찾을 수 없습니다');
         }
