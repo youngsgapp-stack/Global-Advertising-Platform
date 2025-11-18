@@ -1,4 +1,7 @@
 # Netlify 리다이렉트 규칙
-# 모든 경로를 index.html로 리다이렉트 (SPA 지원)
+# 데이터 API 요청은 정적 파일 그대로 제공
+/data/*    /data/:splat   200
+
+# 나머지 모든 경로는 SPA index.html로 리다이렉트
 /*    /index.html   200
 
