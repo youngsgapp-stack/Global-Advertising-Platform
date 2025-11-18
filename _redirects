@@ -1,5 +1,6 @@
 # Netlify 리다이렉트 규칙
-# 데이터 API 요청은 정적 파일 그대로 제공
+# 데이터 파일은 정적 파일 그대로 제공 (SPA 리다이렉트보다 우선)
+/data/*.geojson    /data/:splat.geojson   200
 /data/*    /data/:splat   200
 
 # 나머지 모든 경로는 SPA index.html로 리다이렉트
