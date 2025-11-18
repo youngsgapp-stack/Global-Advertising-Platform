@@ -76,9 +76,32 @@ class BillionaireMap {
                 resolvedBaseUrl = new URL('.', document.currentScript.src).href;
             } else if (document.baseURI) {
                 resolvedBaseUrl = document.baseURI;
+            } else {
+                // 현재 페이지의 디렉터리 경로를 base URL로 사용
+                const currentPath = window.location.pathname;
+                const pathParts = currentPath.split('/').filter(p => p);
+                if (pathParts.length > 0 && currentPath.endsWith('.html')) {
+                    pathParts.pop(); // 파일명 제거
+                }
+                const dirPath = pathParts.length > 0 ? '/' + pathParts.join('/') + '/' : '/';
+                resolvedBaseUrl = window.location.origin + dirPath;
             }
         }
-        this.assetBaseUrl = resolvedBaseUrl || window.location.href;
+        // resolvedBaseUrl이 파일 경로인 경우 디렉터리로 변환
+        if (resolvedBaseUrl && resolvedBaseUrl.endsWith('.html')) {
+            resolvedBaseUrl = resolvedBaseUrl.substring(0, resolvedBaseUrl.lastIndexOf('/') + 1);
+        } else if (resolvedBaseUrl && !resolvedBaseUrl.endsWith('/')) {
+            // URL이 디렉터리로 끝나지 않으면 현재 페이지의 디렉터리 사용
+            const currentPath = window.location.pathname;
+            const pathParts = currentPath.split('/').filter(p => p);
+            if (pathParts.length > 0 && currentPath.endsWith('.html')) {
+                pathParts.pop();
+            }
+            const dirPath = pathParts.length > 0 ? '/' + pathParts.join('/') + '/' : '/';
+            resolvedBaseUrl = window.location.origin + dirPath;
+        }
+        this.assetBaseUrl = resolvedBaseUrl || window.location.origin + '/';
+        console.log('[BillionaireMap] assetBaseUrl 초기화:', this.assetBaseUrl);
         this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
         this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
         this.isAdminLoggedIn = false; // 관리자 로그인 상태
@@ -886,11 +909,20 @@ class BillionaireMap {
     getAssetUrl(relativePath) {
         if (!relativePath) return relativePath;
         if (/^https?:\/\//i.test(relativePath)) return relativePath;
-        const sanitizedPath = relativePath.startsWith('./') ? relativePath.slice(2) : relativePath;
+        
+        // 상대 경로 정규화 (./ 제거, 앞의 / 제거)
+        let sanitizedPath = relativePath.startsWith('./') ? relativePath.slice(2) : relativePath;
+        sanitizedPath = sanitizedPath.replace(/^\/+/, '');
+        
         try {
-            return new URL(sanitizedPath, this.assetBaseUrl).toString();
+            // assetBaseUrl은 이미 디렉터리 경로로 끝나도록 보장됨
+            const baseUrl = this.assetBaseUrl.endsWith('/') ? this.assetBaseUrl : this.assetBaseUrl + '/';
+            const fullUrl = new URL(sanitizedPath, baseUrl).toString();
+            console.log(`[getAssetUrl] ${relativePath} -> ${fullUrl} (base: ${baseUrl})`);
+            return fullUrl;
         } catch (error) {
             console.warn('에셋 경로를 해결하지 못했습니다:', sanitizedPath, error);
+            // 폴백: 상대 경로를 그대로 반환 (브라우저가 현재 페이지 기준으로 해석)
             return sanitizedPath;
         }
     }
@@ -2973,7 +3005,17 @@ class BillionaireMap {
                 geoJsonData = this.cachedGeoJsonData['japan'];
             } else {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
-                const response = await fetch(this.getAssetUrl('data/japan-prefectures-accurate.geojson'), { cache: 'no-store' });
+                const japanUrl = this.getAssetUrl('data/japan-prefectures-accurate.geojson');
+                console.log('[loadJapanData] 요청 URL:', japanUrl);
+                const response = await fetch(japanUrl, { cache: 'no-store' });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[loadJapanData] HTTP 에러:', response.status, response.statusText);
+                    console.error('[loadJapanData] 응답 내용:', errorText.substring(0, 200));
+                    throw new Error(`일본 데이터 로드 실패: HTTP ${response.status} ${response.statusText}`);
+                }
+                
                 geoJsonData = await response.json();
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
@@ -11408,7 +11450,17 @@ class BillionaireMap {
             //     geoJsonData = this.cachedGeoJsonData['korea'];
             // } else {
                 // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
-                const response = await fetch(this.getAssetUrl('data/korea-cities-official.geojson'), { cache: 'no-store' });
+                const koreaUrl = this.getAssetUrl('data/korea-cities-official.geojson');
+                console.log('[loadKoreaData] 요청 URL:', koreaUrl);
+                const response = await fetch(koreaUrl, { cache: 'no-store' });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[loadKoreaData] HTTP 에러:', response.status, response.statusText);
+                    console.error('[loadKoreaData] 응답 내용:', errorText.substring(0, 200));
+                    throw new Error(`한국 데이터 로드 실패: HTTP ${response.status} ${response.statusText}`);
+                }
+                
                 geoJsonData = await response.json();
                 
                 // 한국 행정구역별 실제 인구 및 면적 데이터
