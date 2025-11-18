@@ -67,40 +67,7 @@ class BillionaireMap {
             'bulgaria': null
         };
         this.rawGeoJsonCache = {};
-        let resolvedBaseUrl = window.__ASSET_BASE_URL__ || null;
-        if (!resolvedBaseUrl && typeof document !== 'undefined') {
-            const baseTag = document.querySelector('base');
-            if (baseTag && baseTag.href) {
-                resolvedBaseUrl = baseTag.href;
-            } else if (document.currentScript && document.currentScript.src) {
-                resolvedBaseUrl = new URL('.', document.currentScript.src).href;
-            } else if (document.baseURI) {
-                resolvedBaseUrl = document.baseURI;
-            } else {
-                // 현재 페이지의 디렉터리 경로를 base URL로 사용
-                const currentPath = window.location.pathname;
-                const pathParts = currentPath.split('/').filter(p => p);
-                if (pathParts.length > 0 && currentPath.endsWith('.html')) {
-                    pathParts.pop(); // 파일명 제거
-                }
-                const dirPath = pathParts.length > 0 ? '/' + pathParts.join('/') + '/' : '/';
-                resolvedBaseUrl = window.location.origin + dirPath;
-            }
-        }
-        // resolvedBaseUrl이 파일 경로인 경우 디렉터리로 변환
-        if (resolvedBaseUrl && resolvedBaseUrl.endsWith('.html')) {
-            resolvedBaseUrl = resolvedBaseUrl.substring(0, resolvedBaseUrl.lastIndexOf('/') + 1);
-        } else if (resolvedBaseUrl && !resolvedBaseUrl.endsWith('/')) {
-            // URL이 디렉터리로 끝나지 않으면 현재 페이지의 디렉터리 사용
-            const currentPath = window.location.pathname;
-            const pathParts = currentPath.split('/').filter(p => p);
-            if (pathParts.length > 0 && currentPath.endsWith('.html')) {
-                pathParts.pop();
-            }
-            const dirPath = pathParts.length > 0 ? '/' + pathParts.join('/') + '/' : '/';
-            resolvedBaseUrl = window.location.origin + dirPath;
-        }
-        this.assetBaseUrl = resolvedBaseUrl || window.location.origin + '/';
+        this.assetBaseUrl = this.resolveAssetBaseUrl();
         console.log('[BillionaireMap] assetBaseUrl 초기화:', this.assetBaseUrl);
         this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
         this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
@@ -904,6 +871,48 @@ class BillionaireMap {
         };
         
         this.init();
+    }
+
+    resolveAssetBaseUrl() {
+        const ensureDir = (inputUrl) => {
+            try {
+                const url = new URL(inputUrl, window.location.href);
+                return new URL('.', url).href;
+            } catch (error) {
+                console.warn('[BillionaireMap] base URL 계산 실패:', inputUrl, error);
+                return null;
+            }
+        };
+        
+        const candidates = [];
+        
+        if (window.__ASSET_BASE_URL__) {
+            candidates.push(window.__ASSET_BASE_URL__);
+        }
+        
+        if (typeof document !== 'undefined') {
+            const baseTag = document.querySelector('base[href]');
+            if (baseTag) {
+                candidates.push(baseTag.href);
+            }
+            if (document.currentScript && document.currentScript.src) {
+                candidates.push(new URL('.', document.currentScript.src).href);
+            }
+            if (document.baseURI) {
+                candidates.push(document.baseURI);
+            }
+        }
+        
+        candidates.push(window.location.href);
+        
+        for (const candidate of candidates) {
+            const dir = ensureDir(candidate);
+            if (dir) {
+                return dir;
+            }
+        }
+        
+        return `${window.location.origin}/`;
     }
 
     getAssetUrl(relativePath) {
