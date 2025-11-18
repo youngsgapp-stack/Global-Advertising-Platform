@@ -1275,6 +1275,7 @@ class BillionaireMap {
                 // 대기 및 조명 효과 (구글어스/nullschool 스타일)
                 lights: [
                     {
+                        id: 'main-light',
                         type: 'flat',
                         anchor: 'viewport',
                         color: '#ffffff',
