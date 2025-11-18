@@ -1,0 +1,470 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "seoul",
+        "name_ko": "서울특별시",
+        "name_en": "Seoul",
+        "name_local": "서울특별시",
+        "country": "South Korea",
+        "country_code": "KR",
+        "admin_level": "Metropolitan City",
+        "admin_level_code": "ADM1",
+        "population": 9720846,
+        "area": 605.21,
+        "gdp_per_capita": 35000,
+        "occupied": false,
+        "price": 50000,
+        "currency": "USD",
+        "timezone": "Asia/Seoul",
+        "coordinates": [126.9780, 37.5665]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [126.764, 37.428],
+          [127.183, 37.428],
+          [127.183, 37.701],
+          [126.764, 37.701],
+          [126.764, 37.428]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "busan",
+        "name_ko": "부산광역시",
+        "name_en": "Busan",
+        "name_local": "부산광역시",
+        "country": "South Korea",
+        "country_code": "KR",
+        "admin_level": "Metropolitan City",
+        "admin_level_code": "ADM1",
+        "population": 3448737,
+        "area": 770.18,
+        "gdp_per_capita": 28000,
+        "occupied": true,
+        "price": 30000,
+        "currency": "USD",
+        "timezone": "Asia/Seoul",
+        "coordinates": [129.0756, 35.1796]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [128.799, 34.967],
+          [129.352, 34.967],
+          [129.352, 35.392],
+          [128.799, 35.392],
+          [128.799, 34.967]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "incheon",
+        "name_ko": "인천광역시",
+        "name_en": "Incheon",
+        "name_local": "인천광역시",
+        "country": "South Korea",
+        "country_code": "KR",
+        "admin_level": "Metropolitan City",
+        "admin_level_code": "ADM1",
+        "population": 2954317,
+        "area": 1063.3,
+        "gdp_per_capita": 25000,
+        "occupied": false,
+        "price": 25000,
+        "currency": "USD",
+        "timezone": "Asia/Seoul",
+        "coordinates": [126.7052, 37.4563]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [126.382, 37.234],
+          [127.028, 37.234],
+          [127.028, 37.678],
+          [126.382, 37.678],
+          [126.382, 37.234]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "california",
+        "name_ko": "캘리포니아주",
+        "name_en": "California",
+        "name_local": "California",
+        "country": "United States",
+        "country_code": "US",
+        "admin_level": "State",
+        "admin_level_code": "ADM1",
+        "population": 39538223,
+        "area": 423967,
+        "gdp_per_capita": 65000,
+        "occupied": false,
+        "price": 200000,
+        "currency": "USD",
+        "timezone": "America/Los_Angeles",
+        "coordinates": [-119.4179, 36.7783]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-124.482, 32.529],
+          [-114.131, 32.529],
+          [-114.131, 42.010],
+          [-124.482, 42.010],
+          [-124.482, 32.529]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "newyork",
+        "name_ko": "뉴욕주",
+        "name_en": "New York",
+        "name_local": "New York",
+        "country": "United States",
+        "country_code": "US",
+        "admin_level": "State",
+        "admin_level_code": "ADM1",
+        "population": 20201249,
+        "area": 141297,
+        "gdp_per_capita": 70000,
+        "occupied": true,
+        "price": 150000,
+        "currency": "USD",
+        "timezone": "America/New_York",
+        "coordinates": [-74.9481, 40.7128]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.762, 40.496],
+          [-71.856, 40.496],
+          [-71.856, 45.013],
+          [-79.762, 45.013],
+          [-79.762, 40.496]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "texas",
+        "name_ko": "텍사스주",
+        "name_en": "Texas",
+        "name_local": "Texas",
+        "country": "United States",
+        "country_code": "US",
+        "admin_level": "State",
+        "admin_level_code": "ADM1",
+        "population": 29145505,
+        "area": 695662,
+        "gdp_per_capita": 55000,
+        "occupied": false,
+        "price": 120000,
+        "currency": "USD",
+        "timezone": "America/Chicago",
+        "coordinates": [-99.9018, 31.9686]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-106.646, 25.837],
+          [-93.508, 25.837],
+          [-93.508, 36.500],
+          [-106.646, 36.500],
+          [-106.646, 25.837]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "guangdong",
+        "name_ko": "광둥성",
+        "name_en": "Guangdong",
+        "name_local": "广东省",
+        "country": "China",
+        "country_code": "CN",
+        "admin_level": "Province",
+        "admin_level_code": "ADM1",
+        "population": 126012510,
+        "area": 179800,
+        "gdp_per_capita": 12000,
+        "occupied": false,
+        "price": 100000,
+        "currency": "USD",
+        "timezone": "Asia/Shanghai",
+        "coordinates": [113.2644, 23.1291]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.665, 20.221],
+          [117.174, 20.221],
+          [117.174, 25.518],
+          [109.665, 25.518],
+          [109.665, 20.221]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "shanghai",
+        "name_ko": "상하이시",
+        "name_en": "Shanghai",
+        "name_local": "上海市",
+        "country": "China",
+        "country_code": "CN",
+        "admin_level": "Municipality",
+        "admin_level_code": "ADM1",
+        "population": 24870895,
+        "area": 6340.5,
+        "gdp_per_capita": 20000,
+        "occupied": true,
+        "price": 80000,
+        "currency": "USD",
+        "timezone": "Asia/Shanghai",
+        "coordinates": [121.4737, 31.2304]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [120.856, 30.722],
+          [122.091, 30.722],
+          [122.091, 31.738],
+          [120.856, 31.738],
+          [120.856, 30.722]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "tokyo",
+        "name_ko": "도쿄도",
+        "name_en": "Tokyo",
+        "name_local": "東京都",
+        "country": "Japan",
+        "country_code": "JP",
+        "admin_level": "Prefecture",
+        "admin_level_code": "ADM1",
+        "population": 13929286,
+        "area": 2194,
+        "gdp_per_capita": 45000,
+        "occupied": false,
+        "price": 80000,
+        "currency": "USD",
+        "timezone": "Asia/Tokyo",
+        "coordinates": [139.6917, 35.6895]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [138.714, 35.528],
+          [139.880, 35.528],
+          [139.880, 35.851],
+          [138.714, 35.851],
+          [138.714, 35.528]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "osaka",
+        "name_ko": "오사카부",
+        "name_en": "Osaka",
+        "name_local": "大阪府",
+        "country": "Japan",
+        "country_code": "JP",
+        "admin_level": "Prefecture",
+        "admin_level_code": "ADM1",
+        "population": 8837685,
+        "area": 1905.14,
+        "gdp_per_capita": 40000,
+        "occupied": false,
+        "price": 60000,
+        "currency": "USD",
+        "timezone": "Asia/Tokyo",
+        "coordinates": [135.5023, 34.6937]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [135.021, 34.214],
+          [135.984, 34.214],
+          [135.984, 35.173],
+          [135.021, 35.173],
+          [135.021, 34.214]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "london",
+        "name_ko": "런던",
+        "name_en": "London",
+        "name_local": "London",
+        "country": "United Kingdom",
+        "country_code": "GB",
+        "admin_level": "Region",
+        "admin_level_code": "ADM1",
+        "population": 8982000,
+        "area": 1572,
+        "gdp_per_capita": 50000,
+        "occupied": false,
+        "price": 70000,
+        "currency": "USD",
+        "timezone": "Europe/London",
+        "coordinates": [-0.1276, 51.5074]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-0.510, 51.286],
+          [0.255, 51.286],
+          [0.255, 51.728],
+          [-0.510, 51.728],
+          [-0.510, 51.286]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "paris",
+        "name_ko": "파리",
+        "name_en": "Paris",
+        "name_local": "Paris",
+        "country": "France",
+        "country_code": "FR",
+        "admin_level": "Region",
+        "admin_level_code": "ADM1",
+        "population": 12278240,
+        "area": 12012,
+        "gdp_per_capita": 45000,
+        "occupied": true,
+        "price": 65000,
+        "currency": "USD",
+        "timezone": "Europe/Paris",
+        "coordinates": [2.3522, 48.8566]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [1.465, 48.135],
+          [3.239, 48.135],
+          [3.239, 49.578],
+          [1.465, 49.578],
+          [1.465, 48.135]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sydney",
+        "name_ko": "시드니",
+        "name_en": "Sydney",
+        "name_local": "Sydney",
+        "country": "Australia",
+        "country_code": "AU",
+        "admin_level": "State",
+        "admin_level_code": "ADM1",
+        "population": 5312163,
+        "area": 12368,
+        "gdp_per_capita": 55000,
+        "occupied": false,
+        "price": 40000,
+        "currency": "USD",
+        "timezone": "Australia/Sydney",
+        "coordinates": [151.2093, -33.8688]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [150.520, -34.118],
+          [151.899, -34.118],
+          [151.899, -33.620],
+          [150.520, -33.620],
+          [150.520, -34.118]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "toronto",
+        "name_ko": "토론토",
+        "name_en": "Toronto",
+        "name_local": "Toronto",
+        "country": "Canada",
+        "country_code": "CA",
+        "admin_level": "Province",
+        "admin_level_code": "ADM1",
+        "population": 14711827,
+        "area": 1076395,
+        "gdp_per_capita": 48000,
+        "occupied": false,
+        "price": 35000,
+        "currency": "USD",
+        "timezone": "America/Toronto",
+        "coordinates": [-79.3832, 43.6532]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-95.157, 41.675],
+          [-74.320, 41.675],
+          [-74.320, 56.860],
+          [-95.157, 56.860],
+          [-95.157, 41.675]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mumbai",
+        "name_ko": "뭄바이",
+        "name_en": "Mumbai",
+        "name_local": "मुंबई",
+        "country": "India",
+        "country_code": "IN",
+        "admin_level": "State",
+        "admin_level_code": "ADM1",
+        "population": 12442373,
+        "area": 603,
+        "gdp_per_capita": 8000,
+        "occupied": false,
+        "price": 20000,
+        "currency": "USD",
+        "timezone": "Asia/Kolkata",
+        "coordinates": [72.8777, 19.0760]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [72.775, 18.898],
+          [72.980, 18.898],
+          [72.980, 19.254],
+          [72.775, 19.254],
+          [72.775, 18.898]
+        ]]
+      }
+    }
+  ]
+}
