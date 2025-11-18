@@ -1273,7 +1273,8 @@ class BillionaireMap {
                     }
                 ],
                 // 대기 및 조명 효과 (구글어스/nullschool 스타일)
-                light: {
+                lights: {
+                    type: 'flat',
                     anchor: 'viewport',
                     color: '#ffffff',
                     intensity: 0.4,          // 차분한 조명 (야광 효과 제거)
