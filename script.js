@@ -1343,6 +1343,71 @@ class BillionaireMap {
         return updatedCount;
     }
 
+    // 지도에 로드된 모든 소스에서 지역 데이터 수집
+    collectAllRegionsFromMapSources() {
+        if (!this.map) {
+            console.warn('지도가 초기화되지 않았습니다.');
+            return 0;
+        }
+
+        let collectedCount = 0;
+        
+        // 모든 가능한 소스 ID 목록
+        const sourceIds = [
+            'world-regions', 'korea-regions', 'japan-regions', 'china-regions',
+            'russia-regions', 'india-regions', 'canada-regions', 'germany-regions',
+            'uk-regions', 'france-regions', 'italy-regions', 'brazil-regions',
+            'australia-regions', 'mexico-regions', 'indonesia-regions',
+            'saudi-arabia-regions', 'turkey-regions', 'south-africa-regions',
+            'argentina-regions', 'european-union-regions', 'spain-regions',
+            'netherlands-regions', 'poland-regions', 'belgium-regions',
+            'sweden-regions', 'austria-regions', 'denmark-regions',
+            'finland-regions', 'ireland-regions', 'portugal-regions',
+            'greece-regions', 'czech-republic-regions', 'romania-regions',
+            'hungary-regions', 'bulgaria-regions'
+        ];
+
+        // 모든 소스에서 지역 데이터 수집
+        sourceIds.forEach(sourceId => {
+            const source = this.map.getSource(sourceId);
+            if (source && source._data && source._data.features) {
+                source._data.features.forEach(feature => {
+                    const props = feature.properties;
+                    const regionId = props.id;
+                    
+                    if (regionId) {
+                        // 기존 데이터가 있으면 병합, 없으면 새로 추가
+                        const existingData = this.regionData.get(regionId) || {};
+                        
+                        // GeoJSON properties에서 지역 데이터 추출
+                        const regionData = {
+                            ...existingData,
+                            id: regionId,
+                            name_ko: props.name_ko || existingData.name_ko || '',
+                            name_en: props.name_en || props.name || existingData.name_en || existingData.name || '',
+                            country: props.country || existingData.country || '',
+                            admin_level: props.admin_level || existingData.admin_level || '',
+                            population: props.population !== undefined && props.population !== null ? props.population : (existingData.population || 0),
+                            area: props.area !== undefined && props.area !== null ? props.area : (existingData.area || 0),
+                            ad_price: props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : (existingData.ad_price || this.uniformAdPrice || 1000),
+                            ad_status: props.ad_status || props.occupied ? 'occupied' : (existingData.ad_status || 'available')
+                        };
+
+                        // 새로운 데이터만 카운트
+                        if (!this.regionData.has(regionId)) {
+                            collectedCount++;
+                        }
+                        
+                        this.regionData.set(regionId, regionData);
+                    }
+                });
+            }
+        });
+
+        console.log(`지도 소스에서 ${collectedCount}개의 새로운 지역 데이터를 수집했습니다.`);
+        return collectedCount;
+    }
+
     // 모든 지역 데이터를 Firestore에 일괄 저장
     async saveAllRegionsToFirestore() {
         if (!this.isFirebaseInitialized || !this.firestore) {
@@ -1352,6 +1417,10 @@ class BillionaireMap {
         }
 
         try {
+            // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집
+            const collectedCount = this.collectAllRegionsFromMapSources();
+            console.log(`총 수집된 지역: ${this.regionData.size}개 (신규: ${collectedCount}개)`);
+
             const { doc, setDoc, serverTimestamp, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             let successCount = 0;
@@ -1395,6 +1464,10 @@ class BillionaireMap {
                     await batch.commit();
                     successCount += batchRegions.length;
                     console.log(`배치 ${Math.floor(i / batchSize) + 1} 저장 완료: ${batchRegions.length}개 지역`);
+                    
+                    // 진행 상황 업데이트
+                    const progress = Math.round((successCount / totalRegions) * 100);
+                    this.showNotification(`Firestore 저장 중... ${progress}% (${successCount}/${totalRegions})`, 'info');
                 } catch (error) {
                     console.error(`배치 ${Math.floor(i / batchSize) + 1} 저장 오류:`, error);
                     failedCount += batchRegions.length;
@@ -1404,11 +1477,11 @@ class BillionaireMap {
             this.showNotification(`Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`, successCount > 0 ? 'success' : 'error');
             console.log(`모든 지역 데이터 Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`);
             
-            return { success: successCount, failed: failedCount };
+            return { success: successCount, failed: failedCount, collected: collectedCount };
         } catch (error) {
             console.error('모든 지역 데이터 Firestore 저장 오류:', error);
             this.showNotification('Firestore 저장 중 오류가 발생했습니다.', 'error');
-            return { success: 0, failed: this.regionData.size };
+            return { success: 0, failed: this.regionData.size, collected: 0 };
         }
     }
 
@@ -13927,12 +14000,16 @@ class BillionaireMap {
         
         // 3번 연타 시 관리자 로그인 모달 표시
         if (this.pKeyCount >= 3) {
-            // 이미 로그인되어 있지 않은 경우에만 모달 표시
+            // 로그인되어 있지 않거나, 로그인되어 있지만 관리자 모드가 비활성화된 경우 모달 표시
             if (!this.isAdminLoggedIn) {
                 this.showAdminLoginModal();
                 this.showNotification('관리자 로그인 모달이 열렸습니다.', 'info');
+            } else if (!this.adminMode) {
+                // 로그인되어 있지만 관리자 모드가 해제된 경우, 관리자 모드 다시 활성화
+                this.toggleAdminMode();
+                this.showNotification('관리자 모드가 다시 활성화되었습니다.', 'success');
             } else {
-                this.showNotification('이미 관리자로 로그인되어 있습니다.', 'info');
+                this.showNotification('이미 관리자 모드가 활성화되어 있습니다.', 'info');
             }
             this.pKeyCount = 0;
         } else {
