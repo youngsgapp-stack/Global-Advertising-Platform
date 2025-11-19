@@ -951,6 +951,9 @@ class BillionaireMap {
                 });
             }
             
+            // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
+            this.setAllRegionsPriceToUniform();
+            
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
@@ -1234,27 +1237,45 @@ class BillionaireMap {
             const regionsSnapshot = await getDocs(collection(this.firestore, 'regions'));
             
             let loadedCount = 0;
+            let mergedCount = 0;
             regionsSnapshot.forEach((doc) => {
                 const data = doc.data();
                 const regionId = data.regionId || doc.id;
                 
-                // 메모리의 regionData에 병합 (Firestore 데이터가 우선)
+                // 메모리의 regionData에 병합 (로컬 데이터가 우선, Firestore는 보완용)
                 const existingData = this.regionData.get(regionId) || {};
+                
+                // 로컬에 데이터가 있으면 로컬 우선, 없으면 Firestore 사용
                 const mergedData = {
-                    ...existingData,
-                    ...data,
-                    // ad_price는 Firestore에 저장된 값 사용 (없으면 기본값)
-                    ad_price: data.ad_price !== undefined ? data.ad_price : (existingData.ad_price || this.uniformAdPrice || 1000),
-                    // population, area도 Firestore 값 우선
-                    population: data.population !== undefined ? data.population : existingData.population,
-                    area: data.area !== undefined ? data.area : existingData.area
+                    ...data,  // Firestore 데이터를 기본으로
+                    ...existingData,  // 로컬 데이터가 있으면 덮어씀 (로컬 우선)
+                    // 특정 필드는 명시적으로 처리
+                    ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                        ? existingData.ad_price 
+                        : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
+                    population: existingData.population !== undefined && existingData.population !== null && existingData.population !== 0
+                        ? existingData.population 
+                        : (data.population !== undefined ? data.population : existingData.population || 0),
+                    area: existingData.area !== undefined && existingData.area !== null && existingData.area !== 0
+                        ? existingData.area 
+                        : (data.area !== undefined ? data.area : existingData.area || 0),
+                    // 기타 필드도 로컬 우선
+                    name_ko: existingData.name_ko || data.name_ko || '',
+                    name_en: existingData.name_en || existingData.name || data.name_en || data.name || '',
+                    country: existingData.country || data.country || '',
+                    admin_level: existingData.admin_level || data.admin_level || ''
                 };
+                
+                // 로컬 데이터가 있었는지 확인
+                if (Object.keys(existingData).length > 0) {
+                    mergedCount++;
+                }
                 
                 this.regionData.set(regionId, mergedData);
                 loadedCount++;
             });
 
-            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다.`);
+            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다. (로컬 데이터와 병합: ${mergedCount}개)`);
 
             // 지도 소스 업데이트
             this.updateMapSourcesWithRegionData();
@@ -1302,6 +1323,104 @@ class BillionaireMap {
                 }
             }
         });
+    }
+
+    // 모든 지역의 광고 가격을 1000달러로 통일
+    setAllRegionsPriceToUniform() {
+        let updatedCount = 0;
+        this.regionData.forEach((regionData, regionId) => {
+            if (regionData.ad_price !== this.uniformAdPrice) {
+                regionData.ad_price = this.uniformAdPrice;
+                this.regionData.set(regionId, regionData);
+                updatedCount++;
+            }
+        });
+
+        // 지도 소스도 업데이트
+        this.updateMapSourcesWithRegionData();
+
+        console.log(`${updatedCount}개 지역의 광고 가격을 ${this.uniformAdPrice}달러로 통일했습니다.`);
+        return updatedCount;
+    }
+
+    // 모든 지역 데이터를 Firestore에 일괄 저장
+    async saveAllRegionsToFirestore() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 지역 데이터를 저장할 수 없습니다.');
+            this.showNotification('Firebase가 초기화되지 않아 저장할 수 없습니다.', 'error');
+            return { success: 0, failed: 0 };
+        }
+
+        try {
+            const { doc, setDoc, serverTimestamp, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            let successCount = 0;
+            let failedCount = 0;
+            const batchSize = 500; // Firestore 배치 제한 (500개)
+            const regions = Array.from(this.regionData.entries());
+            const totalRegions = regions.length;
+
+            this.showNotification(`총 ${totalRegions}개 지역 데이터를 Firestore에 저장 중...`, 'info');
+
+            // 배치 단위로 나누어 저장
+            for (let i = 0; i < regions.length; i += batchSize) {
+                const batch = writeBatch(this.firestore);
+                const batchRegions = regions.slice(i, i + batchSize);
+                
+                for (const [regionId, regionData] of batchRegions) {
+                    try {
+                        // 저장할 데이터 (Firestore에 저장할 필드만 추출)
+                        const firestoreData = {
+                            regionId: regionId,
+                            name_ko: regionData.name_ko || '',
+                            name_en: regionData.name_en || regionData.name || '',
+                            country: regionData.country || '',
+                            admin_level: regionData.admin_level || '',
+                            population: regionData.population || 0,
+                            area: regionData.area || 0,
+                            ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
+                            ad_status: regionData.ad_status || 'available',
+                            updatedAt: serverTimestamp()
+                        };
+
+                        const regionRef = doc(this.firestore, 'regions', regionId);
+                        batch.set(regionRef, firestoreData, { merge: true });
+                    } catch (error) {
+                        console.error(`지역 ${regionId} 배치 추가 오류:`, error);
+                        failedCount++;
+                    }
+                }
+
+                try {
+                    await batch.commit();
+                    successCount += batchRegions.length;
+                    console.log(`배치 ${Math.floor(i / batchSize) + 1} 저장 완료: ${batchRegions.length}개 지역`);
+                } catch (error) {
+                    console.error(`배치 ${Math.floor(i / batchSize) + 1} 저장 오류:`, error);
+                    failedCount += batchRegions.length;
+                }
+            }
+
+            this.showNotification(`Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`, successCount > 0 ? 'success' : 'error');
+            console.log(`모든 지역 데이터 Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`);
+            
+            return { success: successCount, failed: failedCount };
+        } catch (error) {
+            console.error('모든 지역 데이터 Firestore 저장 오류:', error);
+            this.showNotification('Firestore 저장 중 오류가 발생했습니다.', 'error');
+            return { success: 0, failed: this.regionData.size };
+        }
+    }
+
+    // 모든 지역 데이터를 동기화 (가격 통일 + Firestore 저장)
+    async syncAllRegionsToFirestore() {
+        // 1. 모든 지역 가격을 1000달러로 통일
+        const updatedCount = this.setAllRegionsPriceToUniform();
+        
+        // 2. 모든 지역 데이터를 Firestore에 저장
+        const result = await this.saveAllRegionsToFirestore();
+        
+        return { ...result, priceUpdated: updatedCount };
     }
 
     // 사용자 로그인 (이메일/비밀번호)
@@ -12609,6 +12728,36 @@ class BillionaireMap {
         if (saveRegionInfo) {
             saveRegionInfo.addEventListener('click', () => {
                 this.saveRegionInfo();
+            });
+        }
+
+        // 모든 지역 Firestore 동기화 버튼
+        const syncAllRegionsBtn = document.getElementById('sync-all-regions-btn');
+        if (syncAllRegionsBtn) {
+            syncAllRegionsBtn.addEventListener('click', async () => {
+                if (!this.isAdminLoggedIn) {
+                    this.showNotification('관리자 로그인이 필요합니다.', 'warning');
+                    return;
+                }
+                
+                const confirmed = confirm('모든 지역의 광고 가격을 1000달러로 통일하고 Firestore에 저장하시겠습니까?');
+                if (confirmed) {
+                    syncAllRegionsBtn.disabled = true;
+                    syncAllRegionsBtn.textContent = '동기화 중...';
+                    try {
+                        const result = await this.syncAllRegionsToFirestore();
+                        this.showNotification(
+                            `동기화 완료: 가격 ${result.priceUpdated}개 업데이트, Firestore ${result.success}개 성공, ${result.failed}개 실패`,
+                            result.success > 0 ? 'success' : 'error'
+                        );
+                    } catch (error) {
+                        console.error('동기화 오류:', error);
+                        this.showNotification('동기화 중 오류가 발생했습니다.', 'error');
+                    } finally {
+                        syncAllRegionsBtn.disabled = false;
+                        syncAllRegionsBtn.textContent = '모든 지역 Firestore 동기화';
+                    }
+                }
             });
         }
         
