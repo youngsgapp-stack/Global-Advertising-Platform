@@ -937,12 +937,20 @@ class BillionaireMap {
             this.initStarsBackground();
             
             // Firebase 초기화 (비동기로 실행, 실패해도 지도는 로드됨)
-            this.initializeFirebase().catch(err => {
+            await this.initializeFirebase().catch(err => {
                 console.warn('Firebase 초기화 실패 (계속 진행):', err);
             });
             
             await this.initializeMap();
             await this.loadWorldData();
+            
+            // Firestore에서 지역 데이터 불러오기 (지도 로드 후)
+            if (this.isFirebaseInitialized) {
+                await this.loadRegionDataFromFirestore().catch(err => {
+                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                });
+            }
+            
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
@@ -1174,6 +1182,126 @@ class BillionaireMap {
             console.error('소유권 확인 오류:', error);
             return false;
         }
+    }
+
+    // 지역 데이터를 Firestore에 저장
+    async saveRegionDataToFirestore(regionId, regionData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 지역 데이터를 저장할 수 없습니다.');
+            return false;
+        }
+
+        try {
+            const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 저장할 데이터 (Firestore에 저장할 필드만 추출)
+            const firestoreData = {
+                regionId: regionId,
+                name_ko: regionData.name_ko || '',
+                name_en: regionData.name_en || regionData.name || '',
+                country: regionData.country || '',
+                admin_level: regionData.admin_level || '',
+                population: regionData.population || 0,
+                area: regionData.area || 0,
+                ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
+                ad_status: regionData.ad_status || 'available',
+                updatedAt: serverTimestamp()
+            };
+
+            // 지역 ID를 문서 ID로 사용하여 저장 (덮어쓰기)
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            await setDoc(regionRef, firestoreData, { merge: true });
+            
+            console.log('Firestore에 지역 데이터 저장 완료:', regionId, firestoreData);
+            return true;
+        } catch (error) {
+            console.error('Firestore 지역 데이터 저장 오류:', error);
+            this.showNotification('Firestore에 지역 데이터 저장에 실패했습니다.', 'error');
+            return false;
+        }
+    }
+
+    // Firestore에서 모든 지역 데이터 불러오기
+    async loadRegionDataFromFirestore() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 Firestore에서 데이터를 불러올 수 없습니다.');
+            return;
+        }
+
+        try {
+            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const regionsSnapshot = await getDocs(collection(this.firestore, 'regions'));
+            
+            let loadedCount = 0;
+            regionsSnapshot.forEach((doc) => {
+                const data = doc.data();
+                const regionId = data.regionId || doc.id;
+                
+                // 메모리의 regionData에 병합 (Firestore 데이터가 우선)
+                const existingData = this.regionData.get(regionId) || {};
+                const mergedData = {
+                    ...existingData,
+                    ...data,
+                    // ad_price는 Firestore에 저장된 값 사용 (없으면 기본값)
+                    ad_price: data.ad_price !== undefined ? data.ad_price : (existingData.ad_price || this.uniformAdPrice || 1000),
+                    // population, area도 Firestore 값 우선
+                    population: data.population !== undefined ? data.population : existingData.population,
+                    area: data.area !== undefined ? data.area : existingData.area
+                };
+                
+                this.regionData.set(regionId, mergedData);
+                loadedCount++;
+            });
+
+            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다.`);
+
+            // 지도 소스 업데이트
+            this.updateMapSourcesWithRegionData();
+            
+        } catch (error) {
+            console.error('Firestore 지역 데이터 불러오기 오류:', error);
+            // 오류가 나도 계속 진행 (로컬 데이터 사용)
+        }
+    }
+
+    // 지도 소스들을 regionData로 업데이트
+    updateMapSourcesWithRegionData() {
+        if (!this.map) return;
+
+        // 모든 가능한 소스 ID 목록
+        const sourceIds = [
+            'world-regions', 'korea-regions', 'japan-regions', 'china-regions',
+            'russia-regions', 'india-regions', 'canada-regions', 'germany-regions',
+            'uk-regions', 'france-regions', 'italy-regions', 'brazil-regions',
+            'australia-regions', 'mexico-regions', 'indonesia-regions',
+            'saudi-arabia-regions', 'turkey-regions', 'south-africa-regions',
+            'argentina-regions', 'european-union-regions', 'spain-regions',
+            'netherlands-regions', 'poland-regions', 'belgium-regions',
+            'sweden-regions', 'austria-regions', 'denmark-regions',
+            'finland-regions', 'ireland-regions', 'portugal-regions',
+            'greece-regions', 'czech-republic-regions', 'romania-regions',
+            'hungary-regions', 'bulgaria-regions'
+        ];
+
+        sourceIds.forEach(sourceId => {
+            const source = this.map.getSource(sourceId);
+            if (source && source._data && source._data.features) {
+                let updated = false;
+                source._data.features.forEach(feature => {
+                    const regionId = feature.properties.id;
+                    if (regionId && this.regionData.has(regionId)) {
+                        const updatedData = this.regionData.get(regionId);
+                        Object.assign(feature.properties, updatedData);
+                        updated = true;
+                    }
+                });
+                
+                if (updated) {
+                    source.setData(source._data);
+                }
+            }
+        });
     }
 
     // 사용자 로그인 (이메일/비밀번호)
@@ -2256,6 +2384,10 @@ class BillionaireMap {
         });
         
         await this.loadWorldData();
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('미국 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2274,6 +2406,10 @@ class BillionaireMap {
         });
         
         await this.loadKoreaData();
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('한국 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2292,6 +2428,10 @@ class BillionaireMap {
         });
         
         await this.loadJapanData();
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('일본 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2310,6 +2450,10 @@ class BillionaireMap {
         });
         
         await this.loadChinaData();
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('중국 지도 모드로 전환되었습니다.', 'info');
     }
 
@@ -15833,7 +15977,7 @@ class BillionaireMap {
     }
     
     // 지역 정보 저장
-    saveRegionInfo() {
+    async saveRegionInfo() {
         if (!this.selectedStateId) {
             this.showNotification('저장할 지역을 선택해주세요.', 'warning');
             return;
@@ -15901,8 +16045,21 @@ class BillionaireMap {
             }
         }
         
-        this.showNotification('지역 정보가 저장되었습니다!', 'success');
-        console.log('지역 정보 저장 완료:', this.selectedStateId, regionData);
+        // Firestore에 저장 (비동기)
+        try {
+            const saved = await this.saveRegionDataToFirestore(this.selectedStateId, regionData);
+            if (saved) {
+                this.showNotification('지역 정보가 저장되었습니다! (Firestore 동기화 완료)', 'success');
+                console.log('Firestore에 지역 정보 저장 완료:', this.selectedStateId, regionData);
+            } else {
+                this.showNotification('지역 정보가 로컬에 저장되었습니다. (Firestore 동기화 실패)', 'warning');
+                console.log('로컬에만 지역 정보 저장 완료:', this.selectedStateId, regionData);
+            }
+        } catch (error) {
+            console.error('지역 정보 저장 중 오류:', error);
+            this.showNotification('지역 정보가 로컬에 저장되었습니다. (Firestore 동기화 실패)', 'warning');
+            console.log('로컬에만 지역 정보 저장 완료:', this.selectedStateId, regionData);
+        }
     }
     
     // 모달에서 편집 버튼 클릭 시 관리자 패널 열기
