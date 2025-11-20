@@ -1383,38 +1383,75 @@ class BillionaireMap {
                         const existingData = this.regionData.get(regionId) || {};
                         
                         // GeoJSON properties에서 지역 데이터 추출 (소스의 데이터를 우선적으로 사용)
+                        // 소스 데이터를 기준으로 하고, 없는 경우에만 기존 데이터 사용
                         const regionData = {
-                            ...existingData,
+                            // 소스 데이터를 먼저 사용
                             id: regionId,
                             name_ko: props.name_ko || existingData.name_ko || '',
                             name_en: props.name_en || props.name || existingData.name_en || existingData.name || '',
                             country: props.country || existingData.country || '',
                             admin_level: props.admin_level || existingData.admin_level || '',
-                            population: props.population !== undefined && props.population !== null ? props.population : (existingData.population || 0),
-                            area: props.area !== undefined && props.area !== null ? props.area : (existingData.area || 0),
-                            // 소스의 데이터가 우선 (Firestore 동기화 시 최신 데이터 반영)
-                            ad_price: props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : (existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : this.uniformAdPrice || 1000),
+                            // 인구와 면적: 소스에 값이 있으면 무조건 사용 (0도 유효한 값)
+                            population: props.hasOwnProperty('population') ? props.population : (existingData.population !== undefined ? existingData.population : 0),
+                            area: props.hasOwnProperty('area') ? props.area : (existingData.area !== undefined ? existingData.area : 0),
+                            // 광고 가격: 소스 데이터 우선
+                            ad_price: props.hasOwnProperty('ad_price') && props.ad_price !== null ? props.ad_price : (existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : this.uniformAdPrice || 1000),
                             ad_status: props.ad_status || (props.occupied ? 'occupied' : (existingData.ad_status || 'available')),
-                            // 기타 필드도 소스 우선
-                            company: props.company !== undefined ? props.company : existingData.company,
-                            logo: props.logo !== undefined ? props.logo : existingData.logo,
-                            color: props.color !== undefined ? props.color : existingData.color,
-                            border_color: props.border_color !== undefined ? props.border_color : existingData.border_color,
-                            border_width: props.border_width !== undefined ? props.border_width : existingData.border_width
+                            // 기타 필드: 소스에 있으면 사용, 없으면 기존 데이터 유지
+                            company: props.hasOwnProperty('company') ? props.company : existingData.company,
+                            logo: props.hasOwnProperty('logo') ? props.logo : existingData.logo,
+                            color: props.hasOwnProperty('color') ? props.color : existingData.color,
+                            border_color: props.hasOwnProperty('border_color') ? props.border_color : existingData.border_color,
+                            border_width: props.hasOwnProperty('border_width') ? props.border_width : existingData.border_width,
+                            // 추가 필드들도 소스 우선
+                            revenue: props.hasOwnProperty('revenue') ? props.revenue : existingData.revenue,
+                            sig_name_ko: props.sig_name_ko || existingData.sig_name_ko,
+                            sig_name_en: props.sig_name_en || existingData.sig_name_en,
+                            ctp_name_ko: props.ctp_name_ko || existingData.ctp_name_ko,
+                            ctp_name_en: props.ctp_name_en || existingData.ctp_name_en
                         };
 
-                        // 새로운 데이터만 카운트
-                        if (!this.regionData.has(regionId)) {
+                        // 기존 데이터와 비교하여 업데이트 여부 확인
+                        const wasExisting = this.regionData.has(regionId);
+                        const existingBefore = wasExisting ? { ...this.regionData.get(regionId) } : null;
+                        
+                        // 데이터 업데이트 (소스 데이터 우선)
+                        this.regionData.set(regionId, regionData);
+                        
+                        // 업데이트 확인 (인구, 면적, 행정구역 정보가 변경되었는지)
+                        if (wasExisting && existingBefore) {
+                            const updated = (
+                                existingBefore.population !== regionData.population ||
+                                existingBefore.area !== regionData.area ||
+                                existingBefore.admin_level !== regionData.admin_level ||
+                                existingBefore.name_ko !== regionData.name_ko ||
+                                existingBefore.country !== regionData.country
+                            );
+                            if (updated) {
+                                sourceCollectedCount++; // 업데이트된 것으로 카운트
+                            }
+                        } else {
+                            // 새로운 데이터
                             collectedCount++;
                             sourceCollectedCount++;
                         }
-                        
-                        this.regionData.set(regionId, regionData);
                     }
                 });
                 
                 if (featureCount > 0) {
-                    console.log(`[${sourceId}] 소스에서 ${featureCount}개 지역 발견, ${sourceCollectedCount}개 신규 수집`);
+                    console.log(`[${sourceId}] 소스에서 ${featureCount}개 지역 발견, ${sourceCollectedCount}개 신규/업데이트 수집`);
+                    // 샘플 데이터 출력 (디버깅)
+                    if (source._data && source._data.features && source._data.features.length > 0) {
+                        const sample = source._data.features[0].properties;
+                        console.log(`[${sourceId}] 샘플 데이터:`, {
+                            id: sample.id,
+                            name_ko: sample.name_ko,
+                            country: sample.country,
+                            population: sample.population,
+                            area: sample.area,
+                            admin_level: sample.admin_level
+                        });
+                    }
                 }
             } else if (source) {
                 console.log(`[${sourceId}] 소스는 존재하지만 데이터가 없습니다.`);
@@ -1441,10 +1478,11 @@ class BillionaireMap {
         }
 
         try {
-            // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집 (이미 수집된 경우 보완적으로만 수집)
+            // syncAllRegionsToFirestore에서 이미 수집했으므로 여기서는 수집하지 않음
+            // 단독 호출 시를 위해 보완적으로 수집 (옵션으로 변경 가능)
             const beforeCount = this.regionData.size;
-            const collectedCount = this.collectAllRegionsFromMapSources();
-            console.log(`총 수집된 지역: ${this.regionData.size}개 (신규: ${collectedCount}개, 기존: ${beforeCount}개)`);
+            const collectedCount = 0; // 이미 수집했으므로 0으로 설정
+            console.log(`Firestore 저장 준비: 총 ${this.regionData.size}개 지역 (기존: ${beforeCount}개)`);
 
             const { doc, setDoc, serverTimestamp, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
@@ -1464,23 +1502,30 @@ class BillionaireMap {
                 for (const [regionId, regionData] of batchRegions) {
                     try {
                         // 저장할 데이터 (Firestore에 저장할 필드만 추출)
+                        // 모든 필드를 포함하여 행정구역, 인구 정보도 저장
                         const firestoreData = {
                             regionId: regionId,
                             name_ko: regionData.name_ko || '',
                             name_en: regionData.name_en || regionData.name || '',
                             country: regionData.country || '',
                             admin_level: regionData.admin_level || '',
-                            population: regionData.population || 0,
-                            area: regionData.area || 0,
-                            ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
+                            // 인구와 면적은 0도 유효한 값이므로 명시적으로 저장
+                            population: regionData.population !== undefined && regionData.population !== null ? regionData.population : 0,
+                            area: regionData.area !== undefined && regionData.area !== null ? regionData.area : 0,
+                            ad_price: regionData.ad_price !== undefined && regionData.ad_price !== null ? regionData.ad_price : (this.uniformAdPrice || 1000),
                             ad_status: regionData.ad_status || 'available',
+                            // 추가 필드도 저장 (선택적)
+                            sig_name_ko: regionData.sig_name_ko || '',
+                            sig_name_en: regionData.sig_name_en || '',
+                            ctp_name_ko: regionData.ctp_name_ko || '',
+                            ctp_name_en: regionData.ctp_name_en || '',
                             updatedAt: serverTimestamp()
                         };
 
                         const regionRef = doc(this.firestore, 'regions', regionId);
                         batch.set(regionRef, firestoreData, { merge: true });
                     } catch (error) {
-                        console.error(`지역 ${regionId} 배치 추가 오류:`, error);
+                        console.error(`지역 ${regionId} 배치 추가 오류:`, error, regionData);
                         failedCount++;
                     }
                 }
@@ -1559,14 +1604,28 @@ class BillionaireMap {
             await Promise.allSettled(countryLoadPromises);
             console.log('전세계 행정 데이터 로드 완료');
             
-            // 1. 지도 소스에서 모든 지역 데이터 수집
+            // 1. 지도 소스에서 모든 지역 데이터 수집 (소스 데이터 우선으로 인구, 행정구역 정보 업데이트)
+            const beforeCollectCount = this.regionData.size;
             const collectedCount = this.collectAllRegionsFromMapSources();
-            console.log(`전세계 지역 데이터 수집 완료: 총 ${this.regionData.size}개 (신규: ${collectedCount}개)`);
+            const afterCollectCount = this.regionData.size;
+            console.log(`전세계 지역 데이터 수집 완료: 총 ${afterCollectCount}개 (신규: ${collectedCount}개, 업데이트: ${afterCollectCount - beforeCollectCount}개)`);
+            
+            // 수집된 데이터 확인 (디버깅)
+            const sampleRegions = Array.from(this.regionData.entries()).slice(0, 5);
+            console.log('수집된 지역 샘플:', sampleRegions.map(([id, data]) => ({
+                id,
+                name_ko: data.name_ko,
+                country: data.country,
+                population: data.population,
+                area: data.area,
+                admin_level: data.admin_level
+            })));
             
             // 2. 모든 지역 가격을 1000달러로 통일
             const updatedCount = this.setAllRegionsPriceToUniform();
+            console.log(`가격 통일 완료: ${updatedCount}개 지역 가격 업데이트`);
             
-            // 3. 모든 지역 데이터를 Firestore에 저장
+            // 3. 모든 지역 데이터를 Firestore에 저장 (이미 수집했으므로 다시 수집하지 않음)
             const result = await this.saveAllRegionsToFirestore();
             
             return { ...result, priceUpdated: updatedCount };
