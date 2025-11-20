@@ -1242,28 +1242,29 @@ class BillionaireMap {
                 const data = doc.data();
                 const regionId = data.regionId || doc.id;
                 
-                // 메모리의 regionData에 병합 (로컬 데이터가 우선, Firestore는 보완용)
+                // 메모리의 regionData에 병합 (Firestore 데이터가 최우선, 사용자가 일일이 적어준 데이터)
                 const existingData = this.regionData.get(regionId) || {};
                 
-                // 로컬에 데이터가 있으면 로컬 우선, 없으면 Firestore 사용
+                // Firestore 데이터를 최우선으로 사용 (사용자가 일일이 적어준 인구/면적 데이터)
                 const mergedData = {
-                    ...data,  // Firestore 데이터를 기본으로
-                    ...existingData,  // 로컬 데이터가 있으면 덮어씀 (로컬 우선)
-                    // 특정 필드는 명시적으로 처리
+                    ...existingData,  // 기존 데이터를 기본으로
+                    ...data,  // Firestore 데이터로 덮어씀 (Firestore 우선)
+                    // 인구와 면적: Firestore에 값이 있으면 무조건 사용 (0도 유효한 값)
+                    population: data.population !== undefined && data.population !== null 
+                        ? data.population 
+                        : (existingData.population !== undefined && existingData.population !== null ? existingData.population : 0),
+                    area: data.area !== undefined && data.area !== null 
+                        ? data.area 
+                        : (existingData.area !== undefined && existingData.area !== null ? existingData.area : 0),
+                    // 광고 가격: 기존 데이터 우선 (사용자가 설정한 가격 유지)
                     ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
                         ? existingData.ad_price 
                         : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
-                    population: existingData.population !== undefined && existingData.population !== null && existingData.population !== 0
-                        ? existingData.population 
-                        : (data.population !== undefined ? data.population : existingData.population || 0),
-                    area: existingData.area !== undefined && existingData.area !== null && existingData.area !== 0
-                        ? existingData.area 
-                        : (data.area !== undefined ? data.area : existingData.area || 0),
-                    // 기타 필드도 로컬 우선
-                    name_ko: existingData.name_ko || data.name_ko || '',
-                    name_en: existingData.name_en || existingData.name || data.name_en || data.name || '',
-                    country: existingData.country || data.country || '',
-                    admin_level: existingData.admin_level || data.admin_level || ''
+                    // 기타 필드: Firestore 우선, 없으면 기존 데이터
+                    name_ko: data.name_ko || existingData.name_ko || '',
+                    name_en: data.name_en || data.name || existingData.name_en || existingData.name || '',
+                    country: data.country || existingData.country || '',
+                    admin_level: data.admin_level || existingData.admin_level || ''
                 };
                 
                 // 로컬 데이터가 있었는지 확인
@@ -1391,9 +1392,14 @@ class BillionaireMap {
                             name_en: props.name_en || props.name || existingData.name_en || existingData.name || '',
                             country: props.country || existingData.country || '',
                             admin_level: props.admin_level || existingData.admin_level || '',
-                            // 인구와 면적: 소스에 값이 있으면 무조건 사용 (0도 유효한 값)
-                            population: props.hasOwnProperty('population') ? props.population : (existingData.population !== undefined ? existingData.population : 0),
-                            area: props.hasOwnProperty('area') ? props.area : (existingData.area !== undefined ? existingData.area : 0),
+                            // 인구와 면적: Firestore 데이터(existingData)를 최우선으로 사용 (사용자가 일일이 적어준 데이터)
+                            // Firestore에 값이 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
+                            population: existingData.population !== undefined && existingData.population !== null 
+                                ? existingData.population 
+                                : (props.hasOwnProperty('population') ? props.population : 0),
+                            area: existingData.area !== undefined && existingData.area !== null 
+                                ? existingData.area 
+                                : (props.hasOwnProperty('area') ? props.area : 0),
                             // 광고 가격: 소스 데이터 우선
                             ad_price: props.hasOwnProperty('ad_price') && props.ad_price !== null ? props.ad_price : (existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : this.uniformAdPrice || 1000),
                             ad_status: props.ad_status || (props.occupied ? 'occupied' : (existingData.ad_status || 'available')),
@@ -1954,7 +1960,7 @@ class BillionaireMap {
                         area: Math.floor(Math.random() * 500000) + 50000 
                     };
                     
-                    // 기존 데이터가 있으면 기존 데이터 우선, 없으면 기본값 사용
+                    // Firestore 데이터(existingData)를 최우선으로 사용 (사용자가 일일이 적어준 인구/면적 데이터)
                     feature.properties = {
                         ...props,
                         id: stateId,
@@ -1963,8 +1969,13 @@ class BillionaireMap {
                         country: existingData.country || 'USA',
                         country_code: existingData.country_code || 'US',
                         admin_level: existingData.admin_level || 'State',
-                        population: existingData.population || stateData.population,
-                        area: existingData.area || stateData.area,
+                        // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
+                        population: existingData.population !== undefined && existingData.population !== null 
+                            ? existingData.population 
+                            : stateData.population,
+                        area: existingData.area !== undefined && existingData.area !== null 
+                            ? existingData.area 
+                            : stateData.area,
                         ad_status: existingData.ad_status || 'available',
                         ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
                             ? existingData.ad_price 
@@ -1977,10 +1988,10 @@ class BillionaireMap {
                         border_width: existingData.border_width || 1
                     };
                     
-                    // regionData에 저장 (기존 데이터가 있으면 병합)
+                    // regionData에 저장 (Firestore 데이터를 최우선으로 유지)
                     this.regionData.set(stateId, {
-                        ...feature.properties,
-                        ...existingData  // 기존 데이터를 우선적으로 유지
+                        ...existingData,  // Firestore 데이터를 기본으로
+                        ...feature.properties  // 소스 데이터로 보완 (인구/면적은 이미 Firestore 우선으로 설정됨)
                     });
                 });
                 
@@ -3550,27 +3561,41 @@ class BillionaireMap {
                 
                 const data = prefectureData[props.id] || { name: prefectureNameJa, name_ja: prefectureNameJa, population: 1000000, area: 5000 };
                 
+                // Firestore 데이터(existingData)를 최우선으로 확인 (사용자가 일일이 적어준 인구/면적 데이터)
+                const existingData = this.regionData.get(prefectureId) || {};
+                
                 feature.properties = {
                     ...props,
                     id: prefectureId,
-                    name: data.name, // 영어 이름을 메인으로 표시
-                    name_en: data.name,
-                    name_ja: data.name_ja, // 일본어 이름도 보존
-                    country: 'Japan',
-                    admin_level: 'Prefecture',
-                    population: data.population,
-                    area: data.area,
-                    ad_status: 'available',
-                    ad_price: Math.floor(Math.random() * 100000) + 10000,
-                    revenue: 0,
-                    company: null,
-                    logo: null,
-                    color: '#4ecdc4',
-                    border_color: '#ffffff',
-                    border_width: 1
+                    name: existingData.name || data.name, // 영어 이름을 메인으로 표시
+                    name_en: existingData.name_en || data.name,
+                    name_ja: existingData.name_ja || data.name_ja, // 일본어 이름도 보존
+                    country: existingData.country || 'Japan',
+                    admin_level: existingData.admin_level || 'Prefecture',
+                    // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
+                    population: existingData.population !== undefined && existingData.population !== null 
+                        ? existingData.population 
+                        : data.population,
+                    area: existingData.area !== undefined && existingData.area !== null 
+                        ? existingData.area 
+                        : data.area,
+                    ad_status: existingData.ad_status || 'available',
+                    ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                        ? existingData.ad_price 
+                        : (Math.floor(Math.random() * 100000) + 10000),
+                    revenue: existingData.revenue || 0,
+                    company: existingData.company || null,
+                    logo: existingData.logo || null,
+                    color: existingData.color || '#4ecdc4',
+                    border_color: existingData.border_color || '#ffffff',
+                    border_width: existingData.border_width || 1
                 };
                 
-                this.regionData.set(prefectureId, feature.properties);
+                // regionData에 저장 (Firestore 데이터를 최우선으로 유지)
+                this.regionData.set(prefectureId, {
+                    ...existingData,  // Firestore 데이터를 기본으로
+                    ...feature.properties  // 소스 데이터로 보완 (인구/면적은 이미 Firestore 우선으로 설정됨)
+                });
             });
             
             // 캐시에 저장
@@ -12351,33 +12376,43 @@ class BillionaireMap {
                         }
                     }
                     
+                    // Firestore 데이터(existingData)를 최우선으로 확인 (사용자가 일일이 적어준 인구/면적 데이터)
+                    const existingData = this.regionData.get(finalCityId) || {};
+                    
                     // 매칭되지 않으면 기본값 사용
-                    const population = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 500000) + 50000);
-                    const area = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 1000) + 100);
+                    const sourcePopulation = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 500000) + 50000);
+                    const sourceArea = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 1000) + 100);
                     
                     feature.properties = {
                         ...props,
                         id: finalCityId,
-                        name: cityNameKo,
-                        name_en: cityNameEn,
-                        name_ko: cityNameKo,
-                        sig_name_ko: sigNameKo,
-                        sig_name_en: sigNameEn,
-                        ctp_name_ko: ctpNameKo,
-                        ctp_name_en: ctpNameEn,
-                        country: 'South Korea',
-                        country_code: 'KR',
-                        admin_level: (sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) ? 'District' : 'City',
-                        population: population,
-                        area: area,
-                        ad_status: 'available',
-                        ad_price: Math.floor(Math.random() * 500000) + 100000,
-                        revenue: 0,
-                        company: null,
-                        logo: null,
-                        color: '#4ecdc4',
-                        border_color: '#ffffff',
-                        border_width: 1
+                        name: existingData.name || cityNameKo,
+                        name_en: existingData.name_en || cityNameEn,
+                        name_ko: existingData.name_ko || cityNameKo,
+                        sig_name_ko: existingData.sig_name_ko || sigNameKo,
+                        sig_name_en: existingData.sig_name_en || sigNameEn,
+                        ctp_name_ko: existingData.ctp_name_ko || ctpNameKo,
+                        ctp_name_en: existingData.ctp_name_en || ctpNameEn,
+                        country: existingData.country || 'South Korea',
+                        country_code: existingData.country_code || 'KR',
+                        admin_level: existingData.admin_level || ((sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) ? 'District' : 'City'),
+                        // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
+                        population: existingData.population !== undefined && existingData.population !== null 
+                            ? existingData.population 
+                            : sourcePopulation,
+                        area: existingData.area !== undefined && existingData.area !== null 
+                            ? existingData.area 
+                            : sourceArea,
+                        ad_status: existingData.ad_status || 'available',
+                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                            ? existingData.ad_price 
+                            : (Math.floor(Math.random() * 500000) + 100000),
+                        revenue: existingData.revenue || 0,
+                        company: existingData.company || null,
+                        logo: existingData.logo || null,
+                        color: existingData.color || '#4ecdc4',
+                        border_color: existingData.border_color || '#ffffff',
+                        border_width: existingData.border_width || 1
                     };
                     
                     // 디버깅: 구가 있는 지역 모두 출력
@@ -12392,8 +12427,11 @@ class BillionaireMap {
                         });
                     }
                     
-                    // regionData에 저장 (기존 중복 덮어쓰기)
-                    this.regionData.set(finalCityId, feature.properties);
+                    // regionData에 저장 (Firestore 데이터를 최우선으로 유지)
+                    this.regionData.set(finalCityId, {
+                        ...existingData,  // Firestore 데이터를 기본으로
+                        ...feature.properties  // 소스 데이터로 보완 (인구/면적은 이미 Firestore 우선으로 설정됨)
+                    });
                 });
                 
                 // 독도 별도 추가 (울릉군과 분리)
