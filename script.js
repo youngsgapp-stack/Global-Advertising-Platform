@@ -1371,6 +1371,9 @@ class BillionaireMap {
         sourceIds.forEach(sourceId => {
             const source = this.map.getSource(sourceId);
             if (source && source._data && source._data.features) {
+                const featureCount = source._data.features.length;
+                let sourceCollectedCount = 0;
+                
                 source._data.features.forEach(feature => {
                     const props = feature.properties;
                     const regionId = props.id;
@@ -1379,7 +1382,7 @@ class BillionaireMap {
                         // 기존 데이터가 있으면 병합, 없으면 새로 추가
                         const existingData = this.regionData.get(regionId) || {};
                         
-                        // GeoJSON properties에서 지역 데이터 추출
+                        // GeoJSON properties에서 지역 데이터 추출 (소스의 데이터를 우선적으로 사용)
                         const regionData = {
                             ...existingData,
                             id: regionId,
@@ -1389,18 +1392,32 @@ class BillionaireMap {
                             admin_level: props.admin_level || existingData.admin_level || '',
                             population: props.population !== undefined && props.population !== null ? props.population : (existingData.population || 0),
                             area: props.area !== undefined && props.area !== null ? props.area : (existingData.area || 0),
-                            ad_price: props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : (existingData.ad_price || this.uniformAdPrice || 1000),
-                            ad_status: props.ad_status || props.occupied ? 'occupied' : (existingData.ad_status || 'available')
+                            // 소스의 데이터가 우선 (Firestore 동기화 시 최신 데이터 반영)
+                            ad_price: props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : (existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : this.uniformAdPrice || 1000),
+                            ad_status: props.ad_status || (props.occupied ? 'occupied' : (existingData.ad_status || 'available')),
+                            // 기타 필드도 소스 우선
+                            company: props.company !== undefined ? props.company : existingData.company,
+                            logo: props.logo !== undefined ? props.logo : existingData.logo,
+                            color: props.color !== undefined ? props.color : existingData.color,
+                            border_color: props.border_color !== undefined ? props.border_color : existingData.border_color,
+                            border_width: props.border_width !== undefined ? props.border_width : existingData.border_width
                         };
 
                         // 새로운 데이터만 카운트
                         if (!this.regionData.has(regionId)) {
                             collectedCount++;
+                            sourceCollectedCount++;
                         }
                         
                         this.regionData.set(regionId, regionData);
                     }
                 });
+                
+                if (featureCount > 0) {
+                    console.log(`[${sourceId}] 소스에서 ${featureCount}개 지역 발견, ${sourceCollectedCount}개 신규 수집`);
+                }
+            } else if (source) {
+                console.log(`[${sourceId}] 소스는 존재하지만 데이터가 없습니다.`);
             }
         });
 
@@ -12378,24 +12395,37 @@ class BillionaireMap {
                 this.cachedGeoJsonData['korea'] = geoJsonData;
             // }
         
-        // 소스 업데이트 또는 생성
-        if (this.map.getSource('world-regions')) {
+        // 소스 업데이트 또는 생성 (korea-regions 별도 소스 사용)
+        if (this.map.getSource('korea-regions')) {
             // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
-            this.map.getSource('world-regions').setData(geoJsonData);
+            this.map.getSource('korea-regions').setData(geoJsonData);
         } else {
             // 소스가 없으면 새로 생성
-            this.map.addSource('world-regions', {
+            this.map.addSource('korea-regions', {
                 type: 'geojson',
                 data: geoJsonData
             });
         }
         
-        // 레이어가 없으면 추가
+        // 레이어가 korea-regions 소스를 사용하도록 업데이트
+        // 기존 레이어가 있으면 제거하고 다시 추가 (소스 변경을 위해)
+        if (this.map.getLayer('regions-fill')) {
+            // 레이어가 이미 존재하면 소스가 korea-regions인지 확인
+            const existingLayer = this.map.getLayer('regions-fill');
+            if (existingLayer && existingLayer.source !== 'korea-regions') {
+                // 기존 레이어 제거
+                this.map.removeLayer('regions-fill');
+                this.map.removeLayer('regions-border');
+                this.map.removeLayer('regions-hover');
+            }
+        }
+        
+        // 레이어가 없거나 소스가 다른 경우 추가
         if (!this.map.getLayer('regions-fill')) {
             this.map.addLayer({
                 id: 'regions-fill',
                 type: 'fill',
-                source: 'world-regions',
+                source: 'korea-regions',
                 paint: {
                     'fill-color': [
                         'case',
@@ -12410,7 +12440,7 @@ class BillionaireMap {
             this.map.addLayer({
                 id: 'regions-border',
                 type: 'line',
-                source: 'world-regions',
+                source: 'korea-regions',
                 paint: {
                     'line-color': '#ffffff',
                     'line-width': 1,
@@ -12421,7 +12451,7 @@ class BillionaireMap {
             this.map.addLayer({
                 id: 'regions-hover',
                 type: 'fill',
-                source: 'world-regions',
+                source: 'korea-regions',
                 paint: {
                     'fill-color': '#feca57',
                     'fill-opacity': 0
@@ -12432,6 +12462,12 @@ class BillionaireMap {
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
+            }
+        } else {
+            // 레이어가 이미 존재하면 소스 데이터만 업데이트
+            // (레이어 소스는 변경할 수 없으므로 소스 데이터를 업데이트)
+            if (this.map.getSource('korea-regions')) {
+                this.map.getSource('korea-regions').setData(geoJsonData);
             }
         }
         
