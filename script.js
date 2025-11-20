@@ -1416,10 +1416,18 @@ class BillionaireMap {
             return { success: 0, failed: 0 };
         }
 
+        // 사용자 인증 확인
+        if (!this.currentUser) {
+            console.warn('사용자가 로그인하지 않아 지역 데이터를 저장할 수 없습니다.');
+            this.showNotification('저장하려면 먼저 로그인해주세요.', 'error');
+            return { success: 0, failed: 0, collected: 0 };
+        }
+
         try {
-            // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집
+            // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집 (이미 수집된 경우 보완적으로만 수집)
+            const beforeCount = this.regionData.size;
             const collectedCount = this.collectAllRegionsFromMapSources();
-            console.log(`총 수집된 지역: ${this.regionData.size}개 (신규: ${collectedCount}개)`);
+            console.log(`총 수집된 지역: ${this.regionData.size}개 (신규: ${collectedCount}개, 기존: ${beforeCount}개)`);
 
             const { doc, setDoc, serverTimestamp, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
@@ -1487,13 +1495,69 @@ class BillionaireMap {
 
     // 모든 지역 데이터를 동기화 (가격 통일 + Firestore 저장)
     async syncAllRegionsToFirestore() {
-        // 1. 모든 지역 가격을 1000달러로 통일
-        const updatedCount = this.setAllRegionsPriceToUniform();
-        
-        // 2. 모든 지역 데이터를 Firestore에 저장
-        const result = await this.saveAllRegionsToFirestore();
-        
-        return { ...result, priceUpdated: updatedCount };
+        try {
+            // 0. 먼저 모든 국가 데이터를 로드하여 전세계 행정 데이터 수집
+            this.showNotification('전세계 행정 데이터 수집 중...', 'info');
+            console.log('전세계 행정 데이터 수집 시작...');
+            
+            const countryLoadPromises = [
+                this.loadWorldData().catch(e => console.warn('미국 데이터 로드 실패:', e)),
+                this.loadKoreaData().catch(e => console.warn('한국 데이터 로드 실패:', e)),
+                this.loadJapanData().catch(e => console.warn('일본 데이터 로드 실패:', e)),
+                this.loadChinaData().catch(e => console.warn('중국 데이터 로드 실패:', e)),
+                this.loadRussiaData().catch(e => console.warn('러시아 데이터 로드 실패:', e)),
+                this.loadIndiaData().catch(e => console.warn('인도 데이터 로드 실패:', e)),
+                this.loadCanadaData().catch(e => console.warn('캐나다 데이터 로드 실패:', e)),
+                this.loadGermanyData().catch(e => console.warn('독일 데이터 로드 실패:', e)),
+                this.loadUKData().catch(e => console.warn('영국 데이터 로드 실패:', e)),
+                this.loadFranceData().catch(e => console.warn('프랑스 데이터 로드 실패:', e)),
+                this.loadItalyData().catch(e => console.warn('이탈리아 데이터 로드 실패:', e)),
+                this.loadBrazilData().catch(e => console.warn('브라질 데이터 로드 실패:', e)),
+                this.loadAustraliaData().catch(e => console.warn('호주 데이터 로드 실패:', e)),
+                this.loadMexicoData().catch(e => console.warn('멕시코 데이터 로드 실패:', e)),
+                this.loadIndonesiaData().catch(e => console.warn('인도네시아 데이터 로드 실패:', e)),
+                this.loadSaudiArabiaData().catch(e => console.warn('사우디아라비아 데이터 로드 실패:', e)),
+                this.loadTurkeyData().catch(e => console.warn('터키 데이터 로드 실패:', e)),
+                this.loadSouthAfricaData().catch(e => console.warn('남아프리카 데이터 로드 실패:', e)),
+                this.loadArgentinaData().catch(e => console.warn('아르헨티나 데이터 로드 실패:', e)),
+                this.loadEuropeanUnionData().catch(e => console.warn('유럽연합 데이터 로드 실패:', e)),
+                this.loadSpainData().catch(e => console.warn('스페인 데이터 로드 실패:', e)),
+                this.loadNetherlandsData().catch(e => console.warn('네덜란드 데이터 로드 실패:', e)),
+                this.loadPolandData().catch(e => console.warn('폴란드 데이터 로드 실패:', e)),
+                this.loadBelgiumData().catch(e => console.warn('벨기에 데이터 로드 실패:', e)),
+                this.loadSwedenData().catch(e => console.warn('스웨덴 데이터 로드 실패:', e)),
+                this.loadAustriaData().catch(e => console.warn('오스트리아 데이터 로드 실패:', e)),
+                this.loadDenmarkData().catch(e => console.warn('덴마크 데이터 로드 실패:', e)),
+                this.loadFinlandData().catch(e => console.warn('핀란드 데이터 로드 실패:', e)),
+                this.loadIrelandData().catch(e => console.warn('아일랜드 데이터 로드 실패:', e)),
+                this.loadPortugalData().catch(e => console.warn('포르투갈 데이터 로드 실패:', e)),
+                this.loadGreeceData().catch(e => console.warn('그리스 데이터 로드 실패:', e)),
+                this.loadCzechRepublicData().catch(e => console.warn('체코 데이터 로드 실패:', e)),
+                this.loadRomaniaData().catch(e => console.warn('루마니아 데이터 로드 실패:', e)),
+                this.loadHungaryData().catch(e => console.warn('헝가리 데이터 로드 실패:', e)),
+                this.loadBulgariaData().catch(e => console.warn('불가리아 데이터 로드 실패:', e))
+            ];
+            
+            // 모든 국가 데이터 로드 완료 대기 (병렬로 로드하여 성능 최적화)
+            await Promise.allSettled(countryLoadPromises);
+            console.log('전세계 행정 데이터 로드 완료');
+            
+            // 1. 지도 소스에서 모든 지역 데이터 수집
+            const collectedCount = this.collectAllRegionsFromMapSources();
+            console.log(`전세계 지역 데이터 수집 완료: 총 ${this.regionData.size}개 (신규: ${collectedCount}개)`);
+            
+            // 2. 모든 지역 가격을 1000달러로 통일
+            const updatedCount = this.setAllRegionsPriceToUniform();
+            
+            // 3. 모든 지역 데이터를 Firestore에 저장
+            const result = await this.saveAllRegionsToFirestore();
+            
+            return { ...result, priceUpdated: updatedCount };
+        } catch (error) {
+            console.error('전세계 지역 데이터 동기화 오류:', error);
+            this.showNotification('전세계 지역 데이터 동기화 중 오류가 발생했습니다.', 'error');
+            return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
+        }
     }
 
     // 사용자 로그인 (이메일/비밀번호)
@@ -1805,34 +1869,43 @@ class BillionaireMap {
                     const stateName = props.name;
                     const stateId = stateName.toLowerCase().replace(/\s+/g, '_');
                     
+                    // 기존 regionData에서 데이터 가져오기 (Firestore에서 로드된 데이터가 있는 경우)
+                    const existingData = this.regionData.get(stateId) || {};
+                    
                     // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
                     const stateData = usaStateData[stateName] || { 
                         population: Math.floor(Math.random() * 10000000) + 1000000, 
                         area: Math.floor(Math.random() * 500000) + 50000 
                     };
                     
+                    // 기존 데이터가 있으면 기존 데이터 우선, 없으면 기본값 사용
                     feature.properties = {
                         ...props,
                         id: stateId,
-                        name_en: stateName,
-                        name_ko: this.getKoreanStateName(stateName),
-                        country: 'USA',
-                        country_code: 'US',
-                        admin_level: 'State',
-                        population: stateData.population,
-                        area: stateData.area,
-                        ad_status: 'available',
-                        ad_price: 50000 + (index * 5000),
-                        revenue: 0,
-                        company: null,
-                        logo: null,
-                        color: '#4ecdc4',
-                        border_color: '#ffffff',
-                        border_width: 1
+                        name_en: existingData.name_en || stateName,
+                        name_ko: existingData.name_ko || this.getKoreanStateName(stateName),
+                        country: existingData.country || 'USA',
+                        country_code: existingData.country_code || 'US',
+                        admin_level: existingData.admin_level || 'State',
+                        population: existingData.population || stateData.population,
+                        area: existingData.area || stateData.area,
+                        ad_status: existingData.ad_status || 'available',
+                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                            ? existingData.ad_price 
+                            : (50000 + (index * 5000)),
+                        revenue: existingData.revenue || 0,
+                        company: existingData.company || null,
+                        logo: existingData.logo || null,
+                        color: existingData.color || '#4ecdc4',
+                        border_color: existingData.border_color || '#ffffff',
+                        border_width: existingData.border_width || 1
                     };
                     
-                    // regionData에 저장
-                    this.regionData.set(stateId, feature.properties);
+                    // regionData에 저장 (기존 데이터가 있으면 병합)
+                    this.regionData.set(stateId, {
+                        ...feature.properties,
+                        ...existingData  // 기존 데이터를 우선적으로 유지
+                    });
                 });
                 
                 // 캐시에 저장
@@ -13020,6 +13093,11 @@ class BillionaireMap {
             
             // 국가별 데이터 로드 (현재는 기본 데이터 사용)
             await this.loadWorldData();
+            
+            // Firestore에서 지역 데이터 다시 로드 (기존 데이터 유지하면서 업데이트)
+            if (this.isFirebaseInitialized && this.firestore) {
+                await this.loadRegionDataFromFirestore();
+            }
             
         } catch (error) {
             console.error('국가 데이터 로드 중 오류:', error);
