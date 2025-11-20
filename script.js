@@ -1242,29 +1242,30 @@ class BillionaireMap {
                 const data = doc.data();
                 const regionId = data.regionId || doc.id;
                 
-                // 메모리의 regionData에 병합 (Firestore 데이터가 최우선, 사용자가 일일이 적어준 데이터)
+                // 메모리의 regionData에 병합 (Firestore 데이터 우선, 특히 인구/면적 데이터)
                 const existingData = this.regionData.get(regionId) || {};
                 
-                // Firestore 데이터를 최우선으로 사용 (사용자가 일일이 적어준 인구/면적 데이터)
+                // Firestore 데이터를 우선적으로 사용 (인구/면적 데이터는 Firestore 우선)
                 const mergedData = {
-                    ...existingData,  // 기존 데이터를 기본으로
+                    ...existingData,  // 기본은 로컬 데이터
                     ...data,  // Firestore 데이터로 덮어씀 (Firestore 우선)
-                    // 인구와 면적: Firestore에 값이 있으면 무조건 사용 (0도 유효한 값)
-                    population: data.population !== undefined && data.population !== null 
+                    // 인구/면적은 Firestore에 값이 있으면 Firestore 우선
+                    population: (data.population !== undefined && data.population !== null && data.population > 0)
                         ? data.population 
-                        : (existingData.population !== undefined && existingData.population !== null ? existingData.population : 0),
-                    area: data.area !== undefined && data.area !== null 
+                        : (existingData.population || 0),
+                    area: (data.area !== undefined && data.area !== null && data.area > 0)
                         ? data.area 
-                        : (existingData.area !== undefined && existingData.area !== null ? existingData.area : 0),
-                    // 광고 가격: 기존 데이터 우선 (사용자가 설정한 가격 유지)
+                        : (existingData.area || 0),
+                    // 가격은 현재 메모리 상태 유지 (동기화 버튼에서 통일할 때까지)
                     ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
                         ? existingData.ad_price 
                         : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
-                    // 기타 필드: Firestore 우선, 없으면 기존 데이터
+                    // 기타 필드는 Firestore 우선, 없으면 로컬
                     name_ko: data.name_ko || existingData.name_ko || '',
-                    name_en: data.name_en || data.name || existingData.name_en || existingData.name || '',
+                    name_en: data.name_en || existingData.name_en || existingData.name || '',
                     country: data.country || existingData.country || '',
-                    admin_level: data.admin_level || existingData.admin_level || ''
+                    admin_level: data.admin_level || existingData.admin_level || '',
+                    ad_status: data.ad_status || existingData.ad_status || 'available'
                 };
                 
                 // 로컬 데이터가 있었는지 확인
@@ -1352,6 +1353,7 @@ class BillionaireMap {
         }
 
         let collectedCount = 0;
+        let preservedCount = 0;
         
         // 모든 가능한 소스 ID 목록
         const sourceIds = [
@@ -1372,9 +1374,6 @@ class BillionaireMap {
         sourceIds.forEach(sourceId => {
             const source = this.map.getSource(sourceId);
             if (source && source._data && source._data.features) {
-                const featureCount = source._data.features.length;
-                let sourceCollectedCount = 0;
-                
                 source._data.features.forEach(feature => {
                     const props = feature.properties;
                     const regionId = props.id;
@@ -1383,134 +1382,44 @@ class BillionaireMap {
                         // 기존 데이터가 있으면 병합, 없으면 새로 추가
                         const existingData = this.regionData.get(regionId) || {};
                         
-                        // GeoJSON properties에서 지역 데이터 추출 (소스의 데이터를 우선적으로 사용)
-                        // 소스 데이터를 기준으로 하고, 없는 경우에만 기존 데이터 사용
+                        // Firestore에서 불러온 인구/면적 데이터를 우선적으로 유지
+                        const firestorePopulation = existingData.population && existingData.population > 0 ? existingData.population : null;
+                        const firestoreArea = existingData.area && existingData.area > 0 ? existingData.area : null;
+                        
+                        // GeoJSON properties에서 지역 데이터 추출
                         const regionData = {
-                            // 소스 데이터를 먼저 사용
                             id: regionId,
-                            name_ko: props.name_ko || existingData.name_ko || '',
-                            name_en: props.name_en || props.name || existingData.name_en || existingData.name || '',
-                            country: props.country || existingData.country || '',
-                            admin_level: props.admin_level || existingData.admin_level || '',
-                            // 인구와 면적: Firestore 데이터(existingData)를 최우선으로 사용 (사용자가 일일이 적어준 데이터)
-                            // Firestore에 값이 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
-                            population: existingData.population !== undefined && existingData.population !== null 
-                                ? existingData.population 
-                                : (props.hasOwnProperty('population') ? props.population : 0),
-                            area: existingData.area !== undefined && existingData.area !== null 
-                                ? existingData.area 
-                                : (props.hasOwnProperty('area') ? props.area : 0),
-                            // 광고 가격: 소스 데이터 우선
-                            ad_price: props.hasOwnProperty('ad_price') && props.ad_price !== null ? props.ad_price : (existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : this.uniformAdPrice || 1000),
-                            ad_status: props.ad_status || (props.occupied ? 'occupied' : (existingData.ad_status || 'available')),
-                            // 기타 필드: 소스에 있으면 사용, 없으면 기존 데이터 유지
-                            company: props.hasOwnProperty('company') ? props.company : existingData.company,
-                            logo: props.hasOwnProperty('logo') ? props.logo : existingData.logo,
-                            color: props.hasOwnProperty('color') ? props.color : existingData.color,
-                            border_color: props.hasOwnProperty('border_color') ? props.border_color : existingData.border_color,
-                            border_width: props.hasOwnProperty('border_width') ? props.border_width : existingData.border_width,
-                            // 추가 필드들도 소스 우선
-                            revenue: props.hasOwnProperty('revenue') ? props.revenue : existingData.revenue,
-                            sig_name_ko: props.sig_name_ko || existingData.sig_name_ko,
-                            sig_name_en: props.sig_name_en || existingData.sig_name_en,
-                            ctp_name_ko: props.ctp_name_ko || existingData.ctp_name_ko,
-                            ctp_name_en: props.ctp_name_en || existingData.ctp_name_en
+                            // 기본 정보는 GeoJSON에서 가져오되, Firestore 데이터가 있으면 유지
+                            name_ko: existingData.name_ko || props.name_ko || '',
+                            name_en: existingData.name_en || props.name_en || props.name || '',
+                            country: existingData.country || props.country || '',
+                            admin_level: existingData.admin_level || props.admin_level || '',
+                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용
+                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null ? props.population : 0),
+                            area: firestoreArea !== null ? firestoreArea : (props.area !== undefined && props.area !== null ? props.area : 0),
+                            // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
+                            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
+                            ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
                         };
 
-                        // 기존 데이터와 비교하여 업데이트 여부 확인
-                        const wasExisting = this.regionData.has(regionId);
-                        const existingBefore = wasExisting ? { ...this.regionData.get(regionId) } : null;
-                        
-                        // 데이터 업데이트 (소스 데이터 우선)
-                        this.regionData.set(regionId, regionData);
-                        
-                        // 업데이트 확인 (인구, 면적, 행정구역 정보가 변경되었는지)
-                        if (wasExisting && existingBefore) {
-                            const updated = (
-                                existingBefore.population !== regionData.population ||
-                                existingBefore.area !== regionData.area ||
-                                existingBefore.admin_level !== regionData.admin_level ||
-                                existingBefore.name_ko !== regionData.name_ko ||
-                                existingBefore.country !== regionData.country
-                            );
-                            if (updated) {
-                                sourceCollectedCount++; // 업데이트된 것으로 카운트
-                            }
-                        } else {
-                            // 새로운 데이터
-                            collectedCount++;
-                            sourceCollectedCount++;
+                        // Firestore 데이터를 보존했는지 확인
+                        if (firestorePopulation !== null || firestoreArea !== null) {
+                            preservedCount++;
                         }
+
+                        // 새로운 데이터만 카운트
+                        if (!this.regionData.has(regionId)) {
+                            collectedCount++;
+                        }
+                        
+                        this.regionData.set(regionId, regionData);
                     }
                 });
-                
-                if (featureCount > 0) {
-                    console.log(`[${sourceId}] 소스에서 ${featureCount}개 지역 발견, ${sourceCollectedCount}개 신규/업데이트 수집`);
-                    // 샘플 데이터 출력 (디버깅)
-                    if (source._data && source._data.features && source._data.features.length > 0) {
-                        const sample = source._data.features[0].properties;
-                        console.log(`[${sourceId}] 샘플 데이터:`, {
-                            id: sample.id,
-                            name_ko: sample.name_ko,
-                            country: sample.country,
-                            population: sample.population,
-                            area: sample.area,
-                            admin_level: sample.admin_level
-                        });
-                    }
-                }
-            } else if (source) {
-                console.log(`[${sourceId}] 소스는 존재하지만 데이터가 없습니다.`);
             }
         });
 
-        console.log(`지도 소스에서 ${collectedCount}개의 새로운 지역 데이터를 수집했습니다.`);
+        console.log(`지도 소스에서 ${collectedCount}개의 새로운 지역 데이터를 수집했습니다. (Firestore 데이터 보존: ${preservedCount}개)`);
         return collectedCount;
-    }
-
-    // 공통 함수: Firestore 데이터를 우선적으로 사용하여 regionData에 저장
-    // 모든 국가의 행정구역 데이터를 통일된 방식으로 처리
-    setRegionDataWithFirestorePriority(regionId, properties) {
-        // Firestore 데이터(existingData)를 최우선으로 확인 (사용자가 일일이 적어준 인구/면적 데이터)
-        const existingData = this.regionData.get(regionId) || {};
-        
-        // regionData에 저장 (Firestore 데이터를 최우선으로 유지)
-        // 인구와 면적은 명시적으로 Firestore 데이터 우선으로 설정
-        const mergedData = {
-            ...properties,  // 소스 데이터를 기본으로
-            // 인구와 면적은 Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값)
-            population: existingData.population !== undefined && existingData.population !== null 
-                ? existingData.population 
-                : (properties.population !== undefined ? properties.population : 0),
-            area: existingData.area !== undefined && existingData.area !== null 
-                ? existingData.area 
-                : (properties.area !== undefined ? properties.area : 0),
-            // 기타 Firestore 데이터도 우선 사용
-            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                ? existingData.ad_price 
-                : (properties.ad_price !== undefined ? properties.ad_price : (this.uniformAdPrice || 1000)),
-            ad_status: existingData.ad_status || properties.ad_status || 'available',
-            revenue: existingData.revenue !== undefined ? existingData.revenue : (properties.revenue || 0),
-            company: existingData.company !== undefined ? existingData.company : (properties.company || null),
-            logo: existingData.logo !== undefined ? existingData.logo : (properties.logo || null),
-            // 이름과 국가 정보는 Firestore 우선, 없으면 소스 데이터
-            name_ko: existingData.name_ko || properties.name_ko || properties.name || '',
-            name_en: existingData.name_en || properties.name_en || properties.name || '',
-            country: existingData.country || properties.country || '',
-            admin_level: existingData.admin_level || properties.admin_level || '',
-            // 추가 필드들도 Firestore 우선
-            sig_name_ko: existingData.sig_name_ko || properties.sig_name_ko || '',
-            sig_name_en: existingData.sig_name_en || properties.sig_name_en || '',
-            ctp_name_ko: existingData.ctp_name_ko || properties.ctp_name_ko || '',
-            ctp_name_en: existingData.ctp_name_en || properties.ctp_name_en || '',
-            country_code: existingData.country_code || properties.country_code || '',
-            color: existingData.color || properties.color || '#4ecdc4',
-            border_color: existingData.border_color || properties.border_color || '#ffffff',
-            border_width: existingData.border_width !== undefined ? existingData.border_width : (properties.border_width || 1)
-        };
-        
-        this.regionData.set(regionId, mergedData);
-        return mergedData;
     }
 
     // 모든 지역 데이터를 Firestore에 일괄 저장
@@ -1521,19 +1430,10 @@ class BillionaireMap {
             return { success: 0, failed: 0 };
         }
 
-        // 사용자 인증 확인
-        if (!this.currentUser) {
-            console.warn('사용자가 로그인하지 않아 지역 데이터를 저장할 수 없습니다.');
-            this.showNotification('저장하려면 먼저 로그인해주세요.', 'error');
-            return { success: 0, failed: 0, collected: 0 };
-        }
-
         try {
-            // syncAllRegionsToFirestore에서 이미 수집했으므로 여기서는 수집하지 않음
-            // 단독 호출 시를 위해 보완적으로 수집 (옵션으로 변경 가능)
-            const beforeCount = this.regionData.size;
-            const collectedCount = 0; // 이미 수집했으므로 0으로 설정
-            console.log(`Firestore 저장 준비: 총 ${this.regionData.size}개 지역 (기존: ${beforeCount}개)`);
+            // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집
+            const collectedCount = this.collectAllRegionsFromMapSources();
+            console.log(`총 수집된 지역: ${this.regionData.size}개 (신규: ${collectedCount}개)`);
 
             const { doc, setDoc, serverTimestamp, writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
@@ -1553,30 +1453,23 @@ class BillionaireMap {
                 for (const [regionId, regionData] of batchRegions) {
                     try {
                         // 저장할 데이터 (Firestore에 저장할 필드만 추출)
-                        // 모든 필드를 포함하여 행정구역, 인구 정보도 저장
                         const firestoreData = {
                             regionId: regionId,
                             name_ko: regionData.name_ko || '',
                             name_en: regionData.name_en || regionData.name || '',
                             country: regionData.country || '',
                             admin_level: regionData.admin_level || '',
-                            // 인구와 면적은 0도 유효한 값이므로 명시적으로 저장
-                            population: regionData.population !== undefined && regionData.population !== null ? regionData.population : 0,
-                            area: regionData.area !== undefined && regionData.area !== null ? regionData.area : 0,
-                            ad_price: regionData.ad_price !== undefined && regionData.ad_price !== null ? regionData.ad_price : (this.uniformAdPrice || 1000),
+                            population: regionData.population || 0,
+                            area: regionData.area || 0,
+                            ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
                             ad_status: regionData.ad_status || 'available',
-                            // 추가 필드도 저장 (선택적)
-                            sig_name_ko: regionData.sig_name_ko || '',
-                            sig_name_en: regionData.sig_name_en || '',
-                            ctp_name_ko: regionData.ctp_name_ko || '',
-                            ctp_name_en: regionData.ctp_name_en || '',
                             updatedAt: serverTimestamp()
                         };
 
                         const regionRef = doc(this.firestore, 'regions', regionId);
                         batch.set(regionRef, firestoreData, { merge: true });
                     } catch (error) {
-                        console.error(`지역 ${regionId} 배치 추가 오류:`, error, regionData);
+                        console.error(`지역 ${regionId} 배치 추가 오류:`, error);
                         failedCount++;
                     }
                 }
@@ -1591,38 +1484,14 @@ class BillionaireMap {
                     this.showNotification(`Firestore 저장 중... ${progress}% (${successCount}/${totalRegions})`, 'info');
                 } catch (error) {
                     console.error(`배치 ${Math.floor(i / batchSize) + 1} 저장 오류:`, error);
-                    console.error('에러 상세:', {
-                        message: error.message,
-                        code: error.code,
-                        stack: error.stack
-                    });
-                    // 각 지역별로 개별 저장 시도 (배치 실패 시)
-                    for (const [regionId, regionData] of batchRegions) {
-                        try {
-                            const firestoreData = {
-                                regionId: regionId,
-                                name_ko: regionData.name_ko || '',
-                                name_en: regionData.name_en || regionData.name || '',
-                                country: regionData.country || '',
-                                admin_level: regionData.admin_level || '',
-                                population: regionData.population !== undefined && regionData.population !== null ? regionData.population : 0,
-                                area: regionData.area !== undefined && regionData.area !== null ? regionData.area : 0,
-                                ad_price: regionData.ad_price !== undefined && regionData.ad_price !== null ? regionData.ad_price : (this.uniformAdPrice || 1000),
-                                ad_status: regionData.ad_status || 'available',
-                                sig_name_ko: regionData.sig_name_ko || '',
-                                sig_name_en: regionData.sig_name_en || '',
-                                ctp_name_ko: regionData.ctp_name_ko || '',
-                                ctp_name_en: regionData.ctp_name_en || '',
-                                updatedAt: serverTimestamp()
-                            };
-                            const regionRef = doc(this.firestore, 'regions', regionId);
-                            await setDoc(regionRef, firestoreData, { merge: true });
-                            successCount++;
-                            failedCount--;
-                        } catch (individualError) {
-                            console.error(`지역 ${regionId} 개별 저장 실패:`, individualError);
-                        }
+                    
+                    // 권한 오류인 경우 더 자세한 정보 출력
+                    if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                        console.error('Firestore 권한 오류: Firestore 보안 규칙을 확인하세요. regions 컬렉션에 쓰기 권한이 필요합니다.');
+                        this.showNotification('Firestore 권한 오류: 관리자에게 문의하세요.', 'error');
                     }
+                    
+                    failedCount += batchRegions.length;
                 }
             }
 
@@ -1639,81 +1508,82 @@ class BillionaireMap {
 
     // 모든 지역 데이터를 동기화 (가격 통일 + Firestore 저장)
     async syncAllRegionsToFirestore() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            this.showNotification('Firebase가 초기화되지 않았습니다.', 'error');
+            return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
+        }
+
         try {
-            // 0. 먼저 모든 국가 데이터를 로드하여 전세계 행정 데이터 수집
-            this.showNotification('전세계 행정 데이터 수집 중...', 'info');
-            console.log('전세계 행정 데이터 수집 시작...');
+            this.showNotification('Firestore에서 모든 지역 데이터를 불러오는 중...', 'info');
             
-            const countryLoadPromises = [
-                this.loadWorldData().catch(e => console.warn('미국 데이터 로드 실패:', e)),
-                this.loadKoreaData().catch(e => console.warn('한국 데이터 로드 실패:', e)),
-                this.loadJapanData().catch(e => console.warn('일본 데이터 로드 실패:', e)),
-                this.loadChinaData().catch(e => console.warn('중국 데이터 로드 실패:', e)),
-                this.loadRussiaData().catch(e => console.warn('러시아 데이터 로드 실패:', e)),
-                this.loadIndiaData().catch(e => console.warn('인도 데이터 로드 실패:', e)),
-                this.loadCanadaData().catch(e => console.warn('캐나다 데이터 로드 실패:', e)),
-                this.loadGermanyData().catch(e => console.warn('독일 데이터 로드 실패:', e)),
-                this.loadUKData().catch(e => console.warn('영국 데이터 로드 실패:', e)),
-                this.loadFranceData().catch(e => console.warn('프랑스 데이터 로드 실패:', e)),
-                this.loadItalyData().catch(e => console.warn('이탈리아 데이터 로드 실패:', e)),
-                this.loadBrazilData().catch(e => console.warn('브라질 데이터 로드 실패:', e)),
-                this.loadAustraliaData().catch(e => console.warn('호주 데이터 로드 실패:', e)),
-                this.loadMexicoData().catch(e => console.warn('멕시코 데이터 로드 실패:', e)),
-                this.loadIndonesiaData().catch(e => console.warn('인도네시아 데이터 로드 실패:', e)),
-                this.loadSaudiArabiaData().catch(e => console.warn('사우디아라비아 데이터 로드 실패:', e)),
-                this.loadTurkeyData().catch(e => console.warn('터키 데이터 로드 실패:', e)),
-                this.loadSouthAfricaData().catch(e => console.warn('남아프리카 데이터 로드 실패:', e)),
-                this.loadArgentinaData().catch(e => console.warn('아르헨티나 데이터 로드 실패:', e)),
-                this.loadEuropeanUnionData().catch(e => console.warn('유럽연합 데이터 로드 실패:', e)),
-                this.loadSpainData().catch(e => console.warn('스페인 데이터 로드 실패:', e)),
-                this.loadNetherlandsData().catch(e => console.warn('네덜란드 데이터 로드 실패:', e)),
-                this.loadPolandData().catch(e => console.warn('폴란드 데이터 로드 실패:', e)),
-                this.loadBelgiumData().catch(e => console.warn('벨기에 데이터 로드 실패:', e)),
-                this.loadSwedenData().catch(e => console.warn('스웨덴 데이터 로드 실패:', e)),
-                this.loadAustriaData().catch(e => console.warn('오스트리아 데이터 로드 실패:', e)),
-                this.loadDenmarkData().catch(e => console.warn('덴마크 데이터 로드 실패:', e)),
-                this.loadFinlandData().catch(e => console.warn('핀란드 데이터 로드 실패:', e)),
-                this.loadIrelandData().catch(e => console.warn('아일랜드 데이터 로드 실패:', e)),
-                this.loadPortugalData().catch(e => console.warn('포르투갈 데이터 로드 실패:', e)),
-                this.loadGreeceData().catch(e => console.warn('그리스 데이터 로드 실패:', e)),
-                this.loadCzechRepublicData().catch(e => console.warn('체코 데이터 로드 실패:', e)),
-                this.loadRomaniaData().catch(e => console.warn('루마니아 데이터 로드 실패:', e)),
-                this.loadHungaryData().catch(e => console.warn('헝가리 데이터 로드 실패:', e)),
-                this.loadBulgariaData().catch(e => console.warn('불가리아 데이터 로드 실패:', e))
-            ];
+            // 1. 먼저 Firestore에서 모든 지역 데이터를 로드 (이전에 입력한 인구/면적 데이터 유지)
+            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionsSnapshot = await getDocs(collection(this.firestore, 'regions'));
             
-            // 모든 국가 데이터 로드 완료 대기 (병렬로 로드하여 성능 최적화)
-            await Promise.allSettled(countryLoadPromises);
-            console.log('전세계 행정 데이터 로드 완료');
+            // Firestore 데이터를 메모리로 로드 (인구/면적 데이터 보존)
+            const firestoreDataMap = new Map();
+            regionsSnapshot.forEach((doc) => {
+                const data = doc.data();
+                const regionId = data.regionId || doc.id;
+                firestoreDataMap.set(regionId, {
+                    population: data.population || 0,
+                    area: data.area || 0,
+                    name_ko: data.name_ko || '',
+                    name_en: data.name_en || '',
+                    country: data.country || '',
+                    admin_level: data.admin_level || '',
+                    ad_status: data.ad_status || 'available'
+                });
+            });
             
-            // 1. 지도 소스에서 모든 지역 데이터 수집 (소스 데이터 우선으로 인구, 행정구역 정보 업데이트)
-            const beforeCollectCount = this.regionData.size;
+            console.log(`Firestore에서 ${firestoreDataMap.size}개 지역의 데이터를 불러왔습니다.`);
+            
+            // 2. 지도 소스에서 모든 지역 데이터 수집
             const collectedCount = this.collectAllRegionsFromMapSources();
-            const afterCollectCount = this.regionData.size;
-            console.log(`전세계 지역 데이터 수집 완료: 총 ${afterCollectCount}개 (신규: ${collectedCount}개, 업데이트: ${afterCollectCount - beforeCollectCount}개)`);
+            console.log(`지도 소스에서 ${collectedCount}개 새로운 지역을 수집했습니다.`);
             
-            // 수집된 데이터 확인 (디버깅)
-            const sampleRegions = Array.from(this.regionData.entries()).slice(0, 5);
-            console.log('수집된 지역 샘플:', sampleRegions.map(([id, data]) => ({
-                id,
-                name_ko: data.name_ko,
-                country: data.country,
-                population: data.population,
-                area: data.area,
-                admin_level: data.admin_level
-            })));
+            // 3. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
+            let mergeCount = 0;
+            this.regionData.forEach((regionData, regionId) => {
+                const firestoreData = firestoreDataMap.get(regionId);
+                if (firestoreData) {
+                    // Firestore에 저장된 인구/면적 데이터가 있으면 유지
+                    if (firestoreData.population > 0) {
+                        regionData.population = firestoreData.population;
+                    }
+                    if (firestoreData.area > 0) {
+                        regionData.area = firestoreData.area;
+                    }
+                    // 기타 필드도 Firestore 데이터 우선
+                    if (firestoreData.name_ko) regionData.name_ko = firestoreData.name_ko;
+                    if (firestoreData.name_en) regionData.name_en = firestoreData.name_en;
+                    if (firestoreData.country) regionData.country = firestoreData.country;
+                    if (firestoreData.admin_level) regionData.admin_level = firestoreData.admin_level;
+                    if (firestoreData.ad_status) regionData.ad_status = firestoreData.ad_status;
+                    mergeCount++;
+                }
+                
+                // 4. 모든 지역 가격을 1000달러로 통일
+                regionData.ad_price = this.uniformAdPrice || 1000;
+                this.regionData.set(regionId, regionData);
+            });
             
-            // 2. 모든 지역 가격을 1000달러로 통일
-            const updatedCount = this.setAllRegionsPriceToUniform();
-            console.log(`가격 통일 완료: ${updatedCount}개 지역 가격 업데이트`);
+            console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다.`);
             
-            // 3. 모든 지역 데이터를 Firestore에 저장 (이미 수집했으므로 다시 수집하지 않음)
+            // 5. 지도 소스 업데이트
+            this.updateMapSourcesWithRegionData();
+            
+            // 6. 모든 지역 데이터를 Firestore에 저장
             const result = await this.saveAllRegionsToFirestore();
             
-            return { ...result, priceUpdated: updatedCount };
+            return { 
+                ...result, 
+                priceUpdated: this.regionData.size,
+                merged: mergeCount 
+            };
         } catch (error) {
-            console.error('전세계 지역 데이터 동기화 오류:', error);
-            this.showNotification('전세계 지역 데이터 동기화 중 오류가 발생했습니다.', 'error');
+            console.error('동기화 오류:', error);
+            this.showNotification('동기화 중 오류가 발생했습니다.', 'error');
             return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
         }
     }
@@ -2027,45 +1897,34 @@ class BillionaireMap {
                     const stateName = props.name;
                     const stateId = stateName.toLowerCase().replace(/\s+/g, '_');
                     
-                    // 기존 regionData에서 데이터 가져오기 (Firestore에서 로드된 데이터가 있는 경우)
-                    const existingData = this.regionData.get(stateId) || {};
-                    
                     // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
                     const stateData = usaStateData[stateName] || { 
                         population: Math.floor(Math.random() * 10000000) + 1000000, 
                         area: Math.floor(Math.random() * 500000) + 50000 
                     };
                     
-                    // Firestore 데이터(existingData)를 최우선으로 사용 (사용자가 일일이 적어준 인구/면적 데이터)
                     feature.properties = {
                         ...props,
                         id: stateId,
-                        name_en: existingData.name_en || stateName,
-                        name_ko: existingData.name_ko || this.getKoreanStateName(stateName),
-                        country: existingData.country || 'USA',
-                        country_code: existingData.country_code || 'US',
-                        admin_level: existingData.admin_level || 'State',
-                        // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
-                        population: existingData.population !== undefined && existingData.population !== null 
-                            ? existingData.population 
-                            : stateData.population,
-                        area: existingData.area !== undefined && existingData.area !== null 
-                            ? existingData.area 
-                            : stateData.area,
-                        ad_status: existingData.ad_status || 'available',
-                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                            ? existingData.ad_price 
-                            : (50000 + (index * 5000)),
-                        revenue: existingData.revenue || 0,
-                        company: existingData.company || null,
-                        logo: existingData.logo || null,
-                        color: existingData.color || '#4ecdc4',
-                        border_color: existingData.border_color || '#ffffff',
-                        border_width: existingData.border_width || 1
+                        name_en: stateName,
+                        name_ko: this.getKoreanStateName(stateName),
+                        country: 'USA',
+                        country_code: 'US',
+                        admin_level: 'State',
+                        population: stateData.population,
+                        area: stateData.area,
+                        ad_status: 'available',
+                        ad_price: 50000 + (index * 5000),
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#4ecdc4',
+                        border_color: '#ffffff',
+                        border_width: 1
                     };
                     
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(stateId, feature.properties);
+                    // regionData에 저장
+                    this.regionData.set(stateId, feature.properties);
                 });
                 
                 // 캐시에 저장
@@ -2808,7 +2667,16 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadWorldData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
         // Firestore 데이터 적용
         if (this.isFirebaseInitialized) {
             this.updateMapSourcesWithRegionData();
@@ -2830,7 +2698,16 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadKoreaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
         // Firestore 데이터 적용
         if (this.isFirebaseInitialized) {
             this.updateMapSourcesWithRegionData();
@@ -2852,7 +2729,16 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadJapanData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
         // Firestore 데이터 적용
         if (this.isFirebaseInitialized) {
             this.updateMapSourcesWithRegionData();
@@ -2874,7 +2760,16 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadChinaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
         // Firestore 데이터 적용
         if (this.isFirebaseInitialized) {
             this.updateMapSourcesWithRegionData();
@@ -2895,7 +2790,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadIndiaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('인도 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2912,7 +2820,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadCanadaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('캐나다 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2929,7 +2850,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadGermanyData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('독일 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2946,7 +2880,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadUKData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('영국 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2963,7 +2910,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadFranceData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('프랑스 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2980,7 +2940,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadItalyData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('이탈리아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -2997,7 +2970,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadBrazilData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('브라질 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3014,7 +3000,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadAustraliaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('호주 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3031,7 +3030,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadMexicoData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('멕시코 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3048,7 +3060,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadIndonesiaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('인도네시아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3065,7 +3090,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadSaudiArabiaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('사우디아라비아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3082,7 +3120,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadTurkeyData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('터키 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3099,7 +3150,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadSouthAfricaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('남아프리카공화국 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3116,7 +3180,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadArgentinaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('아르헨티나 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3133,7 +3210,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadEuropeanUnionData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('유럽연합 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3143,7 +3233,21 @@ class BillionaireMap {
         this.currentMapMode = 'spain';
         this.updateModeButtons();
         this.map.easeTo({ center: [-3, 40], zoom: 5, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadSpainData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('스페인 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3153,7 +3257,21 @@ class BillionaireMap {
         this.currentMapMode = 'netherlands';
         this.updateModeButtons();
         this.map.easeTo({ center: [5, 52], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadNetherlandsData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('네덜란드 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3163,7 +3281,21 @@ class BillionaireMap {
         this.currentMapMode = 'poland';
         this.updateModeButtons();
         this.map.easeTo({ center: [19, 52], zoom: 5, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadPolandData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('폴란드 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3173,7 +3305,21 @@ class BillionaireMap {
         this.currentMapMode = 'belgium';
         this.updateModeButtons();
         this.map.easeTo({ center: [4.5, 50.5], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadBelgiumData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('벨기에 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3183,7 +3329,21 @@ class BillionaireMap {
         this.currentMapMode = 'sweden';
         this.updateModeButtons();
         this.map.easeTo({ center: [18, 60], zoom: 5, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadSwedenData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('스웨덴 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3193,7 +3353,21 @@ class BillionaireMap {
         this.currentMapMode = 'austria';
         this.updateModeButtons();
         this.map.easeTo({ center: [13, 47.5], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadAustriaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('오스트리아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3203,7 +3377,21 @@ class BillionaireMap {
         this.currentMapMode = 'denmark';
         this.updateModeButtons();
         this.map.easeTo({ center: [10, 56], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadDenmarkData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('덴마크 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3213,7 +3401,21 @@ class BillionaireMap {
         this.currentMapMode = 'finland';
         this.updateModeButtons();
         this.map.easeTo({ center: [26, 64], zoom: 5, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadFinlandData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('핀란드 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3223,7 +3425,21 @@ class BillionaireMap {
         this.currentMapMode = 'ireland';
         this.updateModeButtons();
         this.map.easeTo({ center: [-8, 53], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadIrelandData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('아일랜드 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3233,7 +3449,21 @@ class BillionaireMap {
         this.currentMapMode = 'portugal';
         this.updateModeButtons();
         this.map.easeTo({ center: [-8, 39.5], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadPortugalData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('포르투갈 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3243,7 +3473,21 @@ class BillionaireMap {
         this.currentMapMode = 'greece';
         this.updateModeButtons();
         this.map.easeTo({ center: [23, 38], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadGreeceData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('그리스 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3253,7 +3497,21 @@ class BillionaireMap {
         this.currentMapMode = 'czech-republic';
         this.updateModeButtons();
         this.map.easeTo({ center: [15, 49.75], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadCzechRepublicData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('체코 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3263,7 +3521,21 @@ class BillionaireMap {
         this.currentMapMode = 'romania';
         this.updateModeButtons();
         this.map.easeTo({ center: [25, 46], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadRomaniaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('루마니아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3273,7 +3545,21 @@ class BillionaireMap {
         this.currentMapMode = 'hungary';
         this.updateModeButtons();
         this.map.easeTo({ center: [19.5, 47.5], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadHungaryData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('헝가리 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3283,7 +3569,21 @@ class BillionaireMap {
         this.currentMapMode = 'bulgaria';
         this.updateModeButtons();
         this.map.easeTo({ center: [25, 43], zoom: 6, duration: 600 });
+        
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadBulgariaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('불가리아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3301,7 +3601,20 @@ class BillionaireMap {
             duration: 600
         });
         
+        // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
+        if (this.isFirebaseInitialized) {
+            await this.loadRegionDataFromFirestore();
+        }
+        
         await this.loadRussiaData();
+        
+        // 지도 소스에서 데이터 수집 (Firestore 데이터 우선 유지)
+        this.collectAllRegionsFromMapSources();
+        
+        // Firestore 데이터 적용
+        if (this.isFirebaseInitialized) {
+            this.updateMapSourcesWithRegionData();
+        }
         this.showNotification('러시아 지도 모드로 전환되었습니다.', 'info');
     }
     
@@ -3634,38 +3947,27 @@ class BillionaireMap {
                 
                 const data = prefectureData[props.id] || { name: prefectureNameJa, name_ja: prefectureNameJa, population: 1000000, area: 5000 };
                 
-                // Firestore 데이터(existingData)를 최우선으로 확인 (사용자가 일일이 적어준 인구/면적 데이터)
-                const existingData = this.regionData.get(prefectureId) || {};
-                
                 feature.properties = {
                     ...props,
                     id: prefectureId,
-                    name: existingData.name || data.name, // 영어 이름을 메인으로 표시
-                    name_en: existingData.name_en || data.name,
-                    name_ja: existingData.name_ja || data.name_ja, // 일본어 이름도 보존
-                    country: existingData.country || 'Japan',
-                    admin_level: existingData.admin_level || 'Prefecture',
-                    // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
-                    population: existingData.population !== undefined && existingData.population !== null 
-                        ? existingData.population 
-                        : data.population,
-                    area: existingData.area !== undefined && existingData.area !== null 
-                        ? existingData.area 
-                        : data.area,
-                    ad_status: existingData.ad_status || 'available',
-                    ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                        ? existingData.ad_price 
-                        : (Math.floor(Math.random() * 100000) + 10000),
-                    revenue: existingData.revenue || 0,
-                    company: existingData.company || null,
-                    logo: existingData.logo || null,
-                    color: existingData.color || '#4ecdc4',
-                    border_color: existingData.border_color || '#ffffff',
-                    border_width: existingData.border_width || 1
+                    name: data.name, // 영어 이름을 메인으로 표시
+                    name_en: data.name,
+                    name_ja: data.name_ja, // 일본어 이름도 보존
+                    country: 'Japan',
+                    admin_level: 'Prefecture',
+                    population: data.population,
+                    area: data.area,
+                    ad_status: 'available',
+                    ad_price: Math.floor(Math.random() * 100000) + 10000,
+                    revenue: 0,
+                    company: null,
+                    logo: null,
+                    color: '#4ecdc4',
+                    border_color: '#ffffff',
+                    border_width: 1
                 };
                 
-                // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                this.setRegionDataWithFirestorePriority(prefectureId, feature.properties);
+                this.regionData.set(prefectureId, feature.properties);
             });
             
             // 캐시에 저장
@@ -4032,8 +4334,7 @@ class BillionaireMap {
                         border_width: 1
                     };
                     
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 this.cachedGeoJsonData['china'] = geoJsonData;
@@ -4408,8 +4709,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['russia'] = geoJsonData;
             }
@@ -4656,8 +4956,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['india'] = geoJsonData;
             }
@@ -4700,8 +4999,7 @@ class BillionaireMap {
                                 if (regionInfo) {
                                     regionInfo.population = regionData.population;
                                     regionInfo.area = regionData.area;
-                                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                                    this.setRegionDataWithFirestorePriority(feature.properties.id, regionInfo);
+                                    this.regionData.set(feature.properties.id, regionInfo);
                                 }
                             }
                         }
@@ -4880,8 +5178,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['canada'] = geoJsonData;
             }
@@ -4921,8 +5218,7 @@ class BillionaireMap {
                                 if (regionInfo) {
                                     regionInfo.population = regionData.population;
                                     regionInfo.area = regionData.area;
-                                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                                    this.setRegionDataWithFirestorePriority(feature.properties.id, regionInfo);
+                                    this.regionData.set(feature.properties.id, regionInfo);
                                 }
                             }
                         }
@@ -5079,8 +5375,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['germany'] = geoJsonData;
             }
@@ -5119,8 +5414,7 @@ class BillionaireMap {
                                 if (regionInfo) {
                                     regionInfo.population = regionData.population;
                                     regionInfo.area = regionData.area;
-                                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                                    this.setRegionDataWithFirestorePriority(feature.properties.id, regionInfo);
+                                    this.regionData.set(feature.properties.id, regionInfo);
                                 }
                             }
                         }
@@ -5415,8 +5709,7 @@ class BillionaireMap {
                         }
                     });
                     
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                    this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                 });
                 
                 // 매칭되지 않은 지역들 처리
@@ -5472,8 +5765,7 @@ class BillionaireMap {
                             border_color: '#ffffff',
                             border_width: 1
                         };
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                        this.regionData.set(finalId, feature.properties);
                     });
                 }
                 
@@ -5742,8 +6034,7 @@ class BillionaireMap {
                                     }
                                 });
                                 
-                                // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                             });
                             return;
                         }
@@ -5822,8 +6113,7 @@ class BillionaireMap {
                             }
                         });
                         
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
                     console.log(`[France] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
@@ -5868,8 +6158,7 @@ class BillionaireMap {
                             border_color: '#ffffff',
                             border_width: 1
                         };
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                        this.regionData.set(finalId, feature.properties);
                     });
                 }
                 this.cachedGeoJsonData['france'] = geoJsonData;
@@ -6169,8 +6458,7 @@ class BillionaireMap {
                                     }
                                 });
                                 
-                                // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                             });
                             return;
                         }
@@ -6249,8 +6537,7 @@ class BillionaireMap {
                             }
                         });
                         
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
                     console.log(`[Italy] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
@@ -6330,8 +6617,7 @@ class BillionaireMap {
                             border_color: '#ffffff',
                             border_width: 1
                         };
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                        this.regionData.set(finalId, feature.properties);
                     });
                 }
                 this.cachedGeoJsonData['italy'] = geoJsonData;
@@ -6499,8 +6785,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['brazil'] = geoJsonData;
             }
@@ -6648,8 +6933,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['australia'] = geoJsonData;
             }
@@ -6829,8 +7113,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['mexico'] = geoJsonData;
             }
@@ -7007,8 +7290,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['indonesia'] = geoJsonData;
             }
@@ -7162,8 +7444,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['saudi-arabia'] = geoJsonData;
             }
@@ -7415,8 +7696,7 @@ class BillionaireMap {
                                     }
                                 });
                                 
-                                // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                                this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                             });
                             return;
                         }
@@ -7495,8 +7775,7 @@ class BillionaireMap {
                             }
                         });
                         
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
                     console.log(`[Turkey] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
@@ -7541,8 +7820,7 @@ class BillionaireMap {
                             border_color: '#ffffff',
                             border_width: 1
                         };
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                        this.regionData.set(finalId, feature.properties);
                     });
                 }
                 this.cachedGeoJsonData['turkey'] = geoJsonData;
@@ -7820,8 +8098,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -8245,8 +8522,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -8536,8 +8812,7 @@ class BillionaireMap {
                 // regionData에 저장 (유효한 features만)
                 validFeatures.forEach(feature => {
                     if (feature && feature.properties && feature.properties.id) {
-                        // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                        this.setRegionDataWithFirestorePriority(feature.properties.id, feature.properties);
+                        this.regionData.set(feature.properties.id, feature.properties);
                     }
                 });
             }
@@ -8703,8 +8978,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData[countryCode] = geoJsonData;
             }
@@ -8914,8 +9188,7 @@ class BillionaireMap {
                         Object.assign(feature.properties, meta.extra);
                     }
 
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
 
                 this.cachedGeoJsonData[countryKey] = geoJsonData;
@@ -9308,8 +9581,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 // 그룹화된 지역 목록 출력
                 this.displaySpainGroupedRegions();
@@ -9669,8 +9941,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -10025,8 +10296,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -10360,8 +10630,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -10612,8 +10881,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['sweden'] = geoJsonData;
             }
@@ -10915,8 +11183,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -11170,8 +11437,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['denmark'] = geoJsonData;
             }
@@ -11340,8 +11606,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 this.cachedGeoJsonData['finland'] = geoJsonData;
             }
@@ -11661,8 +11926,7 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalId, feature.properties);
+                    this.regionData.set(finalId, feature.properties);
                 });
                 
                 // 그룹화된 지역 목록 출력
@@ -12484,43 +12748,33 @@ class BillionaireMap {
                         }
                     }
                     
-                    // Firestore 데이터(existingData)를 최우선으로 확인 (사용자가 일일이 적어준 인구/면적 데이터)
-                    const existingData = this.regionData.get(finalCityId) || {};
-                    
                     // 매칭되지 않으면 기본값 사용
-                    const sourcePopulation = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 500000) + 50000);
-                    const sourceArea = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 1000) + 100);
+                    const population = regionData ? regionData.population : (props.population || Math.floor(Math.random() * 500000) + 50000);
+                    const area = regionData ? regionData.area : (props.area || Math.floor(Math.random() * 1000) + 100);
                     
                     feature.properties = {
                         ...props,
                         id: finalCityId,
-                        name: existingData.name || cityNameKo,
-                        name_en: existingData.name_en || cityNameEn,
-                        name_ko: existingData.name_ko || cityNameKo,
-                        sig_name_ko: existingData.sig_name_ko || sigNameKo,
-                        sig_name_en: existingData.sig_name_en || sigNameEn,
-                        ctp_name_ko: existingData.ctp_name_ko || ctpNameKo,
-                        ctp_name_en: existingData.ctp_name_en || ctpNameEn,
-                        country: existingData.country || 'South Korea',
-                        country_code: existingData.country_code || 'KR',
-                        admin_level: existingData.admin_level || ((sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) ? 'District' : 'City'),
-                        // 인구와 면적: Firestore 데이터가 있으면 무조건 사용 (0도 유효한 값), 없으면 소스 데이터 사용
-                        population: existingData.population !== undefined && existingData.population !== null 
-                            ? existingData.population 
-                            : sourcePopulation,
-                        area: existingData.area !== undefined && existingData.area !== null 
-                            ? existingData.area 
-                            : sourceArea,
-                        ad_status: existingData.ad_status || 'available',
-                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                            ? existingData.ad_price 
-                            : (Math.floor(Math.random() * 500000) + 100000),
-                        revenue: existingData.revenue || 0,
-                        company: existingData.company || null,
-                        logo: existingData.logo || null,
-                        color: existingData.color || '#4ecdc4',
-                        border_color: existingData.border_color || '#ffffff',
-                        border_width: existingData.border_width || 1
+                        name: cityNameKo,
+                        name_en: cityNameEn,
+                        name_ko: cityNameKo,
+                        sig_name_ko: sigNameKo,
+                        sig_name_en: sigNameEn,
+                        ctp_name_ko: ctpNameKo,
+                        ctp_name_en: ctpNameEn,
+                        country: 'South Korea',
+                        country_code: 'KR',
+                        admin_level: (sigNameKo && ctpNameKo && sigNameKo !== ctpNameKo) ? 'District' : 'City',
+                        population: population,
+                        area: area,
+                        ad_status: 'available',
+                        ad_price: Math.floor(Math.random() * 500000) + 100000,
+                        revenue: 0,
+                        company: null,
+                        logo: null,
+                        color: '#4ecdc4',
+                        border_color: '#ffffff',
+                        border_width: 1
                     };
                     
                     // 디버깅: 구가 있는 지역 모두 출력
@@ -12535,8 +12789,8 @@ class BillionaireMap {
                         });
                     }
                     
-                    // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                    this.setRegionDataWithFirestorePriority(finalCityId, feature.properties);
+                    // regionData에 저장 (기존 중복 덮어쓰기)
+                    this.regionData.set(finalCityId, feature.properties);
                 });
                 
                 // 독도 별도 추가 (울릉군과 분리)
@@ -12582,8 +12836,7 @@ class BillionaireMap {
                 
                 // 독도 feature 추가
                 geoJsonData.features.push(dokdoFeature);
-                // 공통 함수 사용: Firestore 데이터를 우선적으로 사용
-                this.setRegionDataWithFirestorePriority('dokdo', dokdoFeature.properties);
+                this.regionData.set('dokdo', dokdoFeature.properties);
                 
                 console.log('한국 데이터 처리 완료:', geoJsonData.features.length, '개 지역, 고유 ID:', idSet.size);
                 console.log('처리된 지역 샘플:', geoJsonData.features.slice(0, 5).map(f => ({
@@ -12598,37 +12851,24 @@ class BillionaireMap {
                 this.cachedGeoJsonData['korea'] = geoJsonData;
             // }
         
-        // 소스 업데이트 또는 생성 (korea-regions 별도 소스 사용)
-        if (this.map.getSource('korea-regions')) {
+        // 소스 업데이트 또는 생성
+        if (this.map.getSource('world-regions')) {
             // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
-            this.map.getSource('korea-regions').setData(geoJsonData);
+            this.map.getSource('world-regions').setData(geoJsonData);
         } else {
             // 소스가 없으면 새로 생성
-            this.map.addSource('korea-regions', {
+            this.map.addSource('world-regions', {
                 type: 'geojson',
                 data: geoJsonData
             });
         }
         
-        // 레이어가 korea-regions 소스를 사용하도록 업데이트
-        // 기존 레이어가 있으면 제거하고 다시 추가 (소스 변경을 위해)
-        if (this.map.getLayer('regions-fill')) {
-            // 레이어가 이미 존재하면 소스가 korea-regions인지 확인
-            const existingLayer = this.map.getLayer('regions-fill');
-            if (existingLayer && existingLayer.source !== 'korea-regions') {
-                // 기존 레이어 제거
-                this.map.removeLayer('regions-fill');
-                this.map.removeLayer('regions-border');
-                this.map.removeLayer('regions-hover');
-            }
-        }
-        
-        // 레이어가 없거나 소스가 다른 경우 추가
+        // 레이어가 없으면 추가
         if (!this.map.getLayer('regions-fill')) {
             this.map.addLayer({
                 id: 'regions-fill',
                 type: 'fill',
-                source: 'korea-regions',
+                source: 'world-regions',
                 paint: {
                     'fill-color': [
                         'case',
@@ -12643,7 +12883,7 @@ class BillionaireMap {
             this.map.addLayer({
                 id: 'regions-border',
                 type: 'line',
-                source: 'korea-regions',
+                source: 'world-regions',
                 paint: {
                     'line-color': '#ffffff',
                     'line-width': 1,
@@ -12654,7 +12894,7 @@ class BillionaireMap {
             this.map.addLayer({
                 id: 'regions-hover',
                 type: 'fill',
-                source: 'korea-regions',
+                source: 'world-regions',
                 paint: {
                     'fill-color': '#feca57',
                     'fill-opacity': 0
@@ -12665,12 +12905,6 @@ class BillionaireMap {
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
-            }
-        } else {
-            // 레이어가 이미 존재하면 소스 데이터만 업데이트
-            // (레이어 소스는 변경할 수 없으므로 소스 데이터를 업데이트)
-            if (this.map.getSource('korea-regions')) {
-                this.map.getSource('korea-regions').setData(geoJsonData);
             }
         }
         
@@ -13332,11 +13566,6 @@ class BillionaireMap {
             
             // 국가별 데이터 로드 (현재는 기본 데이터 사용)
             await this.loadWorldData();
-            
-            // Firestore에서 지역 데이터 다시 로드 (기존 데이터 유지하면서 업데이트)
-            if (this.isFirebaseInitialized && this.firestore) {
-                await this.loadRegionDataFromFirestore();
-            }
             
         } catch (error) {
             console.error('국가 데이터 로드 중 오류:', error);
