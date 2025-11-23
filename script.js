@@ -1430,6 +1430,13 @@ class BillionaireMap {
             return { success: 0, failed: 0 };
         }
 
+        // 로그인 상태 확인
+        if (!this.currentUser) {
+            console.warn('사용자가 로그인하지 않아 Firestore에 저장할 수 없습니다.');
+            this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
+            return { success: 0, failed: 0 };
+        }
+
         try {
             // 먼저 지도에 로드된 모든 소스에서 지역 데이터 수집
             const collectedCount = this.collectAllRegionsFromMapSources();
@@ -1487,8 +1494,13 @@ class BillionaireMap {
                     
                     // 권한 오류인 경우 더 자세한 정보 출력
                     if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
-                        console.error('Firestore 권한 오류: Firestore 보안 규칙을 확인하세요. regions 컬렉션에 쓰기 권한이 필요합니다.');
-                        this.showNotification('Firestore 권한 오류: 관리자에게 문의하세요.', 'error');
+                        console.error('Firestore 권한 오류:', error);
+                        console.error('- 로그인 상태:', this.currentUser ? '로그인됨' : '로그인 안됨');
+                        console.error('- 사용자 이메일:', this.currentUser?.email || '없음');
+                        console.error('- Firestore 규칙 확인: regions 컬렉션에 쓰기 권한이 필요합니다.');
+                        this.showNotification(`Firestore 권한 오류: 로그인 상태를 확인하세요. (현재: ${this.currentUser ? '로그인됨' : '로그인 안됨'})`, 'error');
+                    } else {
+                        this.showNotification(`배치 ${Math.floor(i / batchSize) + 1} 저장 오류: ${error.message}`, 'error');
                     }
                     
                     failedCount += batchRegions.length;
@@ -1513,8 +1525,19 @@ class BillionaireMap {
             return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
         }
 
+        // 로그인 상태 확인
+        if (!this.currentUser) {
+            this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
+            // 사용자 로그인 모달 열기
+            const userLoginModal = document.getElementById('user-login-modal');
+            if (userLoginModal) {
+                userLoginModal.classList.remove('hidden');
+            }
+            return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
+        }
+
         try {
-            this.showNotification('Firestore에서 모든 지역 데이터를 불러오는 중...', 'info');
+            this.showNotification('전세계 모든 국가 데이터를 로드하는 중...', 'info');
             
             // 1. 먼저 Firestore에서 모든 지역 데이터를 로드 (이전에 입력한 인구/면적 데이터 유지)
             const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
@@ -1538,11 +1561,15 @@ class BillionaireMap {
             
             console.log(`Firestore에서 ${firestoreDataMap.size}개 지역의 데이터를 불러왔습니다.`);
             
-            // 2. 지도 소스에서 모든 지역 데이터 수집
+            // 2. 모든 국가의 데이터를 백그라운드에서 로드 (지도에 표시하지 않고 메모리만 수집)
+            this.showNotification('모든 국가의 행정구역 데이터를 수집하는 중...', 'info');
+            await this.loadAllCountriesDataForSync();
+            
+            // 3. 지도 소스에서 모든 지역 데이터 수집 (모든 국가 포함)
             const collectedCount = this.collectAllRegionsFromMapSources();
             console.log(`지도 소스에서 ${collectedCount}개 새로운 지역을 수집했습니다.`);
             
-            // 3. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
+            // 4. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
             let mergeCount = 0;
             this.regionData.forEach((regionData, regionId) => {
                 const firestoreData = firestoreDataMap.get(regionId);
@@ -1563,17 +1590,17 @@ class BillionaireMap {
                     mergeCount++;
                 }
                 
-                // 4. 모든 지역 가격을 1000달러로 통일
+                // 5. 모든 지역 가격을 1000달러로 통일
                 regionData.ad_price = this.uniformAdPrice || 1000;
                 this.regionData.set(regionId, regionData);
             });
             
-            console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다.`);
+            console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다. 총 ${this.regionData.size}개 지역이 있습니다.`);
             
-            // 5. 지도 소스 업데이트
+            // 6. 지도 소스 업데이트
             this.updateMapSourcesWithRegionData();
             
-            // 6. 모든 지역 데이터를 Firestore에 저장
+            // 7. 모든 지역 데이터를 Firestore에 저장
             const result = await this.saveAllRegionsToFirestore();
             
             return { 
@@ -1586,6 +1613,66 @@ class BillionaireMap {
             this.showNotification('동기화 중 오류가 발생했습니다.', 'error');
             return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
         }
+    }
+
+    // 모든 국가 데이터를 동기화용으로 로드 (지도에 표시하지 않고 메모리에만 수집)
+    async loadAllCountriesDataForSync() {
+        if (!this.map) {
+            console.warn('지도가 초기화되지 않았습니다.');
+            return;
+        }
+
+        const loadFunctions = [
+            () => this.loadWorldData(),
+            () => this.loadKoreaData(),
+            () => this.loadJapanData(),
+            () => this.loadChinaData(),
+            () => this.loadRussiaData(),
+            () => this.loadIndiaData(),
+            () => this.loadCanadaData(),
+            () => this.loadGermanyData(),
+            () => this.loadUKData(),
+            () => this.loadFranceData(),
+            () => this.loadItalyData(),
+            () => this.loadBrazilData(),
+            () => this.loadAustraliaData(),
+            () => this.loadMexicoData(),
+            () => this.loadIndonesiaData(),
+            () => this.loadSaudiArabiaData(),
+            () => this.loadTurkeyData(),
+            () => this.loadSouthAfricaData(),
+            () => this.loadArgentinaData(),
+            () => this.loadEuropeanUnionData(),
+            () => this.loadSpainData(),
+            () => this.loadNetherlandsData(),
+            () => this.loadPolandData(),
+            () => this.loadBelgiumData(),
+            () => this.loadSwedenData(),
+            () => this.loadAustriaData(),
+            () => this.loadDenmarkData(),
+            () => this.loadFinlandData(),
+            () => this.loadIrelandData(),
+            () => this.loadPortugalData(),
+            () => this.loadGreeceData(),
+            () => this.loadCzechRepublicData(),
+            () => this.loadRomaniaData(),
+            () => this.loadHungaryData(),
+            () => this.loadBulgariaData()
+        ];
+
+        // 모든 국가 데이터를 순차적으로 로드 (에러가 나도 계속 진행)
+        let loadedCount = 0;
+        for (const loadFn of loadFunctions) {
+            try {
+                await loadFn();
+                loadedCount++;
+                console.log(`국가 데이터 로드 완료: ${loadedCount}/${loadFunctions.length}`);
+            } catch (error) {
+                console.warn('국가 데이터 로드 중 오류 (계속 진행):', error);
+            }
+        }
+
+        console.log(`총 ${loadedCount}개 국가의 데이터를 로드했습니다.`);
     }
 
     // 사용자 로그인 (이메일/비밀번호)
