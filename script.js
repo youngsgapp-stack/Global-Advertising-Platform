@@ -1391,15 +1391,13 @@ class BillionaireMap {
                     
                     if (regionId) {
                         // 기존 데이터가 있으면 병합, 없으면 새로 추가
+                        // existingData는 Firestore에서 불러온 사용자 입력 데이터를 포함
                         const existingData = this.regionData.get(regionId) || {};
                         
+                        // 모든 국가(한국 포함)에서 Firestore 데이터(사용자 입력 데이터) 우선 사용
                         // Firestore에서 불러온 인구/면적 데이터를 우선적으로 유지
                         const firestorePopulation = existingData.population && existingData.population > 0 ? existingData.population : null;
                         const firestoreArea = existingData.area && existingData.area > 0 ? existingData.area : null;
-                        
-                        // 한국 데이터인 경우 props에서 직접 가져오기 (기존 데이터가 없을 때)
-                        const isKorea = props.country === 'South Korea' || props.country_code === 'KR';
-                        const usePropsData = isKorea && !existingData.population && !existingData.area;
                         
                         // GeoJSON properties에서 지역 데이터 추출
                         const regionData = {
@@ -1408,12 +1406,13 @@ class BillionaireMap {
                             name_ko: existingData.name_ko || props.name_ko || '',
                             name_en: existingData.name_en || props.name_en || props.name || '',
                             country: existingData.country || props.country || '',
+                            country_code: existingData.country_code || props.country_code || '',
                             admin_level: existingData.admin_level || props.admin_level || '',
-                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용
-                            population: firestorePopulation !== null ? firestorePopulation : (usePropsData || props.population !== undefined && props.population !== null ? props.population : 0),
-                            area: firestoreArea !== null ? firestoreArea : (usePropsData || props.area !== undefined && props.area !== null ? props.area : 0),
-                            // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
-                            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
+                            // 인구/면적 처리
+                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null ? props.population : 0),
+                            area: firestoreArea !== null ? firestoreArea : (props.area !== undefined && props.area !== null ? props.area : 0),
+                            // 가격은 동기화 시 통일 가격으로 설정 (한국 포함)
+                            ad_price: this.uniformAdPrice || 1000,
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
                         };
 
@@ -1622,20 +1621,25 @@ class BillionaireMap {
             // 4. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
             let mergeCount = 0;
             let koreaRegionCount = 0;
+            let koreaUpdatedCount = 0;
             this.regionData.forEach((regionData, regionId) => {
                 // 한국 데이터 카운트
-                if (regionData.country === 'South Korea' || regionData.country_code === 'KR') {
+                const isKorea = regionData.country === 'South Korea' || regionData.country_code === 'KR';
+                if (isKorea) {
                     koreaRegionCount++;
                 }
                 
                 const firestoreData = firestoreDataMap.get(regionId);
                 if (firestoreData) {
-                    // Firestore에 저장된 인구/면적 데이터가 있으면 유지
+                    // 모든 국가(한국 포함)에서 Firestore에 저장된 사용자 입력 인구/면적 데이터를 우선 유지
                     if (firestoreData.population > 0) {
                         regionData.population = firestoreData.population;
                     }
                     if (firestoreData.area > 0) {
                         regionData.area = firestoreData.area;
+                    }
+                    if (isKorea) {
+                        koreaUpdatedCount++;
                     }
                     // 기타 필드도 Firestore 데이터 우선
                     if (firestoreData.name_ko) regionData.name_ko = firestoreData.name_ko;
@@ -1646,13 +1650,27 @@ class BillionaireMap {
                     mergeCount++;
                 }
                 
-                // 5. 모든 지역 가격을 1000달러로 통일
+                // 5. 모든 지역 가격을 1000달러로 통일 (한국 포함)
                 regionData.ad_price = this.uniformAdPrice || 1000;
                 this.regionData.set(regionId, regionData);
             });
             
             console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다. 총 ${this.regionData.size}개 지역이 있습니다.`);
-            console.log(`한국 지역: ${koreaRegionCount}개`);
+            console.log(`한국 지역: ${koreaRegionCount}개 (Firestore 매칭: ${koreaUpdatedCount}개)`);
+            
+            // 한국 데이터 샘플 출력 (동기화 전)
+            if (koreaRegionCount > 0) {
+                const koreaSamples = Array.from(this.regionData.entries())
+                    .filter(([id, data]) => data.country === 'South Korea' || data.country_code === 'KR')
+                    .slice(0, 3);
+                console.log(`[한국 동기화 샘플]`, koreaSamples.map(([id, data]) => ({
+                    id,
+                    name: data.name_ko,
+                    population: data.population,
+                    area: data.area,
+                    ad_price: data.ad_price
+                })));
+            }
             
             // 한국 데이터가 없으면 경고
             if (koreaRegionCount === 0) {
