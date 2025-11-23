@@ -1371,10 +1371,21 @@ class BillionaireMap {
         ];
 
         // 모든 소스에서 지역 데이터 수집
+        let koreaCount = 0;
         sourceIds.forEach(sourceId => {
             const source = this.map.getSource(sourceId);
             if (source && source._data && source._data.features) {
-                source._data.features.forEach(feature => {
+                const sourceFeatures = source._data.features;
+                const sourceKoreaCount = sourceFeatures.filter(f => 
+                    f.properties && (f.properties.country === 'South Korea' || f.properties.country_code === 'KR')
+                ).length;
+                
+                if (sourceId === 'korea-regions' && sourceKoreaCount > 0) {
+                    console.log(`[한국 데이터 수집] ${sourceId} 소스에서 ${sourceKoreaCount}개 한국 지역 발견`);
+                    koreaCount += sourceKoreaCount;
+                }
+                
+                sourceFeatures.forEach(feature => {
                     const props = feature.properties;
                     const regionId = props.id;
                     
@@ -1386,6 +1397,10 @@ class BillionaireMap {
                         const firestorePopulation = existingData.population && existingData.population > 0 ? existingData.population : null;
                         const firestoreArea = existingData.area && existingData.area > 0 ? existingData.area : null;
                         
+                        // 한국 데이터인 경우 props에서 직접 가져오기 (기존 데이터가 없을 때)
+                        const isKorea = props.country === 'South Korea' || props.country_code === 'KR';
+                        const usePropsData = isKorea && !existingData.population && !existingData.area;
+                        
                         // GeoJSON properties에서 지역 데이터 추출
                         const regionData = {
                             id: regionId,
@@ -1395,8 +1410,8 @@ class BillionaireMap {
                             country: existingData.country || props.country || '',
                             admin_level: existingData.admin_level || props.admin_level || '',
                             // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용
-                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null ? props.population : 0),
-                            area: firestoreArea !== null ? firestoreArea : (props.area !== undefined && props.area !== null ? props.area : 0),
+                            population: firestorePopulation !== null ? firestorePopulation : (usePropsData || props.population !== undefined && props.population !== null ? props.population : 0),
+                            area: firestoreArea !== null ? firestoreArea : (usePropsData || props.area !== undefined && props.area !== null ? props.area : 0),
                             // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
                             ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
@@ -1415,8 +1430,16 @@ class BillionaireMap {
                         this.regionData.set(regionId, regionData);
                     }
                 });
+            } else if (sourceId === 'korea-regions') {
+                console.warn(`[한국 데이터 수집] ${sourceId} 소스를 찾을 수 없습니다.`);
             }
         });
+        
+        if (koreaCount > 0) {
+            console.log(`[한국 데이터 수집] 총 ${koreaCount}개 한국 지역이 수집되었습니다.`);
+        } else {
+            console.warn('[한국 데이터 수집] 한국 지역이 수집되지 않았습니다. korea-regions 소스를 확인하세요.');
+        }
 
         console.log(`지도 소스에서 ${collectedCount}개의 새로운 지역 데이터를 수집했습니다. (Firestore 데이터 보존: ${preservedCount}개)`);
         return collectedCount;
@@ -1449,6 +1472,21 @@ class BillionaireMap {
             const batchSize = 500; // Firestore 배치 제한 (500개)
             const regions = Array.from(this.regionData.entries());
             const totalRegions = regions.length;
+            
+            // 한국 데이터 개수 확인
+            const koreaRegions = regions.filter(([id, data]) => 
+                data.country === 'South Korea' || data.country_code === 'KR'
+            );
+            console.log(`[Firestore 저장] 총 ${totalRegions}개 지역 중 한국 지역: ${koreaRegions.length}개`);
+            if (koreaRegions.length > 0) {
+                console.log(`[한국 데이터 샘플]`, koreaRegions.slice(0, 3).map(([id, data]) => ({
+                    id,
+                    name: data.name_ko,
+                    population: data.population,
+                    area: data.area,
+                    ad_price: data.ad_price
+                })));
+            }
 
             this.showNotification(`총 ${totalRegions}개 지역 데이터를 Firestore에 저장 중...`, 'info');
 
@@ -1565,13 +1603,31 @@ class BillionaireMap {
             this.showNotification('모든 국가의 행정구역 데이터를 수집하는 중...', 'info');
             await this.loadAllCountriesDataForSync();
             
+            // 한국 데이터가 로드되었는지 확인
+            const koreaDataBeforeCollect = Array.from(this.regionData.entries()).filter(([id, data]) => 
+                data.country === 'South Korea' || data.country_code === 'KR'
+            );
+            console.log(`[동기화] loadAllCountriesDataForSync() 후 한국 데이터: ${koreaDataBeforeCollect.length}개`);
+            
             // 3. 지도 소스에서 모든 지역 데이터 수집 (모든 국가 포함)
             const collectedCount = this.collectAllRegionsFromMapSources();
             console.log(`지도 소스에서 ${collectedCount}개 새로운 지역을 수집했습니다.`);
             
+            // 수집 후 한국 데이터 확인
+            const koreaDataAfterCollect = Array.from(this.regionData.entries()).filter(([id, data]) => 
+                data.country === 'South Korea' || data.country_code === 'KR'
+            );
+            console.log(`[동기화] collectAllRegionsFromMapSources() 후 한국 데이터: ${koreaDataAfterCollect.length}개`);
+            
             // 4. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
             let mergeCount = 0;
+            let koreaRegionCount = 0;
             this.regionData.forEach((regionData, regionId) => {
+                // 한국 데이터 카운트
+                if (regionData.country === 'South Korea' || regionData.country_code === 'KR') {
+                    koreaRegionCount++;
+                }
+                
                 const firestoreData = firestoreDataMap.get(regionId);
                 if (firestoreData) {
                     // Firestore에 저장된 인구/면적 데이터가 있으면 유지
@@ -1596,6 +1652,12 @@ class BillionaireMap {
             });
             
             console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다. 총 ${this.regionData.size}개 지역이 있습니다.`);
+            console.log(`한국 지역: ${koreaRegionCount}개`);
+            
+            // 한국 데이터가 없으면 경고
+            if (koreaRegionCount === 0) {
+                console.warn('[한국 동기화 경고] 한국 지역 데이터가 없습니다. loadKoreaData()가 제대로 실행되었는지 확인하세요.');
+            }
             
             // 6. 지도 소스 업데이트
             this.updateMapSourcesWithRegionData();
