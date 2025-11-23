@@ -12938,13 +12938,23 @@ class BillionaireMap {
                 this.cachedGeoJsonData['korea'] = geoJsonData;
             // }
         
-        // 소스 업데이트 또는 생성
+        // 소스 업데이트 또는 생성 (world-regions와 korea-regions 둘 다 추가)
         if (this.map.getSource('world-regions')) {
             // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
             this.map.getSource('world-regions').setData(geoJsonData);
         } else {
             // 소스가 없으면 새로 생성
             this.map.addSource('world-regions', {
+                type: 'geojson',
+                data: geoJsonData
+            });
+        }
+        
+        // korea-regions 소스도 추가 (동기화를 위해 필요)
+        if (this.map.getSource('korea-regions')) {
+            this.map.getSource('korea-regions').setData(geoJsonData);
+        } else {
+            this.map.addSource('korea-regions', {
                 type: 'geojson',
                 data: geoJsonData
             });
