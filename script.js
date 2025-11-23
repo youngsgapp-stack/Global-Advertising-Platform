@@ -1430,8 +1430,8 @@ class BillionaireMap {
             return { success: 0, failed: 0 };
         }
 
-        // 로그인 상태 확인
-        if (!this.currentUser) {
+        // 로그인 상태 확인 (관리자 로그인 시 사용자 로그인 체크 건너뛰기)
+        if (!this.isAdminLoggedIn && !this.currentUser) {
             console.warn('사용자가 로그인하지 않아 Firestore에 저장할 수 없습니다.');
             this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
             return { success: 0, failed: 0 };
@@ -1525,8 +1525,8 @@ class BillionaireMap {
             return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
         }
 
-        // 로그인 상태 확인
-        if (!this.currentUser) {
+        // 로그인 상태 확인 (관리자 로그인 시 사용자 로그인 체크 건너뛰기)
+        if (!this.isAdminLoggedIn && !this.currentUser) {
             this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
             // 사용자 로그인 모달 열기
             const userLoginModal = document.getElementById('user-login-modal');
