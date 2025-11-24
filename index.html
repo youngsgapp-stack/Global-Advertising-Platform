@@ -78,6 +78,18 @@
                     <h4>광고 정보</h4>
                     <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
                     <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
+                    <div class="auction-info">
+                        <h5>옥션 정보</h5>
+                        <p><strong>현재 입찰가:</strong> <span id="auction-current-bid">-</span></p>
+                        <p><strong>최소 입찰가:</strong> <span id="auction-min-bid">-</span></p>
+                        <p><strong>보호 상태:</strong> <span id="auction-protection">-</span></p>
+                        <p><strong>최고 입찰자:</strong> <span id="auction-current-bidder">-</span></p>
+                        <div class="auction-input-group">
+                            <input type="number" id="auction-bid-input" placeholder="입찰 금액 (USD)">
+                            <button id="auction-bid-btn" class="auction-bid-btn">입찰하기</button>
+                        </div>
+                        <p id="auction-status-message" class="auction-status-message"></p>
+                    </div>
                     <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
                     <div id="paypal-buttons" style="margin-top: 15px;"></div>
                 </div>
@@ -459,6 +471,20 @@
                                     <span id="company-region-status">-</span>
                                 </div>
                             </div>
+                        </div>
+                        <div class="auction-info compact">
+                            <h4>옥션 진행 상황</h4>
+                            <div class="auction-stats">
+                                <p><strong>현재 입찰가:</strong> <span id="company-auction-current-bid">-</span></p>
+                                <p><strong>최소 입찰가:</strong> <span id="company-auction-min-bid">-</span></p>
+                                <p><strong>보호 상태:</strong> <span id="company-auction-protection">-</span></p>
+                                <p><strong>최고 입찰자:</strong> <span id="company-auction-current-bidder">-</span></p>
+                            </div>
+                            <div class="auction-input-group">
+                                <input type="number" id="company-auction-bid-input" placeholder="입찰 금액 (USD)">
+                                <button id="company-auction-bid-btn" class="auction-bid-btn">입찰하기</button>
+                            </div>
+                            <p id="company-auction-status" class="auction-status-message"></p>
                         </div>
                     </div>
                     

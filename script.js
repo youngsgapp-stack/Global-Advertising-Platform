@@ -15,7 +15,7 @@ class BillionaireMap {
         this.japanLogoData = {}; // 일본 로고 데이터
         this.japanColorData = {}; // 일본 색상 데이터
         this.japanCompanyData = {}; // 일본 기업 정보 데이터
-        this.currentMapMode = 'usa'; // 현재 지도 모드 (모든 국가 포함)
+        this.currentMapMode = 'global'; // 전 세계 행정구역 통합 모드
         this.adminMode = false;
         // Firebase 관련 변수
         this.firebaseApp = null;
@@ -80,6 +80,16 @@ class BillionaireMap {
         this.southAfricaProvinceMapping = null; // 남아프리카공화국 주-지구 매핑
         this.argentinaProvinceMapping = null; // 아르헨티나 주 매핑
         this.spainAutonomousCommunityMapping = null; // 스페인 자치지역-주 매핑
+        this.globalViewMode = true; // 국가 선택 없이 전체 행정구역 표시
+        this.globalRegionsGeoJson = { type: 'FeatureCollection', features: [] }; // 통합 GeoJSON
+        this.globalRegionIdSet = new Set(); // 전 세계 행정구역 ID 중복 방지
+        this.auctionData = new Map(); // 지역별 옥션 정보 캐시
+        this.auctionUnsubscribe = null; // 실시간 구독 해제 핸들러
+        this.auctionConfig = {
+            minIncrementPercent: 0.05, // 최소 5% 인상
+            protectionHours: 12, // 보호 시간(시간)
+            roundingUnit: 100 // 입찰 금액 반올림 단위
+        };
         
         // G20 국가 설정
         this.g20Countries = {
@@ -942,7 +952,7 @@ class BillionaireMap {
             });
             
             await this.initializeMap();
-            await this.loadWorldData();
+            await this.loadGlobalAdministrativeRegions();
             
             // Firestore에서 지역 데이터 불러오기 (지도 로드 후)
             if (this.isFirebaseInitialized) {
@@ -965,6 +975,10 @@ class BillionaireMap {
             this.addMapModeToggle(); // 지도 모드 전환 버튼 추가
             this.setupColorPresetListeners(); // 색상 프리셋 이벤트 리스너 추가
             this.updateUserUI(); // 사용자 UI 초기화 (사이드 메뉴 로그인 버튼 표시)
+            
+            if (this.isFirebaseInitialized) {
+                await this.subscribeAuctionUpdates();
+            }
             
             // 초기화 시 관리자 섹션 숨기기
             const sideAdminSection = document.getElementById('side-admin-section');
@@ -1128,6 +1142,7 @@ class BillionaireMap {
             });
 
             console.log('Firebase 초기화 완료');
+            await this.subscribeAuctionUpdates();
         } catch (error) {
             console.error('Firebase 초기화 오류:', error);
             this.showNotification('Firebase 초기화에 실패했습니다. 일부 기능이 제한될 수 있습니다.', 'warning');
@@ -1287,6 +1302,65 @@ class BillionaireMap {
             // 오류가 나도 계속 진행 (로컬 데이터 사용)
         }
     }
+    
+    async subscribeAuctionUpdates() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 옥션 데이터를 구독할 수 없습니다.');
+            return;
+        }
+        
+        const { collection, onSnapshot } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const auctionsRef = collection(this.firestore, 'auctions');
+        
+        if (this.auctionUnsubscribe) {
+            this.auctionUnsubscribe();
+        }
+        
+        this.auctionUnsubscribe = onSnapshot(auctionsRef, (snapshot) => {
+            snapshot.docChanges().forEach(change => {
+                const data = change.doc.data();
+                const regionId = data.regionId || change.doc.id;
+                if (!regionId) return;
+                
+                if (change.type === 'removed') {
+                    this.auctionData.delete(regionId);
+                    this.applyAuctionDataToRegion(regionId, null);
+                } else {
+                    const normalized = { ...data, regionId };
+                    this.auctionData.set(regionId, normalized);
+                    this.applyAuctionDataToRegion(regionId, normalized);
+                }
+            });
+        }, (error) => {
+            console.error('옥션 데이터 구독 오류:', error);
+        });
+    }
+    
+    applyAuctionDataToRegion(regionId, auctionData) {
+        const region = this.regionData.get(regionId);
+        if (!region) return;
+        
+        if (auctionData) {
+            region.auction = auctionData;
+            if (region.ad_status !== 'occupied') {
+                region.ad_status = auctionData.currentBid ? 'auction' : (region.ad_status || 'available');
+            }
+        } else {
+            delete region.auction;
+            if (region.ad_status === 'auction') {
+                region.ad_status = 'available';
+            }
+        }
+        
+        this.regionData.set(regionId, region);
+        this.updateMapSourcesWithRegionData();
+        
+        if (this.currentRegion && this.currentRegion.id === regionId) {
+            this.currentRegion = region;
+            this.updateAuctionPanel(region);
+            this.updateCompanyModalAuctionSection(regionId);
+        }
+    }
 
     // 지도 소스들을 regionData로 업데이트
     updateMapSourcesWithRegionData() {
@@ -1371,30 +1445,17 @@ class BillionaireMap {
         ];
 
         // 모든 소스에서 지역 데이터 수집
-        let koreaCount = 0;
         sourceIds.forEach(sourceId => {
             const source = this.map.getSource(sourceId);
             if (source && source._data && source._data.features) {
-                const sourceFeatures = source._data.features;
-                const sourceKoreaCount = sourceFeatures.filter(f => 
-                    f.properties && (f.properties.country === 'South Korea' || f.properties.country_code === 'KR')
-                ).length;
-                
-                if (sourceId === 'korea-regions' && sourceKoreaCount > 0) {
-                    console.log(`[한국 데이터 수집] ${sourceId} 소스에서 ${sourceKoreaCount}개 한국 지역 발견`);
-                    koreaCount += sourceKoreaCount;
-                }
-                
-                sourceFeatures.forEach(feature => {
+                source._data.features.forEach(feature => {
                     const props = feature.properties;
                     const regionId = props.id;
                     
                     if (regionId) {
                         // 기존 데이터가 있으면 병합, 없으면 새로 추가
-                        // existingData는 Firestore에서 불러온 사용자 입력 데이터를 포함
                         const existingData = this.regionData.get(regionId) || {};
                         
-                        // 모든 국가(한국 포함)에서 Firestore 데이터(사용자 입력 데이터) 우선 사용
                         // Firestore에서 불러온 인구/면적 데이터를 우선적으로 유지
                         const firestorePopulation = existingData.population && existingData.population > 0 ? existingData.population : null;
                         const firestoreArea = existingData.area && existingData.area > 0 ? existingData.area : null;
@@ -1406,13 +1467,12 @@ class BillionaireMap {
                             name_ko: existingData.name_ko || props.name_ko || '',
                             name_en: existingData.name_en || props.name_en || props.name || '',
                             country: existingData.country || props.country || '',
-                            country_code: existingData.country_code || props.country_code || '',
                             admin_level: existingData.admin_level || props.admin_level || '',
-                            // 인구/면적 처리
+                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용
                             population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null ? props.population : 0),
                             area: firestoreArea !== null ? firestoreArea : (props.area !== undefined && props.area !== null ? props.area : 0),
-                            // 가격은 동기화 시 통일 가격으로 설정 (한국 포함)
-                            ad_price: this.uniformAdPrice || 1000,
+                            // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
+                            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
                         };
 
@@ -1429,16 +1489,8 @@ class BillionaireMap {
                         this.regionData.set(regionId, regionData);
                     }
                 });
-            } else if (sourceId === 'korea-regions') {
-                console.warn(`[한국 데이터 수집] ${sourceId} 소스를 찾을 수 없습니다.`);
             }
         });
-        
-        if (koreaCount > 0) {
-            console.log(`[한국 데이터 수집] 총 ${koreaCount}개 한국 지역이 수집되었습니다.`);
-        } else {
-            console.warn('[한국 데이터 수집] 한국 지역이 수집되지 않았습니다. korea-regions 소스를 확인하세요.');
-        }
 
         console.log(`지도 소스에서 ${collectedCount}개의 새로운 지역 데이터를 수집했습니다. (Firestore 데이터 보존: ${preservedCount}개)`);
         return collectedCount;
@@ -1452,8 +1504,8 @@ class BillionaireMap {
             return { success: 0, failed: 0 };
         }
 
-        // 로그인 상태 확인 (관리자 로그인 시 사용자 로그인 체크 건너뛰기)
-        if (!this.isAdminLoggedIn && !this.currentUser) {
+        // 로그인 상태 확인
+        if (!this.currentUser) {
             console.warn('사용자가 로그인하지 않아 Firestore에 저장할 수 없습니다.');
             this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
             return { success: 0, failed: 0 };
@@ -1471,21 +1523,6 @@ class BillionaireMap {
             const batchSize = 500; // Firestore 배치 제한 (500개)
             const regions = Array.from(this.regionData.entries());
             const totalRegions = regions.length;
-            
-            // 한국 데이터 개수 확인
-            const koreaRegions = regions.filter(([id, data]) => 
-                data.country === 'South Korea' || data.country_code === 'KR'
-            );
-            console.log(`[Firestore 저장] 총 ${totalRegions}개 지역 중 한국 지역: ${koreaRegions.length}개`);
-            if (koreaRegions.length > 0) {
-                console.log(`[한국 데이터 샘플]`, koreaRegions.slice(0, 3).map(([id, data]) => ({
-                    id,
-                    name: data.name_ko,
-                    population: data.population,
-                    area: data.area,
-                    ad_price: data.ad_price
-                })));
-            }
 
             this.showNotification(`총 ${totalRegions}개 지역 데이터를 Firestore에 저장 중...`, 'info');
 
@@ -1562,8 +1599,8 @@ class BillionaireMap {
             return { success: 0, failed: 0, collected: 0, priceUpdated: 0 };
         }
 
-        // 로그인 상태 확인 (관리자 로그인 시 사용자 로그인 체크 건너뛰기)
-        if (!this.isAdminLoggedIn && !this.currentUser) {
+        // 로그인 상태 확인
+        if (!this.currentUser) {
             this.showNotification('Firestore에 저장하려면 로그인이 필요합니다. 사용자 로그인을 먼저 해주세요.', 'warning');
             // 사용자 로그인 모달 열기
             const userLoginModal = document.getElementById('user-login-modal');
@@ -1602,44 +1639,21 @@ class BillionaireMap {
             this.showNotification('모든 국가의 행정구역 데이터를 수집하는 중...', 'info');
             await this.loadAllCountriesDataForSync();
             
-            // 한국 데이터가 로드되었는지 확인
-            const koreaDataBeforeCollect = Array.from(this.regionData.entries()).filter(([id, data]) => 
-                data.country === 'South Korea' || data.country_code === 'KR'
-            );
-            console.log(`[동기화] loadAllCountriesDataForSync() 후 한국 데이터: ${koreaDataBeforeCollect.length}개`);
-            
             // 3. 지도 소스에서 모든 지역 데이터 수집 (모든 국가 포함)
             const collectedCount = this.collectAllRegionsFromMapSources();
             console.log(`지도 소스에서 ${collectedCount}개 새로운 지역을 수집했습니다.`);
             
-            // 수집 후 한국 데이터 확인
-            const koreaDataAfterCollect = Array.from(this.regionData.entries()).filter(([id, data]) => 
-                data.country === 'South Korea' || data.country_code === 'KR'
-            );
-            console.log(`[동기화] collectAllRegionsFromMapSources() 후 한국 데이터: ${koreaDataAfterCollect.length}개`);
-            
             // 4. Firestore 데이터와 지도 소스 데이터 병합 (Firestore 인구/면적 데이터 우선)
             let mergeCount = 0;
-            let koreaRegionCount = 0;
-            let koreaUpdatedCount = 0;
             this.regionData.forEach((regionData, regionId) => {
-                // 한국 데이터 카운트
-                const isKorea = regionData.country === 'South Korea' || regionData.country_code === 'KR';
-                if (isKorea) {
-                    koreaRegionCount++;
-                }
-                
                 const firestoreData = firestoreDataMap.get(regionId);
                 if (firestoreData) {
-                    // 모든 국가(한국 포함)에서 Firestore에 저장된 사용자 입력 인구/면적 데이터를 우선 유지
+                    // Firestore에 저장된 인구/면적 데이터가 있으면 유지
                     if (firestoreData.population > 0) {
                         regionData.population = firestoreData.population;
                     }
                     if (firestoreData.area > 0) {
                         regionData.area = firestoreData.area;
-                    }
-                    if (isKorea) {
-                        koreaUpdatedCount++;
                     }
                     // 기타 필드도 Firestore 데이터 우선
                     if (firestoreData.name_ko) regionData.name_ko = firestoreData.name_ko;
@@ -1650,32 +1664,12 @@ class BillionaireMap {
                     mergeCount++;
                 }
                 
-                // 5. 모든 지역 가격을 1000달러로 통일 (한국 포함)
+                // 5. 모든 지역 가격을 1000달러로 통일
                 regionData.ad_price = this.uniformAdPrice || 1000;
                 this.regionData.set(regionId, regionData);
             });
             
             console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다. 총 ${this.regionData.size}개 지역이 있습니다.`);
-            console.log(`한국 지역: ${koreaRegionCount}개 (Firestore 매칭: ${koreaUpdatedCount}개)`);
-            
-            // 한국 데이터 샘플 출력 (동기화 전)
-            if (koreaRegionCount > 0) {
-                const koreaSamples = Array.from(this.regionData.entries())
-                    .filter(([id, data]) => data.country === 'South Korea' || data.country_code === 'KR')
-                    .slice(0, 3);
-                console.log(`[한국 동기화 샘플]`, koreaSamples.map(([id, data]) => ({
-                    id,
-                    name: data.name_ko,
-                    population: data.population,
-                    area: data.area,
-                    ad_price: data.ad_price
-                })));
-            }
-            
-            // 한국 데이터가 없으면 경고
-            if (koreaRegionCount === 0) {
-                console.warn('[한국 동기화 경고] 한국 지역 데이터가 없습니다. loadKoreaData()가 제대로 실행되었는지 확인하세요.');
-            }
             
             // 6. 지도 소스 업데이트
             this.updateMapSourcesWithRegionData();
@@ -1984,6 +1978,236 @@ class BillionaireMap {
                 resolve();
             });
         });
+    }
+    
+    async loadGlobalAdministrativeRegions() {
+        try {
+            this.showNotification('전 세계 행정구역 데이터를 불러오는 중입니다...', 'info');
+            this.regionData.clear();
+            this.globalRegionIdSet.clear();
+            
+            const configs = this.getGlobalCountryConfigs();
+            const aggregatedFeatures = [];
+            
+            for (const config of configs) {
+                try {
+                    const geoJsonData = await this.fetchCountryGeoJson(
+                        config.key,
+                        config.displayName,
+                        config.iso3,
+                        config.candidateUrls || []
+                    );
+                    const processedFeatures = this.processCountryFeatures(config, geoJsonData);
+                    aggregatedFeatures.push(...processedFeatures);
+                } catch (error) {
+                    console.warn(`[GlobalRegions] ${config.displayName} 데이터 로드 실패:`, error);
+                }
+            }
+            
+            if (aggregatedFeatures.length === 0) {
+                throw new Error('전 세계 행정구역 데이터를 불러오지 못했습니다.');
+            }
+            
+            this.globalRegionsGeoJson = {
+                type: 'FeatureCollection',
+                features: aggregatedFeatures
+            };
+            
+            this.ensureGlobalRegionLayers(this.globalRegionsGeoJson);
+            this.collectAllRegionsFromMapSources();
+            this.updateStatistics();
+            
+            this.showNotification(`총 ${aggregatedFeatures.length}개 행정구역 로드 완료`, 'success');
+        } catch (error) {
+            console.error('전 세계 행정구역 데이터 로드 실패:', error);
+            this.showNotification('전 세계 행정구역 데이터를 불러오는 데 실패했습니다.', 'error');
+            throw error;
+        }
+    }
+    
+    getGlobalCountryConfigs() {
+        return [
+            { key: 'usa', displayName: 'United States', iso3: 'USA', adminLevel: 'State', basePrice: 1500, baseColor: '#4ecdc4' },
+            { key: 'korea', displayName: 'South Korea', iso3: 'KOR', adminLevel: 'Province/City', basePrice: 2000, baseColor: '#ff9f43' },
+            { key: 'japan', displayName: 'Japan', iso3: 'JPN', adminLevel: 'Prefecture', basePrice: 1900, baseColor: '#a29bfe' },
+            { key: 'china', displayName: 'China', iso3: 'CHN', adminLevel: 'Province', basePrice: 2100, baseColor: '#ff6b6b' },
+            { key: 'india', displayName: 'India', iso3: 'IND', adminLevel: 'State', basePrice: 1600, baseColor: '#10ac84' },
+            { key: 'russia', displayName: 'Russia', iso3: 'RUS', adminLevel: 'Federal Subject', basePrice: 1800, baseColor: '#54a0ff' },
+            { key: 'canada', displayName: 'Canada', iso3: 'CAN', adminLevel: 'Province', basePrice: 1700, baseColor: '#1dd1a1' },
+            { key: 'germany', displayName: 'Germany', iso3: 'DEU', adminLevel: 'State', basePrice: 1800, baseColor: '#ff9ff3' },
+            { key: 'uk', displayName: 'United Kingdom', iso3: 'GBR', adminLevel: 'Region', basePrice: 1700, baseColor: '#48dbfb' },
+            { key: 'france', displayName: 'France', iso3: 'FRA', adminLevel: 'Region', basePrice: 1750, baseColor: '#feca57' },
+            { key: 'italy', displayName: 'Italy', iso3: 'ITA', adminLevel: 'Region', basePrice: 1650, baseColor: '#ff6b6b' },
+            { key: 'brazil', displayName: 'Brazil', iso3: 'BRA', adminLevel: 'State', basePrice: 1500, baseColor: '#1dd1a1' },
+            { key: 'australia', displayName: 'Australia', iso3: 'AUS', adminLevel: 'State', basePrice: 1500, baseColor: '#54a0ff' },
+            { key: 'mexico', displayName: 'Mexico', iso3: 'MEX', adminLevel: 'State', basePrice: 1400, baseColor: '#8395a7' },
+            { key: 'indonesia', displayName: 'Indonesia', iso3: 'IDN', adminLevel: 'Province', basePrice: 1350, baseColor: '#ee5253' },
+            { key: 'saudi-arabia', displayName: 'Saudi Arabia', iso3: 'SAU', adminLevel: 'Province', basePrice: 1650, baseColor: '#576574' },
+            { key: 'turkey', displayName: 'Turkey', iso3: 'TUR', adminLevel: 'Province', basePrice: 1500, baseColor: '#ff9f43' },
+            { key: 'south-africa', displayName: 'South Africa', iso3: 'ZAF', adminLevel: 'Province', basePrice: 1300, baseColor: '#222f3e' },
+            { key: 'argentina', displayName: 'Argentina', iso3: 'ARG', adminLevel: 'Province', basePrice: 1400, baseColor: '#48dbfb' },
+            { key: 'spain', displayName: 'Spain', iso3: 'ESP', adminLevel: 'Autonomous Community', basePrice: 1600, baseColor: '#f368e0' },
+            { key: 'netherlands', displayName: 'Netherlands', iso3: 'NLD', adminLevel: 'Province', basePrice: 1550, baseColor: '#00d2d3' }
+        ];
+    }
+    
+    processCountryFeatures(config, geoJsonData) {
+        if (!geoJsonData || !Array.isArray(geoJsonData.features)) {
+            return [];
+        }
+        
+        const processed = [];
+        
+        geoJsonData.features.forEach((feature, index) => {
+            if (!feature || !feature.geometry) {
+                return;
+            }
+            
+            const props = feature.properties || {};
+            const rawName = props.name || props.NAME_1 || props.NAME || props.admin || `Region_${index + 1}`;
+            const englishName = rawName;
+            const normalizedIdBase = this.normalizeRegionKey(`${config.key}_${rawName}`) || `${config.key}_region_${index + 1}`;
+            const regionId = this.ensureUniqueGlobalRegionId(normalizedIdBase);
+            
+            const population = this.extractPopulationValue(props);
+            const area = this.extractAreaValue(props);
+            const adPrice = this.calculateRegionPrice(area, population, config.basePrice);
+            
+            const regionProps = {
+                ...props,
+                id: regionId,
+                name: englishName,
+                name_en: englishName,
+                name_local: props.name_local || englishName,
+                name_ko: props.name_ko || englishName,
+                country: config.displayName,
+                country_code: config.iso3.substring(0, 2).toUpperCase(),
+                admin_level: config.adminLevel,
+                population,
+                area,
+                ad_price: adPrice,
+                ad_status: props.ad_status || (props.occupied ? 'occupied' : 'available'),
+                color: props.color || config.baseColor || '#4ecdc4',
+                border_color: props.border_color || '#ffffff',
+                border_width: props.border_width || 1,
+                base_country: config.key
+            };
+            
+            feature.properties = regionProps;
+            this.regionData.set(regionId, regionProps);
+            processed.push(feature);
+        });
+        
+        return processed;
+    }
+    
+    ensureGlobalRegionLayers(geoJsonData) {
+        if (this.map.getSource('world-regions')) {
+            this.map.getSource('world-regions').setData(geoJsonData);
+        } else {
+            this.map.addSource('world-regions', {
+                type: 'geojson',
+                data: geoJsonData
+            });
+        }
+        
+        if (!this.map.getLayer('regions-fill')) {
+            this.map.addLayer({
+                id: 'regions-fill',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': [
+                        'case',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '#ff6b6b',
+                        ['==', ['get', 'ad_status'], 'auction'],
+                        '#feca57',
+                        ['coalesce', ['get', 'color'], '#4ecdc4']
+                    ],
+                    'fill-opacity': 0.7
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-border',
+                type: 'line',
+                source: 'world-regions',
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 0.5,
+                        5, 1,
+                        10, 1.5
+                    ],
+                    'line-opacity': 0.9
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-hover',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': '#feca57',
+                    'fill-opacity': 0
+                }
+            });
+            
+            if (!this.eventListenersAdded) {
+                this.setupEventListeners();
+                this.eventListenersAdded = true;
+            }
+        }
+    }
+    
+    ensureUniqueGlobalRegionId(baseId) {
+        let finalId = baseId || `region_${this.globalRegionIdSet.size + 1}`;
+        let duplicateIndex = 1;
+        while (this.globalRegionIdSet.has(finalId)) {
+            finalId = `${baseId}_${duplicateIndex++}`;
+        }
+        this.globalRegionIdSet.add(finalId);
+        return finalId;
+    }
+    
+    extractPopulationValue(props = {}) {
+        const candidates = [
+            props.population,
+            props.POPULATION,
+            props.POP_EST,
+            props.pop_est,
+            props.pop,
+            props.Population
+        ];
+        const population = candidates.find(value => typeof value === 'number' && value > 0);
+        if (population) return Math.round(population);
+        return Math.floor(Math.random() * 7000000) + 300000;
+    }
+    
+    extractAreaValue(props = {}) {
+        const candidates = [
+            props.area,
+            props.AREA,
+            props.Shape_Area,
+            props.shape_area,
+            props.geom_area
+        ];
+        const area = candidates.find(value => typeof value === 'number' && value > 0);
+        if (area) return Math.round(area);
+        return Math.floor(Math.random() * 250000) + 5000;
+    }
+    
+    calculateRegionPrice(area, population, basePrice = 1000) {
+        const areaScore = Math.log(Math.max(area, 1) + 1);
+        const populationScore = Math.log(Math.max(population, 1) + 1);
+        const weightedScore = (areaScore * 0.6) + (populationScore * 0.4);
+        const rawPrice = basePrice * weightedScore;
+        const rounded = Math.round(rawPrice / 100) * 100;
+        return Math.max(basePrice, rounded);
     }
     
     async loadWorldData() {
@@ -2516,6 +2740,19 @@ class BillionaireMap {
         globeBtn.id = 'globe-mode-btn';
         globeBtn.className = 'mode-btn';
         globeBtn.textContent = '🌍 3D 지구본';
+        
+        if (this.globalViewMode) {
+            const globalLabel = document.createElement('span');
+            globalLabel.className = 'g20-label';
+            globalLabel.textContent = 'GLOBAL';
+            mapModeToggle.appendChild(globeBtn);
+            mapModeToggle.appendChild(globalLabel);
+            document.body.appendChild(mapModeToggle);
+            globeBtn.addEventListener('click', () => {
+                this.toggleGlobeMode();
+            });
+            return;
+        }
         
         // G20 라벨 생성
         const g20Label = document.createElement('span');
@@ -13018,23 +13255,13 @@ class BillionaireMap {
                 this.cachedGeoJsonData['korea'] = geoJsonData;
             // }
         
-        // 소스 업데이트 또는 생성 (world-regions와 korea-regions 둘 다 추가)
+        // 소스 업데이트 또는 생성
         if (this.map.getSource('world-regions')) {
             // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
             this.map.getSource('world-regions').setData(geoJsonData);
         } else {
             // 소스가 없으면 새로 생성
             this.map.addSource('world-regions', {
-                type: 'geojson',
-                data: geoJsonData
-            });
-        }
-        
-        // korea-regions 소스도 추가 (동기화를 위해 필요)
-        if (this.map.getSource('korea-regions')) {
-            this.map.getSource('korea-regions').setData(geoJsonData);
-        } else {
-            this.map.addSource('korea-regions', {
                 type: 'geojson',
                 data: geoJsonData
             });
@@ -13315,6 +13542,19 @@ class BillionaireMap {
             if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
         
+        const auctionBidBtn = document.getElementById('auction-bid-btn');
+        if (auctionBidBtn) {
+            auctionBidBtn.addEventListener('click', () => this.handleAuctionBid('panel'));
+        }
+        const auctionBidInput = document.getElementById('auction-bid-input');
+        if (auctionBidInput) {
+            auctionBidInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    this.handleAuctionBid('panel');
+                }
+            });
+        }
+        
         // 도움말 버튼
         document.getElementById('help-btn').addEventListener('click', () => {
             this.showHelp();
@@ -13591,6 +13831,19 @@ class BillionaireMap {
                 this.renderPayPalButtons('company-paypal-buttons', region);
                 const container = document.getElementById('company-paypal-buttons');
                 if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        }
+        
+        const companyAuctionBidBtn = document.getElementById('company-auction-bid-btn');
+        if (companyAuctionBidBtn) {
+            companyAuctionBidBtn.addEventListener('click', () => this.handleAuctionBid('modal'));
+        }
+        const companyAuctionBidInput = document.getElementById('company-auction-bid-input');
+        if (companyAuctionBidInput) {
+            companyAuctionBidInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    this.handleAuctionBid('modal');
+                }
             });
         }
         
@@ -14041,6 +14294,7 @@ class BillionaireMap {
                 }
             }
             
+            this.updateCompanyModalAuctionSection(stateId);
             console.log('지역 정보 표시 완료:', regionData);
         }
         
@@ -14234,12 +14488,20 @@ class BillionaireMap {
         const adStatus = document.getElementById('ad-status');
         const adPrice = document.getElementById('ad-price');
         
+        if (!region) {
+            panel.classList.add('hidden');
+            return;
+        }
+        
+        const regionFromMap = this.regionData.get(region.id) || region;
+        this.currentRegion = regionFromMap;
+        
         // 현재 모드에 따라 표시할 이름 결정
-        regionName.textContent = this.getRegionDisplayName(region);
+        regionName.textContent = this.getRegionDisplayName(regionFromMap);
         
         if (this.currentMapMode === 'japan') {
             adminLevel.textContent = 'Prefecture';
-            adStatus.textContent = region.ad_status === 'occupied' ? 'Occupied' : 'Available';
+            adStatus.textContent = regionFromMap.ad_status === 'occupied' ? 'Occupied' : (regionFromMap.ad_status === 'auction' ? 'Auction' : 'Available');
         } else if (this.currentMapMode === 'spain' && region.autonomous_community_ko) {
             // 스페인의 경우 자치지역 정보 표시
             adminLevel.textContent = `${region.admin_level} (자치지역: ${region.autonomous_community_ko})`;
@@ -14247,18 +14509,303 @@ class BillionaireMap {
         } else {
             const englishCountries = ['usa', 'uk', 'canada', 'australia', 'south-africa'];
             const isEnglishCountry = englishCountries.includes(this.currentMapMode);
-            adminLevel.textContent = region.admin_level;
-            adStatus.textContent = isEnglishCountry 
-                ? (region.occupied ? 'Occupied' : 'Available')
-                : (region.occupied ? '광고 중' : '사용 가능');
+            adminLevel.textContent = regionFromMap.admin_level;
+            const statusKey = regionFromMap.ad_status === 'occupied'
+                ? (isEnglishCountry ? 'Occupied' : '광고 중')
+                : (regionFromMap.ad_status === 'auction'
+                    ? (isEnglishCountry ? 'Auction' : '경매 진행 중')
+                    : (isEnglishCountry ? 'Available' : '사용 가능'));
+            adStatus.textContent = statusKey;
         }
-        countryName.textContent = region.country;
-        population.textContent = region.population.toLocaleString();
-        area.textContent = `${region.area.toLocaleString()} km²`;
-        adStatus.style.color = region.ad_status === 'occupied' ? '#ff6b6b' : '#4ecdc4';
-        adPrice.textContent = `$${region.ad_price.toLocaleString()}`;
+        countryName.textContent = regionFromMap.country;
+        population.textContent = regionFromMap.population ? regionFromMap.population.toLocaleString() : '-';
+        area.textContent = regionFromMap.area ? `${regionFromMap.area.toLocaleString()} km²` : '-';
+        adStatus.style.color = regionFromMap.ad_status === 'occupied'
+            ? '#ff6b6b'
+            : (regionFromMap.ad_status === 'auction' ? '#feca57' : '#4ecdc4');
+        adPrice.textContent = regionFromMap.ad_price ? `$${regionFromMap.ad_price.toLocaleString()}` : '-';
+        
+        this.updateAuctionPanel(regionFromMap);
         
         panel.classList.remove('hidden');
+    }
+    
+    updateAuctionPanel(region) {
+        const currentBidEl = document.getElementById('auction-current-bid');
+        if (!currentBidEl) return;
+        
+        const minBidEl = document.getElementById('auction-min-bid');
+        const protectionEl = document.getElementById('auction-protection');
+        const bidderEl = document.getElementById('auction-current-bidder');
+        const statusEl = document.getElementById('auction-status-message');
+        const bidInput = document.getElementById('auction-bid-input');
+        
+        const auctionInfo = this.getAuctionInfo(region);
+        if (!auctionInfo) {
+            currentBidEl.textContent = '-';
+            minBidEl.textContent = '-';
+            protectionEl.textContent = '-';
+            bidderEl.textContent = '-';
+            if (statusEl) statusEl.textContent = '';
+            if (bidInput) bidInput.placeholder = '입찰 금액 (USD)';
+            return;
+        }
+        
+        currentBidEl.textContent = auctionInfo.currentBid ? this.formatCurrency(auctionInfo.currentBid) : '-';
+        minBidEl.textContent = this.formatCurrency(auctionInfo.minBid);
+        protectionEl.textContent = auctionInfo.hasActiveProtection
+            ? `${this.formatProtectionCountdown(auctionInfo.protectionEndsAt)}`
+            : '즉시 입찰 가능';
+        bidderEl.textContent = auctionInfo.currentBidder
+            ? (auctionInfo.currentBidder.displayName || auctionInfo.currentBidder.email || '-')
+            : '-';
+        
+        if (statusEl) {
+            statusEl.textContent = auctionInfo.hasActiveProtection
+                ? '현재 최고 입찰 보호 시간이 진행 중입니다.'
+                : '';
+        }
+        
+        if (bidInput) {
+            bidInput.placeholder = `${this.formatCurrency(auctionInfo.minBid)} 이상`;
+            bidInput.min = auctionInfo.minBid || 0;
+        }
+    }
+    
+    updateCompanyModalAuctionSection(stateId) {
+        const currentBidEl = document.getElementById('company-auction-current-bid');
+        if (!currentBidEl) return;
+        
+        const region = this.regionData.get(stateId) || this.currentRegion;
+        const auctionInfo = this.getAuctionInfo(region);
+        const minBidEl = document.getElementById('company-auction-min-bid');
+        const protectionEl = document.getElementById('company-auction-protection');
+        const bidderEl = document.getElementById('company-auction-current-bidder');
+        const statusEl = document.getElementById('company-auction-status');
+        const bidInput = document.getElementById('company-auction-bid-input');
+        
+        if (!auctionInfo) {
+            currentBidEl.textContent = '-';
+            if (minBidEl) minBidEl.textContent = '-';
+            if (protectionEl) protectionEl.textContent = '-';
+            if (bidderEl) bidderEl.textContent = '-';
+            if (statusEl) statusEl.textContent = '';
+            if (bidInput) bidInput.placeholder = '입찰 금액 (USD)';
+            return;
+        }
+        
+        currentBidEl.textContent = auctionInfo.currentBid ? this.formatCurrency(auctionInfo.currentBid) : '-';
+        if (minBidEl) minBidEl.textContent = this.formatCurrency(auctionInfo.minBid);
+        if (protectionEl) {
+            protectionEl.textContent = auctionInfo.hasActiveProtection
+                ? `${this.formatProtectionCountdown(auctionInfo.protectionEndsAt)}`
+                : '즉시 입찰 가능';
+        }
+        if (bidderEl) {
+            bidderEl.textContent = auctionInfo.currentBidder
+                ? (auctionInfo.currentBidder.displayName || auctionInfo.currentBidder.email || '-')
+                : '-';
+        }
+        if (statusEl) {
+            statusEl.textContent = auctionInfo.hasActiveProtection
+                ? '현재 최고 입찰 보호 시간이 진행 중입니다.'
+                : '';
+        }
+        if (bidInput) {
+            bidInput.placeholder = `${this.formatCurrency(auctionInfo.minBid)} 이상`;
+            bidInput.min = auctionInfo.minBid || 0;
+        }
+    }
+    
+    getAuctionInfo(region) {
+        if (!region) return null;
+        const regionData = typeof region === 'string' ? this.regionData.get(region) : region;
+        if (!regionData) return null;
+        
+        const auction = regionData.auction || this.auctionData.get(regionData.id) || null;
+        const basePrice = regionData.ad_price || this.uniformAdPrice || 1000;
+        const hasBid = !!(auction && auction.currentBid);
+        const referenceAmount = hasBid ? auction.currentBid : basePrice;
+        const minBid = this.calculateMinimumBidAmount(referenceAmount, hasBid);
+        
+        return {
+            basePrice,
+            currentBid: hasBid ? auction.currentBid : 0,
+            minBid,
+            currentBidder: auction?.currentBidder || null,
+            protectionEndsAt: auction?.protectionEndsAt || null,
+            lastBidAt: auction?.lastBidAt || null,
+            hasActiveProtection: this.isProtectionActive(auction?.protectionEndsAt)
+        };
+    }
+    
+    calculateMinimumBidAmount(referenceAmount, hasExistingBid = true) {
+        const roundingUnit = this.auctionConfig.roundingUnit || 100;
+        const incrementPercent = hasExistingBid ? (this.auctionConfig.minIncrementPercent || 0.05) : 0;
+        const rawAmount = referenceAmount * (1 + incrementPercent);
+        const rounded = Math.ceil(rawAmount / roundingUnit) * roundingUnit;
+        return Math.max(rounded, this.uniformAdPrice || 1000);
+    }
+    
+    formatCurrency(amount) {
+        if (!amount || isNaN(amount)) return '$0';
+        return `$${Number(amount).toLocaleString()}`;
+    }
+    
+    getTimestampMillis(timestamp) {
+        if (!timestamp) return 0;
+        if (typeof timestamp.toMillis === 'function') {
+            return timestamp.toMillis();
+        }
+        if (timestamp instanceof Date) {
+            return timestamp.getTime();
+        }
+        if (typeof timestamp === 'number') {
+            return timestamp;
+        }
+        if (timestamp.seconds !== undefined) {
+            return timestamp.seconds * 1000 + Math.floor((timestamp.nanoseconds || 0) / 1e6);
+        }
+        const parsed = new Date(timestamp);
+        return parsed.getTime();
+    }
+    
+    isProtectionActive(timestamp) {
+        if (!timestamp) return false;
+        return this.getTimestampMillis(timestamp) > Date.now();
+    }
+    
+    formatProtectionCountdown(timestamp) {
+        if (!timestamp) return '보호 종료';
+        const remaining = this.getTimestampMillis(timestamp) - Date.now();
+        if (remaining <= 0) return '보호 종료';
+        const hours = Math.floor(remaining / 3600000);
+        const minutes = Math.floor((remaining % 3600000) / 60000);
+        if (hours > 0) {
+            return `${hours}시간 ${minutes}분 남음`;
+        }
+        return `${minutes}분 남음`;
+    }
+    
+    async handleAuctionBid(context = 'panel') {
+        const contexts = {
+            panel: { inputId: 'auction-bid-input', statusId: 'auction-status-message', buttonId: 'auction-bid-btn' },
+            modal: { inputId: 'company-auction-bid-input', statusId: 'company-auction-status', buttonId: 'company-auction-bid-btn' }
+        };
+        
+        const ctx = contexts[context] || contexts.panel;
+        const input = document.getElementById(ctx.inputId);
+        const statusEl = document.getElementById(ctx.statusId);
+        const button = document.getElementById(ctx.buttonId);
+        
+        if (!input || !this.currentRegion) {
+            this.showNotification('입찰할 지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        if (!this.currentUser) {
+            this.showNotification('입찰하려면 로그인이 필요합니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        
+        const bidAmount = parseFloat(input.value);
+        if (!isFinite(bidAmount) || bidAmount <= 0) {
+            this.showNotification('유효한 입찰 금액을 입력해주세요.', 'warning');
+            return;
+        }
+        
+        if (statusEl) {
+            statusEl.textContent = '입찰 진행 중...';
+            statusEl.style.color = '#feca57';
+        }
+        if (button) button.disabled = true;
+        
+        try {
+            await this.placeBid(this.currentRegion.id, bidAmount);
+            if (statusEl) {
+                statusEl.textContent = '입찰이 접수되었습니다!';
+                statusEl.style.color = '#1dd1a1';
+            }
+            input.value = '';
+        } catch (error) {
+            console.error('입찰 오류:', error);
+            const message = error.message || '입찰 처리 중 오류가 발생했습니다.';
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.style.color = '#ff6b6b';
+            }
+            this.showNotification(message, 'error');
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+    
+    async placeBid(regionId, bidAmount) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            throw new Error('Firebase 초기화 후 다시 시도해주세요.');
+        }
+        
+        const region = this.regionData.get(regionId);
+        if (!region) {
+            throw new Error('선택한 지역 정보를 찾을 수 없습니다.');
+        }
+        
+        const { doc, runTransaction, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const auctionRef = doc(this.firestore, 'auctions', regionId);
+        const protectionMs = (this.auctionConfig.protectionHours || 12) * 60 * 60 * 1000;
+        const roundingUnit = this.auctionConfig.roundingUnit || 100;
+        const normalizedBidAmount = Math.ceil(bidAmount / roundingUnit) * roundingUnit;
+        
+        await runTransaction(this.firestore, async (transaction) => {
+            const auctionSnap = await transaction.get(auctionRef);
+            const auctionData = auctionSnap.exists() ? auctionSnap.data() : null;
+            const basePrice = region.ad_price || this.uniformAdPrice || 1000;
+            const referenceAmount = auctionData?.currentBid || basePrice;
+            const minBid = this.calculateMinimumBidAmount(referenceAmount, !!auctionData?.currentBid);
+            
+            if (normalizedBidAmount < minBid) {
+                throw new Error(`최소 입찰가는 ${this.formatCurrency(minBid)} 입니다.`);
+            }
+            
+            if (auctionData?.protectionEndsAt) {
+                const protectionEnds = this.getTimestampMillis(auctionData.protectionEndsAt);
+                if (protectionEnds > Date.now()) {
+                    throw new Error('보호 기간이 끝난 후 다시 입찰할 수 있습니다.');
+                }
+            }
+            
+            const now = Timestamp.now();
+            const protectionEndsAt = Timestamp.fromDate(new Date(Date.now() + protectionMs));
+            const history = (auctionData?.history || []).slice(-9);
+            history.push({
+                amount: normalizedBidAmount,
+                bidder: this.currentUser.displayName || this.currentUser.email,
+                timestamp: now
+            });
+            
+            const payload = {
+                regionId,
+                regionName: this.getRegionDisplayName(region),
+                currentBid: normalizedBidAmount,
+                currentBidder: {
+                    uid: this.currentUser.uid,
+                    email: this.currentUser.email,
+                    displayName: this.currentUser.displayName || this.currentUser.email
+                },
+                lastBidAt: now,
+                protectionEndsAt,
+                history,
+                updatedAt: serverTimestamp(),
+                minIncrementPercent: this.auctionConfig.minIncrementPercent
+            };
+            
+            if (!auctionSnap.exists()) {
+                payload.createdAt = serverTimestamp();
+            }
+            
+            transaction.set(auctionRef, payload, { merge: true });
+        });
     }
     
     hideInfoPanel() {
