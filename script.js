@@ -18878,42 +18878,15 @@ class BillionaireMap {
             ]);
         }
         
-        // fill 색상 밝게 (저장된 색상 유지 + 호버 지역만 강조)
-        if (this.map.getLayer('regions-fill')) {
-            const currentMode = this.currentMapMode;
-            let hoverColorExpr = ['case'];
-            
-            // 저장된 색상이 있으면 적용
-            if (Object.keys(currentColorData).length > 0) {
-                Object.keys(currentColorData).forEach(id => {
-                    const regionColor = currentColorData[id];
-                    if (regionColor && regionColor.fillColor && id !== regionId) {
-                        hoverColorExpr.push(['==', ['get', 'id'], id]);
-                        hoverColorExpr.push(regionColor.fillColor);
-                    }
-                });
-            }
-            
-            // occupied 상태
-            hoverColorExpr.push(['==', ['get', 'ad_status'], 'occupied']);
-            hoverColorExpr.push('#ff6b6b');
-            
-            // 호버 지역은 밝은 색상
-            hoverColorExpr.push(['==', ['get', 'id'], regionId]);
-            hoverColorExpr.push('#6dd5d8');
-            
-            // 기본 색상
-            hoverColorExpr.push('#4ecdc4');
-            
-            this.map.setPaintProperty('regions-fill', 'fill-color', hoverColorExpr);
-        }
+        // fill 색상은 변경하지 않음 (원래 색상 유지)
+        // 호버 효과는 regions-hover 레이어로만 표시
     }
     
     // hover 효과 즉시 제거 함수 (transition 없음)
     clearHoverEffectImmediate() {
         if (!this.currentHoverRegionId) return;
         
-        // hover 레이어 제거
+        // hover 레이어만 제거 (fill 색상은 원래대로 유지)
         if (this.map.getLayer('regions-hover')) {
             this.map.setFilter('regions-hover', ['==', 'id', '']);
             this.map.setPaintProperty('regions-hover', 'fill-opacity', 0);
@@ -18955,58 +18928,9 @@ class BillionaireMap {
             this.map.setPaintProperty('regions-border', 'line-opacity', 0.8);
         }
         
-        // fill 색상 원래대로 복원 (저장된 색상 유지)
-        if (this.map.getLayer('regions-fill')) {
-            const currentMode = this.currentMapMode;
-            const currentColorData = this.currentMapMode === 'korea' 
-                ? this.koreaColorData 
-                : this.currentMapMode === 'japan'
-                ? this.japanColorData
-                : this.colorData;
-            
-            let fillColorExpr;
-            
-            // 저장된 색상이 있으면 복원
-            if (Object.keys(currentColorData).length > 0) {
-                fillColorExpr = ['case'];
-                Object.keys(currentColorData).forEach(regionId => {
-                    const regionColor = currentColorData[regionId];
-                    if (regionColor && regionColor.fillColor) {
-                        fillColorExpr.push(['==', ['get', 'id'], regionId]);
-                        fillColorExpr.push(regionColor.fillColor);
-                    }
-                });
-                
-                // 기본 색상 (occupied 상태에 따라)
-                fillColorExpr.push([
-                    'case',
-                    ['==', ['get', 'ad_status'], 'occupied'],
-                    '#ff6b6b',
-                    '#4ecdc4'
-                ]);
-            } else {
-                // 저장된 색상이 없으면 기본값
-                if (currentMode === 'japan') {
-                    fillColorExpr = [
-                        'case',
-                        ['==', ['get', 'ad_status'], 'occupied'],
-                        '#ff6b6b',
-                        ['==', ['get', 'ad_status'], 'selected'],
-                        '#feca57',
-                        '#4ecdc4'
-                    ];
-                } else {
-                    fillColorExpr = [
-                        'case',
-                        ['==', ['get', 'ad_status'], 'occupied'],
-                        '#ff6b6b',
-                        '#4ecdc4'
-                    ];
-                }
-            }
-            
-            this.map.setPaintProperty('regions-fill', 'fill-color', fillColorExpr);
-        }
+        // fill 색상은 변경하지 않음 (원래 색상 유지)
+        // 호버 효과는 regions-hover 레이어로만 표시되므로, 
+        // hover 레이어만 제거하면 원래 색상이 자동으로 표시됨
         
         this.currentHoverRegionId = null;
     }
@@ -20384,24 +20308,9 @@ class BillionaireMap {
         
         if (!landingOverlay || !exploreBtn) return;
         
-        // 랜딩 오버레이 표시 여부 확인 (localStorage)
-        const hasSeenLanding = localStorage.getItem('hasSeenLanding');
-        if (hasSeenLanding === 'true') {
-            landingOverlay.classList.add('hidden');
-            this.landingOverlayVisible = false;
-        } else {
-            this.updateLandingStats();
-        }
-        
-        // 탐험하기 버튼 클릭 이벤트
-        exploreBtn.addEventListener('click', () => {
-            landingOverlay.classList.add('hidden');
-            this.landingOverlayVisible = false;
-            localStorage.setItem('hasSeenLanding', 'true');
-        });
-        
-        // 주기적으로 랜딩 통계 업데이트
-        setInterval(() => this.updateLandingStats(), 30000); // 30초마다
+        // 랜딩 오버레이 항상 숨기기
+        landingOverlay.classList.add('hidden');
+        this.landingOverlayVisible = false;
     }
     
     // 랜딩 페이지 통계 업데이트
