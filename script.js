@@ -1377,17 +1377,72 @@ class BillionaireMap {
     initializeInfoPanelPosition() {
         const panel = document.getElementById('info-panel');
         if (panel) {
-            panel.style.cssText = `
-                position: fixed !important;
-                top: 50% !important;
-                left: 50% !important;
-                right: auto !important;
-                bottom: auto !important;
-                transform: translate(-50%, -50%) !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            `;
+            // 모든 위치 속성을 개별적으로 설정
+            panel.style.setProperty('position', 'fixed', 'important');
+            panel.style.setProperty('top', '50%', 'important');
+            panel.style.setProperty('left', '50%', 'important');
+            panel.style.setProperty('right', 'auto', 'important');
+            panel.style.setProperty('bottom', 'auto', 'important');
+            panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            panel.style.setProperty('margin', '0', 'important');
+            panel.style.setProperty('padding', '0', 'important');
+            panel.style.setProperty('width', '90%', 'important');
+            panel.style.setProperty('max-width', '600px', 'important');
+            panel.style.setProperty('z-index', '2000', 'important');
+            
+            // 패널 위치 감시자 설정
+            this.ensurePanelCentered(panel);
         }
+    }
+    
+    // 패널이 항상 중앙에 위치하도록 보장하는 함수
+    ensurePanelCentered(panel) {
+        if (!panel || this.panelObserver) return;
+        
+        // MutationObserver로 스타일 변경 감지
+        this.panelObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    const currentTop = panel.style.top;
+                    const currentLeft = panel.style.left;
+                    const currentTransform = panel.style.transform;
+                    
+                    // 중앙이 아닌 경우 강제로 중앙으로 설정
+                    if (currentTop !== '50%' || currentLeft !== '50%' || !currentTransform.includes('translate(-50%, -50%)')) {
+                        panel.style.setProperty('position', 'fixed', 'important');
+                        panel.style.setProperty('top', '50%', 'important');
+                        panel.style.setProperty('left', '50%', 'important');
+                        panel.style.setProperty('right', 'auto', 'important');
+                        panel.style.setProperty('bottom', 'auto', 'important');
+                        panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+                    }
+                }
+            });
+        });
+        
+        // 패널의 스타일 속성 변경 감시
+        this.panelObserver.observe(panel, {
+            attributes: true,
+            attributeFilter: ['style']
+        });
+        
+        // 주기적으로 위치 확인 (추가 보안)
+        this.panelPositionCheckInterval = setInterval(() => {
+            if (panel && !panel.classList.contains('hidden')) {
+                const computedStyle = window.getComputedStyle(panel);
+                const top = computedStyle.top;
+                const left = computedStyle.left;
+                
+                if (top !== '50%' || left !== '50%') {
+                    panel.style.setProperty('position', 'fixed', 'important');
+                    panel.style.setProperty('top', '50%', 'important');
+                    panel.style.setProperty('left', '50%', 'important');
+                    panel.style.setProperty('right', 'auto', 'important');
+                    panel.style.setProperty('bottom', 'auto', 'important');
+                    panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+                }
+            }
+        }, 100);
     }
     
     // 리더보드 최소화 기능 초기화
@@ -15767,16 +15822,21 @@ class BillionaireMap {
         
         // 패널 위치 명시적으로 설정 (화면 중앙) - 강제 적용
         if (panel) {
-            panel.style.cssText = `
-                position: fixed !important;
-                top: 50% !important;
-                left: 50% !important;
-                right: auto !important;
-                bottom: auto !important;
-                transform: translate(-50%, -50%) !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            `;
+            // 모든 위치 속성을 개별적으로 설정하여 확실하게 적용
+            panel.style.setProperty('position', 'fixed', 'important');
+            panel.style.setProperty('top', '50%', 'important');
+            panel.style.setProperty('left', '50%', 'important');
+            panel.style.setProperty('right', 'auto', 'important');
+            panel.style.setProperty('bottom', 'auto', 'important');
+            panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            panel.style.setProperty('margin', '0', 'important');
+            panel.style.setProperty('padding', '0', 'important');
+            panel.style.setProperty('width', '90%', 'important');
+            panel.style.setProperty('max-width', '600px', 'important');
+            panel.style.setProperty('z-index', '2000', 'important');
+            
+            // 패널 위치 감시자 설정 (다른 코드가 위치를 변경하는 것을 방지)
+            this.ensurePanelCentered(panel);
         }
         
         if (!region) {
@@ -15824,6 +15884,41 @@ class BillionaireMap {
         this.updateAuctionPanel(regionFromMap);
         
         panel.classList.remove('hidden');
+        
+        // 패널이 표시된 직후 위치를 다시 한 번 강제로 설정 (다른 코드가 덮어쓸 수 있으므로)
+        setTimeout(() => {
+            if (panel && !panel.classList.contains('hidden')) {
+                panel.style.setProperty('position', 'fixed', 'important');
+                panel.style.setProperty('top', '50%', 'important');
+                panel.style.setProperty('left', '50%', 'important');
+                panel.style.setProperty('right', 'auto', 'important');
+                panel.style.setProperty('bottom', 'auto', 'important');
+                panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+                panel.style.setProperty('margin', '0', 'important');
+                panel.style.setProperty('z-index', '2000', 'important');
+            }
+        }, 0);
+        
+        // 추가 보안: 여러 번 재설정
+        setTimeout(() => {
+            if (panel && !panel.classList.contains('hidden')) {
+                panel.style.setProperty('position', 'fixed', 'important');
+                panel.style.setProperty('top', '50%', 'important');
+                panel.style.setProperty('left', '50%', 'important');
+                panel.style.setProperty('right', 'auto', 'important');
+                panel.style.setProperty('bottom', 'auto', 'important');
+                panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            }
+        }, 10);
+        
+        setTimeout(() => {
+            if (panel && !panel.classList.contains('hidden')) {
+                panel.style.setProperty('position', 'fixed', 'important');
+                panel.style.setProperty('top', '50%', 'important');
+                panel.style.setProperty('left', '50%', 'important');
+                panel.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            }
+        }, 50);
     }
     
     updateAuctionPanel(region) {
@@ -17410,8 +17505,13 @@ class BillionaireMap {
         panel.classList.add('hidden');
         
         // 하이라이트 제거
-        this.map.setFilter('regions-hover', ['==', 'id', '']);
+        if (this.map) {
+            this.map.setFilter('regions-hover', ['==', 'id', '']);
+        }
         this.currentRegion = null;
+        
+        // 패널 위치 감시자 정리 (선택적)
+        // observer는 유지하여 다음에 표시될 때도 작동하도록 함
     }
     
     // 로그인 성공 시 자동으로 PayPal 버튼 렌더링

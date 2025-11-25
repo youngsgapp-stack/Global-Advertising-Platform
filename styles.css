@@ -434,27 +434,27 @@ body {
 }
 
 
-/* 정보 패널 - 화면 중앙 모달 스타일 */
-.info-panel {
+/* 정보 패널 - 화면 중앙 모달 스타일 (강제 적용) */
+#info-panel {
     position: fixed !important;
     top: 50% !important;
     left: 50% !important;
     right: auto !important;
     bottom: auto !important;
     transform: translate(-50%, -50%) !important;
-    width: 90%;
-    max-width: 600px;
-    max-height: 90vh;
-    background: rgba(0, 0, 0, 0.95);
-    border-radius: 15px;
-    backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 2000;
-    transition: all 0.3s ease;
+    width: 90% !important;
+    max-width: 600px !important;
+    max-height: 90vh !important;
+    background: rgba(0, 0, 0, 0.95) !important;
+    border-radius: 15px !important;
+    backdrop-filter: blur(15px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    z-index: 2000 !important;
+    transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease !important;
     margin: 0 !important;
     padding: 0 !important;
-    overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    overflow-y: auto !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
 }
 
 .info-panel.hidden {
