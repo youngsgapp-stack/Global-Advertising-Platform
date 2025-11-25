@@ -21098,7 +21098,14 @@ class BillionaireMap {
     async calculateTotalRevenue() {
         if (!this.isFirebaseInitialized || !this.firestore) {
             console.warn('Firestore가 초기화되지 않았습니다.');
-            return 0;
+            // 기본값: 로컬 데이터에서 계산
+            let total = 0;
+            this.advertisingData.forEach((ad, regionId) => {
+                if (ad.price) {
+                    total += ad.price;
+                }
+            });
+            return total;
         }
         try {
             // Firestore에서 총 수익 계산
@@ -21106,29 +21113,26 @@ class BillionaireMap {
                 .where('status', '==', 'sold')
                 .get();
                 
-                let total = 0;
-                auctionsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.finalPrice) {
-                        total += data.finalPrice;
-                    }
-                });
-                
-                return total;
-            } catch (error) {
-                console.error('수익 계산 실패:', error);
-            }
+            let total = 0;
+            auctionsSnapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.finalPrice) {
+                    total += data.finalPrice;
+                }
+            });
+            
+            return total;
+        } catch (error) {
+            console.error('수익 계산 실패:', error);
+            // 기본값: 로컬 데이터에서 계산
+            let total = 0;
+            this.advertisingData.forEach((ad, regionId) => {
+                if (ad.price) {
+                    total += ad.price;
+                }
+            });
+            return total;
         }
-        
-        // 기본값: 로컬 데이터에서 계산
-        let total = 0;
-        this.advertisingData.forEach((ad, regionId) => {
-            if (ad.price) {
-                total += ad.price;
-            }
-        });
-        
-        return total;
     }
     
     // 대표 픽셀 하이라이트 표시
