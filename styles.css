@@ -436,10 +436,12 @@ body {
 
 /* 정보 패널 */
 .info-panel {
-    position: absolute;
-    top: 50%;
-    right: 20px;
-    transform: translateY(-50%);
+    position: fixed !important;
+    top: 50% !important;
+    right: 20px !important;
+    left: auto !important;
+    bottom: auto !important;
+    transform: translateY(-50%) !important;
     width: 350px;
     background: rgba(0, 0, 0, 0.9);
     border-radius: 15px;
@@ -450,7 +452,7 @@ body {
 }
 
 .info-panel.hidden {
-    transform: translateY(-50%) translateX(400px);
+    transform: translateY(-50%) translateX(400px) !important;
     opacity: 0;
 }
 
