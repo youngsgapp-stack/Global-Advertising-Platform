@@ -5,6 +5,8 @@ class BillionaireMap {
         this.currentRegion = null;
         this.regionData = new Map();
         this.uniformAdPrice = 1000;
+        this.regionPopularity = new Map(); // 지역별 인기 지표 (입찰 횟수, 조회수 등)
+        this.priceAdjustmentFactor = 1.0; // 가격 조절 계수
         this.advertisingData = new Map();
         this.logoData = {}; // 간단한 객체로 변경
         this.colorData = {}; // 색상 데이터 저장
@@ -21,6 +23,8 @@ class BillionaireMap {
         this.firebaseApp = null;
         this.firebaseAuth = null;
         this.firestore = null;
+        this.firebaseFunctions = null;
+        this.callableTopAuctions = null;
         this.currentUser = null; // 현재 로그인한 사용자
         this.isFirebaseInitialized = false;
         // 성능 최적화: 데이터 캐싱
@@ -90,6 +94,71 @@ class BillionaireMap {
             protectionHours: 12, // 보호 시간(시간)
             roundingUnit: 100 // 입찰 금액 반올림 단위
         };
+        this.pixelBundleCache = new Map(); // 지역별 픽셀 스토리
+        this.pixelBundleUnsubscribe = null;
+        this.activePixelSubscriptionRegion = null;
+        this.pixelLayerVisible = false;
+        this.pixelExperienceInitialized = false;
+        this.pixelProtectionHours = 12;
+        this.pixelDetailMode = false; // 픽셀 상세 보기 모드
+        this.pixelDetailRegionId = null; // 픽셀 상세 보기 중인 지역 ID
+        this.pixelEditorState = {
+            mode: 'canvas',
+            canvasSize: 16,
+            brushColor: '#ff6b6b',
+            brushSize: 1,
+            pixelMatrix: [],
+            imageDataUrl: '',
+            messageText: '',
+            messageLink: '',
+            isDrawing: false
+        };
+        this.pixelPreviewCanvas = null;
+        this.pixelPreviewCtx = null;
+        this.pixelEditorCanvas = null;
+        this.pixelEditorCtx = null;
+        this.isSavingPixelBundle = false;
+        this.leaderboardFilterState = { season: 'all', country: 'all' };
+        this.leaderboardCache = new Map();
+        this.leaderboardRemoteThreshold = 200;
+        this.leaderboardPendingRequest = null;
+        this.lastRenderedLeaderboardSource = 'local';
+        this.leaderboardDefaultLimit = 5;
+        this.realtimeLeaderboard = null;
+        this.leaderboardRealtimeUnsubscribe = null;
+        this.realtimeLeaderboardEnabled = true;
+        this.latestServerLeaderboardTimestamp = null;
+        this.adminValidationConfig = [];
+        this.adminValidationInitialized = false;
+        this.auctionAnimationFrame = null; // 경합 상태 애니메이션 프레임
+        this.auctionAnimationTime = 0; // 애니메이션 시간 추적
+        
+        // 시즌 시스템 관련 변수
+        this.currentSeason = {
+            id: '2025-S1',
+            name: '시즌 1',
+            startDate: new Date('2025-01-01'),
+            endDate: new Date('2025-12-31'),
+            totalPixels: 10000,
+            soldPixels: 0,
+            participants: 0
+        };
+        this.seasonData = new Map(); // 시즌별 데이터 캐시
+        this.communityMissions = []; // 커뮤니티 미션 목록
+        this.userPoints = 0; // 사용자 포인트
+        this.userBadges = []; // 사용자 뱃지 목록
+        this.achievements = []; // 업적 목록
+        this.seasonTimeline = []; // 시즌 타임라인 이벤트 목록
+        this.regionConquestHistory = new Map(); // 구역별 점령 히스토리
+        this.transparencyData = {
+            totalRevenue: 0,
+            totalExpenses: 0,
+            serverCost: 0,
+            surplus: 0,
+            lastUpdated: new Date()
+        };
+        this.landingOverlayVisible = true; // 랜딩 오버레이 표시 여부
+        this.currentFlashChallenge = null; // 현재 플래시 챌린지
         
         // G20 국가 설정
         this.g20Countries = {
@@ -941,6 +1010,236 @@ class BillionaireMap {
         }
     }
     
+    initializeLeaderboardFilters() {
+        if (!this.leaderboardFilterState) {
+            this.leaderboardFilterState = { season: 'all', country: 'all' };
+        }
+        this.refreshLeaderboardFilterTabs([]);
+    }
+    
+    buildLeaderboardDataset(auctionsArray) {
+        return auctionsArray
+            .map(([regionId, auction]) => {
+                const region = this.regionData.get(regionId);
+                const displayName = auction.regionName
+                    || (region ? this.getRegionDisplayName(region) : regionId);
+                const bidder = auction.currentBidder
+                    ? (auction.currentBidder.displayName || auction.currentBidder.email || '익명')
+                    : '-';
+                const seasonValueRaw = auction?.season
+                    || auction?.seasonId
+                    || region?.seasonTag
+                    || region?.season
+                    || 'default';
+                const seasonValue = seasonValueRaw.toString();
+                const seasonLabel = seasonValue === 'default' ? '현재 시즌' : seasonValue;
+                const countryValueRaw = auction?.country || region?.country || 'Global';
+                const countryValue = countryValueRaw.toString().trim() || 'Global';
+                return {
+                    regionId,
+                    regionName: displayName,
+                    bidder,
+                    amount: auction.currentBid || 0,
+                    seasonValue,
+                    seasonLabel,
+                    countryValue,
+                    countryLabel: countryValue
+                };
+            })
+            .filter(item => item.amount > 0)
+            .sort((a, b) => b.amount - a.amount);
+    }
+    
+    applyLeaderboardFilters(dataset, filters) {
+        if (!filters) return dataset;
+        return dataset.filter(entry => {
+            const seasonMatch = filters.season === 'all' || entry.seasonValue === filters.season;
+            const countryMatch = filters.country === 'all' || entry.countryValue === filters.country;
+            return seasonMatch && countryMatch;
+        });
+    }
+    
+    refreshLeaderboardFilterTabs(dataset) {
+        const seasons = new Map();
+        const countries = new Map();
+        dataset.forEach(item => {
+            if (!seasons.has(item.seasonValue)) {
+                seasons.set(item.seasonValue, item.seasonLabel);
+            }
+            if (!countries.has(item.countryValue)) {
+                countries.set(item.countryValue, item.countryLabel);
+            }
+        });
+        this.renderFilterTabs('season', seasons, '전체 시즌');
+        this.renderFilterTabs('country', countries, '전체 국가');
+    }
+    
+    renderFilterTabs(type, entriesMap, defaultLabel) {
+        const containerId = type === 'season' ? 'leaderboard-season-tabs' : 'leaderboard-country-tabs';
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const normalizedEntries = entriesMap instanceof Map ? entriesMap : new Map();
+        
+        const entries = Array.from(normalizedEntries.entries())
+            .filter(([value]) => value && value !== 'default')
+            .map(([value, label]) => ({ value, label }));
+        const hasDefault = normalizedEntries.has('default');
+        const defaultOptionLabel = hasDefault ? normalizedEntries.get('default') : defaultLabel;
+        const activeValue = this.leaderboardFilterState?.[type] || 'all';
+        
+        if (activeValue !== 'all' && !entries.some(entry => entry.value === activeValue)) {
+            this.leaderboardFilterState[type] = 'all';
+        }
+        
+        container.innerHTML = '';
+        container.appendChild(this.createFilterButton(type, 'all', defaultLabel));
+        
+        if (hasDefault) {
+            container.appendChild(this.createFilterButton(type, 'default', defaultOptionLabel));
+        }
+        
+        entries
+            .sort((a, b) => a.label.localeCompare(b.label, 'ko-KR', { numeric: true }))
+            .forEach(entry => {
+                container.appendChild(this.createFilterButton(type, entry.value, entry.label));
+            });
+    }
+    
+    createFilterButton(type, value, label) {
+        if (!this.leaderboardFilterState) {
+            this.leaderboardFilterState = { season: 'all', country: 'all' };
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'leaderboard-tab';
+        btn.dataset.filterType = type;
+        btn.dataset.filterValue = value;
+        btn.textContent = label;
+        
+        if (this.leaderboardFilterState && this.leaderboardFilterState[type] === value) {
+            btn.classList.add('active');
+        }
+        
+        btn.addEventListener('click', () => {
+            if (!this.leaderboardFilterState) {
+                this.leaderboardFilterState = { season: 'all', country: 'all' };
+            }
+            if (this.leaderboardFilterState[type] === value) return;
+            this.leaderboardFilterState[type] = value;
+            this.updateAuctionWidgets();
+        });
+        
+        return btn;
+    }
+    
+    renderLeaderboardList(data, source = 'local') {
+        const leaderboardEl = document.getElementById('auction-leaderboard-list');
+        if (!leaderboardEl) return;
+        this.lastRenderedLeaderboardSource = source;
+        leaderboardEl.innerHTML = '';
+        
+        if (!data || data.length === 0) {
+            leaderboardEl.innerHTML = '<li class="empty">아직 입찰이 없습니다.</li>';
+            this.updateLeaderboardTimestamp(source);
+            return;
+        }
+        
+        data.forEach((entry, index) => {
+            const li = document.createElement('li');
+            li.className = 'leaderboard-item';
+            li.innerHTML = `
+                <span class="leaderboard-rank">${index + 1}</span>
+                <div class="leaderboard-entry">
+                    <strong>${entry.regionName}</strong>
+                    <span>${entry.bidder || '-'}</span>
+                </div>
+                <span class="leaderboard-amount">${this.formatCurrency(entry.amount)}</span>
+            `;
+            leaderboardEl.appendChild(li);
+        });
+        this.updateLeaderboardTimestamp(source);
+    }
+    
+    updateLeaderboardTimestamp(source = 'local') {
+        const updatedLabel = document.getElementById('auction-leaderboard-updated');
+        if (!updatedLabel) return;
+        const timestamp = source === 'server' && this.latestServerLeaderboardTimestamp
+            ? this.latestServerLeaderboardTimestamp
+            : Date.now();
+        const now = new Date(timestamp);
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const suffix = source === 'server' ? ' · 서버집계' : '';
+        updatedLabel.textContent = `${hours}:${minutes}${suffix}`;
+    }
+    
+    shouldUseServerSideLeaderboard(totalEntries) {
+        return !!this.callableTopAuctions && totalEntries > this.leaderboardRemoteThreshold;
+    }
+
+    canUseRealtimeLeaderboard(filters) {
+        if (!this.realtimeLeaderboardEnabled) return false;
+        const seasonFilter = (filters?.season || 'all');
+        const countryFilter = (filters?.country || 'all');
+        return seasonFilter === 'all' && countryFilter === 'all';
+    }
+    
+    async fetchLeaderboardFromCloud(filters) {
+        if (!this.callableTopAuctions) return;
+        const effectiveFilters = {
+            season: filters?.season || 'all',
+            country: filters?.country || 'all'
+        };
+        if (this.canUseRealtimeLeaderboard(effectiveFilters)) {
+            return;
+        }
+        const cacheKey = JSON.stringify(effectiveFilters);
+        const cached = this.leaderboardCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 15000) {
+            this.renderLeaderboardList(cached.data, 'server');
+            return;
+        }
+        if (this.leaderboardPendingRequest === cacheKey) {
+            return;
+        }
+        this.leaderboardPendingRequest = cacheKey;
+        try {
+            const payload = {
+                season: effectiveFilters.season === 'all' ? null : effectiveFilters.season,
+                country: effectiveFilters.country === 'all' ? null : effectiveFilters.country,
+                limit: this.leaderboardDefaultLimit
+            };
+            const response = await this.callableTopAuctions(payload);
+            const entries = (response?.data?.leaderboard || []).map(item => ({
+                regionId: item.regionId,
+                regionName: item.regionName || item.regionId,
+                bidder: item.bidder || '-',
+                amount: item.amount || 0,
+                seasonValue: item.season || 'default',
+                seasonLabel: item.seasonLabel || (item.season && item.season !== 'default' ? item.season : '현재 시즌'),
+                countryValue: item.country || 'Global',
+                countryLabel: item.country || 'Global'
+            }));
+            const fetchedAt = Number(response?.data?.fetchedAt);
+            this.latestServerLeaderboardTimestamp = Number.isFinite(fetchedAt) ? fetchedAt : Date.now();
+            this.leaderboardCache.set(cacheKey, { data: entries, timestamp: Date.now() });
+            if (
+                this.leaderboardFilterState &&
+                this.leaderboardFilterState.season === effectiveFilters.season &&
+                this.leaderboardFilterState.country === effectiveFilters.country
+            ) {
+                this.renderLeaderboardList(entries, 'server');
+            }
+        } catch (error) {
+            console.warn('원격 리더보드 데이터를 불러오지 못했습니다:', error);
+        } finally {
+            if (this.leaderboardPendingRequest === cacheKey) {
+                this.leaderboardPendingRequest = null;
+            }
+        }
+    }
+    
     async init() {
         try {
             // 별 배경 초기화
@@ -974,11 +1273,39 @@ class BillionaireMap {
             // this.showUI(); // 초기에는 UI 표시하지 않음
             this.addMapModeToggle(); // 지도 모드 전환 버튼 추가
             this.setupColorPresetListeners(); // 색상 프리셋 이벤트 리스너 추가
+            this.initializePixelExperienceUI();
             this.updateUserUI(); // 사용자 UI 초기화 (사이드 메뉴 로그인 버튼 표시)
+            this.initializeLeaderboardFilters();
+            this.initializeLandingPage(); // 랜딩 페이지 초기화
+            this.initializeSeasonDashboard(); // 시즌 대시보드 초기화
+            this.initializeCommunityMissions().catch(err => {
+                console.warn('커뮤니티 미션 초기화 실패:', err);
+            }); // 커뮤니티 미션 시스템 초기화
+            this.initializeTransparencyDashboard(); // 투명화 대시보드 초기화
+            this.initializeFlashChallenge().catch(err => {
+                console.warn('플래시 챌린지 초기화 실패:', err);
+            }); // 플래시 챌린지 시스템 초기화
+            this.initializeSeasonArchive(); // 시즌 아카이브 시스템 초기화
+            this.setupPixelStoryModalEvents(); // 픽셀 스토리 모달 이벤트 설정
+            this.initializeMinimap(); // 미니맵 초기화
             
             if (this.isFirebaseInitialized) {
                 await this.subscribeAuctionUpdates();
+                await this.subscribeRealtimeLeaderboard();
             }
+            this.updateAuctionWidgets();
+            this.updateMapAuctionColors();
+            
+            // 옥션 상태 업데이트를 주기적으로 실행 (보호 시간 종료 시 색상 변경)
+            setInterval(() => {
+                this.updateAuctionStatusForAllRegions();
+                this.updateMapAuctionColors();
+            }, 60000); // 1분마다
+            
+            // 페이지 언로드 시 애니메이션 정리
+            window.addEventListener('beforeunload', () => {
+                this.stopAuctionAnimation();
+            });
             
             // 초기화 시 관리자 섹션 숨기기
             const sideAdminSection = document.getElementById('side-admin-section');
@@ -1109,7 +1436,7 @@ class BillionaireMap {
                 return;
             }
 
-            const { initializeApp, getAuth, getFirestore, firebaseConfig } = window.firebaseModules;
+            const { initializeApp, getAuth, getFirestore, getFunctions, httpsCallable, firebaseConfig } = window.firebaseModules;
             
             // Firebase 설정이 실제 값으로 교체되었는지 확인
             if (firebaseConfig.apiKey === "YOUR_API_KEY" || !firebaseConfig.apiKey) {
@@ -1122,6 +1449,14 @@ class BillionaireMap {
             this.firebaseApp = initializeApp(firebaseConfig);
             this.firebaseAuth = getAuth(this.firebaseApp);
             this.firestore = getFirestore(this.firebaseApp);
+            if (typeof getFunctions === 'function' && typeof httpsCallable === 'function') {
+                try {
+                    this.firebaseFunctions = getFunctions(this.firebaseApp);
+                    this.callableTopAuctions = httpsCallable(this.firebaseFunctions, 'getTopAuctions');
+                } catch (fnError) {
+                    console.warn('Firebase Functions 초기화 실패 (계속 진행):', fnError);
+                }
+            }
             this.isFirebaseInitialized = true;
 
             // 인증 상태 변경 감지
@@ -1143,6 +1478,7 @@ class BillionaireMap {
 
             console.log('Firebase 초기화 완료');
             await this.subscribeAuctionUpdates();
+            await this.subscribeRealtimeLeaderboard();
         } catch (error) {
             console.error('Firebase 초기화 오류:', error);
             this.showNotification('Firebase 초기화에 실패했습니다. 일부 기능이 제한될 수 있습니다.', 'warning');
@@ -1157,7 +1493,7 @@ class BillionaireMap {
         }
 
         try {
-            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { collection, addDoc, serverTimestamp, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             const purchaseData = {
                 regionId: regionId,
@@ -1168,9 +1504,77 @@ class BillionaireMap {
                 purchaseDate: serverTimestamp(),
                 status: 'completed'
             };
+            
+            // 첫 점령자 확인 (이전 구매 기록이 있는지 확인)
+            const previousPurchasesQuery = query(
+                collection(this.firestore, 'purchases'),
+                where('regionId', '==', regionId)
+            );
+            const previousPurchases = await getDocs(previousPurchasesQuery);
+            const isFirstConquest = previousPurchases.empty;
+            
+            // 인기 구역 확인 (인기 지표 확인)
+            const popularity = this.regionPopularity.get(regionId);
+            const isPopularRegion = popularity && (
+                (popularity.bids >= 5) || 
+                (popularity.views >= 20) ||
+                (popularity.popularityScore >= 50)
+            );
+            
+            // 시즌 타임라인에 구매 이벤트 기록
+            await this.recordTimelineEvent({
+                type: 'conquest',
+                regionId: regionId,
+                regionName: regionName,
+                buyerEmail: buyerEmail,
+                amount: amount,
+                method: 'purchase'
+            });
 
             const docRef = await addDoc(collection(this.firestore, 'purchases'), purchaseData);
             console.log('구매 기록 저장 완료:', docRef.id);
+            
+            // 보상 지급
+            const userQuery = query(
+                collection(this.firestore, 'users'),
+                where('email', '==', buyerEmail)
+            );
+            const userSnapshot = await getDocs(userQuery);
+            if (!userSnapshot.empty) {
+                const userId = userSnapshot.docs[0].id;
+                
+                // 첫 점령자 보상
+                if (isFirstConquest) {
+                    const firstConquestReward = 100; // 첫 점령자 보상: 100 포인트
+                    await this.giveReward(
+                        userId,
+                        'first_conquest',
+                        firstConquestReward,
+                        {
+                            regionId: regionId,
+                            regionName: regionName,
+                            amount: amount
+                        }
+                    );
+                }
+                
+                // 인기 구역 점령 보상
+                if (isPopularRegion) {
+                    const popularRegionReward = 75; // 인기 구역 점령 보상: 75 포인트
+                    await this.giveReward(
+                        userId,
+                        'popular_region_conquest',
+                        popularRegionReward,
+                        {
+                            regionId: regionId,
+                            regionName: regionName,
+                            amount: amount,
+                            popularityScore: popularity?.popularityScore || 0
+                        }
+                    );
+                }
+            }
+            
             return docRef.id;
         } catch (error) {
             console.error('구매 기록 저장 오류:', error);
@@ -1225,6 +1629,18 @@ class BillionaireMap {
                 ad_status: regionData.ad_status || 'available',
                 updatedAt: serverTimestamp()
             };
+            
+            if (regionData.seasonTag) {
+                firestoreData.seasonTag = regionData.seasonTag;
+            } else {
+                firestoreData.seasonTag = null;
+            }
+            
+            if (regionData.auctionConfig && Object.keys(regionData.auctionConfig).length > 0) {
+                firestoreData.auctionConfig = regionData.auctionConfig;
+            } else {
+                firestoreData.auctionConfig = null;
+            }
 
             // 지역 ID를 문서 ID로 사용하여 저장 (덮어쓰기)
             const regionRef = doc(this.firestore, 'regions', regionId);
@@ -1331,22 +1747,188 @@ class BillionaireMap {
                     this.applyAuctionDataToRegion(regionId, normalized);
                 }
             });
+            this.updateAuctionWidgets();
         }, (error) => {
             console.error('옥션 데이터 구독 오류:', error);
         });
+    }
+
+    async subscribeRealtimeLeaderboard() {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.realtimeLeaderboardEnabled) {
+            return;
+        }
+
+        const { doc, onSnapshot } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const leaderboardRef = doc(this.firestore, 'realtimePanels', 'leaderboard');
+
+        if (this.leaderboardRealtimeUnsubscribe) {
+            this.leaderboardRealtimeUnsubscribe();
+        }
+
+        this.leaderboardRealtimeUnsubscribe = onSnapshot(leaderboardRef, (snapshot) => {
+            if (!snapshot.exists()) {
+                this.realtimeLeaderboard = null;
+                return;
+            }
+            const data = snapshot.data() || {};
+            const normalizedEntries = (data.leaderboard || []).map(item => ({
+                regionId: item.regionId,
+                regionName: item.regionName || item.regionId,
+                bidder: item.bidder || '-',
+                amount: item.amount || 0,
+                seasonValue: item.season || 'default',
+                seasonLabel: item.seasonLabel || (item.season && item.season !== 'default' ? item.season : '현재 시즌'),
+                countryValue: item.country || 'Global',
+                countryLabel: item.country || 'Global'
+            }));
+
+            const updatedAtMillis = (() => {
+                const updatedAt = data.updatedAt;
+                if (!updatedAt) return Date.now();
+                if (typeof updatedAt.toMillis === 'function') return updatedAt.toMillis();
+                if (updatedAt instanceof Date) return updatedAt.getTime();
+                if (updatedAt.seconds !== undefined) {
+                    return (updatedAt.seconds * 1000) + Math.floor((updatedAt.nanoseconds || 0) / 1e6);
+                }
+                return Date.now();
+            })();
+
+            this.realtimeLeaderboard = {
+                entries: normalizedEntries,
+                updatedAt: updatedAtMillis
+            };
+            this.latestServerLeaderboardTimestamp = updatedAtMillis;
+            this.updateRealtimeLeaderboardViewIfActive(true);
+        }, (error) => {
+            console.error('리더보드 실시간 구독 오류:', error);
+        });
+    }
+
+    updateRealtimeLeaderboardViewIfActive(forceRender = false) {
+        if (!this.realtimeLeaderboard || !this.realtimeLeaderboard.entries?.length) {
+            return;
+        }
+        const filters = this.leaderboardFilterState || { season: 'all', country: 'all' };
+        if (!this.canUseRealtimeLeaderboard(filters)) {
+            return;
+        }
+        const limited = this.realtimeLeaderboard.entries.slice(0, this.leaderboardDefaultLimit);
+        this.renderLeaderboardList(limited, 'server');
+        this.lastRenderedLeaderboardSource = 'server';
+    }
+    
+    // 시즌 타임라인 이벤트 기록
+    async recordTimelineEvent(eventData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            // Firebase가 없어도 메모리에 저장
+            const event = {
+                ...eventData,
+                timestamp: Date.now(),
+                seasonId: this.currentSeason.id
+            };
+            this.seasonTimeline.push(event);
+            
+            // 구역별 점령 히스토리 업데이트
+            if (eventData.type === 'conquest' && eventData.regionId) {
+                const history = this.regionConquestHistory.get(eventData.regionId) || [];
+                history.push(event);
+                this.regionConquestHistory.set(eventData.regionId, history);
+            }
+            return;
+        }
+        
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const timelineEvent = {
+                ...eventData,
+                seasonId: this.currentSeason.id,
+                timestamp: serverTimestamp(),
+                createdAt: serverTimestamp()
+            };
+            
+            // Firestore에 저장
+            const timelineRef = collection(this.firestore, 'seasons', this.currentSeason.id, 'timeline');
+            await addDoc(timelineRef, timelineEvent);
+            
+            // 메모리에도 저장
+            const event = {
+                ...eventData,
+                timestamp: Date.now(),
+                seasonId: this.currentSeason.id
+            };
+            this.seasonTimeline.push(event);
+            
+            // 구역별 점령 히스토리 업데이트
+            if (eventData.type === 'conquest' && eventData.regionId) {
+                const history = this.regionConquestHistory.get(eventData.regionId) || [];
+                history.push(event);
+                this.regionConquestHistory.set(eventData.regionId, history);
+            }
+        } catch (error) {
+            console.error('타임라인 이벤트 기록 실패:', error);
+        }
     }
     
     applyAuctionDataToRegion(regionId, auctionData) {
         const region = this.regionData.get(regionId);
         if (!region) return;
         
+        // 이전 옥션 데이터 확인 (낙찰 감지용)
+        const previousAuction = region.auction;
+        const wasOccupied = region.ad_status === 'occupied';
+        
         if (auctionData) {
             region.auction = auctionData;
             if (region.ad_status !== 'occupied') {
                 region.ad_status = auctionData.currentBid ? 'auction' : (region.ad_status || 'available');
             }
+            
+            // 낙찰 감지: 이전에 입찰이 있었고 현재 점유 상태로 변경된 경우
+            if (!wasOccupied && region.ad_status === 'occupied' && auctionData.currentBidder) {
+                // 이전 소유자 확인 (방어 실패 보상 지급용)
+                const previousOwner = previousAuction?.currentBidder;
+                if (previousOwner && previousOwner.uid !== auctionData.currentBidder.uid) {
+                    // 이전 소유자에게 방어 실패 보상 지급
+                    const defenseFailureReward = 25; // 방어 실패 보상: 25 포인트
+                    this.giveReward(
+                        previousOwner.uid,
+                        'defense_failure',
+                        defenseFailureReward,
+                        {
+                            regionId: regionId,
+                            regionName: this.getRegionDisplayName(region),
+                            newOwner: auctionData.currentBidder.email,
+                            bidAmount: auctionData.currentBid
+                        }
+                    ).catch(err => console.error('방어 실패 보상 지급 실패:', err));
+                }
+                
+                // 첫 점령자 및 인기 구역 점령 보상 확인 (낙찰 시)
+                this.checkAndGiveConquestRewards(
+                    regionId,
+                    this.getRegionDisplayName(region),
+                    auctionData.currentBidder.uid,
+                    auctionData.currentBidder.email,
+                    auctionData.currentBid
+                ).catch(err => console.error('점령 보상 지급 실패:', err));
+                
+                this.recordTimelineEvent({
+                    type: 'conquest',
+                    regionId: regionId,
+                    regionName: this.getRegionDisplayName(region),
+                    buyerEmail: auctionData.currentBidder.email,
+                    amount: auctionData.currentBid,
+                    method: 'auction'
+                }).catch(err => console.error('낙찰 타임라인 기록 실패:', err));
+            }
+            
+            // 옥션 상태 정보 추가 (지도 시각화용)
+            const hasProtection = this.isProtectionActive(auctionData.protectionEndsAt);
+            region.auction_status = hasProtection ? 'protected' : (auctionData.currentBid ? 'bidding' : 'available');
         } else {
             delete region.auction;
+            delete region.auction_status;
             if (region.ad_status === 'auction') {
                 region.ad_status = 'available';
             }
@@ -1354,6 +1936,7 @@ class BillionaireMap {
         
         this.regionData.set(regionId, region);
         this.updateMapSourcesWithRegionData();
+        this.updateMapAuctionColors();
         
         if (this.currentRegion && this.currentRegion.id === regionId) {
             this.currentRegion = region;
@@ -1390,6 +1973,15 @@ class BillionaireMap {
                     if (regionId && this.regionData.has(regionId)) {
                         const updatedData = this.regionData.get(regionId);
                         Object.assign(feature.properties, updatedData);
+                        
+                        // 옥션 상태 정보 업데이트
+                        if (updatedData.auction) {
+                            const hasProtection = this.isProtectionActive(updatedData.auction.protectionEndsAt);
+                            feature.properties.auction_status = hasProtection ? 'protected' : (updatedData.auction.currentBid ? 'bidding' : 'available');
+                        } else {
+                            delete feature.properties.auction_status;
+                        }
+                        
                         updated = true;
                     }
                 });
@@ -1399,6 +1991,293 @@ class BillionaireMap {
                 }
             }
         });
+    }
+    
+    // 옥션 상태에 따라 지도 색상 업데이트
+    updateMapAuctionColors() {
+        if (!this.map || !this.map.getLayer('regions-fill')) return;
+        
+        // 지도 레이어의 fill-color 속성을 업데이트하여 옥션 상태에 따라 색상 변경
+        this.map.setPaintProperty('regions-fill', 'fill-color', [
+            'case',
+            // 낙찰/점유 상태 - 빨간색
+            ['==', ['get', 'ad_status'], 'occupied'],
+            '#ff6b6b',
+            // 보호 중 - 노란색 (깜빡이는 효과를 위한 밝은 노란색)
+            ['==', ['get', 'auction_status'], 'protected'],
+            '#ffd93d',
+            // 입찰 중 - 주황색
+            ['==', ['get', 'auction_status'], 'bidding'],
+            '#ff9f43',
+            // 옥션 진행 중 (기본) - 노란색
+            ['==', ['get', 'ad_status'], 'auction'],
+            '#feca57',
+            // 사용 가능 - 기본 색상
+            ['coalesce', ['get', 'color'], '#4ecdc4']
+        ]);
+        
+        // 경합 상태 아이콘 업데이트
+        this.updateAuctionStatusIcons();
+        
+        // 경합 상태 애니메이션 시작
+        this.startAuctionAnimation();
+    }
+    
+    // 경합 상태 아이콘 업데이트
+    updateAuctionStatusIcons() {
+        if (!this.map) return;
+        
+        // 옥션 상태 아이콘을 위한 GeoJSON 데이터 생성
+        const iconFeatures = [];
+        
+        this.regionData.forEach((region, regionId) => {
+            if (!region.auction && region.ad_status !== 'occupied') return;
+            
+            // 지역의 중심점 계산
+            const source = this.map.getSource('world-regions');
+            if (!source || !source._data) return;
+            
+            const feature = source._data.features.find(f => f.properties.id === regionId);
+            if (!feature || !feature.geometry) return;
+            
+            let center = null;
+            if (feature.geometry.type === 'Polygon') {
+                const coords = feature.geometry.coordinates[0];
+                const lons = coords.map(c => c[0]);
+                const lats = coords.map(c => c[1]);
+                center = [
+                    (Math.min(...lons) + Math.max(...lons)) / 2,
+                    (Math.min(...lats) + Math.max(...lats)) / 2
+                ];
+            } else if (feature.geometry.type === 'MultiPolygon') {
+                const allCoords = feature.geometry.coordinates.flat();
+                const lons = allCoords.flat().map(c => c[0]);
+                const lats = allCoords.flat().map(c => c[1]);
+                center = [
+                    (Math.min(...lons) + Math.max(...lons)) / 2,
+                    (Math.min(...lats) + Math.max(...lats)) / 2
+                ];
+            }
+            
+            if (center) {
+                // 상태에 따른 아이콘 결정
+                let icon = '';
+                if (region.ad_status === 'occupied') {
+                    icon = '✅';
+                } else if (region.auction_status === 'protected') {
+                    icon = '🛡️';
+                } else if (region.auction_status === 'bidding' || region.ad_status === 'auction') {
+                    icon = '⚡';
+                }
+                
+                if (icon) {
+                    iconFeatures.push({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: center
+                        },
+                        properties: {
+                            regionId: regionId,
+                            icon: icon,
+                            status: region.auction_status || region.ad_status
+                        }
+                    });
+                }
+            }
+        });
+        
+        // 아이콘 소스 추가/업데이트
+        const iconSourceId = 'auction-status-icons';
+        if (this.map.getSource(iconSourceId)) {
+            this.map.getSource(iconSourceId).setData({
+                type: 'FeatureCollection',
+                features: iconFeatures
+            });
+        } else {
+            this.map.addSource(iconSourceId, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: iconFeatures
+                }
+            });
+        }
+        
+        // 아이콘 레이어 추가
+        if (!this.map.getLayer('auction-status-icons')) {
+            this.map.addLayer({
+                id: 'auction-status-icons',
+                type: 'symbol',
+                source: iconSourceId,
+                layout: {
+                    'text-field': ['get', 'icon'],
+                    'text-size': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        5, 16,
+                        10, 24,
+                        15, 32
+                    ],
+                    'text-anchor': 'center',
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 2,
+                    'text-opacity': [
+                        'case',
+                        ['==', ['get', 'status'], 'protected'],
+                        0.8,
+                        ['==', ['get', 'status'], 'bidding'],
+                        0.9,
+                        1.0
+                    ]
+                }
+            });
+        }
+    }
+    
+    // 경합 상태 애니메이션 시작
+    startAuctionAnimation() {
+        if (this.auctionAnimationFrame) return; // 이미 실행 중이면 중복 실행 방지
+        
+        const animate = (timestamp) => {
+            if (!this.map || !this.map.getLayer('regions-fill')) {
+                this.auctionAnimationFrame = null;
+                return;
+            }
+            
+            // 애니메이션 시간 업데이트 (밀리초를 초로 변환)
+            this.auctionAnimationTime = timestamp / 1000;
+            
+            // 보호 중 상태: 느린 깜빡임 (1초 주기)
+            const protectedOpacity = 0.6 + 0.4 * Math.sin(this.auctionAnimationTime * Math.PI * 2);
+            
+            // 입찰 중 상태: 빠른 깜빡임 (0.5초 주기)
+            const biddingOpacity = 0.5 + 0.5 * Math.sin(this.auctionAnimationTime * Math.PI * 4);
+            
+            // 옥션 진행 중 상태: 중간 속도 깜빡임 (0.75초 주기)
+            const auctionOpacity = 0.7 + 0.3 * Math.sin(this.auctionAnimationTime * Math.PI * 2.67);
+            
+            // fill-opacity 속성을 상태별로 업데이트
+            this.map.setPaintProperty('regions-fill', 'fill-opacity', [
+                'case',
+                // 낙찰/점유 상태 - 고정 불투명도
+                ['==', ['get', 'ad_status'], 'occupied'],
+                0.9,
+                // 보호 중 - 느린 깜빡임
+                ['==', ['get', 'auction_status'], 'protected'],
+                protectedOpacity,
+                // 입찰 중 - 빠른 깜빡임
+                ['==', ['get', 'auction_status'], 'bidding'],
+                biddingOpacity,
+                // 옥션 진행 중 - 중간 속도 깜빡임
+                ['==', ['get', 'ad_status'], 'auction'],
+                auctionOpacity,
+                // 사용 가능 - 고정 불투명도
+                0.8
+            ]);
+            
+            // 다음 프레임 요청
+            this.auctionAnimationFrame = requestAnimationFrame(animate);
+        };
+        
+        // 애니메이션 시작
+        this.auctionAnimationFrame = requestAnimationFrame(animate);
+    }
+    
+    // 경합 상태 애니메이션 중지
+    stopAuctionAnimation() {
+        if (this.auctionAnimationFrame) {
+            cancelAnimationFrame(this.auctionAnimationFrame);
+            this.auctionAnimationFrame = null;
+        }
+    }
+    
+    // 모든 지역의 옥션 상태 업데이트 (보호 시간 종료 확인)
+    updateAuctionStatusForAllRegions() {
+        let updated = false;
+        this.regionData.forEach((region, regionId) => {
+            if (region.auction) {
+                const hasProtection = this.isProtectionActive(region.auction.protectionEndsAt);
+                const newStatus = hasProtection ? 'protected' : (region.auction.currentBid ? 'bidding' : 'available');
+                if (region.auction_status !== newStatus) {
+                    region.auction_status = newStatus;
+                    this.regionData.set(regionId, region);
+                    updated = true;
+                }
+            }
+        });
+        
+        if (updated) {
+            this.updateMapSourcesWithRegionData();
+        }
+    }
+    
+    // 지역 인기 지표 업데이트
+    updateRegionPopularity(regionId, type = 'view') {
+        if (!regionId) return;
+        
+        const popularity = this.regionPopularity.get(regionId) || {
+            views: 0,
+            bids: 0,
+            lastUpdated: Date.now()
+        };
+        
+        if (type === 'view') {
+            popularity.views += 1;
+        } else if (type === 'bid') {
+            popularity.bids += 1;
+        }
+        
+        popularity.lastUpdated = Date.now();
+        this.regionPopularity.set(regionId, popularity);
+        
+        // 인기 지표에 따라 가격 자동 조절
+        this.adjustPriceByPopularity(regionId);
+    }
+    
+    // 인기 지표에 따른 가격 자동 조절
+    adjustPriceByPopularity(regionId) {
+        const region = this.regionData.get(regionId);
+        if (!region) return;
+        
+        const popularity = this.regionPopularity.get(regionId);
+        if (!popularity) return;
+        
+        const basePrice = region.ad_price || this.uniformAdPrice || 1000;
+        
+        // 인기 지표 계산 (입찰 횟수와 조회수 가중 평균)
+        const bidWeight = 0.7; // 입찰 횟수 가중치
+        const viewWeight = 0.3; // 조회수 가중치
+        
+        // 정규화된 인기 점수 (0~1)
+        const normalizedBids = Math.min(popularity.bids / 10, 1); // 최대 10회 입찰 시 1.0
+        const normalizedViews = Math.min(popularity.views / 50, 1); // 최대 50회 조회 시 1.0
+        
+        const popularityScore = (normalizedBids * bidWeight) + (normalizedViews * viewWeight);
+        
+        // 가격 조절 계수 (인기 점수에 따라 1.0 ~ 2.0)
+        const priceMultiplier = 1.0 + (popularityScore * 1.0); // 최대 2배까지 상승
+        
+        // 새로운 가격 계산 (기본 가격의 최대 2배까지)
+        const adjustedPrice = Math.floor(basePrice * priceMultiplier);
+        
+        // 가격 업데이트 (기존 가격보다 높을 때만)
+        if (adjustedPrice > basePrice) {
+            region.ad_price = adjustedPrice;
+            this.regionData.set(regionId, region);
+            this.updateMapSourcesWithRegionData();
+        }
+    }
+    
+    // 지역 클릭 시 조회수 증가
+    onRegionClick(regionId) {
+        this.updateRegionPopularity(regionId, 'view');
     }
 
     // 모든 지역의 광고 가격을 1000달러로 통일
@@ -2119,10 +2998,19 @@ class BillionaireMap {
                 paint: {
                     'fill-color': [
                         'case',
+                        // 낙찰/점유 상태 - 빨간색
                         ['==', ['get', 'ad_status'], 'occupied'],
                         '#ff6b6b',
+                        // 보호 중 - 노란색 (깜빡이는 효과를 위한 밝은 노란색)
+                        ['==', ['get', 'auction_status'], 'protected'],
+                        '#ffd93d',
+                        // 입찰 중 - 주황색
+                        ['==', ['get', 'auction_status'], 'bidding'],
+                        '#ff9f43',
+                        // 옥션 진행 중 (기본) - 노란색
                         ['==', ['get', 'ad_status'], 'auction'],
                         '#feca57',
+                        // 사용 가능 - 기본 색상
                         ['coalesce', ['get', 'color'], '#4ecdc4']
                     ],
                     'fill-opacity': 0.7
@@ -2155,6 +3043,64 @@ class BillionaireMap {
                     'fill-color': '#feca57',
                     'fill-opacity': 0
                 }
+            });
+            
+            // 경합 상태 아이콘 레이어 추가
+            this.map.addLayer({
+                id: 'auction-status-icons',
+                type: 'symbol',
+                source: 'world-regions',
+                layout: {
+                    'text-field': [
+                        'case',
+                        ['==', ['get', 'auction_status'], 'protected'],
+                        '🛡️',
+                        ['==', ['get', 'auction_status'], 'bidding'],
+                        '⚡',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '✅',
+                        ''
+                    ],
+                    'text-size': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        3, 12,
+                        6, 16,
+                        10, 20
+                    ],
+                    'text-anchor': 'center',
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true
+                },
+                paint: {
+                    'text-color': [
+                        'case',
+                        ['==', ['get', 'auction_status'], 'protected'],
+                        '#ffd93d',
+                        ['==', ['get', 'auction_status'], 'bidding'],
+                        '#ff9f43',
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        '#ff6b6b',
+                        '#4ecdc4'
+                    ],
+                    'text-opacity': [
+                        'case',
+                        ['==', ['get', 'auction_status'], 'protected'],
+                        0.9,
+                        ['==', ['get', 'auction_status'], 'bidding'],
+                        0.9,
+                        ['==', ['get', 'ad_status'], 'occupied'],
+                        0.8,
+                        0
+                    ]
+                },
+                filter: [
+                    'any',
+                    ['==', ['get', 'auction_status'], 'protected'],
+                    ['==', ['get', 'auction_status'], 'bidding'],
+                    ['==', ['get', 'ad_status'], 'occupied']
+                ]
             });
             
             if (!this.eventListenersAdded) {
@@ -13554,6 +14500,10 @@ class BillionaireMap {
                 }
             });
         }
+        const auctionBuyNowBtn = document.getElementById('auction-buy-now-btn');
+        if (auctionBuyNowBtn) {
+            auctionBuyNowBtn.addEventListener('click', () => this.handleAuctionBuyNow('panel'));
+        }
         
         // 도움말 버튼
         document.getElementById('help-btn').addEventListener('click', () => {
@@ -13631,6 +14581,89 @@ class BillionaireMap {
         if (sideHelpBtn) {
             sideHelpBtn.addEventListener('click', () => {
                 this.showHelp();
+            });
+        }
+        
+        // 시즌 대시보드 버튼
+        const sideSeasonDashboardBtn = document.getElementById('side-season-dashboard-btn');
+        if (sideSeasonDashboardBtn) {
+            sideSeasonDashboardBtn.addEventListener('click', () => {
+                this.showSeasonDashboard();
+            });
+        }
+        
+        // 대표 픽셀 하이라이트 버튼
+        const sidePixelHighlightsBtn = document.getElementById('side-pixel-highlights-btn');
+        if (sidePixelHighlightsBtn) {
+            sidePixelHighlightsBtn.addEventListener('click', () => {
+                this.showPixelHighlights();
+            });
+        }
+        
+        // 시즌 아카이브 버튼
+        const sideSeasonArchiveBtn = document.getElementById('side-season-archive-btn');
+        if (sideSeasonArchiveBtn) {
+            sideSeasonArchiveBtn.addEventListener('click', () => {
+                this.showSeasonArchive();
+            });
+        }
+        
+        // 참여 안내 버튼
+        const sideParticipationGuideBtn = document.getElementById('side-participation-guide-btn');
+        if (sideParticipationGuideBtn) {
+            sideParticipationGuideBtn.addEventListener('click', () => {
+                this.showParticipationGuide();
+            });
+        }
+        
+        // 투명화 대시보드 버튼
+        const sideTransparencyBtn = document.getElementById('side-transparency-btn');
+        if (sideTransparencyBtn) {
+            sideTransparencyBtn.addEventListener('click', () => {
+                this.showTransparencyDashboard();
+            });
+        }
+        
+        // 커뮤니티 미션 버튼 (사이드 메뉴에 추가 필요)
+        const sideMissionsBtn = document.getElementById('side-missions-btn');
+        if (sideMissionsBtn) {
+            sideMissionsBtn.addEventListener('click', () => {
+                this.showCommunityMissions();
+            });
+        }
+        
+        // 플래시 챌린지 참여 버튼
+        const joinChallengeBtn = document.getElementById('join-challenge-btn');
+        if (joinChallengeBtn) {
+            joinChallengeBtn.addEventListener('click', () => {
+                this.joinFlashChallenge();
+            });
+        }
+        
+        // 플래시 챌린지 패널 닫기
+        const closeFlashChallengeBtn = document.getElementById('close-flash-challenge');
+        if (closeFlashChallengeBtn) {
+            closeFlashChallengeBtn.addEventListener('click', () => {
+                const panel = document.getElementById('flash-challenge-panel');
+                if (panel) panel.classList.add('hidden');
+            });
+        }
+        
+        // 대표 픽셀 하이라이트 모달 닫기
+        const closePixelHighlightsBtn = document.getElementById('close-pixel-highlights');
+        if (closePixelHighlightsBtn) {
+            closePixelHighlightsBtn.addEventListener('click', () => {
+                const modal = document.getElementById('pixel-highlights-modal');
+                if (modal) modal.classList.add('hidden');
+            });
+        }
+        
+        // 참여 안내 모달 닫기
+        const closeParticipationGuideBtn = document.getElementById('close-participation-guide');
+        if (closeParticipationGuideBtn) {
+            closeParticipationGuideBtn.addEventListener('click', () => {
+                const modal = document.getElementById('participation-guide-modal');
+                if (modal) modal.classList.add('hidden');
             });
         }
         
@@ -13742,6 +14775,13 @@ class BillionaireMap {
                 if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
             });
         }
+        const regionBuyNowBtn = document.getElementById('region-auction-buy-now-btn');
+        if (regionBuyNowBtn) {
+            regionBuyNowBtn.addEventListener('click', () => {
+                const region = this.regionData.get(this.selectedStateId) || this.currentRegion;
+                this.handleAuctionBuyNow('region', region);
+            });
+        }
         
         // 기업 정보 저장
         const saveCompanyInfo = document.getElementById('save-company-info');
@@ -13846,6 +14886,10 @@ class BillionaireMap {
                 }
             });
         }
+        const companyBuyNowBtn = document.getElementById('company-auction-buy-now-btn');
+        if (companyBuyNowBtn) {
+            companyBuyNowBtn.addEventListener('click', () => this.handleAuctionBuyNow('company'));
+        }
         
         const regionEditBtn = document.getElementById('region-edit-btn');
         if (regionEditBtn) {
@@ -13949,6 +14993,8 @@ class BillionaireMap {
         document.addEventListener('keydown', (e) => {
             this.handleKeyboardShortcuts(e);
         });
+
+        this.setupAdminFormValidation();
     }
     
     // 국가 전환 함수
@@ -14004,6 +15050,10 @@ class BillionaireMap {
     }
     
     selectRegion(feature) {
+        const regionId = feature.properties.id;
+        if (regionId) {
+            this.onRegionClick(regionId);
+        }
         const properties = feature.properties;
         this.currentRegion = properties;
         this.selectedStateId = properties.id; // 새로운 변수에 저장
@@ -14070,6 +15120,10 @@ class BillionaireMap {
     showCompanyInfoModal(stateId) {
         console.log('기업 정보 모달 표시 시도:', stateId);
         console.log('현재 지도 모드:', this.currentMapMode);
+        
+        if (this.isFirebaseInitialized && this.firestore) {
+            this.subscribePixelBundles(stateId);
+        }
         
         // 현재 지도 모드에 따라 적절한 데이터 사용
         const companyData = this.currentMapMode === 'korea' 
@@ -14495,6 +15549,11 @@ class BillionaireMap {
         
         const regionFromMap = this.regionData.get(region.id) || region;
         this.currentRegion = regionFromMap;
+        if (this.isFirebaseInitialized && this.firestore) {
+            this.subscribePixelBundles(regionFromMap.id);
+        } else {
+            this.updatePixelStoryCard(regionFromMap.id);
+        }
         
         // 현재 모드에 따라 표시할 이름 결정
         regionName.textContent = this.getRegionDisplayName(regionFromMap);
@@ -14539,6 +15598,10 @@ class BillionaireMap {
         const bidderEl = document.getElementById('auction-current-bidder');
         const statusEl = document.getElementById('auction-status-message');
         const bidInput = document.getElementById('auction-bid-input');
+        const configProtectionEl = document.getElementById('auction-config-protection');
+        const configIncrementEl = document.getElementById('auction-config-increment');
+        const configBuyNowEl = document.getElementById('auction-config-buy-now');
+        const buyNowBtn = document.getElementById('auction-buy-now-btn');
         
         const auctionInfo = this.getAuctionInfo(region);
         if (!auctionInfo) {
@@ -14546,6 +15609,10 @@ class BillionaireMap {
             minBidEl.textContent = '-';
             protectionEl.textContent = '-';
             bidderEl.textContent = '-';
+            if (configProtectionEl) configProtectionEl.textContent = '-';
+            if (configIncrementEl) configIncrementEl.textContent = '-';
+            if (configBuyNowEl) configBuyNowEl.textContent = '-';
+            if (buyNowBtn) buyNowBtn.classList.add('hidden');
             if (statusEl) statusEl.textContent = '';
             if (bidInput) bidInput.placeholder = '입찰 금액 (USD)';
             return;
@@ -14570,6 +15637,35 @@ class BillionaireMap {
             bidInput.placeholder = `${this.formatCurrency(auctionInfo.minBid)} 이상`;
             bidInput.min = auctionInfo.minBid || 0;
         }
+        
+        const config = auctionInfo.config || this.getRegionAuctionConfig(region);
+        if (configProtectionEl) {
+            configProtectionEl.textContent = config && config.protectionHours
+                ? `${config.protectionHours}시간`
+                : '-';
+        }
+        if (configIncrementEl) {
+            const percentLabel = (config && typeof config.minIncrementPercent === 'number')
+                ? `${Math.round(config.minIncrementPercent * 100)}%`
+                : '0%';
+            const amountLabel = config && config.minIncrementAmount
+                ? ` / +${this.formatCurrency(config.minIncrementAmount)}`
+                : '';
+            configIncrementEl.textContent = `${percentLabel}${amountLabel}`;
+        }
+        if (configBuyNowEl) {
+            configBuyNowEl.textContent = config && config.buyNowPrice
+                ? this.formatCurrency(config.buyNowPrice)
+                : '-';
+        }
+        if (buyNowBtn) {
+            if (config && config.buyNowPrice) {
+                buyNowBtn.classList.remove('hidden');
+                buyNowBtn.textContent = `즉시 구매 (${this.formatCurrency(config.buyNowPrice)})`;
+            } else {
+                buyNowBtn.classList.add('hidden');
+            }
+        }
     }
     
     updateCompanyModalAuctionSection(stateId) {
@@ -14583,12 +15679,20 @@ class BillionaireMap {
         const bidderEl = document.getElementById('company-auction-current-bidder');
         const statusEl = document.getElementById('company-auction-status');
         const bidInput = document.getElementById('company-auction-bid-input');
+        const configProtectionEl = document.getElementById('company-auction-config-protection');
+        const configIncrementEl = document.getElementById('company-auction-config-increment');
+        const configBuyNowEl = document.getElementById('company-auction-config-buy-now');
+        const buyNowBtn = document.getElementById('company-auction-buy-now-btn');
         
         if (!auctionInfo) {
             currentBidEl.textContent = '-';
             if (minBidEl) minBidEl.textContent = '-';
             if (protectionEl) protectionEl.textContent = '-';
             if (bidderEl) bidderEl.textContent = '-';
+            if (configProtectionEl) configProtectionEl.textContent = '-';
+            if (configIncrementEl) configIncrementEl.textContent = '-';
+            if (configBuyNowEl) configBuyNowEl.textContent = '-';
+            if (buyNowBtn) buyNowBtn.classList.add('hidden');
             if (statusEl) statusEl.textContent = '';
             if (bidInput) bidInput.placeholder = '입찰 금액 (USD)';
             return;
@@ -14615,6 +15719,111 @@ class BillionaireMap {
             bidInput.placeholder = `${this.formatCurrency(auctionInfo.minBid)} 이상`;
             bidInput.min = auctionInfo.minBid || 0;
         }
+        
+        const config = auctionInfo.config || this.getRegionAuctionConfig(region);
+        if (configProtectionEl) {
+            configProtectionEl.textContent = config && config.protectionHours
+                ? `${config.protectionHours}시간`
+                : '-';
+        }
+        if (configIncrementEl) {
+            const percentLabel = (config && typeof config.minIncrementPercent === 'number')
+                ? `${Math.round(config.minIncrementPercent * 100)}%`
+                : '0%';
+            const amountLabel = config && config.minIncrementAmount
+                ? ` / +${this.formatCurrency(config.minIncrementAmount)}`
+                : '';
+            configIncrementEl.textContent = `${percentLabel}${amountLabel}`;
+        }
+        if (configBuyNowEl) {
+            configBuyNowEl.textContent = config && config.buyNowPrice
+                ? this.formatCurrency(config.buyNowPrice)
+                : '-';
+        }
+        if (buyNowBtn) {
+            if (config && config.buyNowPrice) {
+                buyNowBtn.classList.remove('hidden');
+                buyNowBtn.textContent = `즉시 구매 (${this.formatCurrency(config.buyNowPrice)})`;
+            } else {
+                buyNowBtn.classList.add('hidden');
+            }
+        }
+    }
+    
+    updateAuctionWidgets() {
+        // 시즌 종료 카운트다운 업데이트
+        this.updateSeasonCountdown();
+        
+        const leaderboardEl = document.getElementById('auction-leaderboard-list');
+        const bidLogEl = document.getElementById('auction-bid-log');
+        
+        const auctionsArray = Array.from(this.auctionData.entries());
+        
+        if (leaderboardEl) {
+            const dataset = this.buildLeaderboardDataset(auctionsArray);
+            this.refreshLeaderboardFilterTabs(dataset);
+            const filters = this.leaderboardFilterState || { season: 'all', country: 'all' };
+            const filtered = this.applyLeaderboardFilters(dataset, filters);
+            
+            if (this.canUseRealtimeLeaderboard(filters)) {
+                if (this.realtimeLeaderboard && this.realtimeLeaderboard.entries?.length) {
+                    this.updateRealtimeLeaderboardViewIfActive(true);
+                } else {
+                    const limitedLocal = filtered.slice(0, this.leaderboardDefaultLimit);
+                    this.renderLeaderboardList(limitedLocal, 'local');
+                    this.lastRenderedLeaderboardSource = 'local';
+                }
+            } else {
+                const limited = filtered.slice(0, this.leaderboardDefaultLimit);
+                this.renderLeaderboardList(limited, 'local');
+                
+                if (this.shouldUseServerSideLeaderboard(dataset.length)) {
+                    this.fetchLeaderboardFromCloud(filters);
+                } else {
+                    this.lastRenderedLeaderboardSource = 'local';
+                }
+            }
+        }
+        
+        if (bidLogEl) {
+            bidLogEl.innerHTML = '';
+            const logData = [];
+            auctionsArray.forEach(([regionId, auction]) => {
+                const region = this.regionData.get(regionId);
+                const regionName = auction.regionName
+                    || (region ? this.getRegionDisplayName(region) : regionId);
+                (auction.history || []).forEach(entry => {
+                    const timestamp = this.getTimestampMillis(entry.timestamp);
+                    logData.push({
+                        regionName,
+                        bidder: entry.bidder || '익명',
+                        amount: entry.amount || 0,
+                        timestamp
+                    });
+                });
+            });
+            
+            logData.sort((a, b) => b.timestamp - a.timestamp);
+            const recentLogs = logData.slice(0, 8);
+            
+            if (recentLogs.length === 0) {
+                bidLogEl.innerHTML = '<li class="empty">최근 입찰이 없습니다.</li>';
+            } else {
+                recentLogs.forEach((log) => {
+                    const li = document.createElement('li');
+                    li.className = 'bid-log-item';
+                    li.innerHTML = `
+                        <div class="bid-log-entry">
+                            <strong>${log.regionName}</strong>
+                            <span class="bid-log-meta">${log.bidder} · ${this.formatRelativeTime(log.timestamp)}</span>
+                        </div>
+                        <span class="bid-log-amount">${this.formatCurrency(log.amount)}</span>
+                    `;
+                    bidLogEl.appendChild(li);
+                });
+            }
+        }
+        
     }
     
     getAuctionInfo(region) {
@@ -14622,11 +15831,12 @@ class BillionaireMap {
         const regionData = typeof region === 'string' ? this.regionData.get(region) : region;
         if (!regionData) return null;
         
+        const config = this.getRegionAuctionConfig(regionData);
         const auction = regionData.auction || this.auctionData.get(regionData.id) || null;
         const basePrice = regionData.ad_price || this.uniformAdPrice || 1000;
         const hasBid = !!(auction && auction.currentBid);
         const referenceAmount = hasBid ? auction.currentBid : basePrice;
-        const minBid = this.calculateMinimumBidAmount(referenceAmount, hasBid);
+        const minBid = this.calculateMinimumBidAmount(referenceAmount, hasBid, config);
         
         return {
             basePrice,
@@ -14635,14 +15845,47 @@ class BillionaireMap {
             currentBidder: auction?.currentBidder || null,
             protectionEndsAt: auction?.protectionEndsAt || null,
             lastBidAt: auction?.lastBidAt || null,
-            hasActiveProtection: this.isProtectionActive(auction?.protectionEndsAt)
+            hasActiveProtection: this.isProtectionActive(auction?.protectionEndsAt),
+            buyNowPrice: config.buyNowPrice || null,
+            config
         };
     }
     
-    calculateMinimumBidAmount(referenceAmount, hasExistingBid = true) {
-        const roundingUnit = this.auctionConfig.roundingUnit || 100;
-        const incrementPercent = hasExistingBid ? (this.auctionConfig.minIncrementPercent || 0.05) : 0;
-        const rawAmount = referenceAmount * (1 + incrementPercent);
+    getRegionAuctionConfig(region) {
+        const regionData = typeof region === 'string' ? this.regionData.get(region) : region;
+        const base = this.auctionConfig || {};
+        const overrides = regionData?.auctionConfig || regionData?.auction_settings || {};
+        const asNumber = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+        
+        const result = {
+            minIncrementPercent: asNumber(overrides.minIncrementPercent),
+            minIncrementAmount: asNumber(overrides.minIncrementAmount),
+            protectionHours: asNumber(overrides.protectionHours),
+            roundingUnit: asNumber(overrides.roundingUnit),
+            buyNowPrice: asNumber(overrides.buyNowPrice),
+            instantTransferPercent: asNumber(overrides.instantTransferPercent),
+            defenseGraceMinutes: asNumber(overrides.defenseGraceMinutes)
+        };
+        
+        return {
+            minIncrementPercent: result.minIncrementPercent ?? base.minIncrementPercent ?? 0.05,
+            minIncrementAmount: result.minIncrementAmount ?? 0,
+            protectionHours: result.protectionHours ?? base.protectionHours ?? 12,
+            roundingUnit: result.roundingUnit ?? base.roundingUnit ?? 100,
+            buyNowPrice: result.buyNowPrice ?? (asNumber(base.buyNowPrice) ?? null),
+            instantTransferPercent: result.instantTransferPercent ?? base.instantTransferPercent ?? null,
+            defenseGraceMinutes: result.defenseGraceMinutes ?? base.defenseGraceMinutes ?? 0
+        };
+    }
+    
+    calculateMinimumBidAmount(referenceAmount, hasExistingBid = true, config = null) {
+        const roundingUnit = (config && config.roundingUnit) || this.auctionConfig.roundingUnit || 100;
+        const incrementPercent = hasExistingBid
+            ? ((config && config.minIncrementPercent) ?? this.auctionConfig.minIncrementPercent ?? 0.05)
+            : 0;
+        const incrementAmount = hasExistingBid ? ((config && config.minIncrementAmount) || 0) : 0;
+        const percentIncrease = referenceAmount * incrementPercent;
+        const rawAmount = referenceAmount + Math.max(percentIncrease, incrementAmount);
         const rounded = Math.ceil(rawAmount / roundingUnit) * roundingUnit;
         return Math.max(rounded, this.uniformAdPrice || 1000);
     }
@@ -14687,6 +15930,56 @@ class BillionaireMap {
         return `${minutes}분 남음`;
     }
     
+    formatSeasonCountdown(endDate) {
+        if (!endDate) return '종료됨';
+        const end = endDate instanceof Date ? endDate : new Date(endDate);
+        const now = new Date();
+        const diff = end - now;
+        
+        if (diff <= 0) return '종료됨';
+        
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (days > 0) {
+            return `${days}일 ${hours}시간`;
+        } else if (hours > 0) {
+            return `${hours}시간 ${minutes}분`;
+        } else {
+            return `${minutes}분`;
+        }
+    }
+    
+    updateSeasonCountdown(seasonData = null) {
+        const countdownEl = document.getElementById('season-countdown');
+        if (!countdownEl) return;
+        
+        const season = seasonData || this.currentSeason;
+        const countdown = this.formatSeasonCountdown(season.endDate);
+        countdownEl.textContent = countdown;
+    }
+    
+    formatRelativeTime(timestampMillis) {
+        if (!timestampMillis || Number.isNaN(timestampMillis)) {
+            return '방금 전';
+        }
+        const diff = Date.now() - timestampMillis;
+        if (diff < 60000) {
+            return '방금 전';
+        }
+        if (diff < 3600000) {
+            const minutes = Math.floor(diff / 60000);
+            return `${minutes}분 전`;
+        }
+        if (diff < 86400000) {
+            const hours = Math.floor(diff / 3600000);
+            return `${hours}시간 전`;
+        }
+        const days = Math.floor(diff / 86400000);
+        return `${days}일 전`;
+    }
+    
     async handleAuctionBid(context = 'panel') {
         const contexts = {
             panel: { inputId: 'auction-bid-input', statusId: 'auction-status-message', buttonId: 'auction-bid-btn' },
@@ -14728,6 +16021,12 @@ class BillionaireMap {
                 statusEl.style.color = '#1dd1a1';
             }
             input.value = '';
+            
+            // 입찰 성공 후 픽셀 에디터 자동 열기
+            setTimeout(() => {
+                this.openPixelEditorModal();
+                this.showNotification('최고 입찰자가 되었습니다! 픽셀 에디터가 열렸습니다.', 'info');
+            }, 500);
         } catch (error) {
             console.error('입찰 오류:', error);
             const message = error.message || '입찰 처리 중 오류가 발생했습니다.';
@@ -14738,6 +16037,36 @@ class BillionaireMap {
             this.showNotification(message, 'error');
         } finally {
             if (button) button.disabled = false;
+        }
+    }
+    
+    handleAuctionBuyNow(context = 'panel', regionOverride = null) {
+        const contexts = {
+            panel: 'paypal-buttons',
+            region: 'region-paypal-buttons',
+            company: 'company-paypal-buttons'
+        };
+        const region = regionOverride || this.currentRegion;
+        if (!region) {
+            this.showNotification('즉시 구매할 지역을 먼저 선택해주세요.', 'warning');
+            return;
+        }
+        const auctionInfo = this.getAuctionInfo(region);
+        const buyNowPrice = auctionInfo?.buyNowPrice || auctionInfo?.config?.buyNowPrice;
+        if (!buyNowPrice) {
+            this.showNotification('이 지역은 즉시 구매 옵션이 없습니다.', 'info');
+            return;
+        }
+        if (!this.currentUser) {
+            this.showNotification('즉시 구매를 진행하려면 로그인이 필요합니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        const containerId = contexts[context] || contexts.panel;
+        this.renderPayPalButtons(containerId, region, { overrideAmount: buyNowPrice });
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     }
     
@@ -14753,8 +16082,9 @@ class BillionaireMap {
         
         const { doc, runTransaction, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
         const auctionRef = doc(this.firestore, 'auctions', regionId);
-        const protectionMs = (this.auctionConfig.protectionHours || 12) * 60 * 60 * 1000;
-        const roundingUnit = this.auctionConfig.roundingUnit || 100;
+        const regionAuctionConfig = this.getRegionAuctionConfig(region);
+        const protectionMs = (regionAuctionConfig.protectionHours || 12) * 60 * 60 * 1000;
+        const roundingUnit = regionAuctionConfig.roundingUnit || 100;
         const normalizedBidAmount = Math.ceil(bidAmount / roundingUnit) * roundingUnit;
         
         await runTransaction(this.firestore, async (transaction) => {
@@ -14762,27 +16092,70 @@ class BillionaireMap {
             const auctionData = auctionSnap.exists() ? auctionSnap.data() : null;
             const basePrice = region.ad_price || this.uniformAdPrice || 1000;
             const referenceAmount = auctionData?.currentBid || basePrice;
-            const minBid = this.calculateMinimumBidAmount(referenceAmount, !!auctionData?.currentBid);
+            const minBid = this.calculateMinimumBidAmount(referenceAmount, !!auctionData?.currentBid, regionAuctionConfig);
             
             if (normalizedBidAmount < minBid) {
                 throw new Error(`최소 입찰가는 ${this.formatCurrency(minBid)} 입니다.`);
             }
             
+            // 방어권 확인 (현재 소유자가 디펜스 유예 시간 내에 방어할 수 있는지)
+            const defenseGraceMinutes = regionAuctionConfig.defenseGraceMinutes || 0;
+            const hasDefenseRight = auctionData?.currentBidder?.uid === this.currentUser.uid;
+            let canBid = true;
+            
             if (auctionData?.protectionEndsAt) {
                 const protectionEnds = this.getTimestampMillis(auctionData.protectionEndsAt);
-                if (protectionEnds > Date.now()) {
-                    throw new Error('보호 기간이 끝난 후 다시 입찰할 수 있습니다.');
+                const now = Date.now();
+                const protectionRemaining = protectionEnds - now;
+                
+                if (protectionRemaining > 0) {
+                    // 보호 시간이 아직 남아있는 경우
+                    if (hasDefenseRight && defenseGraceMinutes > 0) {
+                        // 방어권이 있고 디펜스 유예 시간이 설정된 경우
+                        const graceMs = defenseGraceMinutes * 60 * 1000;
+                        const graceStart = protectionEnds - graceMs;
+                        
+                        if (now >= graceStart) {
+                            // 디펜스 유예 시간 내에 방어권 사용 가능
+                            canBid = true;
+                        } else {
+                            // 아직 디펜스 유예 시간이 시작되지 않음
+                            throw new Error(`방어권은 보호 시간 종료 ${defenseGraceMinutes}분 전부터 사용할 수 있습니다.`);
+                        }
+                    } else {
+                        // 방어권이 없거나 디펜스 유예 시간이 설정되지 않은 경우
+                        throw new Error('보호 기간이 끝난 후 다시 입찰할 수 있습니다.');
+                    }
                 }
             }
             
+            if (!canBid) {
+                throw new Error('입찰할 수 없습니다.');
+            }
+            
             const now = Timestamp.now();
-            const protectionEndsAt = Timestamp.fromDate(new Date(Date.now() + protectionMs));
+            // 방어권을 사용한 경우 보호 시간 연장 및 방어 성공 보상 지급
+            let newProtectionMs = protectionMs;
+            let defenseSuccess = false;
+            if (hasDefenseRight && auctionData?.protectionEndsAt) {
+                const protectionEnds = this.getTimestampMillis(auctionData.protectionEndsAt);
+                const nowMs = Date.now();
+                if (protectionEnds > nowMs) {
+                    // 기존 보호 시간이 남아있으면 연장
+                    newProtectionMs = protectionEnds - nowMs + protectionMs;
+                    defenseSuccess = true;
+                }
+            }
+            const protectionEndsAt = Timestamp.fromDate(new Date(Date.now() + newProtectionMs));
             const history = (auctionData?.history || []).slice(-9);
             history.push({
                 amount: normalizedBidAmount,
                 bidder: this.currentUser.displayName || this.currentUser.email,
                 timestamp: now
             });
+            
+            // 인기 지표 업데이트 (입찰 횟수 증가)
+            this.updateRegionPopularity(regionId, 'bid');
             
             const payload = {
                 regionId,
@@ -14797,7 +16170,7 @@ class BillionaireMap {
                 protectionEndsAt,
                 history,
                 updatedAt: serverTimestamp(),
-                minIncrementPercent: this.auctionConfig.minIncrementPercent
+                minIncrementPercent: regionAuctionConfig.minIncrementPercent
             };
             
             if (!auctionSnap.exists()) {
@@ -14806,6 +16179,977 @@ class BillionaireMap {
             
             transaction.set(auctionRef, payload, { merge: true });
         });
+        
+        // 방어 성공 보상 지급 (트랜잭션 완료 후)
+        if (hasDefenseRight && defenseSuccess) {
+            const defenseReward = 50; // 방어 성공 보상: 50 포인트
+            this.giveReward(
+                this.currentUser.uid,
+                'defense_success',
+                defenseReward,
+                {
+                    regionId: regionId,
+                    regionName: this.getRegionDisplayName(region),
+                    bidAmount: normalizedBidAmount
+                }
+            ).then(() => {
+                // 방어 성공 알림 및 타임라인 기록
+                this.showNotification(`🛡️ 방어 성공! ${defenseReward} 포인트를 획득했습니다.`, 'success');
+                
+                // 타임라인에 방어 성공 이벤트 기록
+                this.recordTimelineEvent({
+                    type: 'defense',
+                    regionId: regionId,
+                    regionName: this.getRegionDisplayName(region),
+                    buyerEmail: this.currentUser.email,
+                    amount: normalizedBidAmount,
+                    reward: defenseReward,
+                    success: true
+                }).catch(err => console.error('방어 성공 타임라인 기록 실패:', err));
+                
+                // 포인트 UI 업데이트
+                this.updateUserPointsDisplay();
+            }).catch(err => {
+                console.error('방어 성공 보상 지급 실패:', err);
+                this.showNotification('방어 성공 보상 지급에 실패했습니다.', 'error');
+            });
+        }
+    }
+
+    initializePixelExperienceUI() {
+        if (this.pixelExperienceInitialized) return;
+        this.pixelExperienceInitialized = true;
+        
+        this.pixelPreviewCanvas = document.getElementById('pixel-preview') || null;
+        this.pixelPreviewCtx = this.pixelPreviewCanvas ? this.pixelPreviewCanvas.getContext('2d') : null;
+        this.clearPixelPreview();
+        
+        const openButtons = [
+            document.getElementById('open-pixel-editor'),
+            document.getElementById('region-open-pixel-editor'),
+            document.getElementById('company-open-pixel-editor')
+        ].filter(Boolean);
+        openButtons.forEach((btn) => {
+            btn.addEventListener('click', () => this.openPixelEditorModal());
+        });
+        
+        const closeBtn = document.getElementById('close-pixel-editor');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closePixelEditorModal());
+        }
+        
+        const layerToggle = document.getElementById('pixel-layer-toggle');
+        if (layerToggle) {
+            layerToggle.addEventListener('click', () => {
+                this.togglePixelLayerVisibility();
+                // 픽셀 레이어가 활성화되면 현재 선택된 지역으로 줌인
+                if (this.pixelLayerVisible && this.currentRegion) {
+                    this.zoomToPixelLevel(this.currentRegion.id);
+                }
+            });
+        }
+        
+        // ESC 키로 픽셀 상세 보기 모드 종료
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.pixelDetailMode) {
+                this.exitPixelDetailMode();
+            }
+        });
+        
+        document.querySelectorAll('.pixel-mode-btn').forEach((btn) => {
+            btn.addEventListener('click', () => this.setPixelEditorMode(btn.dataset.mode));
+        });
+        
+        const colorInput = document.getElementById('pixel-color-input');
+        if (colorInput) {
+            colorInput.addEventListener('input', (event) => this.handlePixelColorChange(event.target.value));
+        }
+        
+        const brushInput = document.getElementById('pixel-brush-size');
+        if (brushInput) {
+            brushInput.addEventListener('input', (event) => this.handlePixelBrushSize(parseInt(event.target.value, 10) || 1));
+        }
+        
+        const clearBtn = document.getElementById('pixel-clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => this.clearPixelCanvas());
+        }
+        
+        const imageInput = document.getElementById('pixel-image-input');
+        if (imageInput) {
+            imageInput.addEventListener('change', (event) => {
+                const file = event.target.files && event.target.files[0];
+                this.handlePixelImageUpload(file);
+            });
+        }
+        
+        const messageInput = document.getElementById('pixel-message-input');
+        if (messageInput) {
+            messageInput.addEventListener('input', (event) => this.handlePixelMessageInput(event.target.value));
+        }
+        
+        const linkInput = document.getElementById('pixel-message-link');
+        if (linkInput) {
+            linkInput.addEventListener('input', (event) => this.handlePixelMessageLinkInput(event.target.value));
+        }
+        
+        const saveBtn = document.getElementById('pixel-save-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.savePixelBundle());
+        }
+        
+        this.setupPixelCanvas();
+        this.updatePixelStoryCard();
+    }
+    
+    setupPixelCanvas() {
+        if (this.pixelEditorCanvas) return;
+        const canvas = document.getElementById('pixel-editor-canvas');
+        if (!canvas) return;
+        
+        this.pixelEditorCanvas = canvas;
+        this.pixelEditorCtx = canvas.getContext('2d');
+        this.pixelEditorState.canvasSize = 16;
+        this.pixelEditorState.pixelMatrix = this.createEmptyPixelMatrix(this.pixelEditorState.canvasSize);
+        
+        const pointerDown = (event) => {
+            event.preventDefault();
+            this.pixelEditorState.isDrawing = true;
+            this.paintPixelFromEvent(event);
+        };
+        const pointerMove = (event) => {
+            if (!this.pixelEditorState.isDrawing) return;
+            event.preventDefault();
+            this.paintPixelFromEvent(event);
+        };
+        const pointerUp = () => {
+            this.pixelEditorState.isDrawing = false;
+        };
+        
+        canvas.addEventListener('mousedown', pointerDown);
+        canvas.addEventListener('mousemove', pointerMove);
+        window.addEventListener('mouseup', pointerUp);
+        
+        canvas.addEventListener('touchstart', pointerDown, { passive: false });
+        canvas.addEventListener('touchmove', pointerMove, { passive: false });
+        window.addEventListener('touchend', pointerUp);
+        window.addEventListener('touchcancel', pointerUp);
+        
+        this.drawPixelEditorMatrix();
+    }
+    
+    createEmptyPixelMatrix(size = 16) {
+        return Array.from({ length: size }, () => Array(size).fill('transparent'));
+    }
+    
+    clonePixelMatrix(matrix) {
+        if (!Array.isArray(matrix)) {
+            return this.createEmptyPixelMatrix(this.pixelEditorState.canvasSize);
+        }
+        return matrix.map((row) => Array.isArray(row) ? [...row] : Array(this.pixelEditorState.canvasSize).fill('transparent'));
+    }
+    
+    drawPixelEditorMatrix(matrix = this.pixelEditorState.pixelMatrix) {
+        this.renderMatrixToCanvas(matrix, this.pixelEditorCtx, this.pixelEditorCanvas);
+    }
+    
+    renderMatrixToCanvas(matrix, ctx, canvas) {
+        if (!ctx || !canvas || !matrix || matrix.length === 0) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const size = matrix.length;
+        const cellWidth = canvas.width / size;
+        const cellHeight = canvas.height / size;
+        
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const color = matrix[y][x];
+                if (color && color !== 'transparent') {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
+                }
+            }
+        }
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= size; i++) {
+            const posX = i * cellWidth;
+            const posY = i * cellHeight;
+            ctx.beginPath();
+            ctx.moveTo(posX, 0);
+            ctx.lineTo(posX, canvas.height);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, posY);
+            ctx.lineTo(canvas.width, posY);
+            ctx.stroke();
+        }
+    }
+    
+    paintPixelFromEvent(event) {
+        if (!this.pixelEditorCanvas) return;
+        const rect = this.pixelEditorCanvas.getBoundingClientRect();
+        const point = event.touches ? event.touches[0] : event;
+        const x = point.clientX - rect.left;
+        const y = point.clientY - rect.top;
+        const size = this.pixelEditorState.canvasSize;
+        const cellWidth = rect.width / size;
+        const cellHeight = rect.height / size;
+        const col = Math.floor(x / cellWidth);
+        const row = Math.floor(y / cellHeight);
+        if (col < 0 || col >= size || row < 0 || row >= size) return;
+        
+        const brush = Math.max(1, this.pixelEditorState.brushSize || 1);
+        for (let dy = 0; dy < brush; dy++) {
+            for (let dx = 0; dx < brush; dx++) {
+                const targetRow = row + dy;
+                const targetCol = col + dx;
+                if (targetRow < size && targetCol < size) {
+                    this.pixelEditorState.pixelMatrix[targetRow][targetCol] = this.pixelEditorState.brushColor;
+                }
+            }
+        }
+        
+        this.drawPixelEditorMatrix();
+    }
+    
+    clearPixelCanvas() {
+        this.pixelEditorState.pixelMatrix = this.createEmptyPixelMatrix(this.pixelEditorState.canvasSize);
+        this.drawPixelEditorMatrix();
+    }
+    
+    handlePixelColorChange(value) {
+        if (!value) return;
+        this.pixelEditorState.brushColor = value;
+    }
+    
+    handlePixelBrushSize(size) {
+        this.pixelEditorState.brushSize = size || 1;
+    }
+    
+    handlePixelImageUpload(file) {
+        if (!file) {
+            this.pixelEditorState.imageDataUrl = '';
+            const preview = document.getElementById('pixel-image-preview');
+            if (preview) {
+                preview.src = '';
+                preview.style.display = 'none';
+            }
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            this.pixelEditorState.imageDataUrl = typeof result === 'string' ? result : '';
+            const preview = document.getElementById('pixel-image-preview');
+            if (preview) {
+                preview.src = this.pixelEditorState.imageDataUrl;
+                preview.style.display = 'block';
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    handlePixelMessageInput(value) {
+        this.pixelEditorState.messageText = value || '';
+        this.updatePixelMessageCount();
+    }
+    
+    handlePixelMessageLinkInput(value) {
+        this.pixelEditorState.messageLink = value || '';
+    }
+    
+    updatePixelMessageCount() {
+        const countEl = document.getElementById('pixel-message-count');
+        if (countEl) {
+            const len = (this.pixelEditorState.messageText || '').length;
+            countEl.textContent = `${len} / 140`;
+        }
+    }
+    
+    openPixelEditorModal() {
+        if (!this.currentRegion) {
+            this.showNotification('편집할 지역을 먼저 선택해주세요.', 'warning');
+            return;
+        }
+        if (!this.currentUser) {
+            this.showNotification('픽셀을 편집하려면 로그인이 필요합니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        const modal = document.getElementById('pixel-editor-modal');
+        if (!modal) return;
+        
+        this.initializePixelExperienceUI();
+        const regionLabel = document.getElementById('pixel-editor-region-label');
+        if (regionLabel) {
+            regionLabel.textContent = `선택된 지역: ${this.getRegionDisplayName(this.currentRegion)}`;
+        }
+        
+        const existingBundle = this.getLatestPixelBundle(this.currentRegion.id);
+        this.populatePixelEditorFromBundle(existingBundle);
+        modal.classList.remove('hidden');
+        modal.style.display = 'block';
+    }
+    
+    closePixelEditorModal() {
+        const modal = document.getElementById('pixel-editor-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+    }
+    
+    setPixelEditorMode(mode, options = {}) {
+        if (!mode) return;
+        this.pixelEditorState.mode = mode;
+        document.querySelectorAll('.pixel-mode-btn').forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        ['canvas', 'image', 'message'].forEach((panelKey) => {
+            const panel = document.getElementById(`pixel-panel-${panelKey}`);
+            if (panel) {
+                panel.classList.toggle('hidden', panelKey !== mode);
+            }
+        });
+        if (!options.skipScroll) {
+            const modal = document.getElementById('pixel-editor-modal');
+            modal?.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+    
+    populatePixelEditorFromBundle(bundle) {
+        const messageInput = document.getElementById('pixel-message-input');
+        const linkInput = document.getElementById('pixel-message-link');
+        const imagePreview = document.getElementById('pixel-image-preview');
+        
+        if (!bundle) {
+            this.activePixelBundleId = null;
+            this.pixelEditorState.pixelMatrix = this.createEmptyPixelMatrix(this.pixelEditorState.canvasSize);
+            this.pixelEditorState.imageDataUrl = '';
+            this.pixelEditorState.messageText = '';
+            this.pixelEditorState.messageLink = '';
+            if (messageInput) messageInput.value = '';
+            if (linkInput) linkInput.value = '';
+            if (imagePreview) {
+                imagePreview.src = '';
+                imagePreview.style.display = 'none';
+            }
+            this.setPixelEditorMode('canvas', { skipScroll: true });
+            this.drawPixelEditorMatrix();
+            this.updatePixelMessageCount();
+            this.syncPixelProtectionLabel(null);
+            return;
+        }
+        
+        this.activePixelBundleId = bundle.id;
+        this.pixelEditorState.messageText = bundle.message || '';
+        this.pixelEditorState.messageLink = bundle.messageLink || '';
+        if (messageInput) messageInput.value = this.pixelEditorState.messageText;
+        if (linkInput) linkInput.value = this.pixelEditorState.messageLink;
+        
+        if (bundle.artType === 'canvas' && Array.isArray(bundle.pixelMatrix)) {
+            this.pixelEditorState.pixelMatrix = this.clonePixelMatrix(bundle.pixelMatrix);
+            this.setPixelEditorMode('canvas', { skipScroll: true });
+            this.drawPixelEditorMatrix(this.pixelEditorState.pixelMatrix);
+        } else if (bundle.artType === 'image' && bundle.imageData) {
+            this.pixelEditorState.imageDataUrl = bundle.imageData;
+            this.setPixelEditorMode('image', { skipScroll: true });
+            if (imagePreview) {
+                imagePreview.src = bundle.imageData;
+                imagePreview.style.display = 'block';
+            }
+        } else {
+            this.setPixelEditorMode('message', { skipScroll: true });
+        }
+        
+        const ownerLabel = document.getElementById('pixel-editor-owner');
+        if (ownerLabel) {
+            ownerLabel.textContent = bundle.ownerName ? `소유자: ${bundle.ownerName}` : '';
+        }
+        this.syncPixelProtectionLabel(bundle);
+        this.updatePixelMessageCount();
+    }
+    
+    syncPixelProtectionLabel(bundle) {
+        const protectionChip = document.getElementById('pixel-editor-protection');
+        if (!protectionChip) return;
+        if (!bundle || !bundle.protectionEndsAt) {
+            protectionChip.classList.add('hidden');
+            return;
+        }
+        protectionChip.classList.remove('hidden');
+        protectionChip.textContent = `보호 ${this.formatProtectionCountdown(bundle.protectionEndsAt)}`;
+    }
+    
+    async savePixelBundle() {
+        if (!this.currentRegion) {
+            this.showNotification('편집할 지역을 선택해주세요.', 'warning');
+            return;
+        }
+        if (!this.currentUser) {
+            this.showNotification('로그인 후 저장할 수 있습니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            this.showNotification('Firebase 동기화 후 다시 시도해주세요.', 'error');
+            return;
+        }
+        if (this.isSavingPixelBundle) return;
+        
+        const artType = this.pixelEditorState.mode || 'canvas';
+        if (artType === 'canvas' && (!this.pixelEditorState.pixelMatrix || this.pixelEditorState.pixelMatrix.length === 0)) {
+            this.showNotification('픽셀 아트를 먼저 그려주세요.', 'warning');
+            return;
+        }
+        if (artType === 'image' && !this.pixelEditorState.imageDataUrl) {
+            this.showNotification('이미지를 업로드해주세요.', 'warning');
+            return;
+        }
+        if (artType === 'message' && !this.pixelEditorState.messageText) {
+            this.showNotification('메시지를 입력해주세요.', 'warning');
+            return;
+        }
+        
+        this.isSavingPixelBundle = true;
+        try {
+            const { doc, setDoc, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionId = this.currentRegion.id;
+            const bundleId = this.activePixelBundleId || 'default';
+            const docRef = doc(this.firestore, 'regions', regionId, 'pixelBundles', bundleId);
+            const protectionHours = this.pixelProtectionHours || this.auctionConfig.protectionHours || 12;
+            const protectionEndsAt = Timestamp.fromDate(new Date(Date.now() + protectionHours * 60 * 60 * 1000));
+            
+            const payload = {
+                ownerId: this.currentUser.uid,
+                ownerName: this.currentUser.displayName || this.currentUser.email || '익명',
+                artType,
+                regionId,
+                bundleId,
+                message: this.pixelEditorState.messageText || '',
+                messageLink: this.pixelEditorState.messageLink || '',
+                updatedAt: serverTimestamp(),
+                protectionEndsAt
+            };
+            
+            if (artType === 'canvas') {
+                payload.pixelMatrix = this.clonePixelMatrix(this.pixelEditorState.pixelMatrix);
+            } else if (artType === 'image') {
+                payload.imageData = this.pixelEditorState.imageDataUrl;
+            }
+            
+            if (!this.activePixelBundleId) {
+                payload.createdAt = serverTimestamp();
+            }
+            
+            await setDoc(docRef, payload, { merge: true });
+            
+            // 픽셀 생성 시 미션 자동 완료 처리
+            await this.checkAndCompletePixelMissions();
+            
+            // 업적 확인 및 뱃지 지급
+            await this.checkAchievements();
+            
+            // 시즌 데이터 업데이트 (soldPixels 증가)
+            await this.incrementSeasonSoldPixels();
+            
+            this.showNotification('픽셀 스토리가 저장되었습니다!', 'success');
+            this.closePixelEditorModal();
+        } catch (error) {
+            console.error('픽셀 스토리 저장 실패:', error);
+            this.showNotification('픽셀 스토리를 저장하지 못했습니다.', 'error');
+        } finally {
+            this.isSavingPixelBundle = false;
+        }
+    }
+    
+    // 픽셀 생성 관련 미션 자동 완료 처리
+    async checkAndCompletePixelMissions() {
+        if (!this.currentUser) {
+            return;
+        }
+        
+        try {
+            // 'create_pixel' 타입 미션 찾기
+            const pixelMission = this.communityMissions.find(m => m.type === 'create_pixel' && !m.completed);
+            if (pixelMission) {
+                await this.completeMission(pixelMission.id);
+            }
+            
+            // 플래시 챌린지 참여자 업데이트
+            if (this.currentFlashChallenge) {
+                await this.updateFlashChallengeParticipation().catch(err => {
+                    console.warn('플래시 챌린지 참여자 업데이트 실패 (계속 진행):', err);
+                });
+            }
+        } catch (error) {
+            console.error('픽셀 미션 확인 및 완료 처리 실패:', error);
+        }
+    }
+    
+    // 시즌 soldPixels 증가
+    async incrementSeasonSoldPixels() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('시즌 픽셀 수 업데이트: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        try {
+            const { doc, getDoc, setDoc, increment, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const seasonRef = doc(this.firestore, 'seasons', this.currentSeason.id);
+            const seasonDoc = await getDoc(seasonRef);
+            
+            if (seasonDoc.exists) {
+                const currentData = seasonDoc.data();
+                const newSoldPixels = (currentData.soldPixels || 0) + 1;
+                
+                await setDoc(seasonRef, {
+                    soldPixels: newSoldPixels,
+                    updatedAt: Timestamp.now()
+                }, { merge: true });
+                
+                // 메모리 업데이트
+                this.currentSeason.soldPixels = newSoldPixels;
+                
+                // 완판 체크 및 자동 아카이브 전환
+                if (newSoldPixels >= (currentData.totalPixels || this.currentSeason.totalPixels)) {
+                    await this.archiveSeasonWhenSoldOut(this.currentSeason.id).catch(err => {
+                        console.error('시즌 아카이브 실패:', err);
+                    });
+                }
+            } else {
+                console.warn('시즌 문서가 존재하지 않습니다:', this.currentSeason.id);
+                // 시즌 문서가 없으면 생성 시도
+                await this.createSeasonInFirestore(this.currentSeason).catch(err => {
+                    console.error('시즌 생성 실패:', err);
+                });
+            }
+        } catch (error) {
+            console.error('시즌 픽셀 수 업데이트 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('시즌 픽셀 수 업데이트 권한이 없습니다.');
+            }
+        }
+    }
+    
+    async subscribePixelBundles(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore || !regionId) return;
+        if (this.activePixelSubscriptionRegion === regionId && this.pixelBundleUnsubscribe) {
+            this.updatePixelStoryCard(regionId);
+            return;
+        }
+        if (this.pixelBundleUnsubscribe) {
+            this.pixelBundleUnsubscribe();
+            this.pixelBundleUnsubscribe = null;
+        }
+        this.activePixelSubscriptionRegion = regionId;
+        
+        try {
+            const { collection, onSnapshot, orderBy, query } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const bundlesRef = collection(this.firestore, 'regions', regionId, 'pixelBundles');
+            const q = query(bundlesRef, orderBy('updatedAt', 'desc'));
+            this.pixelBundleUnsubscribe = onSnapshot(q, (snapshot) => {
+                const bundles = [];
+                snapshot.forEach((docSnap) => bundles.push({ id: docSnap.id, ...docSnap.data() }));
+                this.pixelBundleCache.set(regionId, bundles);
+                this.updatePixelStoryCard(regionId);
+                if (this.currentRegion && this.currentRegion.id === regionId) {
+                    this.syncPixelProtectionLabel(this.getLatestPixelBundle(regionId));
+                }
+                // 픽셀 레이어가 활성화되어 있으면 업데이트
+                if (this.pixelLayerVisible) {
+                    this.renderPixelLayer();
+                }
+            }, (error) => {
+                console.error('픽셀 데이터 구독 오류:', error);
+                this.showNotification('픽셀 데이터를 불러오지 못했습니다.', 'warning');
+            });
+        } catch (error) {
+            console.error('픽셀 데이터 구독 실패:', error);
+        }
+    }
+    
+    getLatestPixelBundle(regionId) {
+        if (!regionId) return null;
+        const bundles = this.pixelBundleCache.get(regionId);
+        if (!bundles || bundles.length === 0) return null;
+        return bundles[0];
+    }
+    
+    updatePixelStoryCard(regionId) {
+        const targetRegionId = regionId || (this.currentRegion && this.currentRegion.id);
+        if (!targetRegionId) return;
+        const bundle = this.getLatestPixelBundle(targetRegionId);
+        const messageEl = document.getElementById('pixel-story-message');
+        const ownerEl = document.getElementById('pixel-story-owner');
+        
+        if (!messageEl || !ownerEl) return;
+        
+        if (!bundle) {
+            messageEl.textContent = '아직 등록된 픽셀 스토리가 없습니다.';
+            ownerEl.textContent = '';
+            this.clearPixelPreview();
+            this.updatePixelProtectionChip(null);
+            return;
+        }
+        
+        ownerEl.textContent = bundle.ownerName ? `소유자: ${bundle.ownerName}` : '';
+        if (bundle.message) {
+            messageEl.textContent = bundle.message;
+        } else if (bundle.artType === 'image') {
+            messageEl.textContent = '이미지 픽셀 스토리가 업로드되었습니다.';
+        } else {
+            messageEl.textContent = '픽셀 아트를 감상해보세요.';
+        }
+        this.applyPixelBundleToPreview(bundle);
+        this.updatePixelProtectionChip(bundle);
+        
+        // 브랜드 정보 통합 표시
+        this.updatePixelStoryBrandInfo(targetRegionId);
+    }
+    
+    // 픽셀 스토리에 브랜드 정보 통합 표시
+    async updatePixelStoryBrandInfo(regionId) {
+        const brandSection = document.getElementById('pixel-story-brand');
+        const brandNameEl = document.getElementById('brand-name');
+        const brandLogoEl = document.getElementById('brand-logo');
+        const brandDescEl = document.getElementById('brand-description');
+        const brandLinkEl = document.getElementById('brand-link');
+        
+        if (!brandSection || !brandNameEl || !brandDescEl) return;
+        
+        try {
+            // 기업 정보 가져오기 (지역별)
+            const region = this.regionData.get(regionId);
+            if (!region) {
+                brandSection.classList.add('hidden');
+                return;
+            }
+            
+            // 기업 정보 확인 (country_code에 따라 다른 데이터 소스 사용)
+            const countryCode = region.country_code || region.countryCode;
+            let companyData = null;
+            
+            if (countryCode === 'KR') {
+                companyData = this.koreaCompanyData[regionId];
+            } else if (countryCode === 'JP') {
+                companyData = this.japanCompanyData[regionId];
+            } else {
+                companyData = this.companyData[regionId];
+            }
+            
+            if (companyData && (companyData.name || companyData.description || companyData.website)) {
+                // 브랜드 정보 표시
+                brandSection.classList.remove('hidden');
+                
+                if (companyData.name) {
+                    brandNameEl.textContent = companyData.name;
+                } else {
+                    brandNameEl.textContent = '브랜드 정보';
+                }
+                
+                if (companyData.logo && brandLogoEl) {
+                    brandLogoEl.src = companyData.logo;
+                    brandLogoEl.classList.remove('hidden');
+                } else if (brandLogoEl) {
+                    brandLogoEl.classList.add('hidden');
+                }
+                
+                if (companyData.description) {
+                    brandDescEl.textContent = companyData.description;
+                } else {
+                    brandDescEl.textContent = '';
+                }
+                
+                if (companyData.website && brandLinkEl) {
+                    brandLinkEl.href = companyData.website;
+                    brandLinkEl.classList.remove('hidden');
+                } else if (bundle?.messageLink && brandLinkEl) {
+                    // 픽셀 스토리의 링크 사용
+                    brandLinkEl.href = bundle.messageLink;
+                    brandLinkEl.classList.remove('hidden');
+                } else if (brandLinkEl) {
+                    brandLinkEl.classList.add('hidden');
+                }
+            } else {
+                // 픽셀 스토리에 링크가 있는 경우만 표시
+                const bundle = this.getLatestPixelBundle(regionId);
+                if (bundle?.messageLink && brandLinkEl) {
+                    brandSection.classList.remove('hidden');
+                    brandNameEl.textContent = '더 알아보기';
+                    brandDescEl.textContent = bundle.message || '';
+                    brandLinkEl.href = bundle.messageLink;
+                    brandLinkEl.classList.remove('hidden');
+                    if (brandLogoEl) brandLogoEl.classList.add('hidden');
+                } else {
+                    brandSection.classList.add('hidden');
+                }
+            }
+        } catch (error) {
+            console.error('브랜드 정보 업데이트 실패:', error);
+            brandSection.classList.add('hidden');
+        }
+    }
+    
+    applyPixelBundleToPreview(bundle) {
+        if (!this.pixelPreviewCanvas || !this.pixelPreviewCtx) return;
+        if (!bundle) {
+            this.clearPixelPreview();
+            return;
+        }
+        if (bundle.artType === 'canvas' && Array.isArray(bundle.pixelMatrix)) {
+            this.renderMatrixToCanvas(bundle.pixelMatrix, this.pixelPreviewCtx, this.pixelPreviewCanvas);
+        } else if (bundle.artType === 'image' && bundle.imageData) {
+            this.drawImageOnPreview(bundle.imageData);
+        } else {
+            this.clearPixelPreview();
+        }
+    }
+    
+    clearPixelPreview() {
+        if (!this.pixelPreviewCtx || !this.pixelPreviewCanvas) return;
+        this.pixelPreviewCtx.clearRect(0, 0, this.pixelPreviewCanvas.width, this.pixelPreviewCanvas.height);
+        this.pixelPreviewCtx.fillStyle = '#05070f';
+        this.pixelPreviewCtx.fillRect(0, 0, this.pixelPreviewCanvas.width, this.pixelPreviewCanvas.height);
+    }
+    
+    drawImageOnPreview(imageData) {
+        if (!this.pixelPreviewCtx || !this.pixelPreviewCanvas) return;
+        const img = new Image();
+        img.onload = () => {
+            this.pixelPreviewCtx.clearRect(0, 0, this.pixelPreviewCanvas.width, this.pixelPreviewCanvas.height);
+            this.pixelPreviewCtx.drawImage(img, 0, 0, this.pixelPreviewCanvas.width, this.pixelPreviewCanvas.height);
+        };
+        img.src = imageData;
+    }
+    
+    updatePixelProtectionChip(bundle) {
+        const chip = document.getElementById('pixel-protection-chip');
+        if (!chip) return;
+        if (!bundle || !bundle.protectionEndsAt) {
+            chip.classList.add('hidden');
+            return;
+        }
+        chip.classList.remove('hidden');
+        chip.textContent = this.formatProtectionCountdown(bundle.protectionEndsAt);
+    }
+    
+    togglePixelLayerVisibility() {
+        this.pixelLayerVisible = !this.pixelLayerVisible;
+        const button = document.getElementById('pixel-layer-toggle');
+        button?.classList.toggle('active', this.pixelLayerVisible);
+        if (!this.map) return;
+        
+        if (this.pixelLayerVisible) {
+            this.renderPixelLayer();
+            // 현재 선택된 지역이 있으면 해당 지역으로 픽셀 레벨 줌
+            if (this.currentRegion) {
+                this.zoomToPixelLevel(this.currentRegion.id);
+            } else {
+                // 선택된 지역이 없으면 기본 줌
+                const targetZoom = Math.max(this.map.getZoom(), 8);
+                this.map.easeTo({ zoom: targetZoom, duration: 800 });
+            }
+            this.showNotification('픽셀 레벨 레이어를 표시했습니다.', 'info');
+        } else {
+            this.hidePixelLayer();
+            this.exitPixelDetailMode();
+            this.showNotification('픽셀 레벨 레이어를 숨겼습니다.', 'info');
+        }
+    }
+    
+    // 픽셀 레이어 렌더링
+    async renderPixelLayer() {
+        if (!this.map || !this.pixelLayerVisible) return;
+        
+        // 픽셀 마커를 위한 GeoJSON 데이터 생성
+        const pixelFeatures = [];
+        
+        this.regionData.forEach((region, regionId) => {
+            const bundle = this.getLatestPixelBundle(regionId);
+            if (!bundle) return;
+            
+            // 지역의 중심점 계산 (간단하게 bounding box의 중심 사용)
+            const source = this.map.getSource('world-regions');
+            if (!source || !source._data) return;
+            
+            const feature = source._data.features.find(f => f.properties.id === regionId);
+            if (!feature || !feature.geometry) return;
+            
+            let center = null;
+            if (feature.geometry.type === 'Polygon') {
+                const coords = feature.geometry.coordinates[0];
+                const lons = coords.map(c => c[0]);
+                const lats = coords.map(c => c[1]);
+                center = [
+                    (Math.min(...lons) + Math.max(...lons)) / 2,
+                    (Math.min(...lats) + Math.max(...lats)) / 2
+                ];
+            } else if (feature.geometry.type === 'MultiPolygon') {
+                const allCoords = feature.geometry.coordinates.flat();
+                const lons = allCoords.flat().map(c => c[0]);
+                const lats = allCoords.flat().map(c => c[1]);
+                center = [
+                    (Math.min(...lons) + Math.max(...lons)) / 2,
+                    (Math.min(...lats) + Math.max(...lats)) / 2
+                ];
+            }
+            
+            if (center) {
+                pixelFeatures.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: center
+                    },
+                    properties: {
+                        regionId: regionId,
+                        bundleId: bundle.bundleId || 'default'
+                    }
+                });
+            }
+        });
+        
+        if (pixelFeatures.length === 0) return;
+        
+        // 픽셀 마커 소스 추가/업데이트
+        const pixelSourceId = 'pixel-markers';
+        if (this.map.getSource(pixelSourceId)) {
+            this.map.getSource(pixelSourceId).setData({
+                type: 'FeatureCollection',
+                features: pixelFeatures
+            });
+        } else {
+            this.map.addSource(pixelSourceId, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: pixelFeatures
+                }
+            });
+        }
+        
+        // 픽셀 마커 레이어 추가
+        if (!this.map.getLayer('pixel-markers')) {
+            this.map.addLayer({
+                id: 'pixel-markers',
+                type: 'circle',
+                source: pixelSourceId,
+                paint: {
+                    'circle-radius': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        5, 8,
+                        10, 16,
+                        15, 32
+                    ],
+                    'circle-color': '#4ecdc4',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-opacity': 0.8
+                }
+            });
+            
+            // 클릭 이벤트 추가 - 픽셀 스토리 카드 표시
+            this.map.on('click', 'pixel-markers', (e) => {
+                const regionId = e.features[0].properties.regionId;
+                const bundleId = e.features[0].properties.bundleId || 'default';
+                const region = this.regionData.get(regionId);
+                if (region) {
+                    // 픽셀 스토리 카드 표시
+                    this.showPixelStoryCardFromMap(regionId, bundleId);
+                    // 정보 패널도 표시
+                    this.showInfoPanel(region);
+                    // 픽셀 레벨로 확대 (줌 레벨 12 이상)
+                    this.map.flyTo({
+                        center: e.lngLat,
+                        zoom: Math.max(this.map.getZoom() + 2, 12),
+                        duration: 1000
+                    });
+                    // 픽셀 상세 보기 모드 활성화
+                    this.enterPixelDetailMode(regionId);
+                }
+            });
+            
+            // 호버 효과
+            this.map.on('mouseenter', 'pixel-markers', () => {
+                this.map.getCanvas().style.cursor = 'pointer';
+            });
+            
+            this.map.on('mouseleave', 'pixel-markers', () => {
+                this.map.getCanvas().style.cursor = '';
+            });
+        }
+    }
+    
+    // 픽셀 상세 보기 모드 진입
+    enterPixelDetailMode(regionId) {
+        this.pixelDetailMode = true;
+        this.pixelDetailRegionId = regionId;
+        
+        const region = this.regionData.get(regionId);
+        if (region && this.map) {
+            // 지역의 중심점 계산
+            const source = this.map.getSource('world-regions');
+            if (source && source._data) {
+                const feature = source._data.features.find(f => f.properties.id === regionId);
+                if (feature && feature.geometry) {
+                    let center = null;
+                    if (feature.geometry.type === 'Polygon') {
+                        const coords = feature.geometry.coordinates[0];
+                        const lons = coords.map(c => c[0]);
+                        const lats = coords.map(c => c[1]);
+                        center = [
+                            (Math.min(...lons) + Math.max(...lons)) / 2,
+                            (Math.min(...lats) + Math.max(...lats)) / 2
+                        ];
+                    } else if (feature.geometry.type === 'MultiPolygon') {
+                        const allCoords = feature.geometry.coordinates.flat();
+                        const lons = allCoords.flat().map(c => c[0]);
+                        const lats = allCoords.flat().map(c => c[1]);
+                        center = [
+                            (Math.min(...lons) + Math.max(...lons)) / 2,
+                            (Math.min(...lats) + Math.max(...lats)) / 2
+                        ];
+                    }
+                    
+                    if (center) {
+                        // 픽셀 레벨로 확대 (줌 레벨 12 이상)
+                        this.map.flyTo({
+                            center: center,
+                            zoom: Math.max(this.map.getZoom(), 12),
+                            duration: 1000
+                        });
+                    }
+                }
+            }
+            
+            // 알림 표시
+            this.showNotification('픽셀 상세 보기 모드로 전환되었습니다. ESC 키를 눌러 종료할 수 있습니다.', 'info');
+        }
+    }
+    
+    // 픽셀 상세 보기 모드 종료
+    exitPixelDetailMode() {
+        this.pixelDetailMode = false;
+        this.pixelDetailRegionId = null;
+        this.showNotification('픽셀 상세 보기 모드가 종료되었습니다.', 'info');
+    }
+    
+    // 픽셀 레이어 숨기기
+    hidePixelLayer() {
+        if (!this.map) return;
+        
+        if (this.map.getLayer('pixel-markers')) {
+            this.map.removeLayer('pixel-markers');
+        }
+        
+        if (this.map.getSource('pixel-markers')) {
+            this.map.removeSource('pixel-markers');
+        }
     }
     
     hideInfoPanel() {
@@ -14843,7 +17187,7 @@ class BillionaireMap {
     }
     
     // PayPal 버튼 렌더링
-    renderPayPalButtons(containerId, region) {
+    renderPayPalButtons(containerId, region, options = {}) {
         try {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -14855,10 +17199,18 @@ class BillionaireMap {
                 return;
             }
             
-            const amount = (region && typeof region.ad_price === 'number' && region.ad_price > 0)
+            const regionConfig = this.getRegionAuctionConfig(region);
+            const overrideAmount = typeof options.overrideAmount === 'number' ? options.overrideAmount : null;
+            const fallbackAmount = (region && typeof region.ad_price === 'number' && region.ad_price > 0)
                 ? region.ad_price
                 : (this.uniformAdPrice || 1000);
-            const description = `${region.country} - ${this.getRegionDisplayName(region)} (${region.id})`;
+            const preferredBuyNow = regionConfig?.buyNowPrice && region?.ad_status === 'auction'
+                ? regionConfig.buyNowPrice
+                : null;
+            const amount = overrideAmount ?? preferredBuyNow ?? fallbackAmount;
+            const description = region
+                ? `${region.country} - ${this.getRegionDisplayName(region)} (${region.id})`
+                : '세계지도 광고 구매';
             
             window.paypal.Buttons({
                 style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'paypal' },
@@ -14903,6 +17255,13 @@ class BillionaireMap {
                         this.updateStatistics();
                         // 버튼 비활성화
                         container.innerHTML = '<div style="color:#2ecc71;font-weight:600;">결제가 완료되었습니다.</div>';
+                        
+                        // 구매 완료 후 픽셀 에디터 자동 열기
+                        setTimeout(() => {
+                            this.openPixelEditorModal();
+                            this.showNotification('픽셀 에디터가 열렸습니다. 지역에 픽셀 스토리를 만들어보세요!', 'info');
+                        }, 500);
+                        
                         console.log('PayPal capture result:', details);
                     } catch (err) {
                         console.error('Capture error:', err);
@@ -17237,6 +19596,17 @@ class BillionaireMap {
         if (purchaseBtn) {
         purchaseBtn.textContent = purchaseText.primary;
         }
+        const regionBuyNowBtn = document.getElementById('region-auction-buy-now-btn');
+        if (regionBuyNowBtn) {
+            const auctionInfo = this.getAuctionInfo(regionData);
+            const config = auctionInfo?.config || this.getRegionAuctionConfig(regionData);
+            if (config && config.buyNowPrice) {
+                regionBuyNowBtn.classList.remove('hidden');
+                regionBuyNowBtn.textContent = `즉시 구매 (${this.formatCurrency(config.buyNowPrice)})`;
+            } else {
+                regionBuyNowBtn.classList.add('hidden');
+            }
+        }
         
         // 관리자 모드일 때 편집 버튼 표시
         const regionEditBtn = document.getElementById('region-edit-btn');
@@ -17440,6 +19810,97 @@ class BillionaireMap {
         }
     }
     
+    getAdminValidationFieldConfig() {
+        return [
+            { id: 'region-population-input', label: '인구', min: 0, max: 10000000000, integer: true, unit: '명' },
+            { id: 'region-area-input', label: '면적', min: 0, max: 50000000, integer: false, unit: 'km²' },
+            { id: 'region-ad-price-input', label: '광고 가격', min: 0, max: 1000000000, integer: false, unit: ' USD' },
+            { id: 'region-auction-min-percent-input', label: '최소 인상률', min: 0, max: 100, integer: false, unit: '%' },
+            { id: 'region-auction-min-amount-input', label: '최소 인상액', min: 0, max: 10000000, integer: false, unit: ' USD' },
+            { id: 'region-auction-protection-input', label: '보호 시간', min: 0, max: 168, integer: true, unit: '시간' },
+            { id: 'region-auction-rounding-input', label: '반올림 단위', min: 10, max: 1000000, integer: true, multipleOf: 10, unit: ' USD' },
+            { id: 'region-auction-buy-now-input', label: '즉시 구매가', min: 0, max: 100000000, integer: false, unit: ' USD' },
+            { id: 'region-auction-instant-transfer-input', label: '즉시 이전 보너스', min: 0, max: 100, integer: false, unit: '%' },
+            { id: 'region-auction-defense-grace-input', label: '디펜스 유예', min: 0, max: 1440, integer: true, unit: '분' }
+        ];
+    }
+
+    setupAdminFormValidation() {
+        if (this.adminValidationInitialized) return;
+        this.adminValidationConfig = this.getAdminValidationFieldConfig();
+        this.adminValidationConfig.forEach((config) => {
+            const input = document.getElementById(config.id);
+            if (!input) return;
+            const handler = () => this.validateAdminNumericInput(input, config);
+            input.addEventListener('input', handler);
+            input.addEventListener('blur', handler);
+        });
+        this.adminValidationInitialized = true;
+    }
+
+    validateAdminNumericInput(input, config) {
+        if (!input || !config) {
+            return { valid: true, value: null };
+        }
+        const rawValue = (input.value ?? '').toString().trim();
+        if (rawValue === '') {
+            this.clearFieldError(input);
+            return { valid: true, value: null };
+        }
+        const value = config.integer ? parseInt(rawValue, 10) : parseFloat(rawValue);
+        if (Number.isNaN(value)) {
+            const message = `${config.label}은 숫자만 입력할 수 있습니다.`;
+            this.showFieldError(input, message);
+            return { valid: false, message };
+        }
+        if (config.min !== undefined && value < config.min) {
+            const message = `${config.label}은 최소 ${config.min}${config.unit || ''} 이상이어야 합니다.`;
+            this.showFieldError(input, message);
+            return { valid: false, message };
+        }
+        if (config.max !== undefined && value > config.max) {
+            const message = `${config.label}은 최대 ${config.max}${config.unit || ''} 이하로 입력해주세요.`;
+            this.showFieldError(input, message);
+            return { valid: false, message };
+        }
+        if (config.multipleOf) {
+            const remainder = value % config.multipleOf;
+            if (Math.abs(remainder) > 1e-6 && Math.abs(remainder - config.multipleOf) > 1e-6) {
+                const message = `${config.label}은 ${config.multipleOf}${config.unit || ''} 단위로 입력해주세요.`;
+                this.showFieldError(input, message);
+                return { valid: false, message };
+            }
+        }
+        this.clearFieldError(input);
+        return { valid: true, value };
+    }
+
+    showFieldError(input, message) {
+        if (!input) return;
+        input.classList.add('input-error');
+        input.setAttribute('aria-invalid', 'true');
+        const container = input.closest('.form-group') || input.parentElement;
+        if (!container) return;
+        let errorEl = container.querySelector('.form-error');
+        if (!errorEl) {
+            errorEl = document.createElement('p');
+            errorEl.className = 'form-error';
+            container.appendChild(errorEl);
+        }
+        errorEl.textContent = message;
+    }
+
+    clearFieldError(input) {
+        if (!input) return;
+        input.classList.remove('input-error');
+        input.removeAttribute('aria-invalid');
+        const container = input.closest('.form-group') || input.parentElement;
+        const errorEl = container?.querySelector('.form-error');
+        if (errorEl) {
+            errorEl.textContent = '';
+        }
+    }
+    
     // 지역 정보 편집용 로드
     loadRegionInfoForEdit(stateId) {
         console.log('지역 정보 로드 (편집용):', stateId);
@@ -17459,6 +19920,33 @@ class BillionaireMap {
         const areaInput = document.getElementById('region-area-input');
         const adPriceInput = document.getElementById('region-ad-price-input');
         const adStatusInput = document.getElementById('region-ad-status-input');
+        const seasonTagInput = document.getElementById('region-season-tag-input');
+        const minPercentInput = document.getElementById('region-auction-min-percent-input');
+        const minAmountInput = document.getElementById('region-auction-min-amount-input');
+        const protectionInput = document.getElementById('region-auction-protection-input');
+        const roundingInput = document.getElementById('region-auction-rounding-input');
+        const buyNowInput = document.getElementById('region-auction-buy-now-input');
+        const instantTransferInput = document.getElementById('region-auction-instant-transfer-input');
+        const defenseGraceInput = document.getElementById('region-auction-defense-grace-input');
+
+        let firstInvalidField = null;
+        (this.adminValidationConfig || []).forEach((config) => {
+            const targetInput = document.getElementById(config.id);
+            if (!targetInput) return;
+            const result = this.validateAdminNumericInput(targetInput, config);
+            if (!result.valid && !firstInvalidField) {
+                firstInvalidField = { input: targetInput, message: result.message };
+            }
+        });
+        if (firstInvalidField) {
+            if (firstInvalidField.message) {
+                this.showNotification(firstInvalidField.message, 'error');
+            } else {
+                this.showNotification('입력값을 다시 확인해주세요.', 'error');
+            }
+            firstInvalidField.input?.focus();
+            return;
+        }
         
         if (nameKoInput) nameKoInput.value = regionData.name_ko || regionData.name || '';
         if (nameEnInput) nameEnInput.value = regionData.name_en || regionData.name || '';
@@ -17468,6 +19956,38 @@ class BillionaireMap {
         if (areaInput) areaInput.value = regionData.area || 0;
         if (adPriceInput) adPriceInput.value = regionData.ad_price || 0;
         if (adStatusInput) adStatusInput.value = regionData.ad_status || 'available';
+        if (seasonTagInput) seasonTagInput.value = regionData.seasonTag || '';
+        
+        const config = regionData.auctionConfig || regionData.auction_settings || {};
+        if (minPercentInput) {
+            minPercentInput.value = typeof config.minIncrementPercent === 'number'
+                ? (config.minIncrementPercent * 100).toFixed(2).replace(/\.?0+$/, '')
+                : '';
+        }
+        if (minAmountInput) {
+            minAmountInput.value = typeof config.minIncrementAmount === 'number'
+                ? config.minIncrementAmount
+                : '';
+        }
+        if (protectionInput) {
+            protectionInput.value = typeof config.protectionHours === 'number' ? config.protectionHours : '';
+        }
+        if (roundingInput) {
+            roundingInput.value = typeof config.roundingUnit === 'number' ? config.roundingUnit : '';
+        }
+        if (buyNowInput) {
+            buyNowInput.value = typeof config.buyNowPrice === 'number' ? config.buyNowPrice : '';
+        }
+        if (instantTransferInput) {
+            instantTransferInput.value = typeof config.instantTransferPercent === 'number'
+                ? (config.instantTransferPercent * 100).toFixed(1).replace(/\.?0+$/, '')
+                : '';
+        }
+        if (defenseGraceInput) {
+            defenseGraceInput.value = typeof config.defenseGraceMinutes === 'number'
+                ? config.defenseGraceMinutes
+                : '';
+        }
         
         console.log('지역 정보 로드 완료:', regionData);
     }
@@ -17484,6 +20004,10 @@ class BillionaireMap {
             this.showNotification('지역 데이터를 찾을 수 없습니다.', 'error');
             return;
         }
+
+        if (!this.adminValidationInitialized) {
+            this.setupAdminFormValidation();
+        }
         
         // 폼에서 데이터 수집
         const nameKoInput = document.getElementById('region-name-ko-input');
@@ -17494,6 +20018,14 @@ class BillionaireMap {
         const areaInput = document.getElementById('region-area-input');
         const adPriceInput = document.getElementById('region-ad-price-input');
         const adStatusInput = document.getElementById('region-ad-status-input');
+        const seasonTagInput = document.getElementById('region-season-tag-input');
+        const minPercentInput = document.getElementById('region-auction-min-percent-input');
+        const minAmountInput = document.getElementById('region-auction-min-amount-input');
+        const protectionInput = document.getElementById('region-auction-protection-input');
+        const roundingInput = document.getElementById('region-auction-rounding-input');
+        const buyNowInput = document.getElementById('region-auction-buy-now-input');
+        const instantTransferInput = document.getElementById('region-auction-instant-transfer-input');
+        const defenseGraceInput = document.getElementById('region-auction-defense-grace-input');
         
         // 지역 데이터 업데이트
         regionData.name_ko = nameKoInput?.value || regionData.name_ko || '';
@@ -17511,6 +20043,72 @@ class BillionaireMap {
         }
         
         regionData.ad_status = adStatusInput?.value || regionData.ad_status || 'available';
+        
+        const seasonTagValue = (seasonTagInput?.value || '').trim();
+        if (seasonTagValue) {
+            regionData.seasonTag = seasonTagValue;
+        } else {
+            delete regionData.seasonTag;
+        }
+        
+        const existingConfig = regionData.auctionConfig || {};
+        const auctionConfig = { ...existingConfig };
+        
+        const parsedMinPercent = parseFloat(minPercentInput?.value);
+        if (!Number.isNaN(parsedMinPercent) && parsedMinPercent >= 0) {
+            auctionConfig.minIncrementPercent = parsedMinPercent / 100;
+        } else {
+            delete auctionConfig.minIncrementPercent;
+        }
+        
+        const parsedMinAmount = parseFloat(minAmountInput?.value);
+        if (!Number.isNaN(parsedMinAmount) && parsedMinAmount >= 0) {
+            auctionConfig.minIncrementAmount = parsedMinAmount;
+        } else {
+            delete auctionConfig.minIncrementAmount;
+        }
+        
+        const parsedProtection = parseFloat(protectionInput?.value);
+        if (!Number.isNaN(parsedProtection) && parsedProtection >= 0) {
+            auctionConfig.protectionHours = parsedProtection;
+        } else {
+            delete auctionConfig.protectionHours;
+        }
+        
+        const parsedRounding = parseFloat(roundingInput?.value);
+        if (!Number.isNaN(parsedRounding) && parsedRounding > 0) {
+            auctionConfig.roundingUnit = parsedRounding;
+        } else {
+            delete auctionConfig.roundingUnit;
+        }
+        
+        const parsedBuyNow = parseFloat(buyNowInput?.value);
+        if (!Number.isNaN(parsedBuyNow) && parsedBuyNow > 0) {
+            auctionConfig.buyNowPrice = parsedBuyNow;
+        } else {
+            delete auctionConfig.buyNowPrice;
+        }
+        
+        const parsedInstantTransfer = parseFloat(instantTransferInput?.value);
+        if (!Number.isNaN(parsedInstantTransfer) && parsedInstantTransfer >= 0) {
+            auctionConfig.instantTransferPercent = parsedInstantTransfer / 100;
+        } else {
+            delete auctionConfig.instantTransferPercent;
+        }
+        
+        const parsedDefenseGrace = parseFloat(defenseGraceInput?.value);
+        if (!Number.isNaN(parsedDefenseGrace) && parsedDefenseGrace >= 0) {
+            auctionConfig.defenseGraceMinutes = parsedDefenseGrace;
+        } else {
+            delete auctionConfig.defenseGraceMinutes;
+        }
+        
+        const configKeys = Object.keys(auctionConfig);
+        if (configKeys.length > 0) {
+            regionData.auctionConfig = auctionConfig;
+        } else if (regionData.auctionConfig) {
+            delete regionData.auctionConfig;
+        }
 
         // regionData Map 업데이트
         this.regionData.set(this.selectedStateId, regionData);
@@ -17556,6 +20154,13 @@ class BillionaireMap {
             this.showNotification('지역 정보가 로컬에 저장되었습니다. (Firestore 동기화 실패)', 'warning');
             console.log('로컬에만 지역 정보 저장 완료:', this.selectedStateId, regionData);
         }
+        
+        if (this.currentRegion && this.currentRegion.id === this.selectedStateId) {
+            this.currentRegion = { ...this.currentRegion, ...regionData };
+            this.updateAuctionPanel(this.currentRegion);
+            this.updateCompanyModalAuctionSection(this.selectedStateId);
+        }
+        this.updateAuctionWidgets();
     }
     
     // 모달에서 편집 버튼 클릭 시 관리자 패널 열기
@@ -17628,6 +20233,2481 @@ class BillionaireMap {
         };
         
         return sourceMap[this.currentMapMode] || 'world-regions';
+    }
+    
+    // ============================================
+    // 랜딩 페이지 및 시즌 시스템 메서드
+    // ============================================
+    
+    // 랜딩 페이지 초기화
+    initializeLandingPage() {
+        const landingOverlay = document.getElementById('landing-overlay');
+        const exploreBtn = document.getElementById('landing-explore-btn');
+        
+        if (!landingOverlay || !exploreBtn) return;
+        
+        // 랜딩 오버레이 표시 여부 확인 (localStorage)
+        const hasSeenLanding = localStorage.getItem('hasSeenLanding');
+        if (hasSeenLanding === 'true') {
+            landingOverlay.classList.add('hidden');
+            this.landingOverlayVisible = false;
+        } else {
+            this.updateLandingStats();
+        }
+        
+        // 탐험하기 버튼 클릭 이벤트
+        exploreBtn.addEventListener('click', () => {
+            landingOverlay.classList.add('hidden');
+            this.landingOverlayVisible = false;
+            localStorage.setItem('hasSeenLanding', 'true');
+        });
+        
+        // 주기적으로 랜딩 통계 업데이트
+        setInterval(() => this.updateLandingStats(), 30000); // 30초마다
+    }
+    
+    // 랜딩 페이지 통계 업데이트
+    async updateLandingStats() {
+        if (!this.landingOverlayVisible) return;
+        
+        try {
+            // 시즌 데이터 가져오기
+            const seasonData = await this.getCurrentSeasonData();
+            
+            const remainingPixels = seasonData.totalPixels - seasonData.soldPixels;
+            const participants = seasonData.participants;
+            
+            // 남은 픽셀 표시
+            const remainingEl = document.getElementById('landing-remaining-pixels');
+            if (remainingEl) {
+                remainingEl.textContent = remainingPixels.toLocaleString();
+            }
+            
+            // 참여자 수 표시
+            const participantsEl = document.getElementById('landing-participants');
+            if (participantsEl) {
+                participantsEl.textContent = participants.toLocaleString();
+            }
+            
+            // 시즌 종료까지 남은 시간 계산
+            this.updateSeasonCountdown(seasonData);
+            
+            const endTimeEl = document.getElementById('landing-season-end');
+            if (endTimeEl) {
+                const countdown = this.formatSeasonCountdown(seasonData.endDate);
+                endTimeEl.textContent = countdown;
+            }
+        } catch (error) {
+            console.error('랜딩 통계 업데이트 실패:', error);
+        }
+    }
+    
+    // 현재 시즌 데이터 가져오기
+    async getCurrentSeasonData() {
+        // Firestore에서 시즌 데이터 가져오기
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const seasonRef = doc(this.firestore, 'seasons', this.currentSeason.id);
+                const seasonDoc = await getDoc(seasonRef);
+                
+                if (seasonDoc.exists) {
+                    const data = seasonDoc.data();
+                    // Timestamp를 Date로 변환
+                    const seasonData = {
+                        ...this.currentSeason,
+                        ...data,
+                        startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || this.currentSeason.startDate),
+                        endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate || this.currentSeason.endDate)
+                    };
+                    // 메모리에도 업데이트
+                    this.currentSeason = seasonData;
+                    return seasonData;
+                } else {
+                    // Firestore에 시즌이 없으면 생성
+                    await this.createSeasonInFirestore(this.currentSeason);
+                }
+            } catch (error) {
+                console.error('시즌 데이터 가져오기 실패:', error);
+            }
+        }
+        
+        // 기본값 반환
+        return this.currentSeason;
+    }
+    
+    // 시즌별 시작가 계산 (시즌 번호에 따라 가격 조절)
+    calculateSeasonStartingPrice(seasonNumber, basePrice = 1000) {
+        // 첫 시즌은 기본 가격의 50%로 시작
+        // 이후 시즌은 시즌 번호에 따라 점진적으로 증가 (최대 100%)
+        const seasonDiscount = Math.max(0.5, 1.0 - (seasonNumber - 1) * 0.1);
+        return Math.max(Math.floor(basePrice * seasonDiscount), Math.floor(basePrice * 0.3));
+    }
+    
+    // 시즌 시작 시 모든 구역 가격 초기화
+    async resetAllRegionPricesForNewSeason(seasonNumber) {
+        if (!this.regionData || this.regionData.size === 0) {
+            console.warn('구역 데이터가 없어 가격 초기화를 건너뜁니다.');
+            return;
+        }
+        
+        const basePrice = this.uniformAdPrice || 1000;
+        const startingPrice = this.calculateSeasonStartingPrice(seasonNumber, basePrice);
+        
+        console.log(`시즌 ${seasonNumber} 시작가 설정: ${startingPrice} (기본가: ${basePrice})`);
+        
+        // 모든 구역의 가격을 시작가로 설정
+        for (const [regionId, region] of this.regionData.entries()) {
+            const originalPrice = region.ad_price || basePrice;
+            region.ad_price = startingPrice;
+            
+            // Firestore에 가격 업데이트 (옵션)
+            if (this.isFirebaseInitialized && this.firestore) {
+                try {
+                    const { collection, query, where, getDocs, updateDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                    const regionsRef = collection(this.firestore, 'regions');
+                    const q = query(regionsRef, where('id', '==', regionId));
+                    const querySnapshot = await getDocs(q);
+                    
+                    if (!querySnapshot.empty) {
+                        const regionDoc = querySnapshot.docs[0];
+                        await updateDoc(doc(this.firestore, 'regions', regionDoc.id), {
+                            ad_price: startingPrice,
+                            original_price: originalPrice,
+                            price_reset_at: new Date().toISOString(),
+                            season_number: seasonNumber
+                        });
+                    }
+                } catch (error) {
+                    console.error(`구역 ${regionId} 가격 업데이트 실패:`, error);
+                }
+            }
+        }
+        
+        // 메모리 업데이트
+        this.uniformAdPrice = startingPrice;
+        this.updateMapSourcesWithRegionData();
+        
+        console.log(`시즌 ${seasonNumber} 시작가 설정 완료: ${this.regionData.size}개 구역`);
+    }
+    
+    // Firestore에 시즌 생성
+    async createSeasonInFirestore(seasonData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('시즌 생성: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        if (!seasonData || !seasonData.id) {
+            console.error('시즌 생성: 유효하지 않은 시즌 데이터입니다.');
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, Timestamp, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const seasonRef = doc(this.firestore, 'seasons', seasonData.id);
+            const seasonDoc = await getDoc(seasonRef);
+            
+            // 시즌이 새로 생성되는 경우에만 가격 초기화
+            const isNewSeason = !seasonDoc.exists();
+            
+            await setDoc(seasonRef, {
+                id: seasonData.id,
+                name: seasonData.name || `시즌 ${seasonData.id}`,
+                startDate: Timestamp.fromDate(seasonData.startDate || new Date()),
+                endDate: Timestamp.fromDate(seasonData.endDate || new Date()),
+                totalPixels: seasonData.totalPixels || 10000,
+                soldPixels: seasonData.soldPixels || 0,
+                participants: seasonData.participants || 0,
+                status: seasonData.status || 'active',
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now()
+            }, { merge: true });
+            
+            console.log('시즌 데이터가 Firestore에 생성되었습니다:', seasonData.id);
+            
+            // 새 시즌인 경우 모든 구역 가격 초기화
+            if (isNewSeason) {
+                // 시즌 번호 추출 (예: "2025-S1" -> 1)
+                const seasonMatch = seasonData.id.match(/S(\d+)/);
+                const seasonNumber = seasonMatch ? parseInt(seasonMatch[1], 10) : 1;
+                await this.resetAllRegionPricesForNewSeason(seasonNumber);
+            }
+        } catch (error) {
+            console.error('시즌 생성 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('시즌 생성 권한이 없습니다.');
+            }
+        }
+    }
+    
+    // Firestore에 시즌 업데이트
+    async updateSeasonInFirestore(seasonData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('시즌 업데이트: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        if (!seasonData || !seasonData.id) {
+            console.error('시즌 업데이트: 유효하지 않은 시즌 데이터입니다.');
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const seasonRef = doc(this.firestore, 'seasons', seasonData.id);
+            
+            const updateData = {
+                ...seasonData,
+                updatedAt: Timestamp.now()
+            };
+            
+            // Date 객체를 Timestamp로 변환
+            if (seasonData.startDate instanceof Date) {
+                updateData.startDate = Timestamp.fromDate(seasonData.startDate);
+            }
+            if (seasonData.endDate instanceof Date) {
+                updateData.endDate = Timestamp.fromDate(seasonData.endDate);
+            }
+            
+            await setDoc(seasonRef, updateData, { merge: true });
+            console.log('시즌 데이터가 Firestore에 업데이트되었습니다:', seasonData.id);
+        } catch (error) {
+            console.error('시즌 업데이트 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('시즌 업데이트 권한이 없습니다.');
+            }
+        }
+    }
+    
+    // 시즌 대시보드 초기화
+    initializeSeasonDashboard() {
+        const dashboard = document.getElementById('season-dashboard');
+        const closeBtn = document.getElementById('close-season-dashboard');
+        const highlightsBtn = document.getElementById('dashboard-highlights-btn');
+        const participateBtn = document.getElementById('dashboard-participate-btn');
+        
+        if (!dashboard) return;
+        
+        // 닫기 버튼
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                dashboard.classList.add('hidden');
+            });
+        }
+        
+        // 대표 픽셀 보기 버튼
+        if (highlightsBtn) {
+            highlightsBtn.addEventListener('click', () => {
+                this.showPixelHighlights();
+            });
+        }
+        
+        // 참여하기 버튼
+        if (participateBtn) {
+            participateBtn.addEventListener('click', () => {
+                this.showParticipationGuide();
+            });
+        }
+        
+        // 주기적으로 대시보드 업데이트
+        this.updateSeasonDashboard();
+        setInterval(() => this.updateSeasonDashboard(), 60000); // 1분마다
+    }
+    
+    // 시즌 대시보드 업데이트
+    async updateSeasonDashboard() {
+        try {
+            const seasonData = await this.getCurrentSeasonData();
+            
+            // 시즌 배지
+            const badgeEl = document.getElementById('current-season-badge');
+            if (badgeEl) {
+                badgeEl.textContent = seasonData.name || seasonData.id;
+            }
+            
+            // 진행률 계산
+            const progress = (seasonData.soldPixels / seasonData.totalPixels) * 100;
+            const progressFill = document.getElementById('season-progress-fill');
+            const progressText = document.getElementById('season-progress-text');
+            
+            if (progressFill) {
+                progressFill.style.width = `${progress}%`;
+            }
+            if (progressText) {
+                progressText.textContent = `${progress.toFixed(1)}%`;
+            }
+            
+            // 통계 업데이트
+            const totalPixelsEl = document.getElementById('dashboard-total-pixels');
+            const soldPixelsEl = document.getElementById('dashboard-sold-pixels');
+            const participantsEl = document.getElementById('dashboard-participants');
+            const revenueEl = document.getElementById('dashboard-revenue');
+            
+            if (totalPixelsEl) totalPixelsEl.textContent = seasonData.totalPixels.toLocaleString();
+            if (soldPixelsEl) soldPixelsEl.textContent = seasonData.soldPixels.toLocaleString();
+            if (participantsEl) participantsEl.textContent = seasonData.participants.toLocaleString();
+            if (revenueEl) {
+                const revenue = await this.calculateTotalRevenue();
+                revenueEl.textContent = `$${revenue.toLocaleString()}`;
+            }
+            
+            // 완판 체크 및 자동 아카이브 전환
+            if (seasonData.soldPixels >= seasonData.totalPixels && seasonData.status !== 'archived') {
+                await this.archiveSeasonWhenSoldOut(seasonData.id);
+            }
+            
+            // 타임라인 업데이트
+            await this.updateSeasonTimelineUI();
+        } catch (error) {
+            console.error('시즌 대시보드 업데이트 실패:', error);
+        }
+    }
+    
+    // 시즌 타임라인 UI 업데이트
+    async updateSeasonTimelineUI() {
+        const timelineContainer = document.getElementById('season-timeline-container');
+        if (!timelineContainer) return;
+        
+        try {
+            // Firestore에서 타임라인 데이터 로드
+            let timelineEvents = [];
+            if (this.isFirebaseInitialized && this.firestore) {
+                const { collection, query, orderBy, limit, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const timelineRef = collection(this.firestore, 'seasons', this.currentSeason.id, 'timeline');
+                const q = query(timelineRef, orderBy('timestamp', 'desc'), limit(100));
+                const snapshot = await getDocs(q);
+                
+                timelineEvents = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        timestamp: data.timestamp?.toMillis ? data.timestamp.toMillis() : (data.timestamp || Date.now())
+                    };
+                });
+            } else {
+                // 메모리에서 타임라인 데이터 가져오기
+                timelineEvents = this.seasonTimeline
+                    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                    .slice(0, 100);
+            }
+            
+            // 타임라인 필터 및 검색 UI 생성
+            if (!timelineContainer.querySelector('.timeline-controls')) {
+                const controlsEl = document.createElement('div');
+                controlsEl.className = 'timeline-controls';
+                controlsEl.innerHTML = `
+                    <div class="timeline-filters">
+                        <select id="timeline-filter-type" class="timeline-filter">
+                            <option value="all">모든 이벤트</option>
+                            <option value="conquest">점령</option>
+                            <option value="purchase">구매</option>
+                            <option value="auction">옥션</option>
+                            <option value="pixel_created">픽셀 생성</option>
+                            <option value="defense">방어</option>
+                            <option value="mission_completed">미션 완료</option>
+                            <option value="badge_earned">뱃지 획득</option>
+                        </select>
+                        <input type="text" id="timeline-search" class="timeline-search" placeholder="검색...">
+                        <button id="timeline-jump-to-top" class="timeline-jump-btn" title="최신 이벤트로 이동">⬆️ 최신</button>
+                    </div>
+                `;
+                timelineContainer.appendChild(controlsEl);
+                
+                // 필터 및 검색 이벤트 리스너
+                const filterSelect = controlsEl.querySelector('#timeline-filter-type');
+                const searchInput = controlsEl.querySelector('#timeline-search');
+                const jumpToTopBtn = controlsEl.querySelector('#timeline-jump-to-top');
+                
+                const applyFilters = () => {
+                    this.renderTimelineEvents(timelineEvents, filterSelect.value, searchInput.value);
+                };
+                
+                filterSelect.addEventListener('change', applyFilters);
+                searchInput.addEventListener('input', applyFilters);
+                
+                // 최신 이벤트로 이동 버튼
+                if (jumpToTopBtn) {
+                    jumpToTopBtn.addEventListener('click', () => {
+                        const eventsList = timelineContainer.querySelector('.timeline-events-list');
+                        if (eventsList) {
+                            eventsList.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                    });
+                }
+            }
+            
+            // 타임라인 이벤트 렌더링
+            const filterType = document.getElementById('timeline-filter-type')?.value || 'all';
+            const searchQuery = document.getElementById('timeline-search')?.value || '';
+            this.renderTimelineEvents(timelineEvents, filterType, searchQuery);
+        } catch (error) {
+            console.error('타임라인 UI 업데이트 실패:', error);
+            timelineContainer.innerHTML = '<div class="timeline-error">타임라인을 불러오는 중 오류가 발생했습니다.</div>';
+        }
+    }
+    
+    // 타임라인 이벤트 렌더링
+    renderTimelineEvents(events, filterType = 'all', searchQuery = '') {
+        const timelineContainer = document.getElementById('season-timeline-container');
+        if (!timelineContainer) return;
+        
+        // 필터링
+        let filteredEvents = events;
+        if (filterType !== 'all') {
+            filteredEvents = filteredEvents.filter(event => event.type === filterType);
+        }
+        
+        // 검색
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            filteredEvents = filteredEvents.filter(event => {
+                const text = this.getTimelineEventText(event).toLowerCase();
+                const regionName = (event.regionName || event.regionId || '').toLowerCase();
+                const buyerEmail = (event.buyerEmail || '').toLowerCase();
+                return text.includes(query) || regionName.includes(query) || buyerEmail.includes(query);
+            });
+        }
+        
+        // 이벤트 목록 컨테이너 찾기 또는 생성
+        let eventsList = timelineContainer.querySelector('.timeline-events-list');
+        if (!eventsList) {
+            eventsList = document.createElement('div');
+            eventsList.className = 'timeline-events-list';
+            timelineContainer.appendChild(eventsList);
+        }
+        
+        if (filteredEvents.length === 0) {
+            eventsList.innerHTML = '<div class="timeline-empty">조건에 맞는 타임라인 이벤트가 없습니다.</div>';
+            return;
+        }
+        
+        // 타임라인 UI 생성 (시각적으로 개선된 버전)
+        eventsList.innerHTML = '';
+        
+        // 타임라인을 시간순으로 정렬
+        const sortedEvents = [...filteredEvents].sort((a, b) => {
+            const timeA = a.timestamp || 0;
+            const timeB = b.timestamp || 0;
+            return timeB - timeA; // 최신순
+        });
+        
+        sortedEvents.forEach((event, index) => {
+            const eventEl = document.createElement('div');
+            eventEl.className = 'timeline-event';
+            eventEl.dataset.eventId = event.id || index;
+            eventEl.dataset.timestamp = event.timestamp;
+            eventEl.dataset.eventType = event.type;
+            
+            // 클릭 시 해당 지역으로 이동
+            if (event.regionId) {
+                eventEl.style.cursor = 'pointer';
+                eventEl.addEventListener('click', () => {
+                    this.zoomToRegion(event.regionId);
+                });
+            }
+            
+            const eventIcon = this.getTimelineEventIcon(event.type);
+            const eventText = this.getTimelineEventText(event);
+            const eventTime = this.formatRelativeTime(event.timestamp);
+            const eventDate = new Date(event.timestamp).toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            // 이벤트 타입에 따른 색상 클래스
+            const typeClass = `timeline-event-${event.type}`;
+            
+            eventEl.innerHTML = `
+                <div class="timeline-event-line"></div>
+                <div class="timeline-event-icon ${typeClass}">${eventIcon}</div>
+                <div class="timeline-event-content">
+                    <div class="timeline-event-header">
+                        <div class="timeline-event-text">${eventText}</div>
+                        <div class="timeline-event-badge">${this.getTimelineEventTypeLabel(event.type)}</div>
+                    </div>
+                    <div class="timeline-event-footer">
+                        <div class="timeline-event-time">${eventTime}</div>
+                        <div class="timeline-event-date">${eventDate}</div>
+                    </div>
+                </div>
+            `;
+            
+            eventsList.appendChild(eventEl);
+        });
+        
+        // 타임라인 스크롤을 최상단으로 이동
+        if (eventsList.scrollTop !== 0) {
+            eventsList.scrollTop = 0;
+        }
+    }
+    
+    // 타임라인 이벤트 타입 라벨 가져오기
+    getTimelineEventTypeLabel(eventType) {
+        const labels = {
+            'conquest': '점령',
+            'purchase': '구매',
+            'auction': '옥션',
+            'pixel_created': '픽셀 생성',
+            'defense': '방어',
+            'mission_completed': '미션 완료',
+            'badge_earned': '뱃지 획득'
+        };
+        return labels[eventType] || eventType;
+    }
+    
+    // 특정 지역으로 줌
+    zoomToRegion(regionId) {
+        if (!this.map || !regionId) return;
+        
+        const region = this.regionData.get(regionId);
+        if (!region) return;
+        
+        // 지역의 중심점 찾기
+        const source = this.map.getSource('world-regions');
+        if (!source || !source._data) return;
+        
+        const feature = source._data.features.find(f => f.properties.id === regionId);
+        if (!feature || !feature.geometry) return;
+        
+        let center = null;
+        if (feature.geometry.type === 'Polygon') {
+            const coords = feature.geometry.coordinates[0];
+            const lons = coords.map(c => c[0]);
+            const lats = coords.map(c => c[1]);
+            center = [
+                (Math.min(...lons) + Math.max(...lons)) / 2,
+                (Math.min(...lats) + Math.max(...lats)) / 2
+            ];
+        } else if (feature.geometry.type === 'MultiPolygon') {
+            const allCoords = feature.geometry.coordinates.flat();
+            const lons = allCoords.flat().map(c => c[0]);
+            const lats = allCoords.flat().map(c => c[1]);
+            center = [
+                (Math.min(...lons) + Math.max(...lons)) / 2,
+                (Math.min(...lats) + Math.max(...lats)) / 2
+            ];
+        }
+        
+        if (center) {
+            this.map.easeTo({
+                center: center,
+                zoom: Math.max(this.map.getZoom(), 6),
+                duration: 1000
+            });
+            
+            // 지역 정보 패널 표시
+            setTimeout(() => {
+                this.showInfoPanel(region);
+            }, 500);
+        }
+    }
+    
+    // 타임라인 이벤트 아이콘 가져오기
+    getTimelineEventIcon(eventType) {
+        const icons = {
+            'conquest': '🎯',
+            'purchase': '💰',
+            'auction': '🔨',
+            'pixel_created': '🎨',
+            'defense': '🛡️',
+            'mission_completed': '✅',
+            'badge_earned': '🏆'
+        };
+        return icons[eventType] || '📌';
+    }
+    
+    // 타임라인 이벤트 텍스트 생성
+    getTimelineEventText(event) {
+        switch (event.type) {
+            case 'conquest':
+                if (event.method === 'purchase') {
+                    return `${event.regionName || event.regionId} 구매 - ${this.formatCurrency(event.amount || 0)}`;
+                } else if (event.method === 'auction') {
+                    return `${event.regionName || event.regionId} 낙찰 - ${this.formatCurrency(event.amount || 0)}`;
+                }
+                return `${event.regionName || event.regionId} 점령`;
+            case 'pixel_created':
+                return `픽셀 생성: ${event.regionName || event.regionId}`;
+            case 'defense':
+                return `방어 성공: ${event.regionName || event.regionId}`;
+            case 'mission_completed':
+                return `미션 완료: ${event.missionName || '미션'}`;
+            case 'badge_earned':
+                return `뱃지 획득: ${event.badgeName || '뱃지'}`;
+            default:
+                return `${event.type || '이벤트'}: ${event.regionName || event.regionId || ''}`;
+        }
+    }
+    
+    // 시즌 종료 시 최종 소유자 기록 저장
+    async recordFinalOwnersForSeason(seasonId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('최종 소유자 기록: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        try {
+            const { collection, query, getDocs, doc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 모든 구역의 최종 소유자 수집
+            const finalOwners = [];
+            
+            // 구매 기록에서 최종 소유자 찾기
+            const purchasesRef = collection(this.firestore, 'purchases');
+            const purchasesQuery = query(purchasesRef);
+            const purchasesSnapshot = await getDocs(purchasesQuery);
+            
+            const regionOwners = new Map();
+            purchasesSnapshot.forEach(doc => {
+                const data = doc.data();
+                const regionId = data.regionId;
+                if (regionId) {
+                    // 가장 최근 구매 기록이 최종 소유자
+                    const purchaseTime = data.purchaseDate?.toMillis ? data.purchaseDate.toMillis() : (data.purchaseDate || 0);
+                    if (!regionOwners.has(regionId) || purchaseTime > regionOwners.get(regionId).timestamp) {
+                        regionOwners.set(regionId, {
+                            regionId: regionId,
+                            regionName: data.regionName || regionId,
+                            ownerEmail: data.buyerEmail || 'unknown',
+                            amount: data.amount || 0,
+                            timestamp: purchaseTime
+                        });
+                    }
+                }
+            });
+            
+            // 옥션 데이터에서 최종 소유자 찾기
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const auctionsSnapshot = await getDocs(auctionsRef);
+            auctionsSnapshot.forEach(doc => {
+                const data = doc.data();
+                const regionId = data.regionId;
+                if (regionId && data.currentBidder) {
+                    const bidTime = data.lastBidAt?.toMillis ? data.lastBidAt.toMillis() : (data.lastBidAt || 0);
+                    if (!regionOwners.has(regionId) || bidTime > regionOwners.get(regionId).timestamp) {
+                        regionOwners.set(regionId, {
+                            regionId: regionId,
+                            regionName: data.regionName || regionId,
+                            ownerEmail: data.currentBidder.email || 'unknown',
+                            amount: data.currentBid || 0,
+                            timestamp: bidTime
+                        });
+                    }
+                }
+            });
+            
+            // 최종 소유자 데이터를 시즌 문서에 저장
+            const seasonRef = doc(this.firestore, 'seasons', seasonId);
+            await setDoc(seasonRef, {
+                finalOwners: Array.from(regionOwners.values()),
+                finalOwnersRecordedAt: Timestamp.now(),
+                updatedAt: Timestamp.now()
+            }, { merge: true });
+            
+            console.log(`시즌 ${seasonId} 최종 소유자 기록 완료: ${regionOwners.size}개 구역`);
+        } catch (error) {
+            console.error('최종 소유자 기록 실패:', error);
+        }
+    }
+    
+    // 완판 시 시즌 자동 아카이브 전환
+    async archiveSeasonWhenSoldOut(seasonId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('시즌 아카이브: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        if (!seasonId) {
+            console.error('시즌 아카이브: 유효하지 않은 시즌 ID입니다.');
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const seasonRef = doc(this.firestore, 'seasons', seasonId);
+            
+            await setDoc(seasonRef, {
+                status: 'archived',
+                archivedAt: Timestamp.now(),
+                updatedAt: Timestamp.now()
+            }, { merge: true });
+            
+            // 최종 소유자 기록
+            await this.recordFinalOwnersForSeason(seasonId);
+            
+            // 메모리 업데이트
+            if (this.currentSeason.id === seasonId) {
+                this.currentSeason.status = 'archived';
+            }
+            
+            console.log(`시즌 ${seasonId}가 완판되어 자동으로 아카이브되었습니다.`);
+            this.showNotification('시즌이 완판되어 아카이브되었습니다!', 'success');
+            
+            // 새 시즌 자동 생성 (선택사항)
+            await this.createNextSeason().catch(err => {
+                console.error('다음 시즌 생성 실패:', err);
+            });
+        } catch (error) {
+            console.error('시즌 아카이브 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('시즌 아카이브 권한이 없습니다.');
+            }
+        }
+    }
+    
+    // 다음 시즌 자동 생성
+    async createNextSeason() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('다음 시즌 생성: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        try {
+            const { collection, query, orderBy, limit, getDocs, doc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 마지막 시즌 찾기
+            const seasonsQuery = query(
+                collection(this.firestore, 'seasons'),
+                orderBy('createdAt', 'desc'),
+                limit(1)
+            );
+            const snapshot = await getDocs(seasonsQuery);
+            
+            let nextSeasonNumber = 1;
+            if (!snapshot.empty) {
+                const lastSeason = snapshot.docs[0].data();
+                const lastSeasonId = lastSeason.id || '';
+                const match = lastSeasonId.match(/S(\d+)/);
+                if (match) {
+                    nextSeasonNumber = parseInt(match[1]) + 1;
+                }
+            }
+            
+            const currentYear = new Date().getFullYear();
+            const nextSeasonId = `${currentYear}-S${nextSeasonNumber}`;
+            const nextSeasonName = `시즌 ${nextSeasonNumber}`;
+            
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() + 1); // 내일 시작
+            const endDate = new Date(startDate);
+            endDate.setFullYear(endDate.getFullYear() + 1); // 1년 후 종료
+            
+            const nextSeasonRef = doc(this.firestore, 'seasons', nextSeasonId);
+            await setDoc(nextSeasonRef, {
+                id: nextSeasonId,
+                name: nextSeasonName,
+                startDate: Timestamp.fromDate(startDate),
+                endDate: Timestamp.fromDate(endDate),
+                totalPixels: 10000,
+                soldPixels: 0,
+                participants: 0,
+                status: 'active',
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now()
+            });
+            
+            // 현재 시즌 업데이트
+            this.currentSeason = {
+                id: nextSeasonId,
+                name: nextSeasonName,
+                startDate: startDate,
+                endDate: endDate,
+                totalPixels: 10000,
+                soldPixels: 0,
+                participants: 0,
+                status: 'active'
+            };
+            
+            console.log(`새 시즌 ${nextSeasonId}가 생성되었습니다.`);
+            this.showNotification(`새 시즌 ${nextSeasonName}이 시작되었습니다!`, 'success');
+        } catch (error) {
+            console.error('다음 시즌 생성 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('다음 시즌 생성 권한이 없습니다.');
+                this.showNotification('새 시즌 생성 권한이 없습니다.', 'error');
+            }
+        }
+    }
+    
+    // 총 수익 계산
+    async calculateTotalRevenue() {
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                // Firestore에서 총 수익 계산
+                const auctionsSnapshot = await this.firestore.collection('auctions')
+                    .where('status', '==', 'sold')
+                    .get();
+                
+                let total = 0;
+                auctionsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.finalPrice) {
+                        total += data.finalPrice;
+                    }
+                });
+                
+                return total;
+            } catch (error) {
+                console.error('수익 계산 실패:', error);
+            }
+        }
+        
+        // 기본값: 로컬 데이터에서 계산
+        let total = 0;
+        this.advertisingData.forEach((ad, regionId) => {
+            if (ad.price) {
+                total += ad.price;
+            }
+        });
+        
+        return total;
+    }
+    
+    // 대표 픽셀 하이라이트 표시
+    async showPixelHighlights() {
+        const modal = document.getElementById('pixel-highlights-modal');
+        const grid = document.getElementById('pixel-highlights-grid');
+        
+        if (!modal || !grid) return;
+        
+        modal.classList.remove('hidden');
+        grid.innerHTML = '<div class="loading">로딩 중...</div>';
+        
+        try {
+            // Firestore에서 인기 픽셀 가져오기
+            const highlights = await this.getPixelHighlights();
+            
+            grid.innerHTML = '';
+            
+            if (highlights.length === 0) {
+                grid.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">아직 등록된 픽셀이 없습니다.</p>';
+                return;
+            }
+            
+            highlights.forEach(highlight => {
+                const card = document.createElement('div');
+                card.className = 'pixel-highlight-card';
+                card.innerHTML = `
+                    <div class="pixel-highlight-preview">
+                        <canvas width="160" height="160"></canvas>
+                    </div>
+                    <div class="pixel-highlight-info">
+                        <h4>${highlight.regionName || '알 수 없음'}</h4>
+                        <p>${highlight.owner || '익명'}</p>
+                        ${highlight.message ? `<p>${highlight.message}</p>` : ''}
+                    </div>
+                `;
+                
+                // 픽셀 그리기
+                const canvas = card.querySelector('canvas');
+                if (canvas && highlight.pixelData) {
+                    this.drawPixelOnCanvas(canvas, highlight.pixelData);
+                }
+                
+                // 클릭 이벤트: 스토리 카드 표시
+                card.addEventListener('click', () => {
+                    this.showPixelStoryCard(highlight);
+                });
+                
+                grid.appendChild(card);
+            });
+        } catch (error) {
+            console.error('하이라이트 로드 실패:', error);
+            grid.innerHTML = '<p style="text-align: center; color: #ff6b6b; padding: 40px;">로드 실패</p>';
+        }
+    }
+    
+    // 인기 픽셀 가져오기
+    async getPixelHighlights(limit = 12) {
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                const snapshot = await this.firestore.collection('pixelBundles')
+                    .orderBy('createdAt', 'desc')
+                    .limit(limit)
+                    .get();
+                
+                const highlights = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    highlights.push({
+                        id: doc.id,
+                        regionId: data.regionId,
+                        regionName: data.regionName,
+                        owner: data.ownerEmail || '익명',
+                        message: data.message,
+                        pixelData: data.pixelMatrix || data.imageDataUrl,
+                        link: data.link
+                    });
+                });
+                
+                return highlights;
+            } catch (error) {
+                console.error('하이라이트 가져오기 실패:', error);
+            }
+        }
+        
+        return [];
+    }
+    
+    // 픽셀을 캔버스에 그리기
+    drawPixelOnCanvas(canvas, pixelData) {
+        const ctx = canvas.getContext('2d');
+        const size = 16; // 16x16 픽셀
+        
+        if (Array.isArray(pixelData)) {
+            // 픽셀 매트릭스
+            const pixelSize = canvas.width / size;
+            pixelData.forEach((row, y) => {
+                if (Array.isArray(row)) {
+                    row.forEach((color, x) => {
+                        if (color && color !== 'transparent') {
+                            ctx.fillStyle = color;
+                            ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+                        }
+                    });
+                }
+            });
+        } else if (typeof pixelData === 'string') {
+            // 이미지 URL
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            };
+            img.src = pixelData;
+        }
+    }
+    
+    // 픽셀 스토리 카드 표시
+    showPixelStoryCard(highlight) {
+        // 기존 스토리 카드 모달 활용 또는 새 모달 생성
+        // 여기서는 간단히 알림으로 표시
+        this.showNotification(
+            `지역: ${highlight.regionName}\n소유자: ${highlight.owner}\n${highlight.message || ''}`,
+            'info'
+        );
+    }
+    
+    // 지도에서 픽셀 마커 클릭 시 스토리 카드 표시
+    async showPixelStoryCardFromMap(regionId, bundleId = 'default') {
+        const region = this.regionData.get(regionId);
+        if (!region) return;
+        
+        // 현재 구역을 선택
+        this.currentRegion = region;
+        
+        // 픽셀 스토리 모달 표시
+        await this.showPixelStoryModal(regionId, bundleId);
+        
+        // 정보 패널도 표시 (선택사항)
+        this.showInfoPanel(region);
+    }
+    
+    // 픽셀 스토리 상세 모달 표시
+    async showPixelStoryModal(regionId, bundleId = 'default') {
+        const modal = document.getElementById('pixel-story-modal');
+        if (!modal) return;
+        
+        const region = this.regionData.get(regionId);
+        if (!region) return;
+        
+        // 지역 정보 표시
+        const regionNameEl = document.getElementById('pixel-story-region-name');
+        const regionCountryEl = document.getElementById('pixel-story-region-country');
+        if (regionNameEl) {
+            regionNameEl.textContent = this.getRegionDisplayName(region);
+        }
+        if (regionCountryEl) {
+            regionCountryEl.textContent = region.country || '-';
+        }
+        
+        // 픽셀 번들 로드
+        let bundle = this.getLatestPixelBundle(regionId);
+        if (!bundle && this.isFirebaseInitialized && this.firestore) {
+            try {
+                const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const bundleRef = doc(this.firestore, 'regions', regionId, 'pixelBundles', bundleId);
+                const bundleDoc = await getDoc(bundleRef);
+                
+                if (bundleDoc.exists()) {
+                    const bundleData = bundleDoc.data();
+                    if (!this.pixelBundleCache.has(regionId)) {
+                        this.pixelBundleCache.set(regionId, []);
+                    }
+                    const bundles = this.pixelBundleCache.get(regionId);
+                    const existingIndex = bundles.findIndex(b => b.bundleId === bundleId);
+                    if (existingIndex >= 0) {
+                        bundles[existingIndex] = { ...bundleData, bundleId };
+                    } else {
+                        bundles.push({ ...bundleData, bundleId });
+                    }
+                    bundle = this.getLatestPixelBundle(regionId);
+                }
+            } catch (error) {
+                console.error('픽셀 번들 로드 실패:', error);
+            }
+        }
+        
+        // 픽셀 캔버스 표시
+        const canvas = document.getElementById('pixel-story-detail-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (bundle) {
+                if (bundle.artType === 'canvas' && Array.isArray(bundle.pixelMatrix)) {
+                    this.renderMatrixToCanvas(bundle.pixelMatrix, ctx, canvas);
+                } else if (bundle.artType === 'image' && bundle.imageData) {
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    };
+                    img.src = bundle.imageData;
+                } else {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#05070f';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#05070f';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+        
+        // 메시지 표시
+        const messageEl = document.getElementById('pixel-story-detail-message');
+        if (messageEl) {
+            if (bundle && bundle.message) {
+                messageEl.textContent = bundle.message;
+            } else {
+                messageEl.textContent = '아직 등록된 픽셀 스토리가 없습니다.';
+            }
+        }
+        
+        // 브랜드 정보 표시
+        await this.updatePixelStoryBrandInfoInModal(regionId, bundle);
+        
+        // 소유자 정보 표시
+        const ownerEl = document.getElementById('pixel-story-detail-owner');
+        if (ownerEl) {
+            if (bundle && bundle.ownerName) {
+                ownerEl.textContent = `소유자: ${bundle.ownerName}`;
+            } else {
+                ownerEl.textContent = '';
+            }
+        }
+        
+        // 보호 시간 표시
+        const protectionEl = document.getElementById('pixel-story-detail-protection');
+        if (protectionEl) {
+            if (bundle && bundle.protectionEndsAt) {
+                protectionEl.classList.remove('hidden');
+                protectionEl.textContent = this.formatProtectionCountdown(bundle.protectionEndsAt);
+            } else {
+                protectionEl.classList.add('hidden');
+            }
+        }
+        
+        // 버튼 이벤트 설정
+        const editorBtn = document.getElementById('pixel-story-detail-editor-btn');
+        const regionBtn = document.getElementById('pixel-story-detail-region-btn');
+        
+        if (editorBtn) {
+            editorBtn.onclick = () => {
+                this.openPixelEditor(regionId);
+                modal.classList.add('hidden');
+            };
+        }
+        
+        if (regionBtn) {
+            regionBtn.onclick = () => {
+                this.showInfoPanel(region);
+                modal.classList.add('hidden');
+            };
+        }
+        
+        modal.classList.remove('hidden');
+    }
+    
+    // 픽셀 스토리 모달에서 브랜드 정보 업데이트
+    async updatePixelStoryBrandInfoInModal(regionId, bundle) {
+        const brandSection = document.getElementById('pixel-story-detail-brand');
+        const brandNameEl = document.getElementById('pixel-story-detail-brand-name');
+        const brandLogoEl = document.getElementById('pixel-story-detail-brand-logo');
+        const brandDescEl = document.getElementById('pixel-story-detail-brand-description');
+        const brandLinkEl = document.getElementById('pixel-story-detail-brand-link');
+        
+        if (!brandSection || !brandNameEl || !brandDescEl) return;
+        
+        try {
+            const region = this.regionData.get(regionId);
+            if (!region) {
+                brandSection.classList.add('hidden');
+                return;
+            }
+            
+            const countryCode = region.country_code || region.countryCode;
+            let companyData = null;
+            
+            if (countryCode === 'KR') {
+                companyData = this.koreaCompanyData[regionId];
+            } else if (countryCode === 'JP') {
+                companyData = this.japanCompanyData[regionId];
+            } else {
+                companyData = this.companyData[regionId];
+            }
+            
+            if (companyData && (companyData.name || companyData.description || companyData.website)) {
+                brandSection.classList.remove('hidden');
+                
+                if (companyData.name) {
+                    brandNameEl.textContent = companyData.name;
+                } else {
+                    brandNameEl.textContent = '브랜드 정보';
+                }
+                
+                if (companyData.logo && brandLogoEl) {
+                    brandLogoEl.src = companyData.logo;
+                    brandLogoEl.classList.remove('hidden');
+                } else if (brandLogoEl) {
+                    brandLogoEl.classList.add('hidden');
+                }
+                
+                if (companyData.description) {
+                    brandDescEl.textContent = companyData.description;
+                } else {
+                    brandDescEl.textContent = '';
+                }
+                
+                if (companyData.website && brandLinkEl) {
+                    brandLinkEl.href = companyData.website;
+                    brandLinkEl.classList.remove('hidden');
+                } else if (bundle?.messageLink && brandLinkEl) {
+                    brandLinkEl.href = bundle.messageLink;
+                    brandLinkEl.classList.remove('hidden');
+                } else if (brandLinkEl) {
+                    brandLinkEl.classList.add('hidden');
+                }
+            } else if (bundle?.messageLink && brandLinkEl) {
+                brandSection.classList.remove('hidden');
+                brandNameEl.textContent = '더 알아보기';
+                brandDescEl.textContent = bundle.message || '';
+                brandLinkEl.href = bundle.messageLink;
+                brandLinkEl.classList.remove('hidden');
+                if (brandLogoEl) brandLogoEl.classList.add('hidden');
+            } else {
+                brandSection.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('브랜드 정보 업데이트 실패:', error);
+            brandSection.classList.add('hidden');
+        }
+    }
+    
+    // 참여 방식 안내 표시
+    showParticipationGuide() {
+        const modal = document.getElementById('participation-guide-modal');
+        if (!modal) return;
+        
+        modal.classList.remove('hidden');
+        
+        // 옵션 선택 버튼 이벤트
+        const selectBtns = modal.querySelectorAll('.option-select-btn');
+        selectBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const type = e.target.dataset.type;
+                this.handleParticipationOption(type);
+            });
+        });
+    }
+    
+    // 참여 옵션 처리
+    handleParticipationOption(type) {
+        const guideModal = document.getElementById('participation-guide-modal');
+        if (guideModal) {
+            guideModal.classList.add('hidden');
+        }
+        
+        if (type === 'free') {
+            // 무료 픽셀: 픽셀 에디터 열기
+            this.showNotification('무료 픽셀 에디터를 열었습니다. 지역을 선택하여 픽셀을 만들어보세요!', 'success');
+            // 픽셀 에디터는 지역 선택 시 자동으로 열림
+        } else if (type === 'premium') {
+            // 프리미엄 패키지: 결제 페이지로 이동
+            this.showNotification('프리미엄 패키지 구매 페이지로 이동합니다.', 'info');
+            // 결제 플로우 구현 필요
+        }
+    }
+    
+    // 커뮤니티 미션 시스템 초기화
+    async initializeCommunityMissions() {
+        // Firestore에서 미션 목록 가져오기
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                const missions = await this.loadMissionsFromFirestore();
+                if (missions && missions.length > 0) {
+                    this.communityMissions = missions;
+                } else {
+                    // 기본 미션 목록 설정
+                    this.communityMissions = this.getDefaultMissions();
+                    // Firestore에 저장
+                    await this.saveMissionsToFirestore(this.communityMissions);
+                }
+            } catch (error) {
+                console.error('미션 로드 실패:', error);
+                // 기본 미션 목록 사용
+                this.communityMissions = this.getDefaultMissions();
+            }
+        } else {
+            // 기본 미션 목록 설정
+            this.communityMissions = this.getDefaultMissions();
+        }
+        
+        // 사용자 포인트 및 완료된 미션 로드
+        await this.loadUserPoints().catch(err => {
+            console.warn('사용자 포인트 로드 실패 (계속 진행):', err);
+        });
+        
+        // 사용자 뱃지 로드
+        await this.loadUserBadges().catch(err => {
+            console.warn('사용자 뱃지 로드 실패 (계속 진행):', err);
+        });
+    }
+    
+    // 기본 미션 목록
+    getDefaultMissions() {
+        return [
+            {
+                id: 'mission-1',
+                title: '첫 픽셀 만들기',
+                description: '첫 번째 픽셀 아트를 만들어보세요',
+                reward: 100,
+                type: 'create_pixel',
+                completed: false
+            },
+            {
+                id: 'mission-2',
+                title: '3개 지역 방문',
+                description: '3개의 다른 지역을 클릭해보세요',
+                reward: 150,
+                type: 'visit_regions',
+                target: 3,
+                progress: 0,
+                completed: false
+            },
+            {
+                id: 'mission-3',
+                title: '픽셀 공유하기',
+                description: '만든 픽셀을 소셜 미디어에 공유하세요',
+                reward: 200,
+                type: 'share_pixel',
+                completed: false
+            }
+        ];
+    }
+    
+    // Firestore에서 미션 목록 로드
+    async loadMissionsFromFirestore() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('미션 로드: Firestore가 초기화되지 않았습니다.');
+            return null;
+        }
+        
+        try {
+            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const missionsSnapshot = await getDocs(collection(this.firestore, 'missions'));
+            const missions = [];
+            
+            missionsSnapshot.forEach(doc => {
+                const data = doc.data();
+                missions.push({ 
+                    id: doc.id, 
+                    ...data,
+                    completed: data.completed || false
+                });
+            });
+            
+            // 사용자별 완료 상태 로드
+            if (this.currentUser) {
+                await this.loadUserMissionProgress(missions).catch(err => {
+                    console.warn('사용자 미션 진행 상태 로드 실패 (계속 진행):', err);
+                });
+            }
+            
+            return missions.length > 0 ? missions : null;
+        } catch (error) {
+            console.error('미션 로드 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('미션 읽기 권한이 없습니다.');
+            }
+            return null;
+        }
+    }
+    
+    // Firestore에 미션 목록 저장
+    async saveMissionsToFirestore(missions) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('미션 저장: Firestore가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        if (!missions || missions.length === 0) {
+            console.warn('미션 저장: 저장할 미션이 없습니다.');
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            for (const mission of missions) {
+                if (!mission || !mission.id) {
+                    console.warn('미션 저장: 유효하지 않은 미션 데이터를 건너뜁니다.');
+                    continue;
+                }
+                
+                const missionRef = doc(this.firestore, 'missions', mission.id);
+                await setDoc(missionRef, {
+                    ...mission,
+                    createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now()
+                }, { merge: true });
+            }
+            
+            console.log(`${missions.length}개의 미션이 Firestore에 저장되었습니다.`);
+        } catch (error) {
+            console.error('미션 저장 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('미션 저장 권한이 없습니다.');
+            }
+        }
+    }
+    
+    // 사용자 미션 진행 상태 로드
+    async loadUserMissionProgress(missions) {
+        if (!this.currentUser || !this.isFirebaseInitialized || !this.firestore) {
+            console.warn('사용자 미션 진행 상태 로드: 필수 조건이 충족되지 않았습니다.');
+            return;
+        }
+        
+        if (!missions || missions.length === 0) {
+            return;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const userRef = doc(this.firestore, 'users', this.currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            
+            if (userDoc.exists) {
+                const userData = userDoc.data();
+                const completedMissions = userData.completedMissions || [];
+                
+                // 미션 완료 상태 적용
+                missions.forEach(mission => {
+                    if (completedMissions.includes(mission.id)) {
+                        mission.completed = true;
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('사용자 미션 진행 상태 로드 실패:', error);
+            if (error.code === 'permission-denied') {
+                console.warn('사용자 미션 진행 상태 읽기 권한이 없습니다.');
+            }
+        }
+    }
+    
+    // 사용자 포인트 로드
+    async loadUserPoints() {
+        if (!this.currentUser || !this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const userRef = doc(this.firestore, 'users', this.currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            
+            if (userDoc.exists) {
+                const data = userDoc.data();
+                this.userPoints = data.points || 0;
+            } else {
+                // 사용자 문서가 없으면 초기화
+                this.userPoints = 0;
+            }
+        } catch (error) {
+            console.error('포인트 로드 실패:', error);
+            // 에러 발생 시 기본값 사용
+            this.userPoints = 0;
+        }
+    }
+    
+    // 뱃지 지급
+    async grantBadge(badgeId, badgeName, badgeIcon = '🏆') {
+        if (!this.currentUser) return;
+        
+        if (this.userBadges.includes(badgeId)) {
+            return; // 이미 뱃지를 가지고 있음
+        }
+        
+        this.userBadges.push(badgeId);
+        
+        // Firestore에 뱃지 저장
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const userBadgesRef = doc(this.firestore, 'users', this.currentUser.uid, 'badges', badgeId);
+                await setDoc(userBadgesRef, {
+                    badgeId,
+                    badgeName,
+                    badgeIcon,
+                    earnedAt: serverTimestamp()
+                }, { merge: true });
+            } catch (error) {
+                console.error('뱃지 저장 실패:', error);
+            }
+        }
+        
+        this.showNotification(`${badgeIcon} ${badgeName} 뱃지를 획득했습니다!`, 'success');
+    }
+    
+    // 점령 보상 확인 및 지급 (구매 및 낙찰 시 공통 사용)
+    async checkAndGiveConquestRewards(regionId, regionName, userId, userEmail, amount) {
+        if (!this.isFirebaseInitialized || !this.firestore || !userId) {
+            return;
+        }
+        
+        try {
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 첫 점령자 확인 (이전 구매 기록이 있는지 확인)
+            const previousPurchasesQuery = query(
+                collection(this.firestore, 'purchases'),
+                where('regionId', '==', regionId)
+            );
+            const previousPurchases = await getDocs(previousPurchasesQuery);
+            const isFirstConquest = previousPurchases.empty;
+            
+            // 인기 구역 확인 (인기 지표 확인)
+            const popularity = this.regionPopularity.get(regionId);
+            const isPopularRegion = popularity && (
+                (popularity.bids >= 5) || 
+                (popularity.views >= 20) ||
+                (popularity.popularityScore >= 50)
+            );
+            
+            // 첫 점령자 보상
+            if (isFirstConquest) {
+                const firstConquestReward = 100; // 첫 점령자 보상: 100 포인트
+                await this.giveReward(
+                    userId,
+                    'first_conquest',
+                    firstConquestReward,
+                    {
+                        regionId: regionId,
+                        regionName: regionName,
+                        amount: amount
+                    }
+                );
+            }
+            
+            // 인기 구역 점령 보상
+            if (isPopularRegion) {
+                const popularRegionReward = 75; // 인기 구역 점령 보상: 75 포인트
+                await this.giveReward(
+                    userId,
+                    'popular_region_conquest',
+                    popularRegionReward,
+                    {
+                        regionId: regionId,
+                        regionName: regionName,
+                        amount: amount,
+                        popularityScore: popularity?.popularityScore || 0
+                    }
+                );
+            }
+        } catch (error) {
+            console.error('점령 보상 확인 실패:', error);
+        }
+    }
+    
+    // 업적 확인 및 뱃지 지급
+    async checkAchievements() {
+        if (!this.currentUser) return;
+        
+        // 픽셀 생성 업적
+        const pixelCount = Array.from(this.pixelBundleCache.values()).flat().length;
+        if (pixelCount >= 1 && !this.userBadges.includes('first-pixel')) {
+            await this.grantBadge('first-pixel', '첫 픽셀', '🎨');
+        }
+        if (pixelCount >= 10 && !this.userBadges.includes('pixel-master')) {
+            await this.grantBadge('pixel-master', '픽셀 마스터', '🎯');
+        }
+        
+        // 입찰 업적
+        const userBids = Array.from(this.auctionData.values()).filter(
+            auction => auction.currentBidder?.uid === this.currentUser.uid
+        ).length;
+        if (userBids >= 1 && !this.userBadges.includes('first-bid')) {
+            await this.grantBadge('first-bid', '첫 입찰', '💰');
+        }
+        if (userBids >= 5 && !this.userBadges.includes('bidder')) {
+            await this.grantBadge('bidder', '입찰자', '💎');
+        }
+        
+        // 포인트 업적
+        if (this.userPoints >= 1000 && !this.userBadges.includes('point-collector')) {
+            await this.grantBadge('point-collector', '포인트 수집가', '⭐');
+        }
+    }
+    
+    // 보상 지급 함수
+    async giveReward(userId, rewardType, amount, metadata = {}) {
+        if (!userId || !amount || amount <= 0) {
+            return;
+        }
+        
+        if (this.isFirebaseInitialized && this.firestore) {
+            try {
+                const { doc, setDoc, Timestamp, increment } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const userRef = doc(this.firestore, 'users', userId);
+                
+                // 포인트 증가
+                await setDoc(userRef, {
+                    points: increment(amount),
+                    updatedAt: Timestamp.now()
+                }, { merge: true });
+                
+                // 보상 기록 저장
+                const rewardRef = doc(this.firestore, 'rewards', `${userId}_${Date.now()}_${rewardType}`);
+                await setDoc(rewardRef, {
+                    userId: userId,
+                    rewardType: rewardType,
+                    amount: amount,
+                    metadata: metadata,
+                    rewardedAt: Timestamp.now()
+                }, { merge: true });
+                
+                // 현재 사용자에게 보상이 지급된 경우 메모리 업데이트
+                if (this.currentUser && this.currentUser.uid === userId) {
+                    this.userPoints += amount;
+                    this.updateUserPointsDisplay();
+                    // 보상 알림 표시
+                    const rewardMessages = {
+                        'defense_success': `방어 성공! ${amount} 포인트를 획득했습니다.`,
+                        'defense_failure': `방어 실패 보상! ${amount} 포인트를 획득했습니다.`,
+                        'first_conquest': `첫 점령 보상! ${amount} 포인트를 획득했습니다.`,
+                        'popular_region_conquest': `인기 구역 점령 보상! ${amount} 포인트를 획득했습니다.`
+                    };
+                    const message = rewardMessages[rewardType] || `${amount} 포인트를 획득했습니다.`;
+                    this.showNotification(message, 'success');
+                }
+                
+                console.log(`보상 지급: ${userId}에게 ${amount} 포인트 (${rewardType})`);
+            } catch (error) {
+                console.error('보상 지급 실패:', error);
+            }
+        }
+    }
+    
+    // 미션 완료 처리
+    async completeMission(missionId) {
+        const mission = this.communityMissions.find(m => m.id === missionId);
+        if (!mission || mission.completed) {
+            return;
+        }
+        
+        mission.completed = true;
+        this.userPoints += mission.reward;
+        
+        // Firestore에 저장
+        if (this.currentUser && this.isFirebaseInitialized && this.firestore) {
+            try {
+                const { doc, setDoc, Timestamp, increment } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const userRef = doc(this.firestore, 'users', this.currentUser.uid);
+                
+                const completedMissions = this.communityMissions
+                    .filter(m => m.completed)
+                    .map(m => m.id);
+                
+                await setDoc(userRef, {
+                    points: this.userPoints,
+                    completedMissions: completedMissions,
+                    updatedAt: Timestamp.now()
+                }, { merge: true });
+                
+                // 미션 완료 기록 저장
+                const missionCompletionRef = doc(this.firestore, 'missionCompletions', `${this.currentUser.uid}_${missionId}`);
+                await setDoc(missionCompletionRef, {
+                    userId: this.currentUser.uid,
+                    missionId: missionId,
+                    completedAt: Timestamp.now(),
+                    reward: mission.reward
+                }, { merge: true });
+                
+                this.showNotification(`미션 완료! ${mission.reward} 포인트를 획득했습니다.`, 'success');
+                
+                // 업적 확인 및 뱃지 지급
+                await this.checkAchievements();
+            } catch (error) {
+                console.error('포인트 저장 실패:', error);
+                // 에러 발생 시에도 사용자에게 알림 표시
+                if (error.code === 'permission-denied') {
+                    this.showNotification('미션 완료 저장 권한이 없습니다. 로그인 상태를 확인해주세요.', 'error');
+                } else {
+                    this.showNotification('미션 완료 저장 중 오류가 발생했습니다.', 'error');
+                }
+                // 에러 발생 시 메모리 상태 롤백
+                mission.completed = false;
+                this.userPoints -= mission.reward;
+            }
+        } else {
+            // Firestore가 없어도 로컬에서 완료 처리
+            this.showNotification(`미션 완료! ${mission.reward} 포인트를 획득했습니다.`, 'success');
+        }
+    }
+    
+        // 커뮤니티 미션 모달 표시
+        showCommunityMissions() {
+            const modal = document.getElementById('community-missions-modal');
+            if (!modal) return;
+            
+            modal.classList.remove('hidden');
+            this.updateMissionsList();
+            
+            // 닫기 버튼
+            const closeBtn = document.getElementById('close-community-missions');
+            if (closeBtn) {
+                closeBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                };
+            }
+        }
+        
+        // 사용자 포인트 표시 업데이트
+        updateUserPointsDisplay() {
+            const userPointsDisplay = document.getElementById('user-points-display');
+            if (userPointsDisplay) {
+                userPointsDisplay.textContent = this.userPoints.toLocaleString();
+            }
+        }
+        
+        // 미션 목록 업데이트
+        updateMissionsList() {
+            // 뱃지 목록 업데이트
+            this.updateBadgesList();
+            const missionsList = document.getElementById('missions-list');
+            
+            if (!missionsList) return;
+            
+            // 사용자 포인트 표시 업데이트
+            this.updateUserPointsDisplay();
+            
+            // 미션 카드 생성
+            missionsList.innerHTML = '';
+            
+            this.communityMissions.forEach(mission => {
+                const card = document.createElement('div');
+                card.className = `mission-card ${mission.completed ? 'completed' : ''}`;
+                
+                const progress = mission.target ? 
+                    Math.min((mission.progress || 0) / mission.target * 100, 100) : 
+                    (mission.completed ? 100 : 0);
+                
+                card.innerHTML = `
+                    <div class="mission-header">
+                        <h4 class="mission-title">${mission.title}</h4>
+                        <span class="mission-reward">+${mission.reward} 포인트</span>
+                    </div>
+                    <p class="mission-description">${mission.description}</p>
+                    ${mission.target ? `
+                        <div class="mission-progress">
+                            <div class="mission-progress-bar">
+                                <div class="mission-progress-fill" style="width: ${progress}%"></div>
+                            </div>
+                            <div class="mission-progress-text">${mission.progress || 0} / ${mission.target}</div>
+                        </div>
+                    ` : ''}
+                    <button class="mission-complete-btn" ${mission.completed ? 'disabled' : ''} data-mission-id="${mission.id}">
+                        ${mission.completed ? '완료됨 ✓' : '완료하기'}
+                    </button>
+                `;
+                
+                // 완료 버튼 이벤트
+                const completeBtn = card.querySelector('.mission-complete-btn');
+                if (completeBtn && !mission.completed) {
+                    completeBtn.addEventListener('click', () => {
+                        this.completeMission(mission.id);
+                        this.updateMissionsList();
+                    });
+                }
+                
+                missionsList.appendChild(card);
+            });
+        }
+        
+        // 뱃지 목록 업데이트
+        updateBadgesList() {
+            const badgesList = document.getElementById('user-badges-list');
+            if (!badgesList) return;
+            
+            if (!this.currentUser) {
+                badgesList.innerHTML = '<span style="color: #94a3b8; font-size: 0.85rem;">로그인 후 뱃지를 확인할 수 있습니다.</span>';
+                return;
+            }
+            
+            if (this.userBadges.length === 0) {
+                badgesList.innerHTML = '<span style="color: #94a3b8; font-size: 0.85rem;">아직 획득한 뱃지가 없습니다.</span>';
+                return;
+            }
+            
+            badgesList.innerHTML = '';
+            this.userBadges.forEach(badgeId => {
+                const badge = this.getBadgeInfo(badgeId);
+                if (badge) {
+                    const badgeEl = document.createElement('div');
+                    badgeEl.className = 'badge-item';
+                    badgeEl.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(78, 205, 196, 0.2); border-radius: 20px; font-size: 0.85rem;';
+                    badgeEl.innerHTML = `<span>${badge.icon}</span><span>${badge.name}</span>`;
+                    badgesList.appendChild(badgeEl);
+                }
+            });
+        }
+        
+        // 뱃지 정보 가져오기
+        getBadgeInfo(badgeId) {
+            const badges = {
+                'first-pixel': { name: '첫 픽셀', icon: '🎨' },
+                'pixel-master': { name: '픽셀 마스터', icon: '🎯' },
+                'first-bid': { name: '첫 입찰', icon: '💰' },
+                'bidder': { name: '입찰자', icon: '💎' },
+                'point-collector': { name: '포인트 수집가', icon: '⭐' }
+            };
+            return badges[badgeId] || null;
+        }
+        
+        // 플래시 챌린지 시스템 초기화
+        async initializeFlashChallenge() {
+            // Firestore에서 오늘의 챌린지 가져오기 또는 생성
+            if (this.isFirebaseInitialized && this.firestore) {
+                try {
+                    const challenge = await this.getOrCreateDailyFlashChallenge();
+                    if (challenge) {
+                        this.currentFlashChallenge = challenge;
+                        this.updateFlashChallenge();
+                        setInterval(() => this.updateFlashChallenge(), 1000);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('플래시 챌린지 초기화 실패:', error);
+                }
+            }
+            
+            // Firestore가 없거나 실패한 경우 로컬 생성
+            const today = new Date().toISOString().split('T')[0];
+            this.currentFlashChallenge = {
+                id: `challenge-${today}`,
+                title: '오늘의 협업 챌린지',
+                description: '특정 국가/도시 영역에서 협업 그림을 완성하세요!',
+                targetRegion: 'korea',
+                targetCount: 10,
+                currentCount: 0,
+                endTime: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24시간 후
+                participants: []
+            };
+            
+            // 챌린지 패널 업데이트
+            this.updateFlashChallenge();
+            
+            // 타이머 업데이트
+            setInterval(() => this.updateFlashChallenge(), 1000);
+        }
+        
+        // Firestore에서 일일 챌린지 가져오기 또는 생성
+        async getOrCreateDailyFlashChallenge() {
+            if (!this.isFirebaseInitialized || !this.firestore) return null;
+            
+            try {
+                const { doc, getDoc, setDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const today = new Date().toISOString().split('T')[0];
+                const challengeId = `challenge-${today}`;
+                const challengeRef = doc(this.firestore, 'flashChallenges', challengeId);
+                const challengeDoc = await getDoc(challengeRef);
+                
+                if (challengeDoc.exists) {
+                    // 기존 챌린지 가져오기
+                    const data = challengeDoc.data();
+                    return {
+                        id: data.id,
+                        title: data.title,
+                        description: data.description,
+                        targetRegion: data.targetRegion,
+                        targetCount: data.targetCount,
+                        currentCount: data.currentCount || 0,
+                        endTime: data.endTime?.toDate ? data.endTime.toDate() : new Date(data.endTime),
+                        participants: data.participants || []
+                    };
+                } else {
+                    // 새 챌린지 생성
+                    const challengeData = this.generateDailyChallenge();
+                    const endTime = new Date();
+                    endTime.setHours(23, 59, 59, 999); // 오늘 자정까지
+                    
+                    await setDoc(challengeRef, {
+                        id: challengeId,
+                        title: challengeData.title,
+                        description: challengeData.description,
+                        targetRegion: challengeData.targetRegion,
+                        targetCount: challengeData.targetCount,
+                        currentCount: 0,
+                        startTime: Timestamp.now(),
+                        endTime: Timestamp.fromDate(endTime),
+                        participants: [],
+                        createdAt: Timestamp.now(),
+                        updatedAt: Timestamp.now()
+                    });
+                    
+                    return {
+                        id: challengeId,
+                        ...challengeData,
+                        currentCount: 0,
+                        endTime: endTime,
+                        participants: []
+                    };
+                }
+            } catch (error) {
+                console.error('일일 챌린지 가져오기/생성 실패:', error);
+                return null;
+            }
+        }
+        
+        // 일일 챌린지 자동 생성 로직
+        generateDailyChallenge() {
+            const challenges = [
+                {
+                    title: '한국의 도시 픽셀 만들기',
+                    description: '한국의 주요 도시에서 픽셀 아트를 만들어보세요!',
+                    targetRegion: 'korea',
+                    targetCount: 5
+                },
+                {
+                    title: '미국의 주 픽셀 만들기',
+                    description: '미국의 주에서 픽셀 아트를 만들어보세요!',
+                    targetRegion: 'usa',
+                    targetCount: 10
+                },
+                {
+                    title: '일본의 현 픽셀 만들기',
+                    description: '일본의 현에서 픽셀 아트를 만들어보세요!',
+                    targetRegion: 'japan',
+                    targetCount: 5
+                },
+                {
+                    title: '유럽 국가 픽셀 만들기',
+                    description: '유럽 국가에서 픽셀 아트를 만들어보세요!',
+                    targetRegion: 'european-union',
+                    targetCount: 8
+                }
+            ];
+            
+            // 날짜 기반으로 챌린지 선택 (일관성 유지)
+            const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+            return challenges[dayOfYear % challenges.length];
+        }
+        
+        // 플래시 챌린지 참여자 업데이트
+        async updateFlashChallengeParticipation() {
+            if (!this.currentFlashChallenge || !this.currentUser || !this.isFirebaseInitialized || !this.firestore) {
+                console.warn('플래시 챌린지 참여자 업데이트: 필수 조건이 충족되지 않았습니다.');
+                return;
+            }
+            
+            try {
+                const { doc, getDoc, setDoc, Timestamp, increment } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const challengeRef = doc(this.firestore, 'flashChallenges', this.currentFlashChallenge.id);
+                const challengeDoc = await getDoc(challengeRef);
+                
+                if (challengeDoc.exists) {
+                    const data = challengeDoc.data();
+                    const participants = data.participants || [];
+                    const userId = this.currentUser.uid;
+                    
+                    // 이미 참여했는지 확인
+                    if (!participants.some(p => p.userId === userId)) {
+                        participants.push({
+                            userId: userId,
+                            userName: this.currentUser.displayName || this.currentUser.email || '익명',
+                            joinedAt: Timestamp.now(),
+                            points: 0
+                        });
+                        
+                        await setDoc(challengeRef, {
+                            participants: participants,
+                            currentCount: increment(1),
+                            updatedAt: Timestamp.now()
+                        }, { merge: true });
+                        
+                        // 메모리 업데이트
+                        this.currentFlashChallenge.participants = participants;
+                        this.currentFlashChallenge.currentCount = (this.currentFlashChallenge.currentCount || 0) + 1;
+                    }
+                } else {
+                    console.warn('플래시 챌린지 문서가 존재하지 않습니다:', this.currentFlashChallenge.id);
+                }
+            } catch (error) {
+                console.error('플래시 챌린지 참여자 업데이트 실패:', error);
+                // 에러 발생 시에도 사용자 경험을 해치지 않도록 조용히 처리
+                if (error.code === 'permission-denied') {
+                    console.warn('플래시 챌린지 참여 권한이 없습니다.');
+                }
+            }
+        }
+        
+        // 플래시 챌린지 업데이트
+        updateFlashChallenge() {
+            const panel = document.getElementById('flash-challenge-panel');
+            if (!panel || !this.currentFlashChallenge) return;
+            
+            const titleEl = document.getElementById('challenge-title');
+            const descEl = document.getElementById('challenge-description');
+            const timeEl = document.getElementById('challenge-time-remaining');
+            const leaderboardEl = document.getElementById('challenge-leaderboard-list');
+            
+            if (titleEl) titleEl.textContent = this.currentFlashChallenge.title;
+            if (descEl) descEl.textContent = this.currentFlashChallenge.description;
+            
+            // 남은 시간 계산
+            if (timeEl) {
+                const now = new Date();
+                const diff = this.currentFlashChallenge.endTime - now;
+                
+                if (diff > 0) {
+                    const hours = Math.floor(diff / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                    timeEl.textContent = `${hours}시간 ${minutes}분 ${seconds}초`;
+                } else {
+                    timeEl.textContent = '종료됨';
+                }
+            }
+            
+            // 리더보드 업데이트
+            if (leaderboardEl) {
+                const participants = this.currentFlashChallenge.participants
+                    .sort((a, b) => b.points - a.points)
+                    .slice(0, 5);
+                
+                if (participants.length === 0) {
+                    leaderboardEl.innerHTML = '<li>아직 참여자가 없습니다.</li>';
+                } else {
+                    leaderboardEl.innerHTML = participants.map((p, idx) => 
+                        `<li><span>${idx + 1}. ${p.name || '익명'}</span><span>${p.points}점</span></li>`
+                    ).join('');
+                }
+            }
+        }
+        
+        // 플래시 챌린지 참여
+        joinFlashChallenge() {
+            if (!this.currentUser) {
+                this.showNotification('로그인이 필요합니다.', 'error');
+                return;
+            }
+            
+            this.showNotification('플래시 챌린지에 참여했습니다! 지역을 선택하여 픽셀을 만들어보세요.', 'success');
+            // 챌린지 패널 표시
+            const panel = document.getElementById('flash-challenge-panel');
+            if (panel) {
+                panel.classList.remove('hidden');
+            }
+        }
+        
+        // 투명화 대시보드 초기화
+        initializeTransparencyDashboard() {
+        const modal = document.getElementById('transparency-dashboard');
+        const closeBtn = document.getElementById('close-transparency-dashboard');
+        
+        if (!modal) return;
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+            });
+        }
+        
+        // 주기적으로 투명화 데이터 업데이트
+        this.updateTransparencyDashboard();
+        setInterval(() => this.updateTransparencyDashboard(), 300000); // 5분마다
+    }
+    
+    // 투명화 대시보드 업데이트
+    async updateTransparencyDashboard() {
+        try {
+            const revenue = await this.calculateTotalRevenue();
+            const expenses = this.transparencyData.totalExpenses;
+            const serverCost = 100; // 월 서버비 (예시)
+            const surplus = revenue - expenses - serverCost;
+            
+            this.transparencyData = {
+                totalRevenue: revenue,
+                totalExpenses: expenses,
+                serverCost: serverCost,
+                surplus: surplus,
+                lastUpdated: new Date()
+            };
+            
+            // UI 업데이트
+            const revenueEl = document.getElementById('transparency-total-revenue');
+            const expensesEl = document.getElementById('transparency-total-expenses');
+            const serverCostEl = document.getElementById('transparency-server-cost');
+            const surplusEl = document.getElementById('transparency-surplus');
+            
+            if (revenueEl) revenueEl.textContent = `$${revenue.toLocaleString()}`;
+            if (expensesEl) expensesEl.textContent = `$${expenses.toLocaleString()}`;
+            if (serverCostEl) serverCostEl.textContent = `$${serverCost}/월`;
+            if (surplusEl) {
+                surplusEl.textContent = `$${surplus.toLocaleString()}`;
+                surplusEl.style.color = surplus >= 0 ? '#4ecdc4' : '#ff6b6b';
+            }
+            
+            // 차트 업데이트
+            this.drawTransparencyChart();
+        } catch (error) {
+            console.error('투명화 대시보드 업데이트 실패:', error);
+        }
+    }
+    
+    // 투명화 차트 그리기
+    drawTransparencyChart() {
+        const canvas = document.getElementById('transparency-chart-canvas');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width = canvas.offsetWidth;
+        const height = canvas.height = 300;
+        
+        // 배경
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(0, 0, width, height);
+        
+        // 간단한 막대 그래프
+        const data = [
+            { label: '수익', value: this.transparencyData.totalRevenue, color: '#4ecdc4' },
+            { label: '지출', value: this.transparencyData.totalExpenses, color: '#ff6b6b' },
+            { label: '서버비', value: this.transparencyData.serverCost, color: '#feca57' }
+        ];
+        
+        const maxValue = Math.max(...data.map(d => d.value), 1);
+        const barWidth = width / data.length - 20;
+        const barHeight = height - 60;
+        
+        data.forEach((item, index) => {
+            const x = index * (width / data.length) + 10;
+            const barH = (item.value / maxValue) * barHeight;
+            const y = height - barH - 30;
+            
+            // 막대
+            ctx.fillStyle = item.color;
+            ctx.fillRect(x, y, barWidth, barH);
+            
+            // 레이블
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(item.label, x + barWidth / 2, height - 10);
+            
+            // 값
+            ctx.fillText(`$${item.value.toLocaleString()}`, x + barWidth / 2, y - 5);
+        });
+    }
+    
+    // 시즌 대시보드 표시 (외부에서 호출 가능)
+    showSeasonDashboard() {
+        const dashboard = document.getElementById('season-dashboard');
+        if (dashboard) {
+            dashboard.classList.remove('hidden');
+            this.updateSeasonDashboard();
+        }
+    }
+    
+    // 투명화 대시보드 표시 (외부에서 호출 가능)
+    showTransparencyDashboard() {
+        const modal = document.getElementById('transparency-dashboard');
+        if (modal) {
+            modal.classList.remove('hidden');
+            this.updateTransparencyDashboard();
+        }
+    }
+    
+    // 시즌 아카이브 시스템 초기화
+    initializeSeasonArchive() {
+        const modal = document.getElementById('season-archive-modal');
+        const closeBtn = document.getElementById('close-season-archive');
+        const seasonSelect = document.getElementById('archive-season-select');
+        
+        if (!modal) return;
+        
+        // 닫기 버튼
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+            });
+        }
+        
+        // 시즌 선택 이벤트
+        if (seasonSelect) {
+            seasonSelect.addEventListener('change', (e) => {
+                const seasonId = e.target.value;
+                if (seasonId) {
+                    this.loadSeasonArchive(seasonId);
+                }
+            });
+        }
+        
+        // 아카이브 시즌 목록 로드
+        this.loadArchiveSeasons();
+    }
+    
+    // 아카이브 시즌 목록 로드
+    async loadArchiveSeasons() {
+        const seasonSelect = document.getElementById('archive-season-select');
+        if (!seasonSelect) return;
+        
+        try {
+            if (this.isFirebaseInitialized && this.firestore) {
+                const { collection, query, where, orderBy, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const seasonsQuery = query(
+                    collection(this.firestore, 'seasons'),
+                    where('status', '==', 'archived'),
+                    orderBy('endDate', 'desc')
+                );
+                const seasonsSnapshot = await getDocs(seasonsQuery);
+                
+                seasonsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const option = document.createElement('option');
+                    option.value = doc.id;
+                    const endDate = data.endDate?.toDate ? data.endDate.toDate() : (data.endDate ? new Date(data.endDate) : new Date());
+                    option.textContent = `${data.name || doc.id} (${endDate.toLocaleDateString()})`;
+                    seasonSelect.appendChild(option);
+                });
+            } else {
+                // 기본값: 현재 시즌 이전 시즌들 (예시)
+                const pastSeasons = [
+                    { id: '2024-S1', name: '2024 시즌 1' },
+                    { id: '2024-S2', name: '2024 시즌 2' }
+                ];
+                
+                pastSeasons.forEach(season => {
+                    const option = document.createElement('option');
+                    option.value = season.id;
+                    option.textContent = season.name;
+                    seasonSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('아카이브 시즌 로드 실패:', error);
+        }
+    }
+    
+    // 시즌 아카이브 로드
+    async loadSeasonArchive(seasonId) {
+        const gallery = document.getElementById('archive-gallery');
+        if (!gallery) return;
+        
+        gallery.innerHTML = '<div class="archive-loading">아카이브를 불러오는 중...</div>';
+        
+        try {
+            if (!this.isFirebaseInitialized || !this.firestore) {
+                gallery.innerHTML = '<div class="archive-error">Firestore가 초기화되지 않았습니다.</div>';
+                return;
+            }
+            
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const seasonRef = doc(this.firestore, 'seasons', seasonId);
+            const seasonDoc = await getDoc(seasonRef);
+            
+            if (!seasonDoc.exists()) {
+                gallery.innerHTML = '<div class="archive-empty">시즌 데이터를 찾을 수 없습니다.</div>';
+                return;
+            }
+            
+            const seasonData = seasonDoc.data();
+            const finalOwners = seasonData.finalOwners || [];
+            
+            // 최종 소유자 맵 생성 (빠른 검색용)
+            const finalOwnersMap = new Map();
+            finalOwners.forEach(owner => {
+                finalOwnersMap.set(owner.regionId, owner);
+            });
+            
+            // 아카이브 갤러리 생성
+            gallery.innerHTML = '';
+            
+            if (finalOwners.length === 0) {
+                gallery.innerHTML = '<div class="archive-empty">최종 소유자 데이터가 없습니다.</div>';
+                return;
+            }
+            
+            // 최종 소유자 강조 표시 헤더
+            const headerEl = document.createElement('div');
+            headerEl.className = 'archive-header';
+            headerEl.innerHTML = `
+                <h3>시즌 ${seasonId} 최종 소유자</h3>
+                <p class="archive-description">시즌 종료 시점의 최종 소유자만 영구 기록됩니다.</p>
+            `;
+            gallery.appendChild(headerEl);
+            
+            // 최종 소유자 그리드 생성
+            const gridEl = document.createElement('div');
+            gridEl.className = 'archive-owners-grid';
+            
+            finalOwners.forEach((owner, index) => {
+                const ownerCard = document.createElement('div');
+                ownerCard.className = 'archive-owner-card final-owner-highlight';
+                ownerCard.innerHTML = `
+                    <div class="owner-card-header">
+                        <span class="final-owner-badge">🏆 최종 소유자</span>
+                    </div>
+                    <div class="owner-card-content">
+                        <h4 class="owner-region-name">${owner.regionName || owner.regionId}</h4>
+                        <p class="owner-email">${owner.ownerEmail || 'Unknown'}</p>
+                        <p class="owner-amount">${this.formatCurrency(owner.amount || 0)}</p>
+                    </div>
+                    <div class="owner-card-footer">
+                        <button class="view-region-btn" data-region-id="${owner.regionId}">지역 보기</button>
+                    </div>
+                `;
+                
+                // 지역 보기 버튼 이벤트
+                const viewBtn = ownerCard.querySelector('.view-region-btn');
+                if (viewBtn) {
+                    viewBtn.addEventListener('click', () => {
+                        this.zoomToRegion(owner.regionId);
+                        const modal = document.getElementById('season-archive-modal');
+                        if (modal) modal.classList.add('hidden');
+                    });
+                }
+                
+                gridEl.appendChild(ownerCard);
+            });
+            
+            gallery.appendChild(gridEl);
+        } catch (error) {
+            console.error('시즌 아카이브 로드 실패:', error);
+            gallery.innerHTML = '<div class="archive-error">아카이브를 불러오는 중 오류가 발생했습니다.</div>';
+        }
+    }
+    
+    async loadSeasonArchive_OLD(seasonId) {
+        const gallery = document.getElementById('archive-gallery');
+        if (!gallery) return;
+        
+        gallery.innerHTML = '<div class="loading">로딩 중...</div>';
+        
+        try {
+            let pixels = [];
+            let finalOwners = new Set(); // 최종 소유자 집합
+            
+            // 시즌의 최종 소유자 정보 가져오기
+            if (this.isFirebaseInitialized && this.firestore) {
+                const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const seasonRef = doc(this.firestore, 'seasons', seasonId);
+                const seasonDoc = await getDoc(seasonRef);
+                
+                if (seasonDoc.exists()) {
+                    const seasonData = seasonDoc.data();
+                    if (seasonData.finalOwners && Array.isArray(seasonData.finalOwners)) {
+                        seasonData.finalOwners.forEach(owner => {
+                            if (owner.regionId) {
+                                finalOwners.add(owner.regionId);
+                            }
+                        });
+                    }
+                }
+                
+                const snapshot = await this.firestore.collection('pixelBundles')
+                    .where('seasonId', '==', seasonId)
+                    .get();
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const isFinalOwner = finalOwners.has(data.regionId);
+                    pixels.push({
+                        id: doc.id,
+                        regionId: data.regionId,
+                        regionName: data.regionName,
+                        owner: data.ownerEmail || '익명',
+                        pixelData: data.pixelMatrix || data.imageDataUrl,
+                        message: data.message,
+                        createdAt: data.createdAt,
+                        isFinalOwner: isFinalOwner // 최종 소유자 여부
+                    });
+                });
+            }
+            
+            gallery.innerHTML = '';
+            
+            if (pixels.length === 0) {
+                gallery.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">이 시즌에는 등록된 픽셀이 없습니다.</p>';
+                return;
+            }
+            
+            pixels.forEach(pixel => {
+                const item = document.createElement('div');
+                item.className = `archive-pixel-item ${pixel.isFinalOwner ? 'final-owner' : ''}`;
+                
+                // 최종 소유자 배지 추가
+                const finalOwnerBadge = pixel.isFinalOwner 
+                    ? '<span class="final-owner-badge">🏆 최종 소유자</span>' 
+                    : '';
+                
+                item.innerHTML = `
+                    <div class="archive-pixel-preview">
+                        <canvas width="160" height="160"></canvas>
+                        ${finalOwnerBadge}
+                    </div>
+                    <div class="archive-pixel-info">
+                        <h4>${pixel.regionName || '알 수 없음'}</h4>
+                        <p class="${pixel.isFinalOwner ? 'final-owner-text' : ''}">${pixel.owner}</p>
+                    </div>
+                `;
+                
+                // 픽셀 그리기
+                const canvas = item.querySelector('canvas');
+                if (canvas && pixel.pixelData) {
+                    this.drawPixelOnCanvas(canvas, pixel.pixelData);
+                }
+                
+                // 클릭 이벤트: 상세 정보 표시
+                item.addEventListener('click', () => {
+                    this.showPixelStoryCard(pixel);
+                });
+                
+                gallery.appendChild(item);
+            });
+        } catch (error) {
+            console.error('아카이브 로드 실패:', error);
+            gallery.innerHTML = '<p style="text-align: center; color: #ff6b6b; padding: 40px;">로드 실패</p>';
+        }
+    }
+    
+    // 시즌 아카이브 표시 (외부에서 호출 가능)
+    showSeasonArchive() {
+        const modal = document.getElementById('season-archive-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            this.loadArchiveSeasons();
+        }
+    }
+    
+    // 픽셀 스토리 모달 닫기 버튼 이벤트 설정
+    setupPixelStoryModalEvents() {
+        const closeBtn = document.getElementById('close-pixel-story-modal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                const modal = document.getElementById('pixel-story-modal');
+                if (modal) modal.classList.add('hidden');
+            });
+        }
+    }
+    
+    // 구역별 미니맵 표시
+    showRegionMinimap() {
+        const minimap = document.getElementById('region-minimap');
+        if (!minimap) return;
+        
+        minimap.classList.remove('hidden');
+        this.renderMinimap();
+    }
+    
+    // 미니맵 렌더링
+    renderMinimap() {
+        const canvas = document.getElementById('minimap-canvas');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('minimap-canvas-container');
+        if (container) {
+            canvas.width = container.clientWidth || 400;
+            canvas.height = container.clientHeight || 300;
+        } else {
+            canvas.width = 400;
+            canvas.height = 300;
+        }
+        
+        // 배경
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 픽셀이 있는 구역과 없는 구역을 색상으로 구분
+        const pixelCount = this.regionData.size;
+        const pixelRegions = new Set();
+        
+        this.regionData.forEach((region, regionId) => {
+            const bundle = this.getLatestPixelBundle(regionId);
+            if (bundle) {
+                pixelRegions.add(regionId);
+            }
+        });
+        
+        // 간단한 그리드 형태로 표시
+        const cols = Math.ceil(Math.sqrt(pixelCount));
+        const rows = Math.ceil(pixelCount / cols);
+        const cellWidth = canvas.width / cols;
+        const cellHeight = canvas.height / rows;
+        
+        let index = 0;
+        this.regionData.forEach((region, regionId) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const x = col * cellWidth;
+            const y = row * cellHeight;
+            
+            // 픽셀이 있으면 빨간색, 없으면 청록색
+            ctx.fillStyle = pixelRegions.has(regionId) ? '#ff6b6b' : '#4ecdc4';
+            ctx.fillRect(x, y, cellWidth - 1, cellHeight - 1);
+            
+            index++;
+        });
+        
+        // 제목 표시
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('구역별 픽셀 분포', canvas.width / 2, 20);
+    }
+    
+    // 미니맵 닫기
+    hideRegionMinimap() {
+        const minimap = document.getElementById('region-minimap');
+        if (minimap) {
+            minimap.classList.add('hidden');
+        }
+    }
+    
+    // 미니맵 초기화
+    initializeMinimap() {
+        const closeBtn = document.getElementById('close-minimap');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.hideRegionMinimap();
+            });
+        }
+        
+        // 픽셀 레이어 토글 버튼에 미니맵 표시 옵션 추가
+        const pixelLayerToggle = document.getElementById('pixel-layer-toggle');
+        if (pixelLayerToggle) {
+            // 우클릭으로 미니맵 표시
+            pixelLayerToggle.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                this.showRegionMinimap();
+            });
+        }
     }
     
     
