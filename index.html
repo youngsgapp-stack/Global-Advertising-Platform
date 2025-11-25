@@ -73,62 +73,64 @@
             </div>
         </div>
         
-        <!-- 우측 정보 패널 -->
-        <div id="info-panel" class="info-panel hidden">
-            <div class="panel-header">
-                <h3 id="region-name">지역 정보</h3>
-                <button id="close-panel" class="close-btn">&times;</button>
-            </div>
-            <div class="panel-content">
-                <div class="region-details">
-                    <p><strong>국가:</strong> <span id="country-name">-</span></p>
-                    <p><strong>행정구역:</strong> <span id="admin-level">-</span></p>
-                    <p><strong>인구:</strong> <span id="population">-</span></p>
-                    <p><strong>면적:</strong> <span id="area">-</span></p>
+        <!-- 중앙 정보 패널 -->
+        <div id="info-panel" class="info-panel-overlay hidden">
+            <div class="info-panel-card">
+                <div class="panel-header">
+                    <h3 id="region-name">지역 정보</h3>
+                    <button id="close-panel" class="close-btn">&times;</button>
                 </div>
-                <div class="advertising-info">
-                    <h4>광고 정보</h4>
-                    <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
-                    <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
-                    <div class="auction-info">
-                        <h5>옥션 정보</h5>
-                        <p><strong>현재 입찰가:</strong> <span id="auction-current-bid">-</span></p>
-                        <p><strong>최소 입찰가:</strong> <span id="auction-min-bid">-</span></p>
-                        <p><strong>보호 상태:</strong> <span id="auction-protection">-</span></p>
-                        <p><strong>최고 입찰자:</strong> <span id="auction-current-bidder">-</span></p>
-                        <p><strong>보호 설정:</strong> <span id="auction-config-protection">-</span></p>
-                        <p><strong>최소 상향폭:</strong> <span id="auction-config-increment">-</span></p>
-                        <p><strong>즉시 구매가:</strong> <span id="auction-config-buy-now">-</span></p>
-                        <div class="auction-input-group">
-                            <input type="number" id="auction-bid-input" placeholder="입찰 금액 (USD)">
-                            <button id="auction-bid-btn" class="auction-bid-btn">입찰하기</button>
+                <div class="panel-content">
+                    <div class="region-details">
+                        <p><strong>국가:</strong> <span id="country-name">-</span></p>
+                        <p><strong>행정구역:</strong> <span id="admin-level">-</span></p>
+                        <p><strong>인구:</strong> <span id="population">-</span></p>
+                        <p><strong>면적:</strong> <span id="area">-</span></p>
+                    </div>
+                    <div class="advertising-info">
+                        <h4>광고 정보</h4>
+                        <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
+                        <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
+                        <div class="auction-info">
+                            <h5>옥션 정보</h5>
+                            <p><strong>현재 입찰가:</strong> <span id="auction-current-bid">-</span></p>
+                            <p><strong>최소 입찰가:</strong> <span id="auction-min-bid">-</span></p>
+                            <p><strong>보호 상태:</strong> <span id="auction-protection">-</span></p>
+                            <p><strong>최고 입찰자:</strong> <span id="auction-current-bidder">-</span></p>
+                            <p><strong>보호 설정:</strong> <span id="auction-config-protection">-</span></p>
+                            <p><strong>최소 상향폭:</strong> <span id="auction-config-increment">-</span></p>
+                            <p><strong>즉시 구매가:</strong> <span id="auction-config-buy-now">-</span></p>
+                            <div class="auction-input-group">
+                                <input type="number" id="auction-bid-input" placeholder="입찰 금액 (USD)">
+                                <button id="auction-bid-btn" class="auction-bid-btn">입찰하기</button>
+                            </div>
+                            <p id="auction-status-message" class="auction-status-message"></p>
+                            <button id="auction-buy-now-btn" class="purchase-btn secondary hidden">즉시 구매</button>
                         </div>
-                        <p id="auction-status-message" class="auction-status-message"></p>
-                        <button id="auction-buy-now-btn" class="purchase-btn secondary hidden">즉시 구매</button>
+                        <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
+                        <div id="paypal-buttons" style="margin-top: 15px;"></div>
                     </div>
-                    <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
-                    <div id="paypal-buttons" style="margin-top: 15px;"></div>
-                </div>
-                <div class="pixel-story-card">
-                    <div class="pixel-story-header">
-                        <h4>픽셀 스토리</h4>
-                        <button id="pixel-layer-toggle" class="pixel-layer-toggle">픽셀 레벨 보기</button>
-                    </div>
-                    <canvas id="pixel-preview" width="160" height="160"></canvas>
-                    <p id="pixel-story-message" class="pixel-story-message">아직 등록된 픽셀 스토리가 없습니다.</p>
-                    <div id="pixel-story-brand" class="pixel-story-brand hidden">
-                        <div class="brand-header">
-                            <h5 id="brand-name">브랜드명</h5>
-                            <img id="brand-logo" src="" alt="브랜드 로고" class="brand-logo hidden">
+                    <div class="pixel-story-card">
+                        <div class="pixel-story-header">
+                            <h4>픽셀 스토리</h4>
+                            <button id="pixel-layer-toggle" class="pixel-layer-toggle">픽셀 레벨 보기</button>
                         </div>
-                        <p id="brand-description" class="brand-description"></p>
-                        <a id="brand-link" href="" target="_blank" class="brand-link hidden">웹사이트 방문 →</a>
+                        <canvas id="pixel-preview" width="160" height="160"></canvas>
+                        <p id="pixel-story-message" class="pixel-story-message">아직 등록된 픽셀 스토리가 없습니다.</p>
+                        <div id="pixel-story-brand" class="pixel-story-brand hidden">
+                            <div class="brand-header">
+                                <h5 id="brand-name">브랜드명</h5>
+                                <img id="brand-logo" src="" alt="브랜드 로고" class="brand-logo hidden">
+                            </div>
+                            <p id="brand-description" class="brand-description"></p>
+                            <a id="brand-link" href="" target="_blank" class="brand-link hidden">웹사이트 방문 →</a>
+                        </div>
+                        <div class="pixel-story-meta">
+                            <span id="pixel-protection-chip" class="protection-chip hidden">보호 시간 계산 중...</span>
+                            <span id="pixel-story-owner" class="pixel-story-owner"></span>
+                        </div>
+                        <button id="open-pixel-editor" class="pixel-editor-btn">픽셀 에디터 열기</button>
                     </div>
-                    <div class="pixel-story-meta">
-                        <span id="pixel-protection-chip" class="protection-chip hidden">보호 시간 계산 중...</span>
-                        <span id="pixel-story-owner" class="pixel-story-owner"></span>
-                    </div>
-                    <button id="open-pixel-editor" class="pixel-editor-btn">픽셀 에디터 열기</button>
                 </div>
             </div>
         </div>
@@ -814,9 +816,11 @@
         </div>
         
         <!-- 로딩 인디케이터 -->
-        <div id="loading" class="loading">
-            <div class="spinner"></div>
-            <p>지도를 불러오는 중...</p>
+        <div id="loading" class="loading-overlay">
+            <div class="loading-card">
+                <div class="spinner"></div>
+                <p>지도를 불러오는 중...</p>
+            </div>
         </div>
 
 

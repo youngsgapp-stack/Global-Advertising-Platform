@@ -434,34 +434,38 @@ body {
 }
 
 
-/* 정보 패널 - 화면 중앙 모달 스타일 (강제 적용) */
-#info-panel {
-    position: fixed !important;
-    top: 50% !important;
-    left: 50% !important;
-    right: auto !important;
-    bottom: auto !important;
-    transform: translate(-50%, -50%) !important;
-    width: 90% !important;
-    max-width: 600px !important;
-    max-height: 90vh !important;
-    background: rgba(0, 0, 0, 0.95) !important;
-    border-radius: 15px !important;
-    backdrop-filter: blur(15px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    z-index: 2000 !important;
-    transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow-y: auto !important;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
+/* 정보 패널 오버레이 */
+.info-panel-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(16px, 4vw, 40px);
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    z-index: 2000;
 }
 
-.info-panel.hidden {
+.info-panel-overlay.hidden {
+    display: none !important;
+}
+
+.info-panel-card {
+    width: min(90vw, 600px);
+    max-height: 90vh;
+    background: rgba(0, 0, 0, 0.95);
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(15px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.info-panel-overlay.hidden .info-panel-card {
     opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translate(-50%, -50%) scale(0.9) !important;
+    transform: scale(0.95);
 }
 
 .panel-header {
@@ -973,18 +977,28 @@ body {
 }
 
 /* 로딩 인디케이터 */
-.loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(4px);
+    z-index: 2100;
+}
+
+.loading-overlay.hidden {
+    display: none !important;
+}
+
+.loading-card {
     text-align: center;
-    z-index: 2000;
     background: rgba(0, 0, 0, 0.9);
     padding: 30px;
     border-radius: 15px;
-    backdrop-filter: blur(15px);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.45);
 }
 
 .spinner {
@@ -1002,7 +1016,7 @@ body {
     100% { transform: rotate(360deg); }
 }
 
-.loading p {
+.loading-card p {
     color: #cccccc;
     font-size: 1.1rem;
 }
@@ -1065,18 +1079,9 @@ body {
         min-width: auto;
     }
     
-    .info-panel {
-        top: 50% !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-        transform: translate(-50%, -50%) !important;
+    .info-panel-card {
         width: calc(100vw - 20px);
         max-width: 600px;
-    }
-    
-    .info-panel.hidden {
-        transform: translate(-50%, -50%) scale(0.9) !important;
     }
     
     .control-panel {
