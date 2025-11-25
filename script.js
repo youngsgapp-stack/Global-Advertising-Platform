@@ -15745,6 +15745,16 @@ class BillionaireMap {
         const adStatus = document.getElementById('ad-status');
         const adPrice = document.getElementById('ad-price');
         
+        // 패널 위치 명시적으로 설정 (우측 중앙)
+        if (panel) {
+            panel.style.position = 'fixed';
+            panel.style.top = '50%';
+            panel.style.right = '20px';
+            panel.style.left = 'auto';
+            panel.style.bottom = 'auto';
+            panel.style.transform = 'translateY(-50%)';
+        }
+        
         if (!region) {
             panel.classList.add('hidden');
             return;
@@ -20401,30 +20411,40 @@ class BillionaireMap {
                 if (seasonDoc.exists) {
                     const data = seasonDoc.data();
                     // Timestamp를 Date로 변환
+                    const defaultStartDate = this.currentSeason?.startDate || new Date();
+                    const defaultEndDate = this.currentSeason?.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
                     const seasonData = {
                         ...this.currentSeason,
                         ...data,
-                        startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || this.currentSeason.startDate),
-                        endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate || this.currentSeason.endDate)
+                        startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate || defaultStartDate),
+                        endDate: data.endDate?.toDate ? data.endDate.toDate() : (data.endDate || defaultEndDate)
                     };
                     // 메모리에도 업데이트
                     this.currentSeason = seasonData;
                     return seasonData;
                 } else {
                     // Firestore에 시즌이 없으면 생성
-                    await this.createSeasonInFirestore(this.currentSeason);
-                    // 생성 후 현재 시즌 데이터 반환
-                    return this.currentSeason;
+                    if (this.currentSeason) {
+                        await this.createSeasonInFirestore(this.currentSeason);
+                        // 생성 후 현재 시즌 데이터 반환
+                        return this.currentSeason;
+                    }
                 }
             } catch (error) {
                 console.error('시즌 데이터 가져오기 실패:', error);
             }
         }
         // Firestore가 없거나 실패한 경우 기본 시즌 데이터 반환
-        return this.currentSeason;
-        
-        // 기본값 반환
-        return this.currentSeason;
+        if (this.currentSeason) {
+            return this.currentSeason;
+        }
+        // 기본값 반환 (시즌이 없을 경우)
+        return {
+            id: 'season-1',
+            name: '시즌 1',
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        };
     }
     
     // 시즌별 시작가 계산 (시즌 번호에 따라 가격 조절)
@@ -21139,6 +21159,10 @@ class BillionaireMap {
             return total;
         }
         try {
+            // Firestore 초기화 확인
+            if (!this.firestore || !this.isFirebaseInitialized) {
+                throw new Error('Firestore가 초기화되지 않았습니다.');
+            }
             // Firestore에서 총 수익 계산
             const auctionsSnapshot = await this.firestore.collection('auctions')
                 .where('status', '==', 'sold')
@@ -22171,7 +22195,7 @@ class BillionaireMap {
                     // 기존 챌린지 가져오기
                     const data = challengeDoc.data();
                     return {
-                        id: data.id || challengeId,
+                        id: challengeId || data.id || `challenge-${today}`,
                         title: data.title || '오늘의 협업 챌린지',
                         description: data.description || '특정 국가/도시 영역에서 협업 그림을 완성하세요!',
                         targetRegion: data.targetRegion || 'korea',
@@ -22509,21 +22533,48 @@ class BillionaireMap {
         try {
             if (this.isFirebaseInitialized && this.firestore) {
                 const { collection, query, where, orderBy, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                const seasonsQuery = query(
-                    collection(this.firestore, 'seasons'),
-                    where('status', '==', 'archived'),
-                    orderBy('endDate', 'desc')
-                );
-                const seasonsSnapshot = await getDocs(seasonsQuery);
+                try {
+                    const seasonsQuery = query(
+                        collection(this.firestore, 'seasons'),
+                        where('status', '==', 'archived'),
+                        orderBy('endDate', 'desc')
+                    );
+                    const seasonsSnapshot = await getDocs(seasonsQuery);
                 
-                seasonsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    const option = document.createElement('option');
-                    option.value = doc.id;
-                    const endDate = data.endDate?.toDate ? data.endDate.toDate() : (data.endDate ? new Date(data.endDate) : new Date());
-                    option.textContent = `${data.name || doc.id} (${endDate.toLocaleDateString()})`;
-                    seasonSelect.appendChild(option);
-                });
+                    seasonsSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        const option = document.createElement('option');
+                        option.value = doc.id;
+                        const endDate = data.endDate?.toDate ? data.endDate.toDate() : (data.endDate ? new Date(data.endDate) : new Date());
+                        option.textContent = `${data.name || doc.id} (${endDate.toLocaleDateString()})`;
+                        seasonSelect.appendChild(option);
+                    });
+                } catch (indexError) {
+                    // 인덱스가 없으면 status만으로 필터링
+                    console.warn('복합 인덱스가 필요합니다. status만으로 필터링합니다:', indexError);
+                    const seasonsQuery = query(
+                        collection(this.firestore, 'seasons'),
+                        where('status', '==', 'archived')
+                    );
+                    const seasonsSnapshot = await getDocs(seasonsQuery);
+                    const seasons = [];
+                    seasonsSnapshot.forEach(doc => {
+                        seasons.push({ id: doc.id, ...doc.data() });
+                    });
+                    // 메모리에서 endDate로 정렬
+                    seasons.sort((a, b) => {
+                        const aDate = a.endDate?.toDate ? a.endDate.toDate() : (a.endDate ? new Date(a.endDate) : new Date(0));
+                        const bDate = b.endDate?.toDate ? b.endDate.toDate() : (b.endDate ? new Date(b.endDate) : new Date(0));
+                        return bDate - aDate;
+                    });
+                    seasons.forEach(season => {
+                        const option = document.createElement('option');
+                        option.value = season.id;
+                        const endDate = season.endDate?.toDate ? season.endDate.toDate() : (season.endDate ? new Date(season.endDate) : new Date());
+                        option.textContent = `${season.name || season.id} (${endDate.toLocaleDateString()})`;
+                        seasonSelect.appendChild(option);
+                    });
+                }
             } else {
                 // 기본값: 현재 시즌 이전 시즌들 (예시)
                 const pastSeasons = [

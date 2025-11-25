@@ -1058,7 +1058,11 @@ body {
     }
     
     .info-panel {
-        right: 10px;
+        right: 10px !important;
+        left: auto !important;
+        bottom: auto !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         width: calc(100vw - 20px);
         max-width: 350px;
     }
