@@ -1347,6 +1347,9 @@ class BillionaireMap {
     
     // 지연 로딩 UI 초기화
     initializeDelayedUI() {
+        // 정보 패널 위치 초기화 (우측 중앙 고정)
+        this.initializeInfoPanelPosition();
+        
         this.setupColorPresetListeners();
         this.initializePixelExperienceUI();
         this.initializeLeaderboardFilters();
@@ -1368,6 +1371,23 @@ class BillionaireMap {
             this.updateAuctionWidgets();
             this.updateMapAuctionColors();
         }, 500);
+    }
+    
+    // 정보 패널 위치 초기화 (화면 중앙 고정)
+    initializeInfoPanelPosition() {
+        const panel = document.getElementById('info-panel');
+        if (panel) {
+            panel.style.cssText = `
+                position: fixed !important;
+                top: 50% !important;
+                left: 50% !important;
+                right: auto !important;
+                bottom: auto !important;
+                transform: translate(-50%, -50%) !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            `;
+        }
     }
     
     // 리더보드 최소화 기능 초기화
@@ -15745,14 +15765,18 @@ class BillionaireMap {
         const adStatus = document.getElementById('ad-status');
         const adPrice = document.getElementById('ad-price');
         
-        // 패널 위치 명시적으로 설정 (우측 중앙)
+        // 패널 위치 명시적으로 설정 (화면 중앙) - 강제 적용
         if (panel) {
-            panel.style.position = 'fixed';
-            panel.style.top = '50%';
-            panel.style.right = '20px';
-            panel.style.left = 'auto';
-            panel.style.bottom = 'auto';
-            panel.style.transform = 'translateY(-50%)';
+            panel.style.cssText = `
+                position: fixed !important;
+                top: 50% !important;
+                left: 50% !important;
+                right: auto !important;
+                bottom: auto !important;
+                transform: translate(-50%, -50%) !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            `;
         }
         
         if (!region) {

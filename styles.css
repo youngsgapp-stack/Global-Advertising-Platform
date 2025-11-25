@@ -434,26 +434,34 @@ body {
 }
 
 
-/* 정보 패널 */
+/* 정보 패널 - 화면 중앙 모달 스타일 */
 .info-panel {
     position: fixed !important;
     top: 50% !important;
-    right: 20px !important;
-    left: auto !important;
+    left: 50% !important;
+    right: auto !important;
     bottom: auto !important;
-    transform: translateY(-50%) !important;
-    width: 350px;
-    background: rgba(0, 0, 0, 0.9);
+    transform: translate(-50%, -50%) !important;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    background: rgba(0, 0, 0, 0.95);
     border-radius: 15px;
     backdrop-filter: blur(15px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 1000;
+    z-index: 2000;
     transition: all 0.3s ease;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .info-panel.hidden {
-    transform: translateY(-50%) translateX(400px) !important;
     opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.9) !important;
 }
 
 .panel-header {
@@ -1058,13 +1066,17 @@ body {
     }
     
     .info-panel {
-        right: 10px !important;
-        left: auto !important;
-        bottom: auto !important;
         top: 50% !important;
-        transform: translateY(-50%) !important;
+        left: 50% !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: translate(-50%, -50%) !important;
         width: calc(100vw - 20px);
-        max-width: 350px;
+        max-width: 600px;
+    }
+    
+    .info-panel.hidden {
+        transform: translate(-50%, -50%) scale(0.9) !important;
     }
     
     .control-panel {
