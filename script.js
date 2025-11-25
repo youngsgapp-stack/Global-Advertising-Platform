@@ -2786,6 +2786,7 @@ class BillionaireMap {
             container: 'map',
             style: {
                 version: 8,
+                glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
                 sources: {
                     'raster-tiles': {
                         type: 'raster',
@@ -20381,11 +20382,15 @@ class BillionaireMap {
                 } else {
                     // Firestore에 시즌이 없으면 생성
                     await this.createSeasonInFirestore(this.currentSeason);
+                    // 생성 후 현재 시즌 데이터 반환
+                    return this.currentSeason;
                 }
             } catch (error) {
                 console.error('시즌 데이터 가져오기 실패:', error);
             }
         }
+        // Firestore가 없거나 실패한 경우 기본 시즌 데이터 반환
+        return this.currentSeason;
         
         // 기본값 반환
         return this.currentSeason;
@@ -21091,12 +21096,15 @@ class BillionaireMap {
     
     // 총 수익 계산
     async calculateTotalRevenue() {
-        if (this.isFirebaseInitialized && this.firestore) {
-            try {
-                // Firestore에서 총 수익 계산
-                const auctionsSnapshot = await this.firestore.collection('auctions')
-                    .where('status', '==', 'sold')
-                    .get();
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firestore가 초기화되지 않았습니다.');
+            return 0;
+        }
+        try {
+            // Firestore에서 총 수익 계산
+            const auctionsSnapshot = await this.firestore.collection('auctions')
+                .where('status', '==', 'sold')
+                .get();
                 
                 let total = 0;
                 auctionsSnapshot.forEach(doc => {
@@ -21528,9 +21536,14 @@ class BillionaireMap {
         });
         
         // 사용자 뱃지 로드
-        await this.loadUserBadges().catch(err => {
-            console.warn('사용자 뱃지 로드 실패 (계속 진행):', err);
-        });
+        if (typeof this.loadUserBadges === 'function') {
+            await this.loadUserBadges().catch(err => {
+                console.warn('사용자 뱃지 로드 실패 (계속 진행):', err);
+            });
+        } else {
+            // loadUserBadges 함수가 없으면 기본값 설정
+            this.userBadges = [];
+        }
     }
     
     // 기본 미션 목록
@@ -21698,6 +21711,32 @@ class BillionaireMap {
             console.error('포인트 로드 실패:', error);
             // 에러 발생 시 기본값 사용
             this.userPoints = 0;
+        }
+    }
+    
+    // 사용자 뱃지 로드
+    async loadUserBadges() {
+        if (!this.currentUser || !this.isFirebaseInitialized || !this.firestore) {
+            this.userBadges = [];
+            return;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const userRef = doc(this.firestore, 'users', this.currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            
+            if (userDoc.exists) {
+                const data = userDoc.data();
+                this.userBadges = data.badges || [];
+            } else {
+                // 사용자 문서가 없으면 초기화
+                this.userBadges = [];
+            }
+        } catch (error) {
+            console.error('뱃지 로드 실패:', error);
+            // 에러 발생 시 기본값 사용
+            this.userBadges = [];
         }
     }
     
@@ -22097,13 +22136,13 @@ class BillionaireMap {
                     // 기존 챌린지 가져오기
                     const data = challengeDoc.data();
                     return {
-                        id: data.id,
-                        title: data.title,
-                        description: data.description,
-                        targetRegion: data.targetRegion,
-                        targetCount: data.targetCount,
+                        id: data.id || challengeId,
+                        title: data.title || '오늘의 협업 챌린지',
+                        description: data.description || '특정 국가/도시 영역에서 협업 그림을 완성하세요!',
+                        targetRegion: data.targetRegion || 'korea',
+                        targetCount: data.targetCount || 10,
                         currentCount: data.currentCount || 0,
-                        endTime: data.endTime?.toDate ? data.endTime.toDate() : new Date(data.endTime),
+                        endTime: data.endTime?.toDate ? data.endTime.toDate() : (data.endTime ? new Date(data.endTime) : new Date()),
                         participants: data.participants || []
                     };
                 } else {
