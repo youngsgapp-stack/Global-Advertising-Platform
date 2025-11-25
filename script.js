@@ -1244,16 +1244,19 @@ class BillionaireMap {
         try {
             // 1단계: 즉시 표시할 필수 요소만 초기화
             this.initStarsBackground();
-            if (!this.eventListenersAdded) {
-                this.setupEventListeners();
-                this.eventListenersAdded = true;
-            }
             this.switchToUserMode();
             this.addMapModeToggle();
             this.updateUserUI();
             
             // 2단계: 지도 초기화 (사용자가 바로 볼 수 있도록 우선)
             await this.initializeMap();
+            
+            // 지도 초기화 후 이벤트 리스너 설정
+            if (!this.eventListenersAdded) {
+                this.setupEventListeners();
+                this.eventListenersAdded = true;
+            }
+            
             await this.loadGlobalAdministrativeRegions();
             this.hideLoading(); // 지도가 로드되면 로딩 화면 숨김
             
@@ -14436,6 +14439,12 @@ class BillionaireMap {
     }
     
     setupEventListeners() {
+        // map이 아직 초기화되지 않았으면 나중에 다시 시도
+        if (!this.map) {
+            console.warn('[BillionaireMap] setupEventListeners: map이 아직 초기화되지 않았습니다. 나중에 다시 시도합니다.');
+            return;
+        }
+        
         // 지역 클릭 이벤트
         this.map.on('click', 'regions-fill', (e) => {
             e.preventDefault();
