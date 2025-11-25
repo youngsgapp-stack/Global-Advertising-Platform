@@ -1242,59 +1242,53 @@ class BillionaireMap {
     
     async init() {
         try {
-            // 별 배경 초기화
+            // 1단계: 즉시 표시할 필수 요소만 초기화
             this.initStarsBackground();
-            
-            // Firebase 초기화 (비동기로 실행, 실패해도 지도는 로드됨)
-            await this.initializeFirebase().catch(err => {
-                console.warn('Firebase 초기화 실패 (계속 진행):', err);
-            });
-            
-            await this.initializeMap();
-            await this.loadGlobalAdministrativeRegions();
-            
-            // Firestore에서 지역 데이터 불러오기 (지도 로드 후)
-            if (this.isFirebaseInitialized) {
-                await this.loadRegionDataFromFirestore().catch(err => {
-                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
-                });
-            }
-            
-            // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
-            this.setAllRegionsPriceToUniform();
-            
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
             }
-            this.hideLoading();
-            this.switchToUserMode(); // 초기에는 일반 사용자 모드
-            // UI는 P키 연타로 표시하거나 햄버거 메뉴를 통해 접근
-            // this.showUI(); // 초기에는 UI 표시하지 않음
-            this.addMapModeToggle(); // 지도 모드 전환 버튼 추가
-            this.setupColorPresetListeners(); // 색상 프리셋 이벤트 리스너 추가
-            this.initializePixelExperienceUI();
-            this.updateUserUI(); // 사용자 UI 초기화 (사이드 메뉴 로그인 버튼 표시)
-            this.initializeLeaderboardFilters();
-            this.initializeLandingPage(); // 랜딩 페이지 초기화
-            this.initializeSeasonDashboard(); // 시즌 대시보드 초기화
-            this.initializeCommunityMissions().catch(err => {
-                console.warn('커뮤니티 미션 초기화 실패:', err);
-            }); // 커뮤니티 미션 시스템 초기화
-            this.initializeTransparencyDashboard(); // 투명화 대시보드 초기화
-            this.initializeFlashChallenge().catch(err => {
-                console.warn('플래시 챌린지 초기화 실패:', err);
-            }); // 플래시 챌린지 시스템 초기화
-            this.initializeSeasonArchive(); // 시즌 아카이브 시스템 초기화
-            this.setupPixelStoryModalEvents(); // 픽셀 스토리 모달 이벤트 설정
-            this.initializeMinimap(); // 미니맵 초기화
+            this.switchToUserMode();
+            this.addMapModeToggle();
+            this.updateUserUI();
             
-            if (this.isFirebaseInitialized) {
-                await this.subscribeAuctionUpdates();
-                await this.subscribeRealtimeLeaderboard();
+            // 2단계: 지도 초기화 (사용자가 바로 볼 수 있도록 우선)
+            await this.initializeMap();
+            await this.loadGlobalAdministrativeRegions();
+            this.hideLoading(); // 지도가 로드되면 로딩 화면 숨김
+            
+            // 3단계: Firebase 초기화는 백그라운드에서 비동기로 (지도 표시 후)
+            this.initializeFirebase().catch(err => {
+                console.warn('Firebase 초기화 실패 (계속 진행):', err);
+            }).then(() => {
+                // Firebase 초기화 완료 후 데이터 로드
+                if (this.isFirebaseInitialized) {
+                    this.loadRegionDataFromFirestore().catch(err => {
+                        console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                    });
+                    this.subscribeAuctionUpdates().catch(err => {
+                        console.warn('옥션 업데이트 구독 실패:', err);
+                    });
+                    this.subscribeRealtimeLeaderboard().catch(err => {
+                        console.warn('리더보드 구독 실패:', err);
+                    });
+                }
+            });
+            
+            // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
+            this.setAllRegionsPriceToUniform();
+            
+            // 4단계: UI 초기화는 지연 로딩으로 (requestIdleCallback 사용)
+            if (window.requestIdleCallback) {
+                requestIdleCallback(() => {
+                    this.initializeDelayedUI();
+                }, { timeout: 2000 });
+            } else {
+                // requestIdleCallback 미지원 시 setTimeout으로 대체
+                setTimeout(() => {
+                    this.initializeDelayedUI();
+                }, 100);
             }
-            this.updateAuctionWidgets();
-            this.updateMapAuctionColors();
             
             // 옥션 상태 업데이트를 주기적으로 실행 (보호 시간 종료 시 색상 변경)
             setInterval(() => {
@@ -1316,6 +1310,57 @@ class BillionaireMap {
             console.error('초기화 중 오류 발생:', error);
             this.showError('지도를 불러오는 중 오류가 발생했습니다.');
         }
+    }
+    
+    // 지연 로딩 UI 초기화
+    initializeDelayedUI() {
+        this.setupColorPresetListeners();
+        this.initializePixelExperienceUI();
+        this.initializeLeaderboardFilters();
+        this.initializeLeaderboardToggle(); // 리더보드 최소화 기능 초기화
+        this.initializeLandingPage();
+        this.initializeSeasonDashboard();
+        this.initializeCommunityMissions().catch(err => {
+            console.warn('커뮤니티 미션 초기화 실패:', err);
+        });
+        this.initializeTransparencyDashboard();
+        this.initializeFlashChallenge().catch(err => {
+            console.warn('플래시 챌린지 초기화 실패:', err);
+        });
+        this.initializeSeasonArchive();
+        this.setupPixelStoryModalEvents();
+        this.initializeMinimap();
+        
+        // 옥션 위젯 업데이트는 지연
+        setTimeout(() => {
+            this.updateAuctionWidgets();
+            this.updateMapAuctionColors();
+        }, 500);
+    }
+    
+    // 리더보드 최소화 기능 초기화
+    initializeLeaderboardToggle() {
+        const toggleBtn = document.getElementById('leaderboard-toggle-btn');
+        const leaderboardContent = document.getElementById('leaderboard-content');
+        
+        if (!toggleBtn || !leaderboardContent) return;
+        
+        // 초기 상태는 확장됨
+        this.leaderboardCollapsed = false;
+        
+        toggleBtn.addEventListener('click', () => {
+            this.leaderboardCollapsed = !this.leaderboardCollapsed;
+            
+            if (this.leaderboardCollapsed) {
+                leaderboardContent.classList.add('collapsed');
+                toggleBtn.textContent = '+';
+                toggleBtn.title = '확장';
+            } else {
+                leaderboardContent.classList.remove('collapsed');
+                toggleBtn.textContent = '−';
+                toggleBtn.title = '최소화';
+            }
+        });
     }
     
     // 별 배경 초기화 (Canvas 기반)
@@ -2905,28 +2950,29 @@ class BillionaireMap {
     }
     
     getGlobalCountryConfigs() {
+        // 국가별 고유 색상 맵 (더 명확한 구분을 위해 다양한 색상 사용)
         return [
-            { key: 'usa', displayName: 'United States', iso3: 'USA', adminLevel: 'State', basePrice: 1500, baseColor: '#4ecdc4' },
-            { key: 'korea', displayName: 'South Korea', iso3: 'KOR', adminLevel: 'Province/City', basePrice: 2000, baseColor: '#ff9f43' },
-            { key: 'japan', displayName: 'Japan', iso3: 'JPN', adminLevel: 'Prefecture', basePrice: 1900, baseColor: '#a29bfe' },
-            { key: 'china', displayName: 'China', iso3: 'CHN', adminLevel: 'Province', basePrice: 2100, baseColor: '#ff6b6b' },
-            { key: 'india', displayName: 'India', iso3: 'IND', adminLevel: 'State', basePrice: 1600, baseColor: '#10ac84' },
-            { key: 'russia', displayName: 'Russia', iso3: 'RUS', adminLevel: 'Federal Subject', basePrice: 1800, baseColor: '#54a0ff' },
-            { key: 'canada', displayName: 'Canada', iso3: 'CAN', adminLevel: 'Province', basePrice: 1700, baseColor: '#1dd1a1' },
-            { key: 'germany', displayName: 'Germany', iso3: 'DEU', adminLevel: 'State', basePrice: 1800, baseColor: '#ff9ff3' },
-            { key: 'uk', displayName: 'United Kingdom', iso3: 'GBR', adminLevel: 'Region', basePrice: 1700, baseColor: '#48dbfb' },
-            { key: 'france', displayName: 'France', iso3: 'FRA', adminLevel: 'Region', basePrice: 1750, baseColor: '#feca57' },
-            { key: 'italy', displayName: 'Italy', iso3: 'ITA', adminLevel: 'Region', basePrice: 1650, baseColor: '#ff6b6b' },
-            { key: 'brazil', displayName: 'Brazil', iso3: 'BRA', adminLevel: 'State', basePrice: 1500, baseColor: '#1dd1a1' },
-            { key: 'australia', displayName: 'Australia', iso3: 'AUS', adminLevel: 'State', basePrice: 1500, baseColor: '#54a0ff' },
-            { key: 'mexico', displayName: 'Mexico', iso3: 'MEX', adminLevel: 'State', basePrice: 1400, baseColor: '#8395a7' },
-            { key: 'indonesia', displayName: 'Indonesia', iso3: 'IDN', adminLevel: 'Province', basePrice: 1350, baseColor: '#ee5253' },
-            { key: 'saudi-arabia', displayName: 'Saudi Arabia', iso3: 'SAU', adminLevel: 'Province', basePrice: 1650, baseColor: '#576574' },
-            { key: 'turkey', displayName: 'Turkey', iso3: 'TUR', adminLevel: 'Province', basePrice: 1500, baseColor: '#ff9f43' },
-            { key: 'south-africa', displayName: 'South Africa', iso3: 'ZAF', adminLevel: 'Province', basePrice: 1300, baseColor: '#222f3e' },
-            { key: 'argentina', displayName: 'Argentina', iso3: 'ARG', adminLevel: 'Province', basePrice: 1400, baseColor: '#48dbfb' },
-            { key: 'spain', displayName: 'Spain', iso3: 'ESP', adminLevel: 'Autonomous Community', basePrice: 1600, baseColor: '#f368e0' },
-            { key: 'netherlands', displayName: 'Netherlands', iso3: 'NLD', adminLevel: 'Province', basePrice: 1550, baseColor: '#00d2d3' }
+            { key: 'usa', displayName: 'United States', iso3: 'USA', adminLevel: 'State', basePrice: 1500, baseColor: '#4ecdc4' }, // 청록색
+            { key: 'korea', displayName: 'South Korea', iso3: 'KOR', adminLevel: 'Province/City', basePrice: 2000, baseColor: '#ff6b9d' }, // 핑크
+            { key: 'japan', displayName: 'Japan', iso3: 'JPN', adminLevel: 'Prefecture', basePrice: 1900, baseColor: '#a29bfe' }, // 보라색
+            { key: 'china', displayName: 'China', iso3: 'CHN', adminLevel: 'Province', basePrice: 2100, baseColor: '#ff6b6b' }, // 빨간색
+            { key: 'india', displayName: 'India', iso3: 'IND', adminLevel: 'State', basePrice: 1600, baseColor: '#10ac84' }, // 녹색
+            { key: 'russia', displayName: 'Russia', iso3: 'RUS', adminLevel: 'Federal Subject', basePrice: 1800, baseColor: '#54a0ff' }, // 파란색
+            { key: 'canada', displayName: 'Canada', iso3: 'CAN', adminLevel: 'Province', basePrice: 1700, baseColor: '#1dd1a1' }, // 민트색
+            { key: 'germany', displayName: 'Germany', iso3: 'DEU', adminLevel: 'State', basePrice: 1800, baseColor: '#ff9ff3' }, // 분홍색
+            { key: 'uk', displayName: 'United Kingdom', iso3: 'GBR', adminLevel: 'Region', basePrice: 1700, baseColor: '#48dbfb' }, // 하늘색
+            { key: 'france', displayName: 'France', iso3: 'FRA', adminLevel: 'Region', basePrice: 1750, baseColor: '#feca57' }, // 노란색
+            { key: 'italy', displayName: 'Italy', iso3: 'ITA', adminLevel: 'Region', basePrice: 1650, baseColor: '#ff9f43' }, // 주황색
+            { key: 'brazil', displayName: 'Brazil', iso3: 'BRA', adminLevel: 'State', basePrice: 1500, baseColor: '#1dd1a1' }, // 민트색
+            { key: 'australia', displayName: 'Australia', iso3: 'AUS', adminLevel: 'State', basePrice: 1500, baseColor: '#54a0ff' }, // 파란색
+            { key: 'mexico', displayName: 'Mexico', iso3: 'MEX', adminLevel: 'State', basePrice: 1400, baseColor: '#8395a7' }, // 회색
+            { key: 'indonesia', displayName: 'Indonesia', iso3: 'IDN', adminLevel: 'Province', basePrice: 1350, baseColor: '#ee5253' }, // 진한 빨간색
+            { key: 'saudi-arabia', displayName: 'Saudi Arabia', iso3: 'SAU', adminLevel: 'Province', basePrice: 1650, baseColor: '#576574' }, // 어두운 회색
+            { key: 'turkey', displayName: 'Turkey', iso3: 'TUR', adminLevel: 'Province', basePrice: 1500, baseColor: '#ff9f43' }, // 주황색
+            { key: 'south-africa', displayName: 'South Africa', iso3: 'ZAF', adminLevel: 'Province', basePrice: 1300, baseColor: '#222f3e' }, // 매우 어두운 회색
+            { key: 'argentina', displayName: 'Argentina', iso3: 'ARG', adminLevel: 'Province', basePrice: 1400, baseColor: '#48dbfb' }, // 하늘색
+            { key: 'spain', displayName: 'Spain', iso3: 'ESP', adminLevel: 'Autonomous Community', basePrice: 1600, baseColor: '#f368e0' }, // 자홍색
+            { key: 'netherlands', displayName: 'Netherlands', iso3: 'NLD', adminLevel: 'Province', basePrice: 1550, baseColor: '#00d2d3' } // 청록색
         ];
     }
     

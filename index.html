@@ -139,30 +139,34 @@
                 <div class="section-header">
                     <h4>🏆 리더보드</h4>
                     <span id="auction-leaderboard-updated" class="updated-at">-</span>
+                    <button id="leaderboard-toggle-btn" class="leaderboard-toggle-btn" title="최소화/확장">−</button>
                 </div>
-                <div class="countdown-section" style="padding: 10px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 0.85rem; color: #94a3b8;">시즌 종료까지</span>
-                        <span id="season-countdown" style="font-weight: 600; color: #ff6b6b; font-size: 0.9rem;">-</span>
-                    </div>
-                </div>
-                <div class="leaderboard-filter-panel">
-                    <div class="filter-group">
-                        <span class="filter-label">시즌</span>
-                        <div id="leaderboard-season-tabs" class="leaderboard-tab-list" role="tablist" aria-label="리더보드 시즌 필터">
-                            <button class="leaderboard-tab active" type="button" data-filter-type="season" data-filter-value="all">전체 시즌</button>
+                <div id="leaderboard-content" class="leaderboard-content">
+                <div id="leaderboard-content" class="leaderboard-content">
+                    <div class="countdown-section" style="padding: 10px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.85rem; color: #94a3b8;">시즌 종료까지</span>
+                            <span id="season-countdown" style="font-weight: 600; color: #ff6b6b; font-size: 0.9rem;">-</span>
                         </div>
                     </div>
-                    <div class="filter-group">
-                        <span class="filter-label">국가</span>
-                        <div id="leaderboard-country-tabs" class="leaderboard-tab-list scrollable" role="tablist" aria-label="리더보드 국가 필터">
-                            <button class="leaderboard-tab active" type="button" data-filter-type="country" data-filter-value="all">전체 국가</button>
+                    <div class="leaderboard-filter-panel">
+                        <div class="filter-group">
+                            <span class="filter-label">시즌</span>
+                            <div id="leaderboard-season-tabs" class="leaderboard-tab-list" role="tablist" aria-label="리더보드 시즌 필터">
+                                <button class="leaderboard-tab active" type="button" data-filter-type="season" data-filter-value="all">전체 시즌</button>
+                            </div>
+                        </div>
+                        <div class="filter-group">
+                            <span class="filter-label">국가</span>
+                            <div id="leaderboard-country-tabs" class="leaderboard-tab-list scrollable" role="tablist" aria-label="리더보드 국가 필터">
+                                <button class="leaderboard-tab active" type="button" data-filter-type="country" data-filter-value="all">전체 국가</button>
+                            </div>
                         </div>
                     </div>
+                    <ul id="auction-leaderboard-list" class="leaderboard-list">
+                        <li class="empty">데이터를 불러오는 중...</li>
+                    </ul>
                 </div>
-                <ul id="auction-leaderboard-list" class="leaderboard-list">
-                    <li class="empty">데이터를 불러오는 중...</li>
-                </ul>
             </div>
             <div class="auction-live-section">
                 <div class="section-header">
