@@ -157,7 +157,6 @@ class BillionaireMap {
             surplus: 0,
             lastUpdated: new Date()
         };
-        this.landingOverlayVisible = true; // 랜딩 오버레이 표시 여부
         this.currentFlashChallenge = null; // 현재 플래시 챌린지
         
         // G20 국가 설정
@@ -1261,22 +1260,53 @@ class BillionaireMap {
             this.hideLoading(); // 지도가 로드되면 로딩 화면 숨김
             
             // 3단계: Firebase 초기화는 백그라운드에서 비동기로 (지도 표시 후)
-            this.initializeFirebase().catch(err => {
-                console.warn('Firebase 초기화 실패 (계속 진행):', err);
-            }).then(() => {
-                // Firebase 초기화 완료 후 데이터 로드
-                if (this.isFirebaseInitialized) {
-                    this.loadRegionDataFromFirestore().catch(err => {
-                        console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+            // 지도가 먼저 표시되도록 지연 로딩
+            if (window.requestIdleCallback) {
+                requestIdleCallback(() => {
+                    this.initializeFirebase().catch(err => {
+                        console.warn('Firebase 초기화 실패 (계속 진행):', err);
+                    }).then(() => {
+                        // Firebase 초기화 완료 후 데이터 로드 (추가 지연)
+                        if (this.isFirebaseInitialized) {
+                            // Firestore 데이터는 사용자가 필요할 때 로드하도록 지연
+                            setTimeout(() => {
+                                this.loadRegionDataFromFirestore().catch(err => {
+                                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                                });
+                            }, 1000); // 1초 후 로드
+                            
+                            this.subscribeAuctionUpdates().catch(err => {
+                                console.warn('옥션 업데이트 구독 실패:', err);
+                            });
+                            this.subscribeRealtimeLeaderboard().catch(err => {
+                                console.warn('리더보드 구독 실패:', err);
+                            });
+                        }
                     });
-                    this.subscribeAuctionUpdates().catch(err => {
-                        console.warn('옥션 업데이트 구독 실패:', err);
+                }, { timeout: 500 });
+            } else {
+                // requestIdleCallback 미지원 시 setTimeout으로 대체
+                setTimeout(() => {
+                    this.initializeFirebase().catch(err => {
+                        console.warn('Firebase 초기화 실패 (계속 진행):', err);
+                    }).then(() => {
+                        if (this.isFirebaseInitialized) {
+                            setTimeout(() => {
+                                this.loadRegionDataFromFirestore().catch(err => {
+                                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                                });
+                            }, 1000);
+                            
+                            this.subscribeAuctionUpdates().catch(err => {
+                                console.warn('옥션 업데이트 구독 실패:', err);
+                            });
+                            this.subscribeRealtimeLeaderboard().catch(err => {
+                                console.warn('리더보드 구독 실패:', err);
+                            });
+                        }
                     });
-                    this.subscribeRealtimeLeaderboard().catch(err => {
-                        console.warn('리더보드 구독 실패:', err);
-                    });
-                }
-            });
+                }, 500);
+            }
             
             // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
             this.setAllRegionsPriceToUniform();
@@ -1321,7 +1351,6 @@ class BillionaireMap {
         this.initializePixelExperienceUI();
         this.initializeLeaderboardFilters();
         this.initializeLeaderboardToggle(); // 리더보드 최소화 기능 초기화
-        this.initializeLandingPage();
         this.initializeSeasonDashboard();
         this.initializeCommunityMissions().catch(err => {
             console.warn('커뮤니티 미션 초기화 실패:', err);
@@ -1711,60 +1740,98 @@ class BillionaireMap {
         }
 
         try {
-            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { collection, getDocs, limit } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
+            // Firestore 쿼리 최적화: 필요한 필드만 가져오고 배치 처리
             const regionsSnapshot = await getDocs(collection(this.firestore, 'regions'));
             
             let loadedCount = 0;
             let mergedCount = 0;
+            
+            // 배치 처리로 성능 개선 (한 번에 여러 데이터 처리)
+            const batchSize = 100;
+            const docs = [];
             regionsSnapshot.forEach((doc) => {
-                const data = doc.data();
-                const regionId = data.regionId || doc.id;
-                
-                // 메모리의 regionData에 병합 (Firestore 데이터 우선, 특히 인구/면적 데이터)
-                const existingData = this.regionData.get(regionId) || {};
-                
-                // Firestore 데이터를 우선적으로 사용 (인구/면적 데이터는 Firestore 우선)
-                const mergedData = {
-                    ...existingData,  // 기본은 로컬 데이터
-                    ...data,  // Firestore 데이터로 덮어씀 (Firestore 우선)
-                    // 인구/면적은 Firestore에 값이 있으면 Firestore 우선
-                    population: (data.population !== undefined && data.population !== null && data.population > 0)
-                        ? data.population 
-                        : (existingData.population || 0),
-                    area: (data.area !== undefined && data.area !== null && data.area > 0)
-                        ? data.area 
-                        : (existingData.area || 0),
-                    // 가격은 현재 메모리 상태 유지 (동기화 버튼에서 통일할 때까지)
-                    ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                        ? existingData.ad_price 
-                        : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
-                    // 기타 필드는 Firestore 우선, 없으면 로컬
-                    name_ko: data.name_ko || existingData.name_ko || '',
-                    name_en: data.name_en || existingData.name_en || existingData.name || '',
-                    country: data.country || existingData.country || '',
-                    admin_level: data.admin_level || existingData.admin_level || '',
-                    ad_status: data.ad_status || existingData.ad_status || 'available'
-                };
-                
-                // 로컬 데이터가 있었는지 확인
-                if (Object.keys(existingData).length > 0) {
-                    mergedCount++;
-                }
-                
-                this.regionData.set(regionId, mergedData);
-                loadedCount++;
+                docs.push({ id: doc.id, data: doc.data() });
             });
-
-            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다. (로컬 데이터와 병합: ${mergedCount}개)`);
-
-            // 지도 소스 업데이트
+            
+            // 배치 단위로 처리하여 메인 스레드 블로킹 방지
+            for (let i = 0; i < docs.length; i += batchSize) {
+                const batch = docs.slice(i, i + batchSize);
+                
+                // requestIdleCallback을 사용하여 메인 스레드에 여유가 있을 때 처리
+                await new Promise((resolve) => {
+                    if (window.requestIdleCallback) {
+                        requestIdleCallback(() => {
+                            const result = this.processFirestoreBatch(batch, loadedCount, mergedCount);
+                            loadedCount = result.loadedCount;
+                            mergedCount = result.mergedCount;
+                            resolve();
+                        }, { timeout: 50 });
+                    } else {
+                        // requestIdleCallback 미지원 시 즉시 처리
+                        const result = this.processFirestoreBatch(batch, loadedCount, mergedCount);
+                        loadedCount = result.loadedCount;
+                        mergedCount = result.mergedCount;
+                        resolve();
+                    }
+                });
+            }
+            
+            // 모든 배치 처리 완료 후 지도 소스 업데이트 (한 번만)
             this.updateMapSourcesWithRegionData();
+            
+            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다. (로컬 데이터와 병합: ${mergedCount}개)`);
             
         } catch (error) {
             console.error('Firestore 지역 데이터 불러오기 오류:', error);
             // 오류가 나도 계속 진행 (로컬 데이터 사용)
         }
+    }
+    
+    processFirestoreBatch(batch, currentLoadedCount, currentMergedCount) {
+        let loadedCount = currentLoadedCount;
+        let mergedCount = currentMergedCount;
+        
+        batch.forEach(({ id, data }) => {
+            const regionId = data.regionId || id;
+            
+            // 메모리의 regionData에 병합 (Firestore 데이터 우선, 특히 인구/면적 데이터)
+            const existingData = this.regionData.get(regionId) || {};
+            
+            // Firestore 데이터를 우선적으로 사용 (인구/면적 데이터는 Firestore 우선)
+            const mergedData = {
+                ...existingData,  // 기본은 로컬 데이터
+                ...data,  // Firestore 데이터로 덮어씀 (Firestore 우선)
+                // 인구/면적은 Firestore에 값이 있으면 Firestore 우선
+                population: (data.population !== undefined && data.population !== null && data.population > 0)
+                    ? data.population 
+                    : (existingData.population || 0),
+                area: (data.area !== undefined && data.area !== null && data.area > 0)
+                    ? data.area 
+                    : (existingData.area || 0),
+                // 가격은 현재 메모리 상태 유지 (동기화 버튼에서 통일할 때까지)
+                ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                    ? existingData.ad_price 
+                    : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
+                // 기타 필드는 Firestore 우선, 없으면 로컬
+                name_ko: data.name_ko || existingData.name_ko || '',
+                name_en: data.name_en || existingData.name_en || existingData.name || '',
+                country: data.country || existingData.country || '',
+                admin_level: data.admin_level || existingData.admin_level || '',
+                ad_status: data.ad_status || existingData.ad_status || 'available'
+            };
+            
+            // 로컬 데이터가 있었는지 확인
+            if (Object.keys(existingData).length > 0) {
+                mergedCount++;
+            }
+            
+            this.regionData.set(regionId, mergedData);
+            loadedCount++;
+        });
+        
+        return { loadedCount, mergedCount };
     }
     
     async subscribeAuctionUpdates() {
@@ -2917,19 +2984,30 @@ class BillionaireMap {
             const configs = this.getGlobalCountryConfigs();
             const aggregatedFeatures = [];
             
-            for (const config of configs) {
-                try {
-                    const geoJsonData = await this.fetchCountryGeoJson(
-                        config.key,
-                        config.displayName,
-                        config.iso3,
-                        config.candidateUrls || []
-                    );
-                    const processedFeatures = this.processCountryFeatures(config, geoJsonData);
-                    aggregatedFeatures.push(...processedFeatures);
-                } catch (error) {
-                    console.warn(`[GlobalRegions] ${config.displayName} 데이터 로드 실패:`, error);
-                }
+            // 병렬 로딩으로 속도 개선 (동시에 여러 국가 로드)
+            const batchSize = 5; // 한 번에 5개 국가씩 병렬 로드
+            for (let i = 0; i < configs.length; i += batchSize) {
+                const batch = configs.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (config) => {
+                    try {
+                        const geoJsonData = await this.fetchCountryGeoJson(
+                            config.key,
+                            config.displayName,
+                            config.iso3,
+                            config.candidateUrls || []
+                        );
+                        const processedFeatures = this.processCountryFeatures(config, geoJsonData);
+                        return processedFeatures;
+                    } catch (error) {
+                        console.warn(`[GlobalRegions] ${config.displayName} 데이터 로드 실패:`, error);
+                        return [];
+                    }
+                });
+                
+                const batchResults = await Promise.all(batchPromises);
+                batchResults.forEach(features => {
+                    aggregatedFeatures.push(...features);
+                });
             }
             
             if (aggregatedFeatures.length === 0) {
@@ -20310,53 +20388,6 @@ class BillionaireMap {
     // 랜딩 페이지 및 시즌 시스템 메서드
     // ============================================
     
-    // 랜딩 페이지 초기화
-    initializeLandingPage() {
-        const landingOverlay = document.getElementById('landing-overlay');
-        const exploreBtn = document.getElementById('landing-explore-btn');
-        
-        if (!landingOverlay || !exploreBtn) return;
-        
-        // 랜딩 오버레이 항상 숨기기
-        landingOverlay.classList.add('hidden');
-        this.landingOverlayVisible = false;
-    }
-    
-    // 랜딩 페이지 통계 업데이트
-    async updateLandingStats() {
-        if (!this.landingOverlayVisible) return;
-        
-        try {
-            // 시즌 데이터 가져오기
-            const seasonData = await this.getCurrentSeasonData();
-            
-            const remainingPixels = seasonData.totalPixels - seasonData.soldPixels;
-            const participants = seasonData.participants;
-            
-            // 남은 픽셀 표시
-            const remainingEl = document.getElementById('landing-remaining-pixels');
-            if (remainingEl) {
-                remainingEl.textContent = remainingPixels.toLocaleString();
-            }
-            
-            // 참여자 수 표시
-            const participantsEl = document.getElementById('landing-participants');
-            if (participantsEl) {
-                participantsEl.textContent = participants.toLocaleString();
-            }
-            
-            // 시즌 종료까지 남은 시간 계산
-            this.updateSeasonCountdown(seasonData);
-            
-            const endTimeEl = document.getElementById('landing-season-end');
-            if (endTimeEl) {
-                const countdown = this.formatSeasonCountdown(seasonData.endDate);
-                endTimeEl.textContent = countdown;
-            }
-        } catch (error) {
-            console.error('랜딩 통계 업데이트 실패:', error);
-        }
-    }
     
     // 현재 시즌 데이터 가져오기
     async getCurrentSeasonData() {
