@@ -14852,6 +14852,18 @@ class BillionaireMap {
                 this.saveRegionInfo();
             });
         }
+        
+        // 관리자 패널의 픽셀 에디터 열기 버튼
+        const adminOpenPixelEditor = document.getElementById('admin-open-pixel-editor');
+        if (adminOpenPixelEditor) {
+            adminOpenPixelEditor.addEventListener('click', () => {
+                if (!this.currentRegion) {
+                    this.showNotification('편집할 지역을 먼저 선택해주세요.', 'warning');
+                    return;
+                }
+                this.openPixelEditorModal();
+            });
+        }
 
         // 모든 지역 Firestore 동기화 버튼
         const syncAllRegionsBtn = document.getElementById('sync-all-regions-btn');
@@ -15132,6 +15144,11 @@ class BillionaireMap {
         // 관리자 모드일 때는 관리자 기능만 실행
         if (this.isAdminLoggedIn && this.adminMode) {
             console.log('관리자 모드: 관리자 패널만 표시 (일반 사용자 모드 비활성화)');
+            // 관리자 패널이 열려있지 않으면 자동으로 열기
+            const adminPanel = document.getElementById('admin-panel');
+            if (adminPanel && adminPanel.classList.contains('hidden')) {
+                this.showAdminPanel();
+            }
             this.updateAdminPanelForRegion(properties);
             // 관리자 모드에서는 기업 정보 모달을 절대 표시하지 않음
             return; // 여기서 함수 종료하여 일반 사용자 기능 차단
@@ -15146,6 +15163,12 @@ class BillionaireMap {
     updateAdminPanelForRegion(region) {
         console.log('관리자 패널 업데이트:', region);
         
+        // 관리자 패널이 열려있지 않으면 자동으로 열기
+        const adminPanel = document.getElementById('admin-panel');
+        if (adminPanel && adminPanel.classList.contains('hidden')) {
+            this.showAdminPanel();
+        }
+        
         const selectedStateName = document.getElementById('selected-state-name');
         if (selectedStateName) {
             const displayName = this.getRegionDisplayName(region);
@@ -15155,11 +15178,55 @@ class BillionaireMap {
             console.error('selected-state-name 요소를 찾을 수 없습니다');
         }
         
+        // 선택된 지역 정보를 currentRegion에 저장 (다른 함수에서 사용)
+        this.currentRegion = region;
+        
         this.updateLogoPreview();
         this.updateColorPreview();
         this.loadCompanyInfoForEdit(region.id);
         
+        // 지역 정보 입력 필드 업데이트 (관리자 패널의 지역 정보 수정 섹션)
+        this.updateAdminRegionInfoFields(region);
+        
         console.log('관리자 패널 업데이트 완료');
+    }
+    
+    // 관리자 패널의 지역 정보 입력 필드 업데이트
+    updateAdminRegionInfoFields(region) {
+        // 지역 정보 수정 필드가 있으면 업데이트
+        const regionNameInput = document.getElementById('region-name-input');
+        const regionNameEnInput = document.getElementById('region-name-en-input');
+        const regionCountryInput = document.getElementById('region-country-input');
+        const regionAdminLevelInput = document.getElementById('region-admin-level-input');
+        const regionPopulationInput = document.getElementById('region-population-input');
+        const regionAreaInput = document.getElementById('region-area-input');
+        const regionAdPriceInput = document.getElementById('region-ad-price-input');
+        const regionAdStatusInput = document.getElementById('region-ad-status-input');
+        
+        if (regionNameInput) {
+            regionNameInput.value = region.name_ko || region.name || '';
+        }
+        if (regionNameEnInput) {
+            regionNameEnInput.value = region.name_en || region.name || '';
+        }
+        if (regionCountryInput) {
+            regionCountryInput.value = region.country || '';
+        }
+        if (regionAdminLevelInput) {
+            regionAdminLevelInput.value = region.admin_level || '';
+        }
+        if (regionPopulationInput) {
+            regionPopulationInput.value = region.population || 0;
+        }
+        if (regionAreaInput) {
+            regionAreaInput.value = region.area || 0;
+        }
+        if (regionAdPriceInput) {
+            regionAdPriceInput.value = region.ad_price || this.uniformAdPrice || 1000;
+        }
+        if (regionAdStatusInput) {
+            regionAdStatusInput.value = region.ad_status || 'available';
+        }
     }
     
     // 기업 정보 모달 표시
@@ -16519,7 +16586,8 @@ class BillionaireMap {
             this.showNotification('편집할 지역을 먼저 선택해주세요.', 'warning');
             return;
         }
-        if (!this.currentUser) {
+        // 관리자 모드일 때는 로그인 체크 우회
+        if (!this.isAdminLoggedIn && !this.currentUser) {
             this.showNotification('픽셀을 편집하려면 로그인이 필요합니다.', 'warning');
             this.showUserLoginModal();
             return;
@@ -16530,7 +16598,12 @@ class BillionaireMap {
         this.initializePixelExperienceUI();
         const regionLabel = document.getElementById('pixel-editor-region-label');
         if (regionLabel) {
-            regionLabel.textContent = `선택된 지역: ${this.getRegionDisplayName(this.currentRegion)}`;
+            const regionName = this.getRegionDisplayName(this.currentRegion);
+            if (this.isAdminLoggedIn && this.adminMode) {
+                regionLabel.textContent = `[관리자 모드] 선택된 지역: ${regionName}`;
+            } else {
+                regionLabel.textContent = `선택된 지역: ${regionName}`;
+            }
         }
         
         const existingBundle = this.getLatestPixelBundle(this.currentRegion.id);
@@ -16634,7 +16707,8 @@ class BillionaireMap {
             this.showNotification('편집할 지역을 선택해주세요.', 'warning');
             return;
         }
-        if (!this.currentUser) {
+        // 관리자 모드일 때는 로그인 체크 우회
+        if (!this.isAdminLoggedIn && !this.currentUser) {
             this.showNotification('로그인 후 저장할 수 있습니다.', 'warning');
             this.showUserLoginModal();
             return;
@@ -16668,16 +16742,25 @@ class BillionaireMap {
             const protectionHours = this.pixelProtectionHours || this.auctionConfig.protectionHours || 12;
             const protectionEndsAt = Timestamp.fromDate(new Date(Date.now() + protectionHours * 60 * 60 * 1000));
             
+            // 관리자 모드일 때는 관리자 정보 사용, 일반 사용자일 때는 currentUser 사용
+            const ownerId = this.isAdminLoggedIn && this.adminMode 
+                ? 'admin' 
+                : (this.currentUser?.uid || 'anonymous');
+            const ownerName = this.isAdminLoggedIn && this.adminMode
+                ? '관리자'
+                : (this.currentUser?.displayName || this.currentUser?.email || '익명');
+            
             const payload = {
-                ownerId: this.currentUser.uid,
-                ownerName: this.currentUser.displayName || this.currentUser.email || '익명',
+                ownerId: ownerId,
+                ownerName: ownerName,
                 artType,
                 regionId,
                 bundleId,
                 message: this.pixelEditorState.messageText || '',
                 messageLink: this.pixelEditorState.messageLink || '',
                 updatedAt: serverTimestamp(),
-                protectionEndsAt
+                protectionEndsAt,
+                isAdminEdit: this.isAdminLoggedIn && this.adminMode // 관리자 편집 여부 표시
             };
             
             if (artType === 'canvas') {
