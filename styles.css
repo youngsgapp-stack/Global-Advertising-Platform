@@ -1899,6 +1899,11 @@ body {
     display: none !important;
 }
 
+/* 모달은 hidden 클래스가 없을 때 flex로 표시 (중앙 정렬) */
+.modal:not(.hidden) {
+    display: flex !important;
+}
+
 /* 지도 모드 전환 버튼 */
 .map-mode-toggle {
     position: fixed;

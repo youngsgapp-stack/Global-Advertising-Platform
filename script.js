@@ -15485,6 +15485,7 @@ class BillionaireMap {
         }
         
         modal.classList.remove('hidden');
+        modal.style.display = 'flex'; // 중앙 정렬을 위해 flex 사용
         console.log('통합 정보 모달 표시 완료');
     }
     
@@ -15493,6 +15494,7 @@ class BillionaireMap {
         const modal = document.getElementById('company-info-modal');
         if (modal) {
             modal.classList.add('hidden');
+            modal.style.display = 'none';
         }
     }
     
@@ -16618,7 +16620,7 @@ class BillionaireMap {
         const existingBundle = this.getLatestPixelBundle(this.currentRegion.id);
         this.populatePixelEditorFromBundle(existingBundle);
         modal.classList.remove('hidden');
-        modal.style.display = 'block';
+        modal.style.display = 'flex'; // 중앙 정렬을 위해 flex 사용
     }
     
     closePixelEditorModal() {
@@ -19684,20 +19686,26 @@ class BillionaireMap {
         const modal = document.getElementById('region-info-modal');
         if (modal) {
             modal.classList.remove('hidden');
-            modal.style.display = 'block';
+            modal.style.display = 'flex'; // 중앙 정렬을 위해 flex 사용
         }
     }
     
     // 기업 정보 모달 숨기기
     hideCompanyInfoModal() {
         const modal = document.getElementById('company-info-modal');
-        modal.classList.add('hidden');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
     }
     
     // 지역 정보 모달 숨기기
     hideRegionInfoModal() {
         const modal = document.getElementById('region-info-modal');
-        modal.classList.add('hidden');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
     }
     
     // 기업 정보 로드 (편집용)
