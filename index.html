@@ -39,18 +39,6 @@
                     <button id="side-admin-logout-btn" class="side-menu-btn admin-logout-btn hidden">Admin 로그아웃</button>
                 </div>
                 <div class="side-menu-section">
-                    <h4>시즌</h4>
-                    <button id="side-season-dashboard-btn" class="side-menu-btn season-btn">시즌 현황</button>
-                    <button id="side-pixel-highlights-btn" class="side-menu-btn highlights-btn">대표 픽셀</button>
-                    <button id="side-season-archive-btn" class="side-menu-btn archive-btn">시즌 아카이브</button>
-                </div>
-                <div class="side-menu-section">
-                    <h4>커뮤니티</h4>
-                    <button id="side-participation-guide-btn" class="side-menu-btn participation-btn">참여 안내</button>
-                    <button id="side-missions-btn" class="side-menu-btn mission-btn">커뮤니티 미션</button>
-                    <button id="side-transparency-btn" class="side-menu-btn transparency-btn">투명화 대시보드</button>
-                </div>
-                <div class="side-menu-section">
                     <h4>도움말</h4>
                     <button id="side-help-btn" class="side-menu-btn help-btn">Help</button>
                 </div>
@@ -73,110 +61,26 @@
             </div>
         </div>
         
-        <!-- 중앙 정보 패널 -->
-        <div id="info-panel" class="info-panel-overlay hidden">
-            <div class="info-panel-card">
-                <div class="panel-header">
-                    <h3 id="region-name">지역 정보</h3>
-                    <button id="close-panel" class="close-btn">&times;</button>
-                </div>
-                <div class="panel-content">
-                    <div class="region-details">
-                        <p><strong>국가:</strong> <span id="country-name">-</span></p>
-                        <p><strong>행정구역:</strong> <span id="admin-level">-</span></p>
-                        <p><strong>인구:</strong> <span id="population">-</span></p>
-                        <p><strong>면적:</strong> <span id="area">-</span></p>
-                    </div>
-                    <div class="advertising-info">
-                        <h4>광고 정보</h4>
-                        <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
-                        <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
-                        <div class="auction-info">
-                            <h5>옥션 정보</h5>
-                            <p><strong>현재 입찰가:</strong> <span id="auction-current-bid">-</span></p>
-                            <p><strong>최소 입찰가:</strong> <span id="auction-min-bid">-</span></p>
-                            <p><strong>보호 상태:</strong> <span id="auction-protection">-</span></p>
-                            <p><strong>최고 입찰자:</strong> <span id="auction-current-bidder">-</span></p>
-                            <p><strong>보호 설정:</strong> <span id="auction-config-protection">-</span></p>
-                            <p><strong>최소 상향폭:</strong> <span id="auction-config-increment">-</span></p>
-                            <p><strong>즉시 구매가:</strong> <span id="auction-config-buy-now">-</span></p>
-                            <div class="auction-input-group">
-                                <input type="number" id="auction-bid-input" placeholder="입찰 금액 (USD)">
-                                <button id="auction-bid-btn" class="auction-bid-btn">입찰하기</button>
-                            </div>
-                            <p id="auction-status-message" class="auction-status-message"></p>
-                            <button id="auction-buy-now-btn" class="purchase-btn secondary hidden">즉시 구매</button>
-                        </div>
-                        <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
-                        <div id="paypal-buttons" style="margin-top: 15px;"></div>
-                    </div>
-                    <div class="pixel-story-card">
-                        <div class="pixel-story-header">
-                            <h4>픽셀 스토리</h4>
-                            <button id="pixel-layer-toggle" class="pixel-layer-toggle">픽셀 레벨 보기</button>
-                        </div>
-                        <canvas id="pixel-preview" width="160" height="160"></canvas>
-                        <p id="pixel-story-message" class="pixel-story-message">아직 등록된 픽셀 스토리가 없습니다.</p>
-                        <div id="pixel-story-brand" class="pixel-story-brand hidden">
-                            <div class="brand-header">
-                                <h5 id="brand-name">브랜드명</h5>
-                                <img id="brand-logo" src="" alt="브랜드 로고" class="brand-logo hidden">
-                            </div>
-                            <p id="brand-description" class="brand-description"></p>
-                            <a id="brand-link" href="" target="_blank" class="brand-link hidden">웹사이트 방문 →</a>
-                        </div>
-                        <div class="pixel-story-meta">
-                            <span id="pixel-protection-chip" class="protection-chip hidden">보호 시간 계산 중...</span>
-                            <span id="pixel-story-owner" class="pixel-story-owner"></span>
-                        </div>
-                        <button id="open-pixel-editor" class="pixel-editor-btn">픽셀 에디터 열기</button>
-                    </div>
-                </div>
+        <!-- 우측 정보 패널 -->
+        <div id="info-panel" class="info-panel hidden">
+            <div class="panel-header">
+                <h3 id="region-name">지역 정보</h3>
+                <button id="close-panel" class="close-btn">&times;</button>
             </div>
-        </div>
-        
-        <!-- 실시간 옥션 패널 -->
-        <div id="auction-live-panel" class="auction-live-panel">
-            <div class="auction-live-section">
-                <div class="section-header">
-                    <h4>🏆 리더보드</h4>
-                    <span id="auction-leaderboard-updated" class="updated-at">-</span>
-                    <button id="leaderboard-toggle-btn" class="leaderboard-toggle-btn" title="최소화/확장">−</button>
+            <div class="panel-content">
+                <div class="region-details">
+                    <p><strong>국가:</strong> <span id="country-name">-</span></p>
+                    <p><strong>행정구역:</strong> <span id="admin-level">-</span></p>
+                    <p><strong>인구:</strong> <span id="population">-</span></p>
+                    <p><strong>면적:</strong> <span id="area">-</span></p>
                 </div>
-                <div id="leaderboard-content" class="leaderboard-content">
-                <div id="leaderboard-content" class="leaderboard-content">
-                    <div class="countdown-section" style="padding: 10px; background: rgba(255, 107, 107, 0.1); border-radius: 8px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 0.85rem; color: #94a3b8;">시즌 종료까지</span>
-                            <span id="season-countdown" style="font-weight: 600; color: #ff6b6b; font-size: 0.9rem;">-</span>
-                        </div>
-                    </div>
-                    <div class="leaderboard-filter-panel">
-                        <div class="filter-group">
-                            <span class="filter-label">시즌</span>
-                            <div id="leaderboard-season-tabs" class="leaderboard-tab-list" role="tablist" aria-label="리더보드 시즌 필터">
-                                <button class="leaderboard-tab active" type="button" data-filter-type="season" data-filter-value="all">전체 시즌</button>
-                            </div>
-                        </div>
-                        <div class="filter-group">
-                            <span class="filter-label">국가</span>
-                            <div id="leaderboard-country-tabs" class="leaderboard-tab-list scrollable" role="tablist" aria-label="리더보드 국가 필터">
-                                <button class="leaderboard-tab active" type="button" data-filter-type="country" data-filter-value="all">전체 국가</button>
-                            </div>
-                        </div>
-                    </div>
-                    <ul id="auction-leaderboard-list" class="leaderboard-list">
-                        <li class="empty">데이터를 불러오는 중...</li>
-                    </ul>
+                <div class="advertising-info">
+                    <h4>광고 정보</h4>
+                    <p><strong>상태:</strong> <span id="ad-status">사용 가능</span></p>
+                    <p><strong>가격:</strong> <span id="ad-price">$0</span></p>
+                    <button id="purchase-btn" class="purchase-btn">이 지역 구매하기</button>
+                    <div id="paypal-buttons" style="margin-top: 15px;"></div>
                 </div>
-            </div>
-            <div class="auction-live-section">
-                <div class="section-header">
-                    <h4>⚡ 최근 입찰</h4>
-                </div>
-                <ul id="auction-bid-log" class="bid-log">
-                    <li class="empty">데이터를 불러오는 중...</li>
-                </ul>
             </div>
         </div>
         
@@ -369,66 +273,12 @@
                         <div class="region-actions">
                             <button id="save-region-info" class="save-btn">지역 정보 저장</button>
                         </div>
-                        <div class="pixel-editor-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                            <h5 style="color: #a29bfe; margin-bottom: 10px;">🎨 픽셀 에디터</h5>
-                            <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 15px; line-height: 1.5;">
-                                선택한 지역에 픽셀 아트, 이미지, 또는 메시지를 추가할 수 있습니다.<br>
-                                <strong>사용 방법:</strong> 지역을 선택한 후 아래 버튼을 클릭하세요.
-                            </p>
-                            <button id="admin-open-pixel-editor" class="save-btn" style="background: #a29bfe; width: 100%;">
-                                🎨 픽셀 에디터 열기
-                            </button>
-                            <div style="margin-top: 10px; padding: 10px; background: rgba(162, 155, 254, 0.1); border-radius: 8px; font-size: 0.8rem; color: #cbd5e1;">
-                                <strong>픽셀 에디터 기능:</strong><br>
-                                • <strong>픽셀 아트:</strong> 16x16 픽셀 캔버스에서 직접 그리기<br>
-                                • <strong>이미지 업로드:</strong> 브랜드 로고나 이미지를 자동 픽셀화<br>
-                                • <strong>메시지 카드:</strong> 140자 메시지와 링크 추가
-                            </div>
-                        </div>
                         <div class="region-bulk-actions" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
                             <h5>일괄 작업</h5>
                             <button id="sync-all-regions-btn" class="save-btn" style="background: #2ecc71;">모든 지역 Firestore 동기화</button>
                             <p style="font-size: 12px; color: #666; margin-top: 10px;">
                                 모든 지역의 광고 가격을 1000달러로 통일하고, 면적/인구수 데이터를 Firestore에 저장합니다.
                             </p>
-                        </div>
-                        <div class="auction-config-management">
-                            <h5>지역별 옥션 설정</h5>
-                            <p class="form-hint">아래 값은 현재 선택된 지역에만 적용됩니다. <strong>지역 정보 저장</strong> 버튼을 누르면 모든 값이 함께 저장됩니다.</p>
-                            <div class="auction-config-grid">
-                                <div class="form-group">
-                                    <label>시즌 태그:</label>
-                                    <input type="text" id="region-season-tag-input" placeholder="예: 2025-S1">
-                                </div>
-                                <div class="form-group">
-                                    <label>최소 인상률 (%):</label>
-                                    <input type="number" id="region-auction-min-percent-input" step="0.1" min="0" placeholder="예: 5">
-                                </div>
-                                <div class="form-group">
-                                    <label>최소 인상액 (USD):</label>
-                                    <input type="number" id="region-auction-min-amount-input" step="1" min="0" placeholder="예: 100">
-                                </div>
-                                <div class="form-group">
-                                    <label>보호 시간 (시간):</label>
-                                    <input type="number" id="region-auction-protection-input" step="1" min="0" placeholder="예: 12">
-                                </div>
-                                <div class="form-group">
-                                    <label>반올림 단위 (USD):</label>
-                                    <input type="number" id="region-auction-rounding-input" step="10" min="10" placeholder="예: 100">
-                                </div>
-                                <div class="form-group">
-                                    <label>즉시 구매가 (USD):</label>
-                                    <input type="number" id="region-auction-buy-now-input" step="10" min="0" placeholder="예: 25000">
-                                </div>
-                                <div class="form-group">
-                                    <label>즉시 이전 보너스 (%):</label>
-                                    <input type="number" id="region-auction-instant-transfer-input" step="0.5" min="0" max="100" placeholder="예: 15">
-                                </div>
-                                <div class="form-group">
-                                    <label>디펜스 유예 (분):</label>
-                                    <input type="number" id="region-auction-defense-grace-input" step="1" min="0" placeholder="예: 10">
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -610,24 +460,6 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="auction-info compact">
-                            <h4>옥션 진행 상황</h4>
-                            <div class="auction-stats">
-                                <p><strong>현재 입찰가:</strong> <span id="company-auction-current-bid">-</span></p>
-                                <p><strong>최소 입찰가:</strong> <span id="company-auction-min-bid">-</span></p>
-                                <p><strong>보호 상태:</strong> <span id="company-auction-protection">-</span></p>
-                                <p><strong>최고 입찰자:</strong> <span id="company-auction-current-bidder">-</span></p>
-                                <p><strong>보호 설정:</strong> <span id="company-auction-config-protection">-</span></p>
-                                <p><strong>최소 상향폭:</strong> <span id="company-auction-config-increment">-</span></p>
-                                <p><strong>즉시 구매가:</strong> <span id="company-auction-config-buy-now">-</span></p>
-                            </div>
-                            <div class="auction-input-group">
-                                <input type="number" id="company-auction-bid-input" placeholder="입찰 금액 (USD)">
-                                <button id="company-auction-bid-btn" class="auction-bid-btn">입찰하기</button>
-                            </div>
-                            <p id="company-auction-status" class="auction-status-message"></p>
-                            <button id="company-auction-buy-now-btn" class="purchase-btn secondary hidden">즉시 구매</button>
-                        </div>
                     </div>
                     
                     <!-- 구분선 -->
@@ -712,7 +544,6 @@
                         <!-- 관리자 모드에서만 표시되는 편집 버튼 -->
                         <div class="company-actions" id="company-modal-actions">
                             <button id="company-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
-                            <button id="company-open-pixel-editor" class="pixel-editor-btn secondary">픽셀 에디터 열기</button>
                             <button id="company-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
                             <div id="company-paypal-buttons" style="margin-top: 15px;"></div>
                         </div>
@@ -805,8 +636,6 @@
                         
                         <div class="region-actions">
                             <button id="region-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
-                            <button id="region-auction-buy-now-btn" class="purchase-btn secondary hidden">즉시 구매</button>
-                            <button id="region-open-pixel-editor" class="pixel-editor-btn secondary">픽셀 에디터 열기</button>
                             <button id="region-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
                             <div id="region-paypal-buttons" style="margin-top: 15px;"></div>
                         </div>
@@ -816,359 +645,9 @@
         </div>
         
         <!-- 로딩 인디케이터 -->
-        <div id="loading" class="loading-overlay">
-            <div class="loading-card">
-                <div class="spinner"></div>
-                <p>지도를 불러오는 중...</p>
-            </div>
-        </div>
-
-
-        <!-- 시즌 현황 대시보드 -->
-        <div id="season-dashboard" class="season-dashboard hidden">
-            <div class="dashboard-header">
-                <h2>시즌 현황</h2>
-                <button id="close-season-dashboard" class="close-btn">&times;</button>
-            </div>
-            <div class="dashboard-content">
-                <div class="season-info-section">
-                    <div class="season-badge" id="current-season-badge">시즌 1</div>
-                    <div class="season-progress">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="season-progress-fill"></div>
-                        </div>
-                        <div class="progress-text">
-                            <span id="season-progress-text">0%</span>
-                            <span class="progress-label">완판 진행률</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="dashboard-stats-grid">
-                    <div class="dashboard-stat-card">
-                        <div class="dashboard-stat-icon">🎯</div>
-                        <div class="dashboard-stat-value" id="dashboard-total-pixels">-</div>
-                        <div class="dashboard-stat-label">총 픽셀 수량</div>
-                    </div>
-                    <div class="dashboard-stat-card">
-                        <div class="dashboard-stat-icon">✅</div>
-                        <div class="dashboard-stat-value" id="dashboard-sold-pixels">-</div>
-                        <div class="dashboard-stat-label">판매된 픽셀</div>
-                    </div>
-                    <div class="dashboard-stat-card">
-                        <div class="dashboard-stat-icon">👥</div>
-                        <div class="dashboard-stat-value" id="dashboard-participants">-</div>
-                        <div class="dashboard-stat-label">참여자 수</div>
-                    </div>
-                    <div class="dashboard-stat-card">
-                        <div class="dashboard-stat-icon">💰</div>
-                        <div class="dashboard-stat-value" id="dashboard-revenue">$0</div>
-                        <div class="dashboard-stat-label">총 수익</div>
-                    </div>
-                </div>
-                <div class="dashboard-actions">
-                    <button id="dashboard-highlights-btn" class="dashboard-btn">대표 픽셀 보기</button>
-                    <button id="dashboard-participate-btn" class="dashboard-btn primary">참여하기</button>
-                </div>
-                <div class="dashboard-timeline-section">
-                    <h3>시즌 타임라인</h3>
-                    <div id="season-timeline-container" class="timeline-container">
-                        <div class="timeline-loading">타임라인 로딩 중...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 대표 픽셀 하이라이트 갤러리 -->
-        <div id="pixel-highlights-modal" class="modal hidden">
-            <div class="modal-content pixel-highlights-modal">
-                <div class="modal-header">
-                    <h2>대표 픽셀 하이라이트</h2>
-                    <button id="close-pixel-highlights" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div id="pixel-highlights-grid" class="pixel-highlights-grid">
-                        <!-- 동적으로 생성됨 -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 참여 방식 안내 모달 -->
-        <div id="participation-guide-modal" class="modal hidden">
-            <div class="modal-content participation-guide-modal">
-                <div class="modal-header">
-                    <h2>참여 방식 안내</h2>
-                    <button id="close-participation-guide" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="participation-options">
-                        <div class="participation-option free">
-                            <div class="option-header">
-                                <h3>🆓 무료 픽셀</h3>
-                                <div class="option-badge">기본</div>
-                            </div>
-                            <ul class="option-features">
-                                <li>✓ 기본 픽셀 1개 무료 배정</li>
-                                <li>✓ 16x16 픽셀 아트 제작</li>
-                                <li>✓ 간단한 메시지 카드</li>
-                                <li>✓ 커뮤니티 미션으로 확장 가능</li>
-                            </ul>
-                            <button class="option-select-btn" data-type="free">무료로 시작하기</button>
-                        </div>
-                        <div class="participation-option premium">
-                            <div class="option-header">
-                                <h3>⭐ 프리미엄 패키지</h3>
-                                <div class="option-badge">추천</div>
-                            </div>
-                            <ul class="option-features">
-                                <li>✓ 추가 픽셀 확장 가능</li>
-                                <li>✓ 애니메이션 효과</li>
-                                <li>✓ 프레임 디자인</li>
-                                <li>✓ 외부 링크 연결</li>
-                                <li>✓ 우선 배치 권한</li>
-                            </ul>
-                            <button class="option-select-btn" data-type="premium">프리미엄 구매</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 커뮤니티 미션 패널 -->
-        <div id="community-missions-modal" class="modal hidden">
-            <div class="modal-content community-missions-modal">
-                <div class="modal-header">
-                    <h2>커뮤니티 미션</h2>
-                    <button id="close-community-missions" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="user-points-display">
-                        <div class="points-badge">
-                            <span class="points-icon">⭐</span>
-                            <span class="points-value" id="user-points-display">0</span>
-                            <span class="points-label">포인트</span>
-                        </div>
-                    </div>
-                    <div class="user-badges-display" style="margin-top: 15px; padding: 15px; background: rgba(78, 205, 196, 0.1); border-radius: 8px;">
-                        <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; color: #4ecdc4;">획득한 뱃지</h4>
-                        <div id="user-badges-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
-                            <span style="color: #94a3b8; font-size: 0.85rem;">아직 획득한 뱃지가 없습니다.</span>
-                        </div>
-                    </div>
-                    <div id="missions-list" class="missions-list">
-                        <!-- 동적으로 생성됨 -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 플래시 챌린지 패널 -->
-        <div id="flash-challenge-panel" class="flash-challenge-panel hidden">
-            <div class="challenge-header">
-                <h3>⚡ 오늘의 플래시 챌린지</h3>
-                <button id="close-flash-challenge" class="close-btn">&times;</button>
-            </div>
-            <div class="challenge-content">
-                <div class="challenge-info">
-                    <h4 id="challenge-title">-</h4>
-                    <p id="challenge-description">-</p>
-                    <div class="challenge-timer">
-                        <span id="challenge-time-remaining">-</span>
-                    </div>
-                </div>
-                <div class="challenge-leaderboard">
-                    <h5>리더보드</h5>
-                    <ul id="challenge-leaderboard-list">
-                        <li>로딩 중...</li>
-                    </ul>
-                </div>
-                <button id="join-challenge-btn" class="challenge-join-btn">챌린지 참여하기</button>
-            </div>
-        </div>
-
-        <!-- 시즌 아카이브 뷰어 -->
-        <div id="season-archive-modal" class="modal hidden">
-            <div class="modal-content season-archive-modal">
-                <div class="modal-header">
-                    <h2>시즌 아카이브</h2>
-                    <button id="close-season-archive" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="archive-season-selector">
-                        <label>시즌 선택:</label>
-                        <select id="archive-season-select">
-                            <option value="">시즌을 선택하세요</option>
-                        </select>
-                    </div>
-                    <div id="archive-gallery" class="archive-gallery">
-                        <p style="text-align: center; color: #999; padding: 40px;">시즌을 선택하면 아카이브를 볼 수 있습니다.</p>
-                    </div>
-                    <div id="archive-final-owners" class="archive-final-owners hidden">
-                        <h3>🏆 최종 소유자</h3>
-                        <div id="final-owners-list" class="final-owners-list"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 픽셀 스토리 상세 모달 -->
-        <div id="pixel-story-modal" class="modal hidden">
-            <div class="modal-content pixel-story-modal">
-                <div class="modal-header">
-                    <h2>픽셀 스토리</h2>
-                    <button id="close-pixel-story-modal" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="pixel-story-detail">
-                        <div class="pixel-story-region-info">
-                            <h3 id="pixel-story-region-name">-</h3>
-                            <p id="pixel-story-region-country">-</p>
-                        </div>
-                        <canvas id="pixel-story-detail-canvas" width="320" height="320"></canvas>
-                        <div class="pixel-story-detail-message">
-                            <p id="pixel-story-detail-message">-</p>
-                        </div>
-                        <div id="pixel-story-detail-brand" class="pixel-story-detail-brand hidden">
-                            <div class="brand-header">
-                                <h4 id="pixel-story-detail-brand-name">브랜드명</h4>
-                                <img id="pixel-story-detail-brand-logo" src="" alt="브랜드 로고" class="brand-logo hidden">
-                            </div>
-                            <p id="pixel-story-detail-brand-description" class="brand-description"></p>
-                            <a id="pixel-story-detail-brand-link" href="" target="_blank" class="brand-link hidden">웹사이트 방문 →</a>
-                        </div>
-                        <div class="pixel-story-detail-meta">
-                            <span id="pixel-story-detail-protection" class="protection-chip hidden">보호 시간 계산 중...</span>
-                            <span id="pixel-story-detail-owner" class="pixel-story-owner"></span>
-                        </div>
-                        <div class="pixel-story-detail-actions">
-                            <button id="pixel-story-detail-editor-btn" class="pixel-editor-btn">픽셀 에디터 열기</button>
-                            <button id="pixel-story-detail-region-btn" class="pixel-editor-btn secondary">지역 정보 보기</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 구역별 미니맵 -->
-        <div id="region-minimap" class="region-minimap hidden">
-            <div class="minimap-header">
-                <h4>구역별 픽셀 분포</h4>
-                <button id="close-minimap" class="close-btn">&times;</button>
-            </div>
-            <div class="minimap-content">
-                <div id="minimap-canvas-container">
-                    <canvas id="minimap-canvas"></canvas>
-                </div>
-                <div class="minimap-legend">
-                    <div class="minimap-legend-item">
-                        <div class="minimap-legend-color" style="background: #4ecdc4;"></div>
-                        <span>픽셀 없음</span>
-                    </div>
-                    <div class="minimap-legend-item">
-                        <div class="minimap-legend-color" style="background: #ff6b6b;"></div>
-                        <span>픽셀 있음</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 서버비 투명화 대시보드 -->
-        <div id="transparency-dashboard" class="modal hidden">
-            <div class="modal-content transparency-dashboard-modal">
-                <div class="modal-header">
-                    <h2>서버비 투명화 대시보드</h2>
-                    <button id="close-transparency-dashboard" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="transparency-stats">
-                        <div class="transparency-stat-card">
-                            <h4>💰 총 수익</h4>
-                            <div class="transparency-value" id="transparency-total-revenue">$0</div>
-                        </div>
-                        <div class="transparency-stat-card">
-                            <h4>💸 총 지출</h4>
-                            <div class="transparency-value" id="transparency-total-expenses">$0</div>
-                        </div>
-                        <div class="transparency-stat-card">
-                            <h4>🖥️ 서버비</h4>
-                            <div class="transparency-value" id="transparency-server-cost">$0/월</div>
-                        </div>
-                        <div class="transparency-stat-card">
-                            <h4>📊 여유분</h4>
-                            <div class="transparency-value" id="transparency-surplus">$0</div>
-                        </div>
-                    </div>
-                    <div class="transparency-chart">
-                        <canvas id="transparency-chart-canvas"></canvas>
-                    </div>
-                    <div class="transparency-plans">
-                        <h4>향후 계획</h4>
-                        <ul id="transparency-plans-list">
-                            <li>P2W 완화를 위한 커뮤니티 미션 확대</li>
-                            <li>서버비 안정화를 위한 인프라 최적화</li>
-                            <li>추가 기능 개발을 위한 투자</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 픽셀 에디터 모달 -->
-        <div id="pixel-editor-modal" class="modal hidden">
-            <div class="modal-content pixel-editor-modal">
-                <div class="modal-header">
-                    <h2>픽셀 에디터</h2>
-                    <button id="close-pixel-editor" class="close-btn">&times;</button>
-                </div>
-                <div class="modal-body pixel-editor-body">
-                    <div class="pixel-editor-info">
-                        <p id="pixel-editor-region-label">선택된 지역: -</p>
-                        <div class="pixel-editor-meta">
-                            <span id="pixel-editor-owner" class="pixel-story-owner"></span>
-                            <span id="pixel-editor-protection" class="protection-chip hidden">보호 시간 계산 중...</span>
-                        </div>
-                    </div>
-                    <div class="pixel-mode-tabs">
-                        <button class="pixel-mode-btn active" data-mode="canvas" id="pixel-mode-canvas-btn">픽셀 아트</button>
-                        <button class="pixel-mode-btn" data-mode="image" id="pixel-mode-image-btn">이미지 업로드</button>
-                        <button class="pixel-mode-btn" data-mode="message" id="pixel-mode-message-btn">메시지 카드</button>
-                    </div>
-                    <div class="pixel-editor-panels">
-                        <div class="pixel-panel" id="pixel-panel-canvas">
-                            <canvas id="pixel-editor-canvas" width="320" height="320"></canvas>
-                            <div class="pixel-canvas-controls">
-                                <label>
-                                    색상
-                                    <input type="color" id="pixel-color-input" value="#ff6b6b">
-                                </label>
-                                <label>
-                                    브러시
-                                    <input type="range" id="pixel-brush-size" min="1" max="4" value="1">
-                                </label>
-                                <button id="pixel-clear-btn" class="outline-btn">초기화</button>
-                            </div>
-                        </div>
-                        <div class="pixel-panel hidden" id="pixel-panel-image">
-                            <p class="panel-description">브랜드 이미지를 업로드하면 자동으로 픽셀화된 썸네일이 생성됩니다.</p>
-                            <input type="file" id="pixel-image-input" accept="image/*">
-                            <div class="pixel-image-preview">
-                                <img id="pixel-image-preview" alt="이미지 미리보기">
-                            </div>
-                        </div>
-                        <div class="pixel-panel hidden" id="pixel-panel-message">
-                            <p class="panel-description">140자 메시지로 지역 점령 스토리를 기록하세요.</p>
-                            <textarea id="pixel-message-input" maxlength="140" placeholder="핵심 메시지를 입력하세요."></textarea>
-                            <div class="pixel-message-footer">
-                                <input type="url" id="pixel-message-link" placeholder="연결할 링크 (선택)">
-                                <span id="pixel-message-count">0 / 140</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="pixel-editor-footer">
-                        <button id="pixel-save-btn" class="purchase-btn wide">스토리 저장</button>
-                    </div>
-                </div>
-            </div>
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>지도를 불러오는 중...</p>
         </div>
     </div>
     
@@ -1182,7 +661,6 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-        import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js';
         
         // Firebase 설정 객체
         // Firebase 프로젝트 설정 방법:
@@ -1201,7 +679,7 @@
         };
         
         // Firebase 초기화는 script.js에서 처리
-        window.firebaseModules = { initializeApp, getAuth, getFirestore, getFunctions, httpsCallable, firebaseConfig };
+        window.firebaseModules = { initializeApp, getAuth, getFirestore, firebaseConfig };
     </script>
     <script src="script.js"></script>
 </body>
