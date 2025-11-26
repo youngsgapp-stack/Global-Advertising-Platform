@@ -60,33 +60,63 @@ class AdminDashboard {
             await this.initializeFirebase();
             this.setupEventListeners();
 
-            // localStorage 세션 확인 및 Firebase Auth 로그인 시도
-            const storedSession = this.getStoredAdminSession();
-            let initialResumeAttempted = false;
-            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
-                initialResumeAttempted = true;
-                const resumed = await this.tryResumeAdminSession(storedSession);
-                if (!resumed && storedSession.signature) {
-                    // signature가 있는 경우에만 tryResumeAdminSession을 호출했지만 실패한 경우
-                    console.warn('[ADMIN] Firebase Auth 로그인 실패, 하지만 세션이 유효하므로 계속 진행');
-                } else if (!resumed && !storedSession.signature) {
-                    // signature가 없는 세션은 script.js에서 생성한 세션
-                    // Firestore 규칙에 의존하여 권한 확인
-                    console.log('[ADMIN] signature가 없는 세션 확인됨, Firestore 규칙에 의존하여 진행');
-                }
-            }
-
+            // localStorage 세션 확인
+            const initialStoredSession = this.getStoredAdminSession();
+            const hasValidSession = initialStoredSession && !this.isAdminSessionExpired(initialStoredSession);
+            const hasSignature = initialStoredSession?.signature;
+            
             // onAuthStateChanged가 즉시 실행되는 것을 방지하기 위한 플래그
             let authStateChangeHandled = false;
             let sessionResumeInProgress = false;
-            let authStateChangeSetup = false;
+            let initialCheckDone = false;
+            let allowRedirect = true; // 리다이렉트 허용 플래그
+
+            // 초기 세션 재개 시도 (signature가 있는 경우만)
+            if (hasValidSession && hasSignature) {
+                console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
+                sessionResumeInProgress = true;
+                const resumed = await this.tryResumeAdminSession(initialStoredSession);
+                sessionResumeInProgress = false;
+                if (resumed) {
+                    console.log('[ADMIN] 초기 세션 재개 성공');
+                    initialCheckDone = true;
+                } else {
+                    console.warn('[ADMIN] 초기 세션 재개 실패');
+                }
+            } else if (hasValidSession && !hasSignature) {
+                // signature가 없는 세션은 script.js에서 생성한 세션
+                // 이 경우 리다이렉트를 지연시켜 Firebase Auth 상태 확인 대기
+                console.log('[ADMIN] signature가 없는 세션 확인됨, Firebase Auth 상태 확인 대기 (3초)');
+                allowRedirect = false; // 리다이렉트 차단
+                initialCheckDone = true; // 초기 체크 완료로 표시하여 onAuthStateChanged 실행 허용
+                // 3초 대기 후 Firebase Auth 상태 확인
+                setTimeout(() => {
+                    if (!this.firebaseAuth.currentUser) {
+                        console.warn('[ADMIN] Firebase Auth 사용자가 없음, 리다이렉트');
+                        allowRedirect = true;
+                        this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
+                    } else {
+                        console.log('[ADMIN] Firebase Auth 사용자 확인됨');
+                        allowRedirect = true;
+                    }
+                }, 3000);
+            } else {
+                initialCheckDone = true; // 세션이 없어도 초기 체크 완료
+            }
 
             this.firebaseAuth.onAuthStateChanged(async (user) => {
-                // 첫 실행 시 플래그 설정
-                if (!authStateChangeSetup) {
-                    authStateChangeSetup = true;
+                // 초기 체크가 완료되지 않았고 signature가 있는 세션이 있으면 대기
+                if (!initialCheckDone && hasValidSession && hasSignature) {
+                    console.log('[ADMIN] 초기 인증 확인 대기 중...');
+                    return;
                 }
+
+                // 리다이렉트가 차단되어 있으면 실행하지 않음
+                if (!allowRedirect && !user) {
+                    console.log('[ADMIN] 리다이렉트 차단 중, 대기...');
+                    return;
+                }
+
                 // 중복 실행 방지
                 if (authStateChangeHandled && !user) {
                     return;
@@ -99,39 +129,37 @@ class AdminDashboard {
                 }
 
                 if (!user) {
-                    const storedSession = this.getStoredAdminSession();
-                    if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                    const currentStoredSession = this.getStoredAdminSession();
+                    if (currentStoredSession && !this.isAdminSessionExpired(currentStoredSession)) {
                         // localStorage 세션이 있으면 Firebase Auth 로그인 시도
                         console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
                         sessionResumeInProgress = true;
-                        const resumed = await this.tryResumeAdminSession(storedSession);
+                        const resumed = await this.tryResumeAdminSession(currentStoredSession);
                         sessionResumeInProgress = false;
                         if (resumed) {
                             // 로그인 성공하면 아래 코드에서 처리됨
                             authStateChangeHandled = false; // 재시도 허용
+                            allowRedirect = true; // 리다이렉트 허용
                             return;
                         }
                         // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
-                        // 따라서 리다이렉트
-                        if (!storedSession.signature) {
-                            console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
-                            this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
+                        if (!currentStoredSession.signature) {
+                            if (allowRedirect) {
+                                console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
+                                this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
+                            }
                             return;
                         }
                         // 로그인 실패하면 리다이렉트
-                        this.redirectToMap('관리자 로그인이 필요합니다.');
-                        return;
-                    }
-                    // 초기 세션 재개 시도가 있었으면 리다이렉트 지연
-                    if (initialResumeAttempted) {
-                        console.log('[ADMIN] 초기 세션 재개 시도 후 사용자 없음, 잠시 대기 후 재확인');
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        if (!this.firebaseAuth.currentUser) {
+                        if (allowRedirect) {
                             this.redirectToMap('관리자 로그인이 필요합니다.');
                         }
                         return;
                     }
-                    this.redirectToMap('관리자 로그인이 필요합니다.');
+                    // 세션이 없으면 리다이렉트
+                    if (allowRedirect) {
+                        this.redirectToMap('관리자 로그인이 필요합니다.');
+                    }
                     return;
                 }
 
