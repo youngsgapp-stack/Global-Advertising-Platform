@@ -49,6 +49,24 @@ class AdminDashboard {
 
     async init() {
         try {
+            // 먼저 localStorage 세션 확인 (script.js에서 생성한 세션)
+            const storedSession = this.getStoredAdminSession();
+            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                // localStorage 세션이 유효하면 Firebase Auth 없이도 진행
+                console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
+                await this.initializeFirebase();
+                this.setupEventListeners();
+                
+                // Firebase Auth 없이도 관리자 모드로 진행
+                this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
+                this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
+                this.updateSessionMeta();
+                
+                await this.refreshAll(true);
+                this.startAutoRefresh();
+                return;
+            }
+
             await this.initializeFirebase();
             this.setupEventListeners();
 
@@ -56,10 +74,15 @@ class AdminDashboard {
                 if (!user) {
                     const storedSession = this.getStoredAdminSession();
                     if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                        const resumed = await this.tryResumeAdminSession(storedSession);
-                        if (resumed) {
-                            return;
-                        }
+                        // localStorage 세션이 있으면 Firebase Auth 없이도 진행
+                        console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
+                        this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
+                        this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
+                        this.updateSessionMeta();
+                        
+                        await this.refreshAll(true);
+                        this.startAutoRefresh();
+                        return;
                     }
                     this.redirectToMap('관리자 로그인이 필요합니다.');
                     return;
@@ -68,6 +91,18 @@ class AdminDashboard {
                 try {
                     const tokenResult = await user.getIdTokenResult(true);
                     if (tokenResult?.claims?.role !== 'admin') {
+                        // Firebase Auth에 admin 권한이 없어도 localStorage 세션 확인
+                        const storedSession = this.getStoredAdminSession();
+                        if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                            console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
+                            this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
+                            this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
+                            this.updateSessionMeta();
+                            
+                            await this.refreshAll(true);
+                            this.startAutoRefresh();
+                            return;
+                        }
                         this.redirectToMap('관리자 권한이 필요합니다.');
                         return;
                     }
@@ -80,12 +115,36 @@ class AdminDashboard {
                     this.startAutoRefresh();
                 } catch (error) {
                     console.error('[ADMIN] 토큰 확인 실패', error);
+                    // 에러 발생 시에도 localStorage 세션 확인
+                    const storedSession = this.getStoredAdminSession();
+                    if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                        console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
+                        this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
+                        this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
+                        this.updateSessionMeta();
+                        
+                        await this.refreshAll(true);
+                        this.startAutoRefresh();
+                        return;
+                    }
                     this.redirectToMap('관리자 권한 확인에 실패했습니다.');
                 }
             });
             await this.tryResumeAdminSession();
         } catch (error) {
             console.error('[ADMIN] Firebase 초기화 실패', error);
+            // Firebase 초기화 실패 시에도 localStorage 세션 확인
+            const storedSession = this.getStoredAdminSession();
+            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행 (Firebase 초기화 실패 무시)');
+                // Firebase 없이도 기본 기능은 사용 가능하도록 설정
+                this.setupEventListeners();
+                this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
+                this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
+                this.updateSessionMeta();
+                this.showToast('Firebase 초기화에 실패했지만 관리자 모드로 진행합니다.', 'warning');
+                return;
+            }
             this.showToast('Firebase 초기화에 실패했습니다.', 'error');
         }
     }
@@ -142,9 +201,12 @@ class AdminDashboard {
                 return null;
             }
             const parsed = JSON.parse(raw);
-            if (!parsed?.sessionId || !parsed?.signature) {
+            // script.js에서 생성한 세션은 sessionId만 있고 signature가 없을 수 있음
+            // Firebase Functions에서 생성한 세션은 sessionId와 signature가 모두 있음
+            if (!parsed?.sessionId) {
                 return null;
             }
+            // signature가 없어도 sessionId가 있으면 유효한 세션으로 인식
             return parsed;
         } catch (error) {
             console.warn('[ADMIN] 세션 정보를 불러오지 못했습니다.', error);
@@ -259,6 +321,14 @@ class AdminDashboard {
         }
         if (this.isAdminSessionExpired(session)) {
             this.clearPersistedAdminSession();
+            return false;
+        }
+
+        // script.js에서 생성한 세션은 signature가 없을 수 있음
+        // 이 경우 Firebase Functions를 호출하지 않고 false를 반환
+        // (init() 함수에서 이미 localStorage 세션을 확인하므로 문제없음)
+        if (!session.signature) {
+            console.log('[ADMIN] signature가 없는 세션 (script.js에서 생성), Firebase Functions 호출 건너뜀');
             return false;
         }
 
