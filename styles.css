@@ -3737,13 +3737,25 @@ body {
 
 .tour-highlight {
     position: fixed;
-    border: 3px solid #4ecdc4;
-    border-radius: 8px;
-    box-shadow: 0 0 20px rgba(78, 205, 196, 0.5);
+    border: 2px solid #4ecdc4;
+    border-radius: 16px;
+    box-shadow:
+        0 0 25px rgba(78, 205, 196, 0.6),
+        0 0 0 9999px rgba(0, 0, 0, 0.65);
     pointer-events: none;
     z-index: 10002;
-    transition: all 0.3s ease;
+    transition:
+        top 0.3s ease,
+        left 0.3s ease,
+        width 0.3s ease,
+        height 0.3s ease,
+        opacity 0.25s ease;
     display: none;
+    opacity: 0;
+}
+
+.tour-highlight.visible {
+    opacity: 1;
 }
 
 .tour-footer {

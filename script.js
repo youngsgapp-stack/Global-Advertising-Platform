@@ -72,6 +72,7 @@ class BillionaireMap {
         this.sessionResumeInFlight = false;
         this.selectedStateId = null; // 현재 선택된 주 ID
         this.uiVisible = false; // UI 요소 표시 상태
+        this.tourResizeHandler = null; // 온보딩 투어 리사이즈 핸들러
         
         // 보안: Rate Limiting
         this.loginAttempts = new Map(); // 사용자별 로그인 시도 횟수
@@ -23011,6 +23012,10 @@ class BillionaireMap {
         this.currentTourStep = 1;
         this.updateTourStep();
         this.setupTourEventListeners();
+        if (!this.tourResizeHandler) {
+            this.tourResizeHandler = () => this.updateTourHighlight();
+            window.addEventListener('resize', this.tourResizeHandler);
+        }
     }
     
     /**
@@ -23094,45 +23099,111 @@ class BillionaireMap {
         // 하이라이트 업데이트 (각 단계별로 다른 요소 하이라이트)
         this.updateTourHighlight();
     }
+
+    /**
+     * 현재 투어 단계에 대한 하이라이트 설정 반환
+     */
+    getTourHighlightConfig(step = this.currentTourStep) {
+        const configByStep = {
+            1: {
+                element: document.getElementById('map-container'),
+                padding: 40,
+                borderRadius: 24
+            },
+            2: {
+                element: document.getElementById('auction-modal'),
+                padding: 24
+            },
+            3: {
+                element: document.getElementById('pixel-studio-modal'),
+                padding: 24
+            },
+            4: {
+                element: document.getElementById('side-menu'),
+                padding: 20
+            }
+        };
+        const fallback = {
+            element: null,
+            padding: 16
+        };
+        const config = configByStep[step] || fallback;
+        return {
+            ...config,
+            minWidth: 140,
+            minHeight: 90,
+            borderRadius: config.borderRadius ?? 18
+        };
+    }
+
+    /**
+     * 요소가 실제로 표시 중인지 확인
+     */
+    isElementHighlightable(element) {
+        if (!element) {
+            return false;
+        }
+        const styles = window.getComputedStyle(element);
+        if (styles.display === 'none' || styles.visibility === 'hidden' || Number(styles.opacity) === 0) {
+            return false;
+        }
+        if (element.classList && element.classList.contains('hidden')) {
+            return false;
+        }
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    }
     
     /**
      * 투어 하이라이트 업데이트
      */
     updateTourHighlight() {
-        const highlight = document.getElementById(`tour-highlight-${this.currentTourStep}`);
-        if (!highlight) return;
-        
-        let targetElement = null;
-        
-        switch(this.currentTourStep) {
-            case 1:
-                // 지도 영역 하이라이트
-                targetElement = document.getElementById('map');
-                break;
-            case 2:
-                // 옥션 모달 하이라이트 (열려있을 때만)
-                targetElement = document.getElementById('auction-modal');
-                break;
-            case 3:
-                // 픽셀 스튜디오 모달 하이라이트 (열려있을 때만)
-                targetElement = document.getElementById('pixel-studio-modal');
-                break;
-            case 4:
-                // 사이드 메뉴 하이라이트
-                targetElement = document.getElementById('side-menu');
-                break;
+        const highlightId = `tour-highlight-${this.currentTourStep}`;
+        document.querySelectorAll('.tour-highlight').forEach((el) => {
+            if (el.id !== highlightId) {
+                el.style.display = 'none';
+                el.classList.remove('visible');
+            }
+        });
+
+        const highlight = document.getElementById(highlightId);
+        if (!highlight) {
+            return;
         }
-        
-        if (targetElement && targetElement.offsetParent !== null) {
-            const rect = targetElement.getBoundingClientRect();
-            highlight.style.top = `${rect.top}px`;
-            highlight.style.left = `${rect.left}px`;
-            highlight.style.width = `${rect.width}px`;
-            highlight.style.height = `${rect.height}px`;
-            highlight.style.display = 'block';
-        } else {
+
+        const { element, padding, minWidth, minHeight, borderRadius } = this.getTourHighlightConfig(this.currentTourStep);
+        if (!this.isElementHighlightable(element)) {
             highlight.style.display = 'none';
+            highlight.classList.remove('visible');
+            return;
         }
+
+        const rect = element.getBoundingClientRect();
+        const viewportPadding = 8;
+        const top = Math.max(rect.top - padding, viewportPadding);
+        const left = Math.max(rect.left - padding, viewportPadding);
+        const width = Math.min(
+            rect.width + padding * 2,
+            window.innerWidth - left - viewportPadding
+        );
+        const height = Math.min(
+            rect.height + padding * 2,
+            window.innerHeight - top - viewportPadding
+        );
+
+        highlight.style.top = `${top}px`;
+        highlight.style.left = `${left}px`;
+        highlight.style.width = `${Math.max(width, minWidth)}px`;
+        highlight.style.height = `${Math.max(height, minHeight)}px`;
+        highlight.style.borderRadius = `${borderRadius}px`;
+        highlight.style.display = 'block';
+        highlight.classList.remove('visible');
+
+        requestAnimationFrame(() => {
+            if (highlight.style.display === 'block') {
+                highlight.classList.add('visible');
+            }
+        });
     }
     
     /**
@@ -23142,6 +23213,14 @@ class BillionaireMap {
         const tour = document.getElementById('onboarding-tour');
         if (tour) {
             tour.classList.add('hidden');
+        }
+        document.querySelectorAll('.tour-highlight').forEach((el) => {
+            el.style.display = 'none';
+            el.classList.remove('visible');
+        });
+        if (this.tourResizeHandler) {
+            window.removeEventListener('resize', this.tourResizeHandler);
+            this.tourResizeHandler = null;
         }
         localStorage.setItem('hasSeenOnboardingTour', 'true');
     }
