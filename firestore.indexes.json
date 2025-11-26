@@ -38,7 +38,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "finalizedAt", "order": "DESCENDING" }
+        { "fieldPath": "finalizedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -54,7 +55,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "startDate", "order": "DESCENDING" },
-        { "fieldPath": "endDate", "order": "ASCENDING" }
+        { "fieldPath": "endDate", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
