@@ -62,28 +62,85 @@ class AdminDashboard {
 
             // localStorage 세션 확인 및 Firebase Auth 로그인 시도
             const storedSession = this.getStoredAdminSession();
+            let initialResumeAttempted = false;
             if (storedSession && !this.isAdminSessionExpired(storedSession)) {
                 console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
+                initialResumeAttempted = true;
                 const resumed = await this.tryResumeAdminSession(storedSession);
                 if (!resumed && storedSession.signature) {
                     // signature가 있는 경우에만 tryResumeAdminSession을 호출했지만 실패한 경우
                     console.warn('[ADMIN] Firebase Auth 로그인 실패, 하지만 세션이 유효하므로 계속 진행');
+                } else if (!resumed && !storedSession.signature) {
+                    // signature가 없는 세션은 script.js에서 생성한 세션
+                    // Firestore 규칙에 의존하여 권한 확인
+                    console.log('[ADMIN] signature가 없는 세션 확인됨, Firestore 규칙에 의존하여 진행');
                 }
             }
 
+            // onAuthStateChanged가 즉시 실행되는 것을 방지하기 위한 플래그
+            let authStateChangeHandled = false;
+            let sessionResumeInProgress = false;
+
             this.firebaseAuth.onAuthStateChanged(async (user) => {
+                // 중복 실행 방지
+                if (authStateChangeHandled && !user) {
+                    return;
+                }
+
+                // 세션 재개가 진행 중이면 대기
+                if (sessionResumeInProgress) {
+                    console.log('[ADMIN] 세션 재개 진행 중, 대기...');
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
                 if (!user) {
                     const storedSession = this.getStoredAdminSession();
                     if (storedSession && !this.isAdminSessionExpired(storedSession)) {
                         // localStorage 세션이 있으면 Firebase Auth 로그인 시도
                         console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
+                        sessionResumeInProgress = true;
                         const resumed = await this.tryResumeAdminSession(storedSession);
+                        sessionResumeInProgress = false;
                         if (resumed) {
                             // 로그인 성공하면 아래 코드에서 처리됨
+                            authStateChangeHandled = false; // 재시도 허용
                             return;
+                        }
+                        // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                        if (!storedSession.signature) {
+                            console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
+                            // Firestore 접근 시도하여 권한 확인
+                            try {
+                                const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
+                                const testRef = collection(this.firestore, 'regions');
+                                await getDocs(query(testRef, limit(1)));
+                                // 성공하면 권한이 있는 것으로 간주
+                                console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
+                                authStateChangeHandled = true;
+                                // 실시간 리스너 설정
+                                this.setupRealtimeListeners();
+                                await this.refreshAll(true);
+                                this.startAutoRefresh();
+                                return;
+                            } catch (testError) {
+                                console.error('[ADMIN] Firestore 접근 실패, 권한 없음', testError);
+                                if (testError.code === 'permission-denied') {
+                                    this.redirectToMap('관리자 권한이 필요합니다.');
+                                    return;
+                                }
+                            }
                         }
                         // 로그인 실패하면 리다이렉트
                         this.redirectToMap('관리자 로그인이 필요합니다.');
+                        return;
+                    }
+                    // 초기 세션 재개 시도가 있었으면 리다이렉트 지연
+                    if (initialResumeAttempted) {
+                        console.log('[ADMIN] 초기 세션 재개 시도 후 사용자 없음, 잠시 대기 후 재확인');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        if (!this.firebaseAuth.currentUser) {
+                            this.redirectToMap('관리자 로그인이 필요합니다.');
+                        }
                         return;
                     }
                     this.redirectToMap('관리자 로그인이 필요합니다.');
@@ -97,9 +154,32 @@ class AdminDashboard {
                         const storedSession = this.getStoredAdminSession();
                         if (storedSession && !this.isAdminSessionExpired(storedSession)) {
                             console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
+                            sessionResumeInProgress = true;
                             const resumed = await this.tryResumeAdminSession(storedSession);
+                            sessionResumeInProgress = false;
                             if (resumed) {
+                                authStateChangeHandled = false; // 재시도 허용
                                 return;
+                            }
+                            // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                            if (!storedSession.signature) {
+                                console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
+                                try {
+                                    const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
+                                    const testRef = collection(this.firestore, 'regions');
+                                    await getDocs(query(testRef, limit(1)));
+                                    console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
+                                    authStateChangeHandled = true;
+                                    this.setupRealtimeListeners();
+                                    await this.refreshAll(true);
+                                    this.startAutoRefresh();
+                                    return;
+                                } catch (testError) {
+                                    if (testError.code === 'permission-denied') {
+                                        this.redirectToMap('관리자 권한이 필요합니다.');
+                                        return;
+                                    }
+                                }
                             }
                         }
                         this.redirectToMap('관리자 권한이 필요합니다.');
@@ -109,6 +189,7 @@ class AdminDashboard {
                     this.currentUser = user;
                     this.sessionExpiry = tokenResult.expirationTime ? new Date(tokenResult.expirationTime) : null;
                     this.updateSessionMeta();
+                    authStateChangeHandled = true;
 
                     // 실시간 리스너 설정
                     this.setupRealtimeListeners();
@@ -121,9 +202,32 @@ class AdminDashboard {
                     const storedSession = this.getStoredAdminSession();
                     if (storedSession && !this.isAdminSessionExpired(storedSession)) {
                         console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
+                        sessionResumeInProgress = true;
                         const resumed = await this.tryResumeAdminSession(storedSession);
+                        sessionResumeInProgress = false;
                         if (resumed) {
+                            authStateChangeHandled = false; // 재시도 허용
                             return;
+                        }
+                        // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                        if (!storedSession.signature) {
+                            console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
+                            try {
+                                const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
+                                const testRef = collection(this.firestore, 'regions');
+                                await getDocs(query(testRef, limit(1)));
+                                console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
+                                authStateChangeHandled = true;
+                                this.setupRealtimeListeners();
+                                await this.refreshAll(true);
+                                this.startAutoRefresh();
+                                return;
+                            } catch (testError) {
+                                if (testError.code === 'permission-denied') {
+                                    this.redirectToMap('관리자 권한 확인에 실패했습니다.');
+                                    return;
+                                }
+                            }
                         }
                     }
                     this.redirectToMap('관리자 권한 확인에 실패했습니다.');
