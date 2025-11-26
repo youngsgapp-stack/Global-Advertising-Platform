@@ -16057,10 +16057,72 @@ class BillionaireMap {
             const authenticateAdmin = httpsCallable(functions, 'authenticateAdmin');
             
             console.log('[ADMIN] Firebase Functions 호출: authenticateAdmin');
-            const response = await authenticateAdmin({
-                username: username.trim(),
-                password: password
-            });
+            let response;
+            
+            // 재시도 로직 (최대 3회, 지수 백오프)
+            const maxRetries = 3;
+            let lastError = null;
+            
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        // 지수 백오프: 1초, 2초, 4초
+                        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+                        console.log(`[ADMIN] 재시도 ${attempt}/${maxRetries - 1} (${delay}ms 대기 후...)`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                    
+                    response = await authenticateAdmin({
+                        username: username.trim(),
+                        password: password
+                    });
+                    
+                    // 성공 시 루프 탈출
+                    break;
+                } catch (callError) {
+                    lastError = callError;
+                    
+                    // CORS 오류 또는 네트워크 오류 처리
+                    const isNetworkError = callError?.code === 'functions/unavailable' || 
+                        callError?.code === 'functions/deadline-exceeded' ||
+                        callError?.message?.includes('CORS') ||
+                        callError?.message?.includes('Failed to fetch') ||
+                        callError?.message?.includes('network') ||
+                        callError?.message?.includes('NetworkError') ||
+                        callError?.message?.includes('ERR_FAILED');
+                    
+                    // 인증 오류는 재시도하지 않음
+                    if (callError?.code === 'functions/unauthenticated') {
+                        throw new Error('관리자 인증에 실패했습니다. 아이디와 비밀번호를 확인해주세요.');
+                    }
+                    
+                    // 네트워크 오류이고 마지막 시도가 아니면 재시도
+                    if (isNetworkError && attempt < maxRetries - 1) {
+                        console.warn(`[ADMIN] 네트워크 오류 발생, 재시도 예정 (시도 ${attempt + 1}/${maxRetries}):`, callError.message);
+                        continue;
+                    }
+                    
+                    // 마지막 시도 또는 네트워크 오류가 아닌 경우
+                    if (isNetworkError) {
+                        console.error('[ADMIN] 네트워크 오류 (재시도 실패):', callError);
+                        throw new Error('서버에 연결할 수 없습니다. 네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.');
+                    }
+                    
+                    // Firebase Functions 에러 코드 처리
+                    if (callError?.code === 'functions/internal') {
+                        throw new Error('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+                    }
+                    
+                    // 다른 오류는 그대로 전달
+                    throw callError;
+                }
+            }
+            
+            // 모든 재시도 실패 시
+            if (!response && lastError) {
+                console.error('[ADMIN] 모든 재시도 실패:', lastError);
+                throw lastError;
+            }
             
             const { token, session } = response?.data || {};
             if (!token || !session) {

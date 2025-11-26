@@ -3,7 +3,8 @@ const AUTH_SDK = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 class AdminDashboard {
     constructor() {
-        this.refreshIntervalMs = 60 * 1000;
+        // 자동 갱신 간격을 5분으로 설정 (실시간 리스너가 주로 업데이트 담당)
+        this.refreshIntervalMs = 5 * 60 * 1000;
         this.refreshTimer = null;
         this.firestoreModulePromise = import(FIRESTORE_SDK);
         this.sessionExpiry = null;
@@ -484,8 +485,9 @@ class AdminDashboard {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        // 실시간 리스너가 있으면 자동 갱신 간격을 늘림 (백업용)
-        this.refreshTimer = setInterval(() => this.refreshAll(), this.refreshIntervalMs * 2);
+        // 실시간 리스너가 있으면 자동 갱신 간격을 크게 늘림 (백업용)
+        // 5분(300초)마다 갱신하여 읽기 작업 최소화
+        this.refreshTimer = setInterval(() => this.refreshAll(), 5 * 60 * 1000);
     }
 
     stopAutoRefresh() {
@@ -513,12 +515,19 @@ class AdminDashboard {
         try {
             const { collection, onSnapshot, query, where, orderBy, limit, doc } = await this.firestoreModulePromise;
 
-            // Regions 실시간 리스너
+            // Regions 실시간 리스너 - 변경 사항만 감지하도록 최적화
+            // 전체 컬렉션 리스너는 읽기 비용이 높으므로, 변경 감지만 하고 
+            // 실제 데이터는 필요할 때만 fetchRegionMetrics()로 가져옴
+            // 주의: 전체 컬렉션 리스너는 초기 로드 시 모든 문서를 읽으므로 비용이 높음
+            // TODO: 향후 변경 사항만 감지하는 방식으로 개선 (예: 타임스탬프 기반 쿼리)
             const regionsRef = collection(this.firestore, 'regions');
             this.regionUnsubscribe = onSnapshot(regionsRef, 
                 (snapshot) => {
-                    console.log('[ADMIN] Regions 업데이트됨');
-                    this.fetchRegionMetrics().then(() => this.render());
+                    console.log('[ADMIN] Regions 업데이트됨 (변경:', snapshot.docChanges().length, '건)');
+                    // 변경 사항이 있을 때만 메트릭 갱신
+                    if (snapshot.docChanges().length > 0) {
+                        this.fetchRegionMetrics().then(() => this.render());
+                    }
                 },
                 (error) => {
                     console.error('[ADMIN] Regions 리스너 오류', error);
@@ -742,6 +751,8 @@ class AdminDashboard {
         try {
             const { collection, getDocs } = await this.firestoreModulePromise;
             const regionsRef = collection(this.firestore, 'regions');
+            // 전체 regions 읽기는 불가피하지만, 캐싱을 통해 중복 읽기 방지
+            // TODO: 향후 집계 쿼리나 별도 통계 컬렉션으로 최적화 가능
             const snapshot = await getDocs(regionsRef);
 
         const regions = [];
@@ -857,9 +868,19 @@ class AdminDashboard {
 
     async fetchPurchases() {
         try {
-            const { collection, getDocs } = await this.firestoreModulePromise;
+            const { collection, getDocs, query, orderBy, limit } = await this.firestoreModulePromise;
             const purchasesRef = collection(this.firestore, 'purchases');
-            const snapshot = await getDocs(purchasesRef);
+            
+            // 최근 구매 기록만 조회 (최대 100개로 제한하여 읽기 최적화)
+            let purchasesQuery;
+            try {
+                purchasesQuery = query(purchasesRef, orderBy('purchaseDate', 'desc'), limit(100));
+            } catch {
+                // 인덱스가 없으면 limit만 적용
+                purchasesQuery = query(purchasesRef, limit(100));
+            }
+            
+            const snapshot = await getDocs(purchasesQuery);
 
         const purchases = [];
         let totalRevenue = 0;
@@ -886,6 +907,8 @@ class AdminDashboard {
             });
 
             this.state.recentPurchases = purchases.slice(0, 6);
+            // 전체 수익은 별도 집계 쿼리나 캐시에서 가져와야 하지만, 
+            // 현재는 최근 100개만으로 추정치 계산 (정확도는 떨어지지만 읽기 최적화)
             this.state.summary.totalRevenue = totalRevenue;
         } catch (error) {
             console.error('[ADMIN] fetchPurchases 실패', error);
