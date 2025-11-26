@@ -991,7 +991,10 @@ class BillionaireMap {
             region: 6
         };
         
-        this.init();
+        // init()은 async 함수이므로 Promise로 처리 (에러 핸들링 포함)
+        this.init().catch(err => {
+            console.error('초기화 중 오류 발생:', err);
+        });
     }
 
     resolveAssetBaseUrl() {
