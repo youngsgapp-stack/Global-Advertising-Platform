@@ -161,9 +161,7 @@ class BillionaireMap {
         // 커뮤니티 & 운영 시스템
         this.community = {
             reports: new Map(), // 신고 데이터 캐시
-            moderators: new Set(), // 모더레이터 목록
-            events: [], // 진행 중인 이벤트
-            monthlyReports: [] // 월간 리포트
+            moderators: new Set() // 모더레이터 목록
         };
         
         // G20 국가 설정
@@ -1605,6 +1603,7 @@ class BillionaireMap {
             });
 
             console.log('Firebase 초기화 완료');
+            // 커뮤니티 풀 구독은 유지 (옥션 시스템에 필요)
             this.subscribeToCommunityPool();
         } catch (error) {
             console.error('Firebase 초기화 오류:', error);
@@ -2559,9 +2558,17 @@ class BillionaireMap {
                 this.autoRenderPayPalButtons();
             }
         } catch (error) {
-            // COOP 오류는 무시 (브라우저 보안 정책으로 인한 경고일 뿐)
-            if (error.message && error.message.includes('Cross-Origin-Opener-Policy')) {
+            // COOP 오류는 무시 (브라우저 보안 정책으로 인한 경고일 뿐, 실제 기능에는 영향 없음)
+            if (error.message && (error.message.includes('Cross-Origin-Opener-Policy') || 
+                error.message.includes('window.close') || 
+                error.message.includes('window.closed'))) {
                 // 로그인은 성공했을 수 있으므로 조용히 처리
+                // 사용자 확인을 위해 현재 사용자 상태 확인
+                if (this.firebaseAuth && this.firebaseAuth.currentUser) {
+                    this.currentUser = this.firebaseAuth.currentUser;
+                    this.updateUserUI();
+                    this.hideUserLoginModal();
+                }
                 return;
             }
             console.error('구글 로그인 오류:', error);
@@ -20914,9 +20921,35 @@ class BillionaireMap {
                         this.renderDashboardAuctions(auctions, filter);
                         return;
                     } catch (endedError) {
-                        // 인덱스 오류인 경우 ended만 조회 (오류 발생 시)
-                        console.warn('ended 옥션 쿼리 오류, ended만 조회:', endedError);
-                        q = query(auctionsRef, where('status', '==', 'ended'), orderBy('finalizedAt', 'desc'));
+                        // 인덱스 오류인 경우 모든 옥션을 가져온 후 클라이언트에서 필터링
+                        if (endedError.code === 'failed-precondition') {
+                            console.warn('ended 옥션 인덱스 오류, 클라이언트 필터링으로 대체');
+                            try {
+                                // 모든 옥션 가져오기 (인덱스 없이)
+                                const allQuery = query(auctionsRef);
+                                const allSnapshot = await getDocs(allQuery);
+                                const allAuctions = [];
+                                allSnapshot.forEach((doc) => {
+                                    const data = doc.data();
+                                    if (data.status === 'ended' || data.status === 'sold') {
+                                        allAuctions.push({ id: doc.id, ...data });
+                                    }
+                                });
+                                // finalizedAt 기준으로 정렬
+                                allAuctions.sort((a, b) => {
+                                    const timeA = a.finalizedAt?.toMillis() || 0;
+                                    const timeB = b.finalizedAt?.toMillis() || 0;
+                                    return timeB - timeA; // 내림차순
+                                });
+                                this.renderDashboardAuctions(allAuctions, filter);
+                                return;
+                            } catch (fallbackError) {
+                                console.error('ended 옥션 대체 쿼리 실패:', fallbackError);
+                                throw endedError;
+                            }
+                        } else {
+                            throw endedError;
+                        }
                     }
                     break;
                 case 'watching':
@@ -20933,10 +20966,46 @@ class BillionaireMap {
                         listContainer.appendChild(loginP);
                         return;
                     }
-                    q = query(auctionsRef, where('watchers', 'array-contains', this.currentUser.uid), orderBy('endTime', 'asc'));
+                    try {
+                        q = query(auctionsRef, where('watchers', 'array-contains', this.currentUser.uid), orderBy('endTime', 'asc'));
+                    } catch (watchingError) {
+                        // 인덱스 오류인 경우 모든 옥션을 가져온 후 클라이언트에서 필터링
+                        if (watchingError.code === 'failed-precondition') {
+                            console.warn('watching 옥션 인덱스 오류, 클라이언트 필터링으로 대체');
+                            try {
+                                const allQuery = query(auctionsRef);
+                                const allSnapshot = await getDocs(allQuery);
+                                const watchingAuctions = [];
+                                allSnapshot.forEach((doc) => {
+                                    const data = doc.data();
+                                    if (data.watchers && Array.isArray(data.watchers) && data.watchers.includes(this.currentUser.uid)) {
+                                        watchingAuctions.push({ id: doc.id, ...data });
+                                    }
+                                });
+                                // endTime 기준으로 정렬
+                                watchingAuctions.sort((a, b) => {
+                                    const timeA = a.endTime?.toMillis() || 0;
+                                    const timeB = b.endTime?.toMillis() || 0;
+                                    return timeA - timeB; // 오름차순
+                                });
+                                this.renderDashboardAuctions(watchingAuctions, filter);
+                                return;
+                            } catch (fallbackError) {
+                                console.error('watching 옥션 대체 쿼리 실패:', fallbackError);
+                                throw watchingError;
+                            }
+                        } else {
+                            throw watchingError;
+                        }
+                    }
                     break;
                 default:
                     q = query(auctionsRef, orderBy('endTime', 'asc'));
+            }
+            
+            // q가 설정되지 않은 경우 (ended 케이스에서 오류 발생 시)
+            if (!q) {
+                throw new Error('쿼리를 생성할 수 없습니다.');
             }
             
             const snapshot = await getDocs(q);
@@ -20960,7 +21029,13 @@ class BillionaireMap {
             errorP.style.textAlign = 'center';
             errorP.style.color = '#ff6b6b';
             errorP.style.padding = '20px';
-            errorP.textContent = '옥션을 불러오는데 실패했습니다.';
+            
+            // 인덱스 오류인 경우 더 친절한 메시지 표시
+            if (error.code === 'failed-precondition' && error.message && error.message.includes('index')) {
+                errorP.innerHTML = '옥션을 불러오는데 실패했습니다.<br>인덱스가 생성되는 중일 수 있습니다. 잠시 후 다시 시도해주세요.';
+            } else {
+                errorP.textContent = '옥션을 불러오는데 실패했습니다.';
+            }
             listContainer.appendChild(errorP);
         }
     }
@@ -22589,298 +22664,7 @@ class BillionaireMap {
         }
     }
     
-    // ========== 커뮤니티 & 운영: 이벤트 기획 ==========
-    
-    /**
-     * 이벤트 목록 로드
-     */
-    async loadEvents() {
-        if (!this.isFirebaseInitialized || !this.firestore) return;
-        
-        try {
-            const { collection, query, where, getDocs, orderBy, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-            const eventsRef = collection(this.firestore, 'events');
-            const now = Timestamp.now();
-            
-            // 진행 중인 이벤트
-            const activeQuery = query(
-                eventsRef,
-                where('startDate', '<=', now),
-                where('endDate', '>=', now),
-                orderBy('startDate', 'desc')
-            );
-            const activeSnapshot = await getDocs(activeQuery);
-            
-            const events = [];
-            activeSnapshot.forEach(doc => {
-                events.push({
-                    id: doc.id,
-                    ...doc.data()
-                });
-            });
-            
-            this.community.events = events;
-            this.renderEvents(events);
-        } catch (error) {
-            console.error('[이벤트 로드 실패]:', error);
-        }
-    }
-    
-    /**
-     * 이벤트 목록 렌더링
-     */
-    renderEvents(events) {
-        const listEl = document.getElementById('events-list');
-        if (!listEl) return;
-        
-        // 컨테이너 초기화
-        while (listEl.firstChild) {
-            listEl.removeChild(listEl.firstChild);
-        }
-        
-        if (events.length === 0) {
-            const emptyP = document.createElement('p');
-            emptyP.style.textAlign = 'center';
-            emptyP.style.color = '#666';
-            emptyP.style.padding = '20px';
-            emptyP.textContent = '진행 중인 이벤트가 없습니다.';
-            listEl.appendChild(emptyP);
-            return;
-        }
-        
-        events.forEach(event => {
-            const card = document.createElement('div');
-            card.className = 'event-card';
-            
-            const header = document.createElement('div');
-            header.className = 'event-header';
-            const h3 = document.createElement('h3');
-            h3.textContent = this.sanitizeHTML(event.title || '');
-            const typeSpan = document.createElement('span');
-            typeSpan.className = `event-type type-${event.type}`;
-            typeSpan.textContent = this.getEventTypeLabel(event.type);
-            header.appendChild(h3);
-            header.appendChild(typeSpan);
-            
-            const body = document.createElement('div');
-            body.className = 'event-body';
-            
-            const descP = document.createElement('p');
-            descP.textContent = this.sanitizeHTML(event.description || '');
-            
-            const datesDiv = document.createElement('div');
-            datesDiv.className = 'event-dates';
-            const startSpan = document.createElement('span');
-            startSpan.textContent = `시작: ${event.startDate?.toDate?.()?.toLocaleDateString() || '알 수 없음'}`;
-            const endSpan = document.createElement('span');
-            endSpan.textContent = `종료: ${event.endDate?.toDate?.()?.toLocaleDateString() || '알 수 없음'}`;
-            datesDiv.appendChild(startSpan);
-            datesDiv.appendChild(endSpan);
-            
-            body.appendChild(descP);
-            body.appendChild(datesDiv);
-            
-            if (event.participants) {
-                const participantsP = document.createElement('p');
-                participantsP.innerHTML = `<strong>참가자:</strong> ${event.participants.length}명`;
-                body.appendChild(participantsP);
-            }
-            
-            card.appendChild(header);
-            card.appendChild(body);
-            
-            if (event.type === 'challenge') {
-                const joinBtn = document.createElement('button');
-                joinBtn.className = 'event-join-btn';
-                joinBtn.dataset.eventId = event.id;
-                joinBtn.textContent = '참가하기';
-                card.appendChild(joinBtn);
-            }
-            
-            listEl.appendChild(card);
-        });
-        
-        // 참가 버튼 이벤트 리스너
-        listEl.querySelectorAll('.event-join-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.joinEvent(btn.dataset.eventId);
-            });
-        });
-    }
-    
-    /**
-     * 이벤트 타입 라벨
-     */
-    getEventTypeLabel(type) {
-        const labels = {
-            'theme_week': '테마 주간',
-            'challenge': '챌린지',
-            'collaboration': '협업 프로젝트'
-        };
-        return labels[type] || type;
-    }
-    
-    /**
-     * 이벤트 참가
-     */
-    async joinEvent(eventId) {
-        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
-            this.showNotification('로그인이 필요합니다.', 'error');
-            return;
-        }
-        
-        try {
-            const { doc, updateDoc, arrayUnion } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-            const eventRef = doc(this.firestore, 'events', eventId);
-            
-            await updateDoc(eventRef, {
-                participants: arrayUnion({
-                    userId: this.currentUser.uid,
-                    email: this.currentUser.email,
-                    joinedAt: new Date()
-                })
-            });
-            
-            this.logEvent('event_joined', { eventId, userId: this.currentUser.uid });
-            this.showNotification('이벤트에 참가했습니다!', 'success');
-            
-            // 이벤트 목록 새로고침
-            await this.loadEvents();
-        } catch (error) {
-            console.error('[이벤트 참가 실패]:', error);
-            this.showNotification('이벤트 참가에 실패했습니다.', 'error');
-        }
-    }
-    
-    // ========== 커뮤니티 & 운영: 월간 리포트 ==========
-    
-    /**
-     * 월간 리포트 생성 및 로드
-     */
-    async loadMonthlyReport(year, month) {
-        if (!this.isFirebaseInitialized || !this.firestore) return;
-        
-        try {
-            const { collection, query, where, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-            
-            // 해당 월의 시작/종료 시간
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0, 23, 59, 59);
-            const startTimestamp = Timestamp.fromDate(startDate);
-            const endTimestamp = Timestamp.fromDate(endDate);
-            
-            // 옥션 통계
-            const auctionsRef = collection(this.firestore, 'auctions');
-            const auctionsQuery = query(
-                auctionsRef,
-                where('createdAt', '>=', startTimestamp),
-                where('createdAt', '<=', endTimestamp)
-            );
-            const auctionsSnap = await getDocs(auctionsQuery);
-            
-            let totalRevenue = 0;
-            let soldCount = 0;
-            auctionsSnap.forEach(doc => {
-                const data = doc.data();
-                if (data.status === 'sold') {
-                    totalRevenue += data.currentBid || 0;
-                    soldCount++;
-                }
-            });
-            
-            // 커뮤니티 상금
-            const communityReward = totalRevenue * 0.1;
-            
-            // 리포트 데이터 구성
-            const report = {
-                year,
-                month,
-                totalRevenue,
-                soldCount,
-                communityReward,
-                freePixelPool: communityReward / 20, // $20당 1세트
-                serverCost: 50, // 예상 서버 비용 (실제로는 계산 필요)
-                p2wMitigationRate: 0.1,
-                reportDate: new Date()
-            };
-            
-            this.renderMonthlyReport(report);
-        } catch (error) {
-            console.error('[월간 리포트 로드 실패]:', error);
-        }
-    }
-    
-    /**
-     * 월간 리포트 렌더링
-     */
-    renderMonthlyReport(report) {
-        const contentEl = document.getElementById('monthly-report-content');
-        if (!contentEl) return;
-        
-        // 컨테이너 초기화
-        while (contentEl.firstChild) {
-            contentEl.removeChild(contentEl.firstChild);
-        }
-        
-        const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-        
-        // 헤더
-        const header = document.createElement('div');
-        header.className = 'monthly-report-header';
-        const h3 = document.createElement('h3');
-        h3.textContent = `${report.year}년 ${monthNames[report.month - 1]} 운영 리포트`;
-        const dateP = document.createElement('p');
-        dateP.className = 'report-date';
-        dateP.textContent = `작성일: ${report.reportDate.toLocaleDateString()}`;
-        header.appendChild(h3);
-        header.appendChild(dateP);
-        
-        // 통계 카드
-        const stats = document.createElement('div');
-        stats.className = 'monthly-report-stats';
-        
-        const createStatCard = (title, value) => {
-            const card = document.createElement('div');
-            card.className = 'report-stat-card';
-            const h4 = document.createElement('h4');
-            h4.textContent = title;
-            const valueDiv = document.createElement('div');
-            valueDiv.className = 'stat-value';
-            valueDiv.textContent = value;
-            card.appendChild(h4);
-            card.appendChild(valueDiv);
-            return card;
-        };
-        
-        stats.appendChild(createStatCard('총 수익', this.formatCurrency(report.totalRevenue)));
-        stats.appendChild(createStatCard('낙찰된 옥션', `${report.soldCount}개`));
-        stats.appendChild(createStatCard('커뮤니티 상금', this.formatCurrency(report.communityReward)));
-        stats.appendChild(createStatCard('무료 픽셀 풀', `${Math.floor(report.freePixelPool)}세트`));
-        
-        // 상세 내역
-        const details = document.createElement('div');
-        details.className = 'monthly-report-details';
-        const detailsH4 = document.createElement('h4');
-        detailsH4.textContent = '상세 내역';
-        const ul = document.createElement('ul');
-        
-        const createDetailItem = (text) => {
-            const li = document.createElement('li');
-            li.textContent = text;
-            return li;
-        };
-        
-        ul.appendChild(createDetailItem(`서버 운영 비용: ${this.formatCurrency(report.serverCost)}`));
-        ul.appendChild(createDetailItem(`P2W 완화율: ${(report.p2wMitigationRate * 100).toFixed(1)}%`));
-        ul.appendChild(createDetailItem('커뮤니티 기여율: 10%'));
-        
-        details.appendChild(detailsH4);
-        details.appendChild(ul);
-        
-        contentEl.appendChild(header);
-        contentEl.appendChild(stats);
-        contentEl.appendChild(details);
-    }
+    // ========== 커뮤니티 & 운영: 이벤트 및 월간리포트 제거됨 ==========
     
     // ========== 커뮤니티 & 운영: 지속가능성 ==========
     
@@ -22951,9 +22735,6 @@ class BillionaireMap {
     initCommunityFeatures() {
         // 모더레이터 목록 로드
         this.loadModerators();
-        
-        // 이벤트 목록 로드
-        this.loadEvents();
         
         // 커뮤니티 이벤트 리스너 설정
         this.setupCommunityEventListeners();
@@ -23027,35 +22808,7 @@ class BillionaireMap {
             });
         });
         
-        // 이벤트 모달
-        const eventsBtn = document.getElementById('side-events-btn');
-        if (eventsBtn) {
-            eventsBtn.addEventListener('click', () => {
-                this.showEventsModal();
-            });
-        }
-        
-        const closeEventsModal = document.getElementById('close-events-modal');
-        if (closeEventsModal) {
-            closeEventsModal.addEventListener('click', () => {
-                document.getElementById('events-modal')?.classList.add('hidden');
-            });
-        }
-        
-        // 월간 리포트 모달
-        const monthlyReportBtn = document.getElementById('side-monthly-report-btn');
-        if (monthlyReportBtn) {
-            monthlyReportBtn.addEventListener('click', () => {
-                this.showMonthlyReportModal();
-            });
-        }
-        
-        const closeMonthlyReportModal = document.getElementById('close-monthly-report-modal');
-        if (closeMonthlyReportModal) {
-            closeMonthlyReportModal.addEventListener('click', () => {
-                document.getElementById('monthly-report-modal')?.classList.add('hidden');
-            });
-        }
+        // 이벤트 및 월간리포트 모달 제거됨
     }
     
     /**
@@ -23087,28 +22840,7 @@ class BillionaireMap {
         }
     }
     
-    /**
-     * 이벤트 모달 표시
-     */
-    async showEventsModal() {
-        const modal = document.getElementById('events-modal');
-        if (modal) {
-            modal.classList.remove('hidden');
-            await this.loadEvents();
-        }
-    }
-    
-    /**
-     * 월간 리포트 모달 표시
-     */
-    async showMonthlyReportModal() {
-        const modal = document.getElementById('monthly-report-modal');
-        if (modal) {
-            modal.classList.remove('hidden');
-            const now = new Date();
-            await this.loadMonthlyReport(now.getFullYear(), now.getMonth() + 1);
-        }
-    }
+    // 이벤트 및 월간리포트 모달 함수 제거됨
     
     // ========== 온보딩 투어 ==========
     
@@ -23401,6 +23133,20 @@ class BillionaireMap {
     
     
 }
+
+// 전역 오류 핸들러: COOP 관련 오류 무시 (Firebase SDK 내부 오류)
+window.addEventListener('error', (event) => {
+    // Cross-Origin-Opener-Policy 관련 오류는 무시 (실제 기능에는 영향 없음)
+    if (event.message && (
+        event.message.includes('Cross-Origin-Opener-Policy') ||
+        event.message.includes('window.close') ||
+        event.message.includes('window.closed') ||
+        event.message.includes('popup.ts')
+    )) {
+        event.preventDefault(); // 콘솔에 오류가 표시되지 않도록
+        return true;
+    }
+});
 
 // 페이지 로드 시 지도 초기화
 if (document.readyState === 'loading') {
