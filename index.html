@@ -11,11 +11,11 @@
                    style-src 'self' 'unsafe-inline' https://api.mapbox.com; 
                    img-src 'self' data: https: blob:; 
                    font-src 'self' data:; 
-                   connect-src 'self' https://api.mapbox.com https://raw.githubusercontent.com https://www.paypal.com https://*.firebaseio.com https://*.googleapis.com https://*.gstatic.com wss://*.firebaseio.com;
+                   connect-src 'self' https://api.mapbox.com https://raw.githubusercontent.com https://www.paypal.com https://*.firebaseio.com https://*.googleapis.com https://*.gstatic.com https://cdn.jsdelivr.net wss://*.firebaseio.com;
                    frame-src https://www.paypal.com;">
     <!-- Security Headers -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
+    <!-- X-Frame-Options는 HTTP 헤더로만 설정 가능하므로 meta 태그에서는 제거됨 -->
     <meta http-equiv="X-XSS-Protection" content="1; mode=block">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
@@ -1285,7 +1285,7 @@
     
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
     <!-- DOMPurify - XSS 방어 라이브러리 -->
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js" integrity="sha384-8jHjflj8L8vV8f8X0Z8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js" crossorigin="anonymous"></script>
     <!-- Chart.js - 통계 차트 라이브러리 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <!-- PayPal JS SDK (Live Mode) - 실제 결제 가능 -->

@@ -17405,7 +17405,7 @@ class BillionaireMap {
     
     
     // 지역 정보 모달 표시 (광고가 없을 때)
-    showRegionInfoModal(stateId) {
+    async showRegionInfoModal(stateId) {
         console.log('지역 정보 모달 표시:', stateId, '모드:', this.currentMapMode);
         
         // 현재 지역 정보 가져오기
