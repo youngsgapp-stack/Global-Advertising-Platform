@@ -13847,10 +13847,10 @@ class BillionaireMap {
     
     setupEventListeners() {
         // 지역 클릭 이벤트
-        this.map.on('click', 'regions-fill', (e) => {
+        this.map.on('click', 'regions-fill', async (e) => {
             e.preventDefault();
             const feature = e.features[0];
-            this.selectRegion(feature);
+            await this.selectRegion(feature);
         });
         
         // 호버 효과 - mousemove 기반으로 변경 (행정구역간 이동 실시간 감지)
@@ -14129,8 +14129,8 @@ class BillionaireMap {
         // 기업 정보 미리보기
         const previewCompanyInfo = document.getElementById('preview-company-info');
         if (previewCompanyInfo) {
-            previewCompanyInfo.addEventListener('click', () => {
-                this.previewCompanyInfo();
+            previewCompanyInfo.addEventListener('click', async () => {
+                await this.previewCompanyInfo();
             });
         }
         
@@ -14440,7 +14440,7 @@ class BillionaireMap {
         }
     }
     
-    selectRegion(feature) {
+    async selectRegion(feature) {
         const properties = feature.properties;
         this.currentRegion = properties;
         this.selectedStateId = properties.id; // 새로운 변수에 저장
@@ -14480,7 +14480,7 @@ class BillionaireMap {
         
         // 일반 사용자 모드일 때만 기업 정보 표시
         console.log('일반 사용자 모드: 기업 정보 모달 표시');
-        this.showCompanyInfoModal(properties.id);
+        await this.showCompanyInfoModal(properties.id);
     }
     
     // 관리자 패널을 선택된 주에 맞게 업데이트
@@ -14504,7 +14504,7 @@ class BillionaireMap {
     }
     
     // 기업 정보 모달 표시
-    showCompanyInfoModal(stateId) {
+    async showCompanyInfoModal(stateId) {
         console.log('기업 정보 모달 표시 시도:', stateId);
         console.log('현재 지도 모드:', this.currentMapMode);
         
@@ -14753,7 +14753,7 @@ class BillionaireMap {
         // 픽셀 에디터 버튼 표시/숨김 (소유자만)
         const companyEditPixelBtn = document.getElementById('company-edit-pixel-btn');
         if (companyEditPixelBtn) {
-            this.updatePixelEditorButtonVisibility(companyEditPixelBtn, stateId);
+            await this.updatePixelEditorButtonVisibility(companyEditPixelBtn, stateId);
         }
         
         modal.classList.remove('hidden');
@@ -14870,7 +14870,7 @@ class BillionaireMap {
     }
     
     // 기업 정보 미리보기
-    previewCompanyInfo() {
+    async previewCompanyInfo() {
         if (!this.selectedStateId) {
             this.showNotification('미리보기할 주를 선택해주세요.', 'warning');
             return;
@@ -14941,7 +14941,7 @@ class BillionaireMap {
         this.companyData[this.selectedStateId] = tempData;
         
         // 미리보기 표시
-        this.showCompanyInfoModal(this.selectedStateId);
+        await this.showCompanyInfoModal(this.selectedStateId);
         
         // 원래 데이터 복원
         this.companyData[this.selectedStateId] = originalData;
