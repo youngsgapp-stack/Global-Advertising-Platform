@@ -3252,105 +3252,14 @@ class BillionaireMap {
         mapModeToggle.id = 'map-mode-toggle';
         mapModeToggle.className = 'map-mode-toggle';
         
-        // 3D/2D 토글 버튼 (드롭다운 옆에 별도로 배치)
+        // 3D/2D 토글 버튼
         const globeBtn = document.createElement('button');
         globeBtn.id = 'globe-mode-btn';
         globeBtn.className = 'mode-btn';
         globeBtn.textContent = '🌍 3D 지구본';
         
-        // G20 라벨 생성
-        const g20Label = document.createElement('span');
-        g20Label.className = 'g20-label';
-        g20Label.textContent = 'G20';
-        
-        // G20 국가 드롭다운 생성
-        const countryDropdown = document.createElement('select');
-        countryDropdown.id = 'country-selector-dropdown';
-        countryDropdown.className = 'country-dropdown';
-        
-        // 기본 선택 옵션 추가
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = '국가 선택';
-        defaultOption.selected = true;
-        countryDropdown.appendChild(defaultOption);
-        
-        // 구분선 추가
-        const separator = document.createElement('option');
-        separator.disabled = true;
-        separator.textContent = '━━━━━━━━━━━━━━━';
-        countryDropdown.appendChild(separator);
-        
-        // G20 국가 옵션 추가 (행정구역이 구현된 국가는 앞에, 나머지는 뒤에)
-        // 주의: G20 설정에서는 'south-korea'를 사용하지만, 내부적으로는 'korea'를 사용
-        const europeanCountries = [
-            'spain', 'netherlands', 'poland', 'belgium', 'sweden',
-            'austria', 'denmark', 'finland', 'ireland', 'portugal',
-            'greece', 'czech-republic', 'romania', 'hungary', 'bulgaria'
-        ];
-        const implementedCountries = ['usa', 'south-korea', 'japan', 'china', 'russia', 'india', 'canada', 'germany', 'uk', 'france', 'italy', 'brazil', 'australia', 'mexico', 'indonesia', 'saudi-arabia', 'turkey', 'south-africa', 'argentina', 'european-union', ...europeanCountries];
-        const otherCountries = Object.keys(this.g20Countries).filter(c => !implementedCountries.includes(c) && !europeanCountries.includes(c));
-        
-        // 구현된 국가 먼저 추가 (유럽연합과 유럽 15개 국가 제외)
-        const europeanUnionIndex = implementedCountries.indexOf('european-union');
-        const countriesBeforeEU = implementedCountries.slice(0, europeanUnionIndex);
-        const countriesAfterEU = implementedCountries.slice(europeanUnionIndex + 1).filter(c => !europeanCountries.includes(c));
-        
-        countriesBeforeEU.forEach(countryCode => {
-            if (this.g20Countries[countryCode]) {
-                const option = document.createElement('option');
-                option.value = countryCode;
-                option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
-                countryDropdown.appendChild(option);
-            }
-        });
-        
-        // 유럽연합 추가
-        if (this.g20Countries['european-union']) {
-            const option = document.createElement('option');
-            option.value = 'european-union';
-            option.textContent = `${this.g20Countries['european-union'].flag} ${this.g20Countries['european-union'].name}`;
-            countryDropdown.appendChild(option);
-        }
-        
-        // 유럽연합 하위에 15개 국가 추가 (위에서 이미 정의된 europeanCountries 사용)
-        europeanCountries.forEach(countryCode => {
-            if (this.g20Countries[countryCode]) {
-                const option = document.createElement('option');
-                option.value = countryCode;
-                option.textContent = `  └ ${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
-                countryDropdown.appendChild(option);
-            }
-        });
-        
-        // 나머지 국가 추가 (유럽 15개 국가 제외)
-        countriesAfterEU.forEach(countryCode => {
-            if (this.g20Countries[countryCode] && !europeanCountries.includes(countryCode)) {
-                const option = document.createElement('option');
-                option.value = countryCode;
-                option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
-                countryDropdown.appendChild(option);
-            }
-        });
-        
-        // 구분선 추가
-        const separator2 = document.createElement('option');
-        separator2.disabled = true;
-        separator2.textContent = '━━━━━━━━━━━━━━━';
-        countryDropdown.appendChild(separator2);
-        
-        // 나머지 G20 국가 추가
-        otherCountries.forEach(countryCode => {
-            const option = document.createElement('option');
-            option.value = countryCode;
-            option.textContent = `${this.g20Countries[countryCode].flag} ${this.g20Countries[countryCode].name}`;
-            countryDropdown.appendChild(option);
-        });
-        
         // 요소들을 컨테이너에 추가
         mapModeToggle.appendChild(globeBtn);
-        mapModeToggle.appendChild(g20Label);
-        mapModeToggle.appendChild(countryDropdown);
         
         // 기존 버튼 스타일 유지 (하위 호환성)
         const usaBtn = document.createElement('button');
@@ -3473,14 +3382,6 @@ class BillionaireMap {
         // 3D/2D 토글 버튼 이벤트 리스너
         globeBtn.addEventListener('click', () => {
             this.toggleGlobeMode();
-        });
-        
-        // 드롭다운 이벤트 리스너
-        countryDropdown.addEventListener('change', (e) => {
-            const selectedCountry = e.target.value;
-            if (selectedCountry && selectedCountry !== '') {
-                this.switchToCountryMode(selectedCountry);
-            }
         });
         
         // 기존 버튼 이벤트 리스너 (하위 호환성)
@@ -4598,7 +4499,6 @@ class BillionaireMap {
     
     // 모드 버튼 상태 업데이트
     updateModeButtons() {
-        const dropdown = document.getElementById('country-selector-dropdown');
         const usaBtn = document.getElementById('usa-mode-btn');
         const koreaBtn = document.getElementById('korea-mode-btn');
         const japanBtn = document.getElementById('japan-mode-btn');
@@ -21021,6 +20921,13 @@ class BillionaireMap {
             
             this.renderDashboardAuctions(auctions, filter);
         } catch (error) {
+            // 409 오류 (index already exists)는 무시 - 이미 인덱스가 존재한다는 의미
+            if (error.code === 409 || (error.message && error.message.includes('index already exists'))) {
+                console.log('[인덱스 정보] 이미 인덱스가 존재합니다. 정상 작동합니다.');
+                // 오류를 표시하지 않고 조용히 처리
+                return;
+            }
+            
             console.error('[대시보드 옥션 로드 실패]:', error);
             while (listContainer.firstChild) {
                 listContainer.removeChild(listContainer.firstChild);
