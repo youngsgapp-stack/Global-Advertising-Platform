@@ -18212,7 +18212,7 @@ class BillionaireMap {
                 this.startAuctionCountdown(regionId, newAuction);
                 
                 // Firestore 실시간 리스너 설정
-                this.setupAuctionListener(regionId);
+                await this.setupAuctionListener(regionId);
                 
                 console.log(`[옥션 생성] ${regionId}: 초기가 $1.00, 종료 시간 ${endTime.toDate()}`);
                 return newAuction;
@@ -18821,7 +18821,7 @@ class BillionaireMap {
     /**
      * Firestore 실시간 옥션 리스너 설정
      */
-    setupAuctionListener(regionId) {
+    async setupAuctionListener(regionId) {
         if (!this.isFirebaseInitialized || !this.firestore) {
             return;
         }
