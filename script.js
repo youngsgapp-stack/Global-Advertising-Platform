@@ -69,6 +69,17 @@ class BillionaireMap {
         this.isAdminLoggedIn = false; // 관리자 로그인 상태
         this.selectedStateId = null; // 현재 선택된 주 ID
         this.uiVisible = false; // UI 요소 표시 상태
+        
+        // 보안: Rate Limiting
+        this.loginAttempts = new Map(); // 사용자별 로그인 시도 횟수
+        this.maxLoginAttempts = 5; // 최대 로그인 시도 횟수
+        this.loginLockoutTime = 15 * 60 * 1000; // 15분 잠금 시간 (밀리초)
+        
+        // DOMPurify 초기화 확인
+        this.DOMPurify = window.DOMPurify || null;
+        if (!this.DOMPurify) {
+            console.warn('[보안] DOMPurify가 로드되지 않았습니다. XSS 방어가 약화될 수 있습니다.');
+        }
         this.pKeyCount = 0; // P키 연타 카운트
         this.pKeyTimer = null; // P키 타이머
         this.isGlobeMode = false; // 3D 지구본 모드 상태 (initializeMap에서 초기화)
@@ -80,6 +91,80 @@ class BillionaireMap {
         this.southAfricaProvinceMapping = null; // 남아프리카공화국 주-지구 매핑
         this.argentinaProvinceMapping = null; // 아르헨티나 주 매핑
         this.spainAutonomousCommunityMapping = null; // 스페인 자치지역-주 매핑
+        this.countryConfigByKey = {};
+        this.countryLookup = new Map();
+        this.regionDataLoadState = new Map(); // Firestore 로드 상태 캐시
+        this.pixelBrandGuides = this.buildPixelBrandGuides();
+        this.pixelTemplates = this.buildPixelTemplates();
+        this.pixelStickers = this.buildPixelStickers();
+        
+        // Chart.js 인스턴스 저장
+        this.bidHistogramChart = null;
+        this.clickExposureChart = null;
+        this.p2wMitigationChart = null;
+        
+        // 옥션 시스템 관련 변수
+        this.activeAuctions = new Map(); // 활성 옥션 캐시 (regionId -> auctionData)
+        this.auctionTimers = new Map(); // 옥션 카운트다운 타이머 (regionId -> timerId)
+        this.auctionListeners = new Map(); // Firestore 실시간 리스너 (regionId -> unsubscribe)
+        this.minBidIncrement = 0.1; // 최소 입찰 증가액 (USD)
+        this.auctionExtensionMinutes = 5; // 마지막 5분 내 입찰 시 연장 시간
+        this.communityRewardRate = 0.1; // 각 낙찰 금액의 10%를 커뮤니티 상금으로 적립
+        this.freePixelConversionRate = 20; // $20당 무료 픽셀 1세트 적립
+        this.freePixelDropSize = 50; // 무료 픽셀 드랍 시 기본 배포량
+        this.communityPoolData = {
+            rewardFund: 0,
+            totalAuctions: 0,
+            freePixelPool: 0,
+            lastDistributionAt: null,
+            recentContribution: 0
+        };
+        this.communityPoolListener = null;
+        
+        // 픽셀 에디터 초기화
+        this.initPixelEditor();
+        
+        // 기술 인프라 개선: 데이터 파이프라인 및 성능 최적화
+        this.geoJsonPipeline = {
+            cache: new Map(), // 국가별 GeoJSON 캐시
+            loadingStates: new Map(), // 로딩 상태 추적
+            viewportCache: new Map(), // 뷰포트 기반 캐시
+            streamingQueue: [], // 스트리밍 큐
+            maxCacheSize: 50 * 1024 * 1024 // 최대 캐시 크기 (50MB)
+        };
+        this.quadtree = null; // 쿼드트리 인덱스
+        this.viewportBounds = null; // 현재 뷰포트 경계
+        this.loadedTiles = new Set(); // 로드된 타일 추적
+        
+        // 모니터링 시스템
+        this.monitoring = {
+            eventLog: [], // 이벤트 로그
+            performanceMetrics: {
+                loadTimes: [],
+                renderTimes: [],
+                queryTimes: []
+            },
+            anomalyDetection: {
+                suspiciousBids: [],
+                rapidBidPatterns: new Map()
+            },
+            maxLogSize: 1000 // 최대 로그 크기
+        };
+        
+        // API 엔드포인트 설정
+        this.apiEndpoints = {
+            ownership: '/api/ownership',
+            auction: '/api/auction',
+            region: '/api/region'
+        };
+        
+        // 커뮤니티 & 운영 시스템
+        this.community = {
+            reports: new Map(), // 신고 데이터 캐시
+            moderators: new Set(), // 모더레이터 목록
+            events: [], // 진행 중인 이벤트
+            monthlyReports: [] // 월간 리포트
+        };
         
         // G20 국가 설정
         this.g20Countries = {
@@ -118,6 +203,47 @@ class BillionaireMap {
             'romania': { name: 'Romania', center: [25, 46], zoom: 6, flag: '🇷🇴' },
             'hungary': { name: 'Hungary', center: [19.5, 47.5], zoom: 6, flag: '🇭🇺' },
             'bulgaria': { name: 'Bulgaria', center: [25, 43], zoom: 6, flag: '🇧🇬' }
+        };
+
+        this.initializeCountryConfig();
+        
+        // 국가별 색상 매핑 (각 나라마다 다른 색상)
+        this.countryColors = {
+            'USA': '#4ecdc4',
+            'South Korea': '#e74c3c',
+            'Japan': '#ffd93d',
+            'China': '#45b7d1',
+            'Russia': '#6c5ce7',
+            'India': '#ff9f43',
+            'Canada': '#e74c3c',
+            'Germany': '#5dade2',
+            'United Kingdom': '#00d2d3',
+            'France': '#feca57',
+            'Italy': '#ff6348',
+            'Brazil': '#10ac84',
+            'Australia': '#ffa502',
+            'Mexico': '#0652DD',
+            'Indonesia': '#ee5a6f',
+            'Saudi Arabia': '#f39c12',
+            'Turkey': '#74b9ff',
+            'South Africa': '#9b59b6',
+            'Argentina': '#1abc9c',
+            'European Union': '#34495e',
+            'Spain': '#16a085',
+            'Netherlands': '#3498db',
+            'Poland': '#e67e22',
+            'Belgium': '#f1c40f',
+            'Sweden': '#c0392b',
+            'Austria': '#d35400',
+            'Denmark': '#7f8c8d',
+            'Finland': '#27ae60',
+            'Ireland': '#2980b9',
+            'Portugal': '#8e44ad',
+            'Greece': '#c0392b',
+            'Czech Republic': '#d35400',
+            'Romania': '#7f8c8d',
+            'Hungary': '#27ae60',
+            'Bulgaria': '#2980b9'
         };
         
         // G20 국가별 언어 매핑 (주요 언어 + 영어)
@@ -931,6 +1057,335 @@ class BillionaireMap {
         }
     }
     
+    // ========== 보안 헬퍼 함수 ==========
+    
+    /**
+     * XSS 방어: DOMPurify를 사용하여 HTML 정화
+     * @param {string} html - 정화할 HTML 문자열
+     * @param {object} options - DOMPurify 옵션
+     * @returns {string} 정화된 HTML 문자열
+     */
+    sanitizeHTML(html, options = {}) {
+        if (!html) return '';
+        if (typeof html !== 'string') return String(html);
+        
+        if (this.DOMPurify) {
+            const defaultOptions = {
+                ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'span', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+                ALLOWED_ATTR: ['href', 'title', 'class', 'id', 'style'],
+                ALLOW_DATA_ATTR: false
+            };
+            return this.DOMPurify.sanitize(html, { ...defaultOptions, ...options });
+        } else {
+            // DOMPurify가 없을 경우 기본 이스케이프
+            console.warn('[보안] DOMPurify가 없어 기본 이스케이프를 사용합니다.');
+            const div = document.createElement('div');
+            div.textContent = html;
+            return div.innerHTML;
+        }
+    }
+    
+    /**
+     * 안전한 innerHTML 설정
+     * @param {HTMLElement} element - 대상 요소
+     * @param {string} html - 설정할 HTML 문자열
+     */
+    setSafeHTML(element, html) {
+        if (!element) return;
+        if (this.DOMPurify) {
+            element.innerHTML = this.sanitizeHTML(html);
+        } else {
+            // DOMPurify가 없을 경우 textContent 사용 (안전하지만 HTML 렌더링 안됨)
+            element.textContent = html;
+        }
+    }
+    
+    /**
+     * 입력 검증 함수
+     * @param {string} value - 검증할 값
+     * @param {string} type - 검증 타입 ('text', 'url', 'email', 'number')
+     * @param {number} maxLength - 최대 길이
+     * @param {boolean} required - 필수 여부
+     * @returns {string} 검증된 값
+     * @throws {Error} 검증 실패 시 에러
+     */
+    validateInput(value, type = 'text', maxLength = 1000, required = true) {
+        if (required && (!value || value.trim().length === 0)) {
+            throw new Error('입력값이 비어있습니다.');
+        }
+        
+        if (!value) return '';
+        
+        const trimmedValue = value.trim();
+        
+        if (trimmedValue.length > maxLength) {
+            throw new Error(`최대 ${maxLength}자까지 입력 가능합니다.`);
+        }
+        
+        switch(type) {
+            case 'url':
+                try {
+                    const url = new URL(trimmedValue);
+                    if (!['http:', 'https:'].includes(url.protocol)) {
+                        throw new Error('HTTPS/HTTP만 허용됩니다.');
+                    }
+                } catch (e) {
+                    if (e.message.includes('HTTPS/HTTP')) {
+                        throw e;
+                    }
+                    throw new Error('유효한 URL을 입력해주세요.');
+                }
+                break;
+            case 'email':
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(trimmedValue)) {
+                    throw new Error('유효한 이메일 주소를 입력해주세요.');
+                }
+                break;
+            case 'number':
+                if (isNaN(trimmedValue) || trimmedValue === '') {
+                    throw new Error('유효한 숫자를 입력해주세요.');
+                }
+                break;
+            case 'text':
+                // HTML 태그 제거
+                return trimmedValue.replace(/<[^>]*>/g, '');
+        }
+        
+        return trimmedValue;
+    }
+    
+    /**
+     * 이미지 파일 검증 함수
+     * @param {File} file - 검증할 파일
+     * @returns {Promise<boolean>} 검증 성공 여부
+     * @throws {Error} 검증 실패 시 에러
+     */
+    async validateImageFile(file) {
+        if (!file) {
+            throw new Error('파일을 선택해주세요.');
+        }
+        
+        // 1. 파일 크기 제한 (10MB)
+        const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+        if (file.size > MAX_SIZE) {
+            throw new Error('파일 크기는 10MB를 초과할 수 없습니다.');
+        }
+        
+        // 2. 허용된 MIME 타입
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            throw new Error('JPEG, PNG, GIF, WebP 파일만 허용됩니다.');
+        }
+        
+        // 3. 확장자 검증
+        const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const extension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+        if (!allowedExtensions.includes(extension)) {
+            throw new Error('허용되지 않은 파일 확장자입니다.');
+        }
+        
+        // 4. 실제 이미지 파일인지 확인 (헤더 검증)
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const arrayBuffer = e.target.result;
+                    const bytes = new Uint8Array(arrayBuffer);
+                    
+                    // JPEG: FF D8 FF
+                    // PNG: 89 50 4E 47 0D 0A 1A 0A
+                    // GIF: 47 49 46 38 (GIF8)
+                    // WebP: RIFF ... WEBP
+                    const isJPEG = bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
+                    const isPNG = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+                    const isGIF = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38;
+                    
+                    // WebP 검증 (RIFF ... WEBP)
+                    let isWebP = false;
+                    if (bytes.length >= 12) {
+                        const webpHeader = String.fromCharCode(...bytes.slice(0, 4));
+                        const webpFormat = String.fromCharCode(...bytes.slice(8, 12));
+                        isWebP = webpHeader === 'RIFF' && webpFormat === 'WEBP';
+                    }
+                    
+                    if (isJPEG || isPNG || isGIF || isWebP) {
+                        resolve(true);
+                    } else {
+                        reject(new Error('유효한 이미지 파일이 아닙니다.'));
+                    }
+                } catch (error) {
+                    reject(new Error('파일 검증 중 오류가 발생했습니다.'));
+                }
+            };
+            reader.onerror = () => {
+                reject(new Error('파일 읽기 오류가 발생했습니다.'));
+            };
+            reader.readAsArrayBuffer(file.slice(0, 12)); // 헤더만 읽기 (WebP 검증을 위해 12바이트)
+        });
+    }
+    
+    /**
+     * Rate Limiting: 로그인 시도 제한 확인
+     * @param {string} identifier - 사용자 식별자 (IP 또는 사용자 ID)
+     * @returns {object} { allowed: boolean, remainingAttempts: number, lockoutTime: number }
+     */
+    checkLoginRateLimit(identifier) {
+        const now = Date.now();
+        const attempts = this.loginAttempts.get(identifier) || { count: 0, lockoutUntil: 0 };
+        
+        // 잠금 시간이 지났으면 초기화
+        if (attempts.lockoutUntil > 0 && now > attempts.lockoutUntil) {
+            this.loginAttempts.delete(identifier);
+            return { allowed: true, remainingAttempts: this.maxLoginAttempts, lockoutTime: 0 };
+        }
+        
+        // 잠금 중이면 거부
+        if (attempts.lockoutUntil > 0 && now <= attempts.lockoutUntil) {
+            const remainingTime = Math.ceil((attempts.lockoutUntil - now) / 1000 / 60); // 분 단위
+            return { allowed: false, remainingAttempts: 0, lockoutTime: remainingTime };
+        }
+        
+        // 시도 횟수 확인
+        if (attempts.count >= this.maxLoginAttempts) {
+            // 잠금 시작
+            attempts.lockoutUntil = now + this.loginLockoutTime;
+            this.loginAttempts.set(identifier, attempts);
+            return { allowed: false, remainingAttempts: 0, lockoutTime: Math.ceil(this.loginLockoutTime / 1000 / 60) };
+        }
+        
+        return { allowed: true, remainingAttempts: this.maxLoginAttempts - attempts.count, lockoutTime: 0 };
+    }
+    
+    /**
+     * Rate Limiting: 로그인 시도 기록
+     * @param {string} identifier - 사용자 식별자
+     * @param {boolean} success - 로그인 성공 여부
+     */
+    recordLoginAttempt(identifier, success) {
+        if (success) {
+            // 성공 시 시도 횟수 초기화
+            this.loginAttempts.delete(identifier);
+        } else {
+            // 실패 시 시도 횟수 증가
+            const attempts = this.loginAttempts.get(identifier) || { count: 0, lockoutUntil: 0 };
+            attempts.count += 1;
+            this.loginAttempts.set(identifier, attempts);
+        }
+    }
+    
+    /**
+     * 사용자 식별자 가져오기 (IP 기반 또는 사용자 ID)
+     * @returns {string} 사용자 식별자
+     */
+    getUserIdentifier() {
+        // Firebase 사용자 ID가 있으면 사용
+        if (this.currentUser && this.currentUser.uid) {
+            return `user:${this.currentUser.uid}`;
+        }
+        // 없으면 세션 ID 사용 (간단한 구현)
+        if (!this.sessionId) {
+            this.sessionId = `session:${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+        return this.sessionId;
+    }
+    
+    initializeCountryConfig() {
+        const configs = [
+            { key: 'usa', firestoreCountry: 'USA', iso2: 'US', aliases: ['united states', 'america', 'us'] },
+            { key: 'korea', firestoreCountry: 'South Korea', iso2: 'KR', aliases: ['south-korea', 'republic of korea', 'korea'] },
+            { key: 'japan', firestoreCountry: 'Japan', iso2: 'JP' },
+            { key: 'china', firestoreCountry: 'China', iso2: 'CN' },
+            { key: 'russia', firestoreCountry: 'Russia', iso2: 'RU' },
+            { key: 'india', firestoreCountry: 'India', iso2: 'IN' },
+            { key: 'canada', firestoreCountry: 'Canada', iso2: 'CA' },
+            { key: 'germany', firestoreCountry: 'Germany', iso2: 'DE' },
+            { key: 'uk', firestoreCountry: 'United Kingdom', iso2: 'GB', aliases: ['great britain', 'britain', 'uk'] },
+            { key: 'france', firestoreCountry: 'France', iso2: 'FR' },
+            { key: 'italy', firestoreCountry: 'Italy', iso2: 'IT' },
+            { key: 'brazil', firestoreCountry: 'Brazil', iso2: 'BR' },
+            { key: 'australia', firestoreCountry: 'Australia', iso2: 'AU' },
+            { key: 'mexico', firestoreCountry: 'Mexico', iso2: 'MX' },
+            { key: 'indonesia', firestoreCountry: 'Indonesia', iso2: 'ID' },
+            { key: 'saudi-arabia', firestoreCountry: 'Saudi Arabia', iso2: 'SA', aliases: ['saudiarabia'] },
+            { key: 'turkey', firestoreCountry: 'Turkey', iso2: 'TR' },
+            { key: 'south-africa', firestoreCountry: 'South Africa', iso2: 'ZA', aliases: ['southafrica'] },
+            { key: 'argentina', firestoreCountry: 'Argentina', iso2: 'AR' },
+            { key: 'european-union', firestoreCountry: 'European Union', iso2: 'EU', aliases: ['eu'] },
+            { key: 'spain', firestoreCountry: 'Spain', iso2: 'ES' },
+            { key: 'netherlands', firestoreCountry: 'Netherlands', iso2: 'NL' },
+            { key: 'poland', firestoreCountry: 'Poland', iso2: 'PL' },
+            { key: 'belgium', firestoreCountry: 'Belgium', iso2: 'BE' },
+            { key: 'sweden', firestoreCountry: 'Sweden', iso2: 'SE' },
+            { key: 'austria', firestoreCountry: 'Austria', iso2: 'AT' },
+            { key: 'denmark', firestoreCountry: 'Denmark', iso2: 'DK' },
+            { key: 'finland', firestoreCountry: 'Finland', iso2: 'FI' },
+            { key: 'ireland', firestoreCountry: 'Ireland', iso2: 'IE' },
+            { key: 'portugal', firestoreCountry: 'Portugal', iso2: 'PT' },
+            { key: 'greece', firestoreCountry: 'Greece', iso2: 'GR' },
+            { key: 'czech-republic', firestoreCountry: 'Czech Republic', iso2: 'CZ', aliases: ['czech', 'czechia'] },
+            { key: 'romania', firestoreCountry: 'Romania', iso2: 'RO' },
+            { key: 'hungary', firestoreCountry: 'Hungary', iso2: 'HU' },
+            { key: 'bulgaria', firestoreCountry: 'Bulgaria', iso2: 'BG' }
+        ];
+        
+        this.countryConfigs = configs;
+        if (!this.countryLookup) {
+            this.countryLookup = new Map();
+        } else {
+            this.countryLookup.clear();
+        }
+        this.countryConfigByKey = {};
+        
+        const registerKey = (value, config) => {
+            if (!value) return;
+            this.countryLookup.set(value.toLowerCase(), config);
+        };
+        
+        configs.forEach(config => {
+            this.countryConfigByKey[config.key] = config;
+            registerKey(config.key, config);
+            registerKey(config.firestoreCountry, config);
+            registerKey(config.iso2, config);
+            if (config.aliases && Array.isArray(config.aliases)) {
+                config.aliases.forEach(alias => registerKey(alias, config));
+            }
+        });
+    }
+    
+    getCountryConfig(identifier) {
+        if (!identifier || !this.countryLookup) return null;
+        const key = identifier.toString().toLowerCase();
+        return this.countryLookup.get(key) || null;
+    }
+    
+    normalizeCountryIdentifier(identifier) {
+        if (!identifier) return null;
+        const config = this.getCountryConfig(identifier);
+        if (config) {
+            return config.firestoreCountry;
+        }
+        if (typeof identifier === 'string') {
+            return identifier;
+        }
+        return null;
+    }
+    
+    async loadRegionDataForMode(mode, options = {}) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        const config = this.getCountryConfig(mode);
+        const country = config?.firestoreCountry || this.normalizeCountryIdentifier(options.country || mode);
+        if (!country) {
+            return;
+        }
+        return this.loadRegionDataFromFirestore({
+            ...options,
+            country
+        });
+    }
+    
     async init() {
         try {
             // 별 배경 초기화
@@ -942,14 +1397,13 @@ class BillionaireMap {
             });
             
             await this.initializeMap();
-            await this.loadWorldData();
+            // 모든 국가를 한꺼번에 로드
+            await this.loadAllCountriesForDisplay();
             
             // Firestore에서 지역 데이터 불러오기 (지도 로드 후)
-            if (this.isFirebaseInitialized) {
-                await this.loadRegionDataFromFirestore().catch(err => {
-                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
-                });
-            }
+            await this.loadRegionDataForMode('usa').catch(err => {
+                console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+            });
             
             // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
             this.setAllRegionsPriceToUniform();
@@ -959,7 +1413,27 @@ class BillionaireMap {
                 this.eventListenersAdded = true;
             }
             this.hideLoading();
+            
+            // 온보딩 투어 초기화 (첫 방문 시)
+            this.initOnboardingTour();
+            
+            // 모바일 최적화 초기화
+            this.initMobileOptimization();
             this.switchToUserMode(); // 초기에는 일반 사용자 모드
+            
+            // 기술 인프라 개선 초기화
+            this.initAPIEndpoints();
+            this.simplifyMapLayers();
+            
+            // 지도 이동 시 뷰포트 기반 로딩 활성화
+            if (this.map) {
+                this.map.on('moveend', () => {
+                    this.loadFeaturesForViewport();
+                });
+            }
+            
+            // 커뮤니티 & 운영 초기화
+            this.initCommunityFeatures();
             // UI는 P키 연타로 표시하거나 햄버거 메뉴를 통해 접근
             // this.showUI(); // 초기에는 UI 표시하지 않음
             this.addMapModeToggle(); // 지도 모드 전환 버튼 추가
@@ -1128,6 +1602,7 @@ class BillionaireMap {
             });
 
             console.log('Firebase 초기화 완료');
+            this.subscribeToCommunityPool();
         } catch (error) {
             console.error('Firebase 초기화 오류:', error);
             this.showNotification('Firebase 초기화에 실패했습니다. 일부 기능이 제한될 수 있습니다.', 'warning');
@@ -1163,15 +1638,26 @@ class BillionaireMap {
         }
     }
 
-    // 특정 지역의 소유자 확인
+    // 특정 지역의 소유자 확인 (옥션 낙찰자 또는 구매자)
     async checkRegionOwnership(regionId) {
         if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
             return false;
         }
 
         try {
-            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { collection, query, where, getDocs, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
+            // 1. regions 컬렉션에서 옥션 낙찰자 확인
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            const regionDoc = await getDoc(regionRef);
+            if (regionDoc.exists()) {
+                const regionData = regionDoc.data();
+                if (regionData.ownerEmail === this.currentUser.email || regionData.ownerId === this.currentUser.uid) {
+                    return true;
+                }
+            }
+            
+            // 2. purchases 컬렉션에서 구매 기록 확인 (기존 방식)
             const q = query(
                 collection(this.firestore, 'purchases'),
                 where('regionId', '==', regionId),
@@ -1224,67 +1710,93 @@ class BillionaireMap {
         }
     }
 
-    // Firestore에서 모든 지역 데이터 불러오기
-    async loadRegionDataFromFirestore() {
+    // Firestore에서 지역 데이터 불러오기 (국가 단위 캐싱 지원)
+    async loadRegionDataFromFirestore(options = {}) {
         if (!this.isFirebaseInitialized || !this.firestore) {
             console.warn('Firebase가 초기화되지 않아 Firestore에서 데이터를 불러올 수 없습니다.');
             return;
         }
 
-        try {
-            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-            
-            const regionsSnapshot = await getDocs(collection(this.firestore, 'regions'));
-            
-            let loadedCount = 0;
-            let mergedCount = 0;
-            regionsSnapshot.forEach((doc) => {
-                const data = doc.data();
-                const regionId = data.regionId || doc.id;
+        const { country = null, force = false } = options;
+        const normalizedCountry = this.normalizeCountryIdentifier(country);
+        const cacheKey = normalizedCountry ? normalizedCountry.toLowerCase() : '__all__';
+        const cachedState = this.regionDataLoadState.get(cacheKey);
+
+        if (cachedState && cachedState.status === 'loaded' && !force) {
+            return cachedState.result;
+        }
+
+        if (cachedState && cachedState.status === 'loading') {
+            return cachedState.promise;
+        }
+
+        const loadPromise = (async () => {
+            try {
+                const { collection, getDocs, query, where } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
                 
-                // 메모리의 regionData에 병합 (Firestore 데이터 우선, 특히 인구/면적 데이터)
-                const existingData = this.regionData.get(regionId) || {};
-                
-                // Firestore 데이터를 우선적으로 사용 (인구/면적 데이터는 Firestore 우선)
-                const mergedData = {
-                    ...existingData,  // 기본은 로컬 데이터
-                    ...data,  // Firestore 데이터로 덮어씀 (Firestore 우선)
-                    // 인구/면적은 Firestore에 값이 있으면 Firestore 우선
-                    population: (data.population !== undefined && data.population !== null && data.population > 0)
-                        ? data.population 
-                        : (existingData.population || 0),
-                    area: (data.area !== undefined && data.area !== null && data.area > 0)
-                        ? data.area 
-                        : (existingData.area || 0),
-                    // 가격은 현재 메모리 상태 유지 (동기화 버튼에서 통일할 때까지)
-                    ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                        ? existingData.ad_price 
-                        : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
-                    // 기타 필드는 Firestore 우선, 없으면 로컬
-                    name_ko: data.name_ko || existingData.name_ko || '',
-                    name_en: data.name_en || existingData.name_en || existingData.name || '',
-                    country: data.country || existingData.country || '',
-                    admin_level: data.admin_level || existingData.admin_level || '',
-                    ad_status: data.ad_status || existingData.ad_status || 'available'
-                };
-                
-                // 로컬 데이터가 있었는지 확인
-                if (Object.keys(existingData).length > 0) {
-                    mergedCount++;
+                let regionsRef = collection(this.firestore, 'regions');
+                if (normalizedCountry) {
+                    regionsRef = query(regionsRef, where('country', '==', normalizedCountry));
                 }
                 
-                this.regionData.set(regionId, mergedData);
-                loadedCount++;
-            });
+                const regionsSnapshot = await getDocs(regionsRef);
+                
+                let loadedCount = 0;
+                let mergedCount = 0;
+                
+                regionsSnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const regionId = data.regionId || doc.id;
+                    
+                    const existingData = this.regionData.get(regionId) || {};
+                    
+                    const mergedData = {
+                        ...existingData,
+                        ...data,
+                        population: (data.population !== undefined && data.population !== null && data.population > 0)
+                            ? data.population 
+                            : (existingData.population || 0),
+                        area: (data.area !== undefined && data.area !== null && data.area > 0)
+                            ? data.area 
+                            : (existingData.area || 0),
+                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                            ? existingData.ad_price 
+                            : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
+                        name_ko: data.name_ko || existingData.name_ko || '',
+                        name_en: data.name_en || existingData.name_en || existingData.name || '',
+                        country: data.country || existingData.country || '',
+                        admin_level: data.admin_level || existingData.admin_level || '',
+                        ad_status: data.ad_status || existingData.ad_status || 'available'
+                    };
+                    
+                    if (Object.keys(existingData).length > 0) {
+                        mergedCount++;
+                    }
+                    
+                    this.regionData.set(regionId, mergedData);
+                    loadedCount++;
+                });
+    
+                console.log(`Firestore(${normalizedCountry || 'ALL'})에서 ${loadedCount}개의 지역 데이터를 불러왔습니다. (병합: ${mergedCount}개)`);
+    
+                this.updateMapSourcesWithRegionData();
+                return { loadedCount, mergedCount, country: normalizedCountry || 'ALL' };
+            } catch (error) {
+                console.error('Firestore 지역 데이터 불러오기 오류:', error);
+                throw error;
+            }
+        })();
 
-            console.log(`Firestore에서 ${loadedCount}개의 지역 데이터를 불러왔습니다. (로컬 데이터와 병합: ${mergedCount}개)`);
+        this.regionDataLoadState.set(cacheKey, { status: 'loading', promise: loadPromise });
 
-            // 지도 소스 업데이트
-            this.updateMapSourcesWithRegionData();
-            
+        try {
+            const result = await loadPromise;
+            this.regionDataLoadState.set(cacheKey, { status: 'loaded', result, timestamp: Date.now() });
+            return result;
         } catch (error) {
-            console.error('Firestore 지역 데이터 불러오기 오류:', error);
+            this.regionDataLoadState.delete(cacheKey);
             // 오류가 나도 계속 진행 (로컬 데이터 사용)
+            return null;
         }
     }
 
@@ -1673,6 +2185,283 @@ class BillionaireMap {
         }
 
         console.log(`총 ${loadedCount}개 국가의 데이터를 로드했습니다.`);
+    }
+    
+    /**
+     * 옥션 상태 정보를 feature에 추가
+     */
+    async enrichFeaturesWithAuctionStatus(features) {
+        if (!this.isFirebaseInitialized || !this.firestore || features.length === 0) {
+            return;
+        }
+        
+        try {
+            const { collection, query, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            
+            // 모든 활성 옥션 조회
+            const activeQuery = query(auctionsRef);
+            const snapshot = await getDocs(activeQuery);
+            const auctionMap = new Map();
+            
+            const now = Timestamp.now();
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                const regionId = doc.id;
+                let status = 'none';
+                
+                if (data.status === 'active') {
+                    // 종료 시간 확인
+                    if (data.endTime) {
+                        const endTime = data.endTime.toMillis ? data.endTime.toMillis() : data.endTime;
+                        const timeRemaining = endTime - now.toMillis();
+                        
+                        if (timeRemaining > 0) {
+                            status = 'active'; // 진행 중
+                        } else {
+                            status = 'ended'; // 종료됨
+                        }
+                    } else {
+                        status = 'active';
+                    }
+                } else if (data.status === 'sold') {
+                    status = 'sold'; // 판매 완료
+                } else if (data.status === 'ended') {
+                    status = 'ended'; // 종료됨
+                }
+                
+                auctionMap.set(regionId, status);
+            });
+            
+            // 각 feature에 옥션 상태 추가
+            features.forEach(feature => {
+                if (feature.properties) {
+                    const regionId = feature.properties.id || feature.properties.regionId || feature.properties.stateId;
+                    if (regionId && auctionMap.has(regionId)) {
+                        feature.properties.auction_status = auctionMap.get(regionId);
+                    } else {
+                        feature.properties.auction_status = 'none';
+                    }
+                }
+            });
+            
+            console.log(`[옥션 상태 추가] ${auctionMap.size}개 옥션 상태 적용 완료`);
+        } catch (error) {
+            console.error('[옥션 상태 추가 실패]:', error);
+            // 실패해도 기본값 설정
+            features.forEach(feature => {
+                if (feature.properties) {
+                    feature.properties.auction_status = 'none';
+                }
+            });
+        }
+    }
+    
+    // 모든 국가 데이터를 한꺼번에 로드하여 지도에 표시
+    async loadAllCountriesForDisplay() {
+        if (!this.map) {
+            console.warn('지도가 초기화되지 않았습니다.');
+            return;
+        }
+        
+        const allFeatures = [];
+        
+        // 국가별 로드 함수와 캐시 키 매핑
+        const countryConfig = [
+            { name: 'USA', key: 'usa', loadFn: () => this.loadWorldData() },
+            { name: 'South Korea', key: 'korea', loadFn: () => this.loadKoreaData() },
+            { name: 'Japan', key: 'japan', loadFn: () => this.loadJapanData() },
+            { name: 'China', key: 'china', loadFn: () => this.loadChinaData() },
+            { name: 'Russia', key: 'russia', loadFn: () => this.loadRussiaData() },
+            { name: 'India', key: 'india', loadFn: () => this.loadIndiaData() },
+            { name: 'Canada', key: 'canada', loadFn: () => this.loadCanadaData() },
+            { name: 'Germany', key: 'germany', loadFn: () => this.loadGermanyData() },
+            { name: 'United Kingdom', key: 'uk', loadFn: () => this.loadUKData() },
+            { name: 'France', key: 'france', loadFn: () => this.loadFranceData() },
+            { name: 'Italy', key: 'italy', loadFn: () => this.loadItalyData() },
+            { name: 'Brazil', key: 'brazil', loadFn: () => this.loadBrazilData() },
+            { name: 'Australia', key: 'australia', loadFn: () => this.loadAustraliaData() },
+            { name: 'Mexico', key: 'mexico', loadFn: () => this.loadMexicoData() },
+            { name: 'Indonesia', key: 'indonesia', loadFn: () => this.loadIndonesiaData() },
+            { name: 'Saudi Arabia', key: 'saudi-arabia', loadFn: () => this.loadSaudiArabiaData() },
+            { name: 'Turkey', key: 'turkey', loadFn: () => this.loadTurkeyData() },
+            { name: 'South Africa', key: 'south-africa', loadFn: () => this.loadSouthAfricaData() },
+            { name: 'Argentina', key: 'argentina', loadFn: () => this.loadArgentinaData() },
+            { name: 'European Union', key: 'european-union', loadFn: () => this.loadEuropeanUnionData() },
+            { name: 'Spain', key: 'spain', loadFn: () => this.loadSpainData() },
+            { name: 'Netherlands', key: 'netherlands', loadFn: () => this.loadNetherlandsData() },
+            { name: 'Poland', key: 'poland', loadFn: () => this.loadPolandData() },
+            { name: 'Belgium', key: 'belgium', loadFn: () => this.loadBelgiumData() },
+            { name: 'Sweden', key: 'sweden', loadFn: () => this.loadSwedenData() },
+            { name: 'Austria', key: 'austria', loadFn: () => this.loadAustriaData() },
+            { name: 'Denmark', key: 'denmark', loadFn: () => this.loadDenmarkData() },
+            { name: 'Finland', key: 'finland', loadFn: () => this.loadFinlandData() },
+            { name: 'Ireland', key: 'ireland', loadFn: () => this.loadIrelandData() },
+            { name: 'Portugal', key: 'portugal', loadFn: () => this.loadPortugalData() },
+            { name: 'Greece', key: 'greece', loadFn: () => this.loadGreeceData() },
+            { name: 'Czech Republic', key: 'czech-republic', loadFn: () => this.loadCzechRepublicData() },
+            { name: 'Romania', key: 'romania', loadFn: () => this.loadRomaniaData() },
+            { name: 'Hungary', key: 'hungary', loadFn: () => this.loadHungaryData() },
+            { name: 'Bulgaria', key: 'bulgaria', loadFn: () => this.loadBulgariaData() }
+        ];
+        
+        // 모든 국가 데이터를 병렬로 동시에 로드하여 최대한 빠르게 처리
+        const loadPromises = countryConfig.map(async (config) => {
+            try {
+                // 각 국가 로드 함수 호출 (캐시에 데이터 저장됨)
+                await config.loadFn();
+                
+                // 캐시에서 GeoJSON 데이터 가져오기
+                const cachedData = this.cachedGeoJsonData[config.key];
+                
+                if (cachedData && cachedData.features && cachedData.features.length > 0) {
+                    // 각 feature에 국가별 색상 적용
+                    cachedData.features.forEach(feature => {
+                        if (feature.properties) {
+                            const country = feature.properties.country || config.name;
+                            const countryColor = this.countryColors[country] || this.countryColors[config.name] || '#4ecdc4';
+                            feature.properties.country = country;
+                            feature.properties.country_color = countryColor;
+                            // 기본 색상도 업데이트
+                            feature.properties.color = countryColor;
+                        }
+                    });
+                    console.log(`[${config.name}] ${cachedData.features.length}개 행정구역 로드 완료`);
+                    return cachedData.features;
+                }
+                return [];
+            } catch (error) {
+                console.warn(`[${config.name}] 로드 실패:`, error);
+                return [];
+            }
+        });
+        
+        // 모든 국가 데이터 로드가 완료될 때까지 대기
+        const allLoadedFeatures = await Promise.all(loadPromises);
+        
+        // 모든 features를 하나의 배열로 병합
+        allLoadedFeatures.forEach(features => {
+            allFeatures.push(...features);
+        });
+        
+        // 통합된 GeoJSON 생성
+        const mergedGeoJson = {
+            type: 'FeatureCollection',
+            features: allFeatures
+        };
+        
+        console.log(`[loadAllCountriesForDisplay] 총 ${allFeatures.length}개 행정구역 로드 완료`);
+        
+        // 옥션 상태 정보를 각 feature에 추가
+        await this.enrichFeaturesWithAuctionStatus(allFeatures);
+        
+        // 쿼드트리 인덱스 초기화 (성능 최적화)
+        this.initQuadtree(allFeatures);
+        
+        // world-regions 소스에 통합된 데이터 설정
+        if (this.map.getSource('world-regions')) {
+            this.map.getSource('world-regions').setData(mergedGeoJson);
+        } else {
+            this.map.addSource('world-regions', {
+                type: 'geojson',
+                data: mergedGeoJson
+            });
+        }
+        
+        // 레이어 설정 (국가별 색상 + 옥션 상태 적용)
+        if (!this.map.getLayer('regions-fill')) {
+            // 옥션 상태에 따른 색상 표현식
+            // 진행 중(active): 파란색 계열, 곧 시작(upcoming): 노란색 계열, 종료(ended/sold): 회색, 기본: 국가 색상
+            const colorExpression = [
+                'case',
+                ['==', ['get', 'ad_status'], 'occupied'],
+                '#ff6b6b', // 점유된 지역은 빨간색
+                ['==', ['get', 'auction_status'], 'active'],
+                '#3498db', // 진행 중인 옥션: 파란색
+                ['==', ['get', 'auction_status'], 'upcoming'],
+                '#f39c12', // 곧 시작할 옥션: 주황색
+                ['==', ['get', 'auction_status'], 'ended'],
+                '#95a5a6', // 종료된 옥션: 회색
+                ['==', ['get', 'auction_status'], 'sold'],
+                '#7f8c8d', // 판매 완료: 어두운 회색
+                ['coalesce', 
+                    ['get', 'country_color'], 
+                    ['get', 'color'],
+                    '#4ecdc4' // 기본 색상
+                ]
+            ];
+            
+            this.map.addLayer({
+                id: 'regions-fill',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': colorExpression,
+                    'fill-opacity': 0.7
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-border',
+                type: 'line',
+                source: 'world-regions',
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 0.5,
+                        5, 1,
+                        10, 1.5
+                    ],
+                    'line-opacity': 0.9
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'regions-hover',
+                type: 'fill',
+                source: 'world-regions',
+                paint: {
+                    'fill-color': '#feca57',
+                    'fill-opacity': 0
+                }
+            });
+            
+            // 이벤트 리스너 추가
+            if (!this.eventListenersAdded) {
+                this.setupEventListeners();
+                this.eventListenersAdded = true;
+            }
+        } else {
+            // 기존 레이어가 있으면 색상 표현식 업데이트 (옥션 상태 포함)
+            const colorExpression = [
+                'case',
+                ['==', ['get', 'ad_status'], 'occupied'],
+                '#ff6b6b', // 점유된 지역은 빨간색
+                ['==', ['get', 'auction_status'], 'active'],
+                '#3498db', // 진행 중인 옥션: 파란색
+                ['==', ['get', 'auction_status'], 'upcoming'],
+                '#f39c12', // 곧 시작할 옥션: 주황색
+                ['==', ['get', 'auction_status'], 'ended'],
+                '#95a5a6', // 종료된 옥션: 회색
+                ['==', ['get', 'auction_status'], 'sold'],
+                '#7f8c8d', // 판매 완료: 어두운 회색
+                ['coalesce', 
+                    ['get', 'country_color'], 
+                    ['get', 'color'],
+                    '#4ecdc4' // 기본 색상
+                ]
+            ];
+            this.map.setPaintProperty('regions-fill', 'fill-color', colorExpression);
+        }
+        
+        // 통계 업데이트
+        this.updateStatistics();
+        
+        return mergedGeoJson;
     }
 
     // 사용자 로그인 (이메일/비밀번호)
@@ -2404,7 +3193,7 @@ class BillionaireMap {
         this.updateModeButtons();
         const globeBtn = document.getElementById('globe-mode-btn');
         if (globeBtn) {
-            globeBtn.innerHTML = this.isGlobeMode ? '🌍 3D 지구본' : '🗺️ 2D 평면';
+            globeBtn.textContent = this.isGlobeMode ? '🌍 3D 지구본' : '🗺️ 2D 평면';
         }
     }
     
@@ -2755,9 +3544,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('usa');
         
         await this.loadWorldData();
         
@@ -2786,9 +3573,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('korea');
         
         await this.loadKoreaData();
         
@@ -2817,9 +3602,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('japan');
         
         await this.loadJapanData();
         
@@ -2848,9 +3631,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('china');
         
         await this.loadChinaData();
         
@@ -2878,9 +3659,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('russia');
         
         await this.loadIndiaData();
         
@@ -2908,9 +3687,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('india');
         
         await this.loadCanadaData();
         
@@ -2938,9 +3715,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('canada');
         
         await this.loadGermanyData();
         
@@ -2968,9 +3743,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('germany');
         
         await this.loadUKData();
         
@@ -2998,9 +3771,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('uk');
         
         await this.loadFranceData();
         
@@ -3028,9 +3799,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('france');
         
         await this.loadItalyData();
         
@@ -3058,9 +3827,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('italy');
         
         await this.loadBrazilData();
         
@@ -3088,9 +3855,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('brazil');
         
         await this.loadAustraliaData();
         
@@ -3118,9 +3883,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('australia');
         
         await this.loadMexicoData();
         
@@ -3148,9 +3911,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('mexico');
         
         await this.loadIndonesiaData();
         
@@ -3178,9 +3939,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('indonesia');
         
         await this.loadSaudiArabiaData();
         
@@ -3208,9 +3967,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('saudi-arabia');
         
         await this.loadTurkeyData();
         
@@ -3238,9 +3995,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('turkey');
         
         await this.loadSouthAfricaData();
         
@@ -3268,9 +4023,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('south-africa');
         
         await this.loadArgentinaData();
         
@@ -3298,9 +4051,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('argentina');
         
         await this.loadEuropeanUnionData();
         
@@ -3322,9 +4073,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [-3, 40], zoom: 5, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('european-union');
         
         await this.loadSpainData();
         
@@ -3346,9 +4095,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [5, 52], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('spain');
         
         await this.loadNetherlandsData();
         
@@ -3370,9 +4117,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [19, 52], zoom: 5, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('netherlands');
         
         await this.loadPolandData();
         
@@ -3394,9 +4139,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [4.5, 50.5], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('poland');
         
         await this.loadBelgiumData();
         
@@ -3418,9 +4161,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [18, 60], zoom: 5, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('belgium');
         
         await this.loadSwedenData();
         
@@ -3442,9 +4183,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [13, 47.5], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('sweden');
         
         await this.loadAustriaData();
         
@@ -3466,9 +4205,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [10, 56], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('austria');
         
         await this.loadDenmarkData();
         
@@ -3490,9 +4227,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [26, 64], zoom: 5, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('denmark');
         
         await this.loadFinlandData();
         
@@ -3514,9 +4249,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [-8, 53], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('finland');
         
         await this.loadIrelandData();
         
@@ -3538,9 +4271,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [-8, 39.5], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('ireland');
         
         await this.loadPortugalData();
         
@@ -3562,9 +4293,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [23, 38], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('portugal');
         
         await this.loadGreeceData();
         
@@ -3586,9 +4315,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [15, 49.75], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('greece');
         
         await this.loadCzechRepublicData();
         
@@ -3610,9 +4337,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [25, 46], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('czech-republic');
         
         await this.loadRomaniaData();
         
@@ -3634,9 +4359,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [19.5, 47.5], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('romania');
         
         await this.loadHungaryData();
         
@@ -3658,9 +4381,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [25, 43], zoom: 6, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('hungary');
         
         await this.loadBulgariaData();
         
@@ -3689,9 +4410,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        if (this.isFirebaseInitialized) {
-            await this.loadRegionDataFromFirestore();
-        }
+        await this.loadRegionDataForMode('bulgaria');
         
         await this.loadRussiaData();
         
@@ -13214,15 +13933,8 @@ class BillionaireMap {
                 this.showNotification('구매할 지역을 선택해주세요.', 'warning');
                 return;
             }
-            // 로그인 체크
-            if (!this.currentUser) {
-                this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
-                this.showUserLoginModal();
-                return;
-            }
-            this.renderPayPalButtons('paypal-buttons', this.currentRegion);
-            const container = document.getElementById('paypal-buttons');
-            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 옥션 모달 열기
+            this.openAuctionModal(this.currentRegion);
         });
         
         // 도움말 버튼
@@ -13401,15 +14113,8 @@ class BillionaireMap {
                     this.showNotification('구매할 지역을 선택해주세요.', 'warning');
                     return;
                 }
-                // 로그인 체크
-                if (!this.currentUser) {
-                    this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
-                    this.showUserLoginModal();
-                    return;
-                }
-                this.renderPayPalButtons('region-paypal-buttons', this.currentRegion);
-                const container = document.getElementById('region-paypal-buttons');
-                if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // 옥션 모달 열기
+                this.openAuctionModal(this.currentRegion);
             });
         }
         
@@ -13492,15 +14197,9 @@ class BillionaireMap {
                     this.showNotification('이미 광고가 진행 중인 지역입니다.', 'info');
                     return;
                 }
-                // 로그인 체크
-                if (!this.currentUser) {
-                    this.showNotification('구매하려면 먼저 로그인이 필요합니다.', 'warning');
-                    this.showUserLoginModal();
-                    return;
-                }
-                this.renderPayPalButtons('company-paypal-buttons', region);
-                const container = document.getElementById('company-paypal-buttons');
-                if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // 옥션 모달 열기
+                this.currentRegion = region;
+                this.openAuctionModal(region);
             });
         }
         
@@ -13508,6 +14207,23 @@ class BillionaireMap {
         if (regionEditBtn) {
             regionEditBtn.addEventListener('click', () => {
                 this.openRegionEditFromModal();
+            });
+        }
+        
+        // 픽셀 에디터 버튼들
+        const companyEditPixelBtn = document.getElementById('company-edit-pixel-btn');
+        if (companyEditPixelBtn) {
+            companyEditPixelBtn.addEventListener('click', async () => {
+                if (!this.currentRegion) return;
+                await this.openPixelStudio(this.currentRegion.id, this.currentRegion);
+            });
+        }
+        
+        const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
+        if (regionEditPixelBtn) {
+            regionEditPixelBtn.addEventListener('click', async () => {
+                if (!this.currentRegion) return;
+                await this.openPixelStudio(this.currentRegion.id, this.currentRegion);
             });
         }
         
@@ -13605,6 +14321,70 @@ class BillionaireMap {
         // 키보드 단축키
         document.addEventListener('keydown', (e) => {
             this.handleKeyboardShortcuts(e);
+        });
+        
+        // 옥션 모달 이벤트 리스너 설정
+        this.setupAuctionModalListeners();
+        
+        // 픽셀 스튜디오 이벤트 리스너 설정
+        this.setupPixelStudioListeners();
+
+        // 커뮤니티 무료 픽셀 드랍 버튼
+        const triggerPixelDropBtn = document.getElementById('trigger-pixel-airdrop');
+        if (triggerPixelDropBtn) {
+            triggerPixelDropBtn.addEventListener('click', () => {
+                this.triggerCommunityAirdrop();
+            });
+        }
+        
+        // 옥션 대시보드 버튼
+        const sideAuctionDashboardBtn = document.getElementById('side-auction-dashboard-btn');
+        if (sideAuctionDashboardBtn) {
+            sideAuctionDashboardBtn.addEventListener('click', () => {
+                this.openAuctionDashboard();
+            });
+        }
+        
+        // 옥션 대시보드 모달 닫기
+        const closeAuctionDashboard = document.getElementById('close-auction-dashboard');
+        if (closeAuctionDashboard) {
+            closeAuctionDashboard.addEventListener('click', () => {
+                this.closeAuctionDashboard();
+            });
+        }
+        
+        // 대시보드 탭 전환
+        const dashboardTabs = document.querySelectorAll('.dashboard-tabs .tab-btn');
+        dashboardTabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const tabName = e.target.dataset.tab;
+                this.switchDashboardTab(tabName);
+            });
+        });
+        
+        // 통계 모달 열기 (헤더에 버튼 추가 가능)
+        const marketStatsBtn = document.getElementById('market-stats-btn');
+        if (marketStatsBtn) {
+            marketStatsBtn.addEventListener('click', () => {
+                this.openMarketStatsModal();
+            });
+        }
+        
+        // 통계 모달 닫기
+        const closeMarketStats = document.getElementById('close-market-stats');
+        if (closeMarketStats) {
+            closeMarketStats.addEventListener('click', () => {
+                this.closeMarketStatsModal();
+            });
+        }
+        
+        // 통계 탭 전환
+        const statsTabs = document.querySelectorAll('.stats-tabs .tab-btn');
+        statsTabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const tabName = e.target.dataset.tab;
+                this.switchStatsTab(tabName);
+            });
         });
     }
     
@@ -13861,7 +14641,10 @@ class BillionaireMap {
                     });
                 } else {
                     const noFeaturesText = this.getLanguageText('Key Features');
-                    featuresList.innerHTML = `<li>-</li>`;
+                    featuresList.innerHTML = '';
+                    const li = document.createElement('li');
+                    li.textContent = '-';
+                    featuresList.appendChild(li);
                 }
             }
         } else {
@@ -13896,7 +14679,10 @@ class BillionaireMap {
             
             const featuresList = document.getElementById('company-features-list');
             if (featuresList) {
-                featuresList.innerHTML = '<li>등록된 특징이 없습니다.</li>';
+                featuresList.innerHTML = '';
+                const li = document.createElement('li');
+                li.textContent = '등록된 특징이 없습니다.';
+                featuresList.appendChild(li);
             }
         }
         
@@ -13964,6 +14750,12 @@ class BillionaireMap {
             }
         }
         
+        // 픽셀 에디터 버튼 표시/숨김 (소유자만)
+        const companyEditPixelBtn = document.getElementById('company-edit-pixel-btn');
+        if (companyEditPixelBtn) {
+            this.updatePixelEditorButtonVisibility(companyEditPixelBtn, stateId);
+        }
+        
         modal.classList.remove('hidden');
         console.log('통합 정보 모달 표시 완료');
     }
@@ -14004,17 +14796,65 @@ class BillionaireMap {
             return;
         }
         
-        const companyData = {
-            name: document.getElementById('company-name-input').value,
-            industry: document.getElementById('company-industry-input').value,
-            founded: document.getElementById('company-founded-input').value,
-            employees: document.getElementById('company-employees-input').value,
-            website: document.getElementById('company-website-input').value,
-            description: document.getElementById('company-description-input').value,
-            features: document.getElementById('company-features-input').value.split('\n').filter(f => f.trim()),
-            region: this.getRegionDisplayName(this.currentRegion),
-            logo: this.logoData[this.selectedStateId]?.src || ''
-        };
+        // 입력 검증
+        let companyData;
+        try {
+            const name = this.validateInput(
+                document.getElementById('company-name-input').value,
+                'text',
+                200,
+                false
+            );
+            const industry = this.validateInput(
+                document.getElementById('company-industry-input').value,
+                'text',
+                100,
+                false
+            );
+            const founded = this.validateInput(
+                document.getElementById('company-founded-input').value,
+                'number',
+                10,
+                false
+            );
+            const employees = this.validateInput(
+                document.getElementById('company-employees-input').value,
+                'number',
+                20,
+                false
+            );
+            const website = this.validateInput(
+                document.getElementById('company-website-input').value,
+                'url',
+                500,
+                false
+            );
+            const description = this.validateInput(
+                document.getElementById('company-description-input').value,
+                'text',
+                2000,
+                false
+            );
+            const featuresInput = document.getElementById('company-features-input').value;
+            const features = featuresInput ? featuresInput.split('\n')
+                .map(f => this.validateInput(f, 'text', 200, false))
+                .filter(f => f.trim()) : [];
+            
+            companyData = {
+                name: name || '기업명',
+                industry: industry || '산업',
+                founded: founded || '설립년도',
+                employees: employees || '직원 수',
+                website: website || '',
+                description: description || '기업 소개',
+                features: features,
+                region: this.getRegionDisplayName(this.currentRegion),
+                logo: this.logoData[this.selectedStateId]?.src || ''
+            };
+        } catch (error) {
+            this.showNotification(error.message, 'error');
+            return;
+        }
         
         console.log('저장할 기업 데이터:', companyData);
         
@@ -14036,18 +14876,65 @@ class BillionaireMap {
             return;
         }
         
-        // 임시 데이터로 미리보기
-        const tempData = {
-            name: document.getElementById('company-name-input').value || '기업명',
-            industry: document.getElementById('company-industry-input').value || '산업',
-            founded: document.getElementById('company-founded-input').value || '설립년도',
-            employees: document.getElementById('company-employees-input').value || '직원 수',
-            website: document.getElementById('company-website-input').value || '웹사이트',
-            description: document.getElementById('company-description-input').value || '기업 소개',
-            features: document.getElementById('company-features-input').value.split('\n').filter(f => f.trim()),
-            region: this.getRegionDisplayName(this.currentRegion),
-            logo: this.logoData[this.selectedStateId]?.src || ''
-        };
+        // 임시 데이터로 미리보기 (검증 없이 표시용)
+        let tempData;
+        try {
+            const name = this.validateInput(
+                document.getElementById('company-name-input').value,
+                'text',
+                200,
+                false
+            ) || '기업명';
+            const industry = this.validateInput(
+                document.getElementById('company-industry-input').value,
+                'text',
+                100,
+                false
+            ) || '산업';
+            const founded = this.validateInput(
+                document.getElementById('company-founded-input').value,
+                'number',
+                10,
+                false
+            ) || '설립년도';
+            const employees = this.validateInput(
+                document.getElementById('company-employees-input').value,
+                'number',
+                20,
+                false
+            ) || '직원 수';
+            const website = this.validateInput(
+                document.getElementById('company-website-input').value,
+                'url',
+                500,
+                false
+            ) || '웹사이트';
+            const description = this.validateInput(
+                document.getElementById('company-description-input').value,
+                'text',
+                2000,
+                false
+            ) || '기업 소개';
+            const featuresInput = document.getElementById('company-features-input').value;
+            const features = featuresInput ? featuresInput.split('\n')
+                .map(f => this.validateInput(f, 'text', 200, false))
+                .filter(f => f.trim()) : [];
+            
+            tempData = {
+                name: name,
+                industry: industry,
+                founded: founded,
+                employees: employees,
+                website: website,
+                description: description,
+                features: features,
+                region: this.getRegionDisplayName(this.currentRegion),
+                logo: this.logoData[this.selectedStateId]?.src || ''
+            };
+        } catch (error) {
+            this.showNotification(error.message, 'error');
+            return;
+        }
         
         // 임시로 저장
         const originalData = this.companyData[this.selectedStateId];
@@ -14210,8 +15097,10 @@ class BillionaireMap {
         try {
             const container = document.getElementById(containerId);
             if (!container) return;
-            // 비어있게 초기화 (중복 렌더 제거)
-            container.innerHTML = '';
+            // 비어있게 초기화 (중복 렌더 제거) - 안전한 방법 사용
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
             
             if (!(window.paypal && window.paypal.Buttons)) {
                 this.showNotification('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
@@ -14265,7 +15154,12 @@ class BillionaireMap {
                         // 통계 업데이트
                         this.updateStatistics();
                         // 버튼 비활성화
-                        container.innerHTML = '<div style="color:#2ecc71;font-weight:600;">결제가 완료되었습니다.</div>';
+                        const successDiv = document.createElement('div');
+                        successDiv.style.color = '#2ecc71';
+                        successDiv.style.fontWeight = '600';
+                        successDiv.textContent = '결제가 완료되었습니다.';
+                        container.innerHTML = '';
+                        container.appendChild(successDiv);
                         console.log('PayPal capture result:', details);
                     } catch (err) {
                         console.error('Capture error:', err);
@@ -14331,11 +15225,23 @@ class BillionaireMap {
         // 기존 모달 제거
         this.hidePurchaseModal();
         
-        // 모달 생성
+        // 모달 생성 (XSS 방어: 안전한 HTML 생성)
         const modal = document.createElement('div');
         modal.id = 'purchase-modal';
         modal.className = 'purchase-modal';
-        modal.innerHTML = `
+        
+        // 안전한 데이터 추출
+        const regionName = this.sanitizeHTML(this.getRegionDisplayName(region) || '');
+        const country = this.sanitizeHTML(region.country || '');
+        const population = region.population ? region.population.toLocaleString() : '0';
+        const area = region.area ? region.area.toLocaleString() : '0';
+        const gdp = region.gdp_per_capita ? region.gdp_per_capita.toLocaleString() : '0';
+        const price = region.price ? region.price.toLocaleString() : '0';
+        const popWeight = region.population ? (region.population / 1000000).toFixed(1) : '0';
+        const areaWeight = region.area ? (region.area / 1000).toFixed(1) : '0';
+        
+        // 안전한 HTML 생성
+        const modalHTML = `
             <div class="modal-overlay"></div>
             <div class="modal-content">
                 <div class="modal-header">
@@ -14344,21 +15250,21 @@ class BillionaireMap {
                 </div>
                 <div class="modal-body">
                     <div class="region-summary">
-                        <h4>${this.getRegionDisplayName(region)}</h4>
-                        <p><strong>국가:</strong> ${region.country}</p>
-                        <p><strong>인구:</strong> ${region.population.toLocaleString()}명</p>
-                        <p><strong>면적:</strong> ${region.area.toLocaleString()} km²</p>
-                        <p><strong>1인당 GDP:</strong> $${region.gdp_per_capita.toLocaleString()}</p>
+                        <h4>${regionName}</h4>
+                        <p><strong>국가:</strong> ${country}</p>
+                        <p><strong>인구:</strong> ${population}명</p>
+                        <p><strong>면적:</strong> ${area} km²</p>
+                        <p><strong>1인당 GDP:</strong> $${gdp}</p>
                     </div>
                     <div class="pricing-info">
                         <h4>가격 정보</h4>
                         <div class="price-breakdown">
-                            <p>기본 가격: $${region.price.toLocaleString()}</p>
-                            <p>인구 가중치: ${(region.population / 1000000).toFixed(1)}M</p>
-                            <p>면적 가중치: ${(region.area / 1000).toFixed(1)}K km²</p>
+                            <p>기본 가격: $${price}</p>
+                            <p>인구 가중치: ${popWeight}M</p>
+                            <p>면적 가중치: ${areaWeight}K km²</p>
                         </div>
                         <div class="total-price">
-                            <strong>총 가격: $${region.price.toLocaleString()}</strong>
+                            <strong>총 가격: $${price}</strong>
                         </div>
                     </div>
                     <div class="purchase-form">
@@ -14374,6 +15280,7 @@ class BillionaireMap {
                 </div>
             </div>
         `;
+        this.setSafeHTML(modal, modalHTML);
         
         document.body.appendChild(modal);
         
@@ -14448,13 +15355,19 @@ class BillionaireMap {
         const notification = document.createElement('div');
         notification.id = 'notification';
         notification.className = `notification notification-${type}`;
-        notification.innerHTML = `
+        
+        // XSS 방어: 메시지 정화
+        const safeMessage = this.sanitizeHTML(message);
+        const icon = this.getNotificationIcon(type);
+        
+        const notificationHTML = `
             <div class="notification-content">
-                <span class="notification-icon">${this.getNotificationIcon(type)}</span>
-                <span class="notification-message">${message}</span>
+                <span class="notification-icon">${icon}</span>
+                <span class="notification-message">${safeMessage}</span>
                 <button class="notification-close">&times;</button>
             </div>
         `;
+        this.setSafeHTML(notification, notificationHTML);
         
         document.body.appendChild(notification);
         
@@ -14556,18 +15469,27 @@ class BillionaireMap {
             subName = properties.name_en;
         }
             
-        tooltip.innerHTML = `
+        // 안전한 데이터 추출
+        const safeDisplayName = this.sanitizeHTML(displayName || '');
+        const safeSubName = subName ? this.sanitizeHTML(subName) : '';
+        const safeCountry = this.sanitizeHTML(properties.country || '');
+        const population = properties.population ? properties.population.toLocaleString() : '0';
+        const price = properties.ad_price ? properties.ad_price.toLocaleString() : '0';
+        const status = properties.ad_status === 'occupied' ? 'occupied' : 'available';
+        const statusText = properties.ad_status === 'occupied' ? 'Occupied' : 'Available';
+        
+        // 안전한 HTML 생성
+        const tooltipHTML = `
             <div class="tooltip-content">
-                <h4>${displayName}</h4>
-                ${subName ? `<p>${subName}</p>` : ''}
-                <p><strong>${properties.country}</strong></p>
-                <p>Population: ${properties.population.toLocaleString()}</p>
-                <p>Price: $${properties.ad_price.toLocaleString()}</p>
-                <p class="status ${properties.ad_status === 'occupied' ? 'occupied' : 'available'}">
-                    ${properties.ad_status === 'occupied' ? 'Occupied' : 'Available'}
-                </p>
+                <h4>${safeDisplayName}</h4>
+                ${safeSubName ? `<p>${safeSubName}</p>` : ''}
+                <p><strong>${safeCountry}</strong></p>
+                <p>Population: ${population}</p>
+                <p>Price: $${price}</p>
+                <p class="status ${status}">${statusText}</p>
             </div>
         `;
+        this.setSafeHTML(tooltip, tooltipHTML);
         
         // 툴팁 위치 설정
         tooltip.style.left = point.x + 10 + 'px';
@@ -14727,7 +15649,8 @@ class BillionaireMap {
         const helpModal = document.createElement('div');
         helpModal.id = 'help-modal';
         helpModal.className = 'purchase-modal';
-        helpModal.innerHTML = `
+        // 도움말 모달 HTML (정적 콘텐츠이므로 DOMPurify로 정화)
+        const helpHTML = `
             <div class="modal-overlay"></div>
             <div class="modal-content">
                 <div class="modal-header">
@@ -14769,6 +15692,7 @@ class BillionaireMap {
                 </div>
             </div>
         `;
+        this.setSafeHTML(helpModal, helpHTML);
         
         document.body.appendChild(helpModal);
         
@@ -14929,7 +15853,7 @@ class BillionaireMap {
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
     
-    // 관리자 로그인 처리 (보안 강화: 해싱된 자격증명 사용)
+    // 관리자 로그인 처리 (보안 강화: 해싱된 자격증명 사용 + Rate Limiting)
     async handleAdminLogin() {
         const username = document.getElementById('admin-username').value;
         const password = document.getElementById('admin-password').value;
@@ -14938,7 +15862,22 @@ class BillionaireMap {
         // 입력값 검증
         if (!username || !password) {
             errorDiv.classList.remove('hidden');
+            this.setSafeHTML(errorDiv, '사용자명과 비밀번호를 입력해주세요.');
             this.showNotification('사용자명과 비밀번호를 입력해주세요.', 'error');
+            return;
+        }
+        
+        // Rate Limiting 확인
+        const identifier = this.getUserIdentifier();
+        const rateLimit = this.checkLoginRateLimit(identifier);
+        
+        if (!rateLimit.allowed) {
+            errorDiv.classList.remove('hidden');
+            const message = rateLimit.lockoutTime > 0 
+                ? `너무 많은 로그인 시도가 있었습니다. ${rateLimit.lockoutTime}분 후에 다시 시도해주세요.`
+                : '로그인 시도가 제한되었습니다. 잠시 후 다시 시도해주세요.';
+            this.setSafeHTML(errorDiv, message);
+            this.showNotification(message, 'error');
             return;
         }
         
@@ -14956,6 +15895,9 @@ class BillionaireMap {
             
             // 해싱된 값 비교
             if (usernameHash === ADMIN_USERNAME_HASH && passwordHash === ADMIN_PASSWORD_HASH) {
+                // 로그인 성공: Rate Limiting 기록
+                this.recordLoginAttempt(identifier, true);
+                
                 this.isAdminLoggedIn = true;
                 this.hideAdminLoginModal();
                 this.switchToAdminMode();
@@ -14969,12 +15911,21 @@ class BillionaireMap {
                 this.showNotification('관리자로 로그인되었습니다.', 'success');
                 // 보안: 콘솔에 로그인 성공 메시지 출력하지 않음
             } else {
+                // 로그인 실패: Rate Limiting 기록
+                this.recordLoginAttempt(identifier, false);
+                
                 errorDiv.classList.remove('hidden');
-                this.showNotification('잘못된 로그인 정보입니다.', 'error');
+                const remainingAttempts = rateLimit.remainingAttempts - 1;
+                const message = remainingAttempts > 0
+                    ? `잘못된 로그인 정보입니다. (남은 시도 횟수: ${remainingAttempts}회)`
+                    : '잘못된 로그인 정보입니다.';
+                this.setSafeHTML(errorDiv, message);
+                this.showNotification(message, 'error');
             }
         } catch (error) {
             console.error('로그인 처리 중 오류:', error);
             errorDiv.classList.remove('hidden');
+            this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
             this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
         }
     }
@@ -15142,7 +16093,7 @@ class BillionaireMap {
     }
     
     // 새로운 간단한 로고 업로드
-    uploadLogo() {
+    async uploadLogo() {
         if (!this.selectedStateId) {
             this.showNotification('먼저 주를 선택해주세요.', 'warning');
             return;
@@ -15156,8 +16107,11 @@ class BillionaireMap {
             return;
         }
         
-        if (!file.type.startsWith('image/')) {
-            this.showNotification('이미지 파일만 업로드 가능합니다.', 'error');
+        // 파일 검증
+        try {
+            await this.validateImageFile(file);
+        } catch (error) {
+            this.showNotification(error.message, 'error');
             return;
         }
         
@@ -15527,7 +16481,14 @@ class BillionaireMap {
         const logoElement = document.createElement('div');
         logoElement.id = `logo-${stateId}`;
         logoElement.className = 'state-logo';
-        logoElement.innerHTML = `<img src="${logoData.src}" alt="${stateId} Logo">`;
+        // 로고 이미지 안전하게 설정
+        while (logoElement.firstChild) {
+            logoElement.removeChild(logoElement.firstChild);
+        }
+        const img = document.createElement('img');
+        img.src = logoData.src; // 이미지 URL은 안전
+        img.alt = `${this.sanitizeHTML(stateId || '')} Logo`;
+        logoElement.appendChild(img);
         
         // 기본 스타일 적용
         logoElement.style.position = 'absolute';
@@ -15891,12 +16852,22 @@ class BillionaireMap {
     
     showError(message) {
         const loading = document.getElementById('loading');
-        loading.innerHTML = `
-            <div style="color: #ff6b6b; font-size: 1.2rem;">
-                <p>❌ 오류 발생</p>
-                <p style="font-size: 0.9rem; margin-top: 10px;">${message}</p>
-            </div>
-        `;
+        // 안전한 오류 메시지 표시
+        while (loading.firstChild) {
+            loading.removeChild(loading.firstChild);
+        }
+        const errorDiv = document.createElement('div');
+        errorDiv.style.color = '#ff6b6b';
+        errorDiv.style.fontSize = '1.2rem';
+        const errorP1 = document.createElement('p');
+        errorP1.textContent = '❌ 오류 발생';
+        const errorP2 = document.createElement('p');
+        errorP2.style.fontSize = '0.9rem';
+        errorP2.style.marginTop = '10px';
+        errorP2.textContent = this.sanitizeHTML(message || '알 수 없는 오류');
+        errorDiv.appendChild(errorP1);
+        errorDiv.appendChild(errorP2);
+        loading.appendChild(errorDiv);
     }
     
     // 언어 변환 헬퍼 함수
@@ -16094,7 +17065,14 @@ class BillionaireMap {
         const logoElement = document.createElement('div');
         logoElement.id = `logo-${stateId}`;
         logoElement.className = 'state-logo';
-        logoElement.innerHTML = `<img src="${logoData.src}" alt="${stateId} Logo">`;
+        // 로고 이미지 안전하게 설정
+        while (logoElement.firstChild) {
+            logoElement.removeChild(logoElement.firstChild);
+        }
+        const img = document.createElement('img');
+        img.src = logoData.src; // 이미지 URL은 안전
+        img.alt = `${this.sanitizeHTML(stateId || '')} Logo`;
+        logoElement.appendChild(img);
         
         // 기본 스타일 적용
         logoElement.style.position = 'absolute';
@@ -16611,12 +17589,197 @@ class BillionaireMap {
             }
         }
         
+        // 픽셀 에디터 버튼 표시/숨김 (소유자만)
+        const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
+        if (regionEditPixelBtn) {
+            this.updatePixelEditorButtonVisibility(regionEditPixelBtn, stateId);
+        }
+        
+        // 옥션 정보 로드 및 표시
+        await this.loadAndDisplayAuctionInfo(stateId);
+        
         // 모달 표시
         const modal = document.getElementById('region-info-modal');
         if (modal) {
             modal.classList.remove('hidden');
             modal.style.display = 'block';
         }
+    }
+    
+    /**
+     * 옥션 정보 로드 및 표시
+     */
+    async loadAndDisplayAuctionInfo(regionId) {
+        const auctionSection = document.getElementById('region-auction-section');
+        if (!auctionSection) return;
+        
+        try {
+            const auctionData = await this.getAuction(regionId);
+            
+            if (auctionData && auctionData.status === 'active') {
+                // 옥션 섹션 표시
+                auctionSection.classList.remove('hidden');
+                
+                // 현재 입찰가
+                const currentBid = auctionData.currentBid || 1.0;
+                document.getElementById('region-auction-current-bid').textContent = `$${currentBid.toFixed(2)}`;
+                
+                // 남은 시간
+                if (auctionData.endTime) {
+                    const endTime = auctionData.endTime.toMillis ? auctionData.endTime.toMillis() : auctionData.endTime;
+                    const remaining = endTime - Date.now();
+                    const hours = Math.floor(remaining / (1000 * 60 * 60));
+                    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                    document.getElementById('region-auction-time-remaining').textContent = 
+                        remaining > 0 ? `${hours}시간 ${minutes}분` : '종료됨';
+                }
+                
+                // 최고 입찰자
+                const highestBidder = auctionData.highestBidderEmail || auctionData.highestBidder || '없음';
+                document.getElementById('region-auction-highest-bidder').textContent = highestBidder;
+                
+                // 예상 노출 수 (인구 기반 추정)
+                const regionData = this.regionData.get(regionId);
+                const population = regionData?.population || 0;
+                const estimatedImpressions = Math.floor(population * 0.3); // 인구의 30%가 노출된다고 가정
+                document.getElementById('region-estimated-impressions').textContent = 
+                    estimatedImpressions > 0 ? estimatedImpressions.toLocaleString() : '-';
+                
+                // 홀더 프로필 (낙찰된 경우)
+                if (auctionData.status === 'sold' && auctionData.highestBidderId) {
+                    await this.loadHolderProfile(auctionData.highestBidderId, regionId);
+                } else {
+                    document.getElementById('region-holder-profile').classList.add('hidden');
+                }
+                
+                // 입찰 타임라인
+                await this.loadBidTimeline(regionId, auctionData.bidHistory || []);
+            } else {
+                // 옥션이 없거나 종료된 경우
+                auctionSection.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('[옥션 정보 로드 실패]:', error);
+            auctionSection.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 홀더 프로필 로드
+     */
+    async loadHolderProfile(userId, regionId) {
+        const holderProfile = document.getElementById('region-holder-profile');
+        if (!holderProfile) return;
+        
+        try {
+            const { doc, getDoc, collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 사용자 정보 조회
+            const userRef = doc(this.firestore, 'users', userId);
+            const userSnap = await getDoc(userRef);
+            
+            if (userSnap.exists()) {
+                const userData = userSnap.data();
+                document.getElementById('region-holder-name').textContent = userData.displayName || userData.email || 'Unknown';
+                document.getElementById('region-holder-email').textContent = userData.email || '-';
+                
+                // 소유 지역 수 계산
+                const auctionsRef = collection(this.firestore, 'auctions');
+                const ownedQuery = query(auctionsRef, where('status', '==', 'sold'), where('highestBidderId', '==', userId));
+                const ownedSnapshot = await getDocs(ownedQuery);
+                document.getElementById('region-holder-regions-count').textContent = ownedSnapshot.size;
+                
+                // 총 입찰 수 계산
+                const allAuctionsQuery = query(auctionsRef);
+                const allAuctionsSnapshot = await getDocs(allAuctionsQuery);
+                let totalBids = 0;
+                allAuctionsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.bidHistory) {
+                        totalBids += data.bidHistory.filter(bid => bid.bidderId === userId).length;
+                    }
+                });
+                document.getElementById('region-holder-total-bids').textContent = totalBids;
+                
+                holderProfile.classList.remove('hidden');
+            } else {
+                holderProfile.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('[홀더 프로필 로드 실패]:', error);
+            holderProfile.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 입찰 타임라인 로드
+     */
+    async loadBidTimeline(regionId, bidHistory) {
+        const timelineList = document.getElementById('region-bid-timeline-list');
+        if (!timelineList) return;
+        
+        // 컨테이너 초기화
+        while (timelineList.firstChild) {
+            timelineList.removeChild(timelineList.firstChild);
+        }
+        
+        if (!bidHistory || bidHistory.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.textAlign = 'center';
+            emptyP.style.color = '#666';
+            emptyP.style.padding = '20px';
+            emptyP.textContent = '입찰 이력이 없습니다.';
+            timelineList.appendChild(emptyP);
+            return;
+        }
+        
+        // 최신순으로 정렬
+        const sortedHistory = [...bidHistory].sort((a, b) => {
+            const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
+            const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
+            return timeB - timeA;
+        });
+        
+        sortedHistory.forEach((bid, index) => {
+            const time = bid.timestamp?.toDate ? bid.timestamp.toDate() : new Date(bid.timestamp || Date.now());
+            const timeStr = time.toLocaleString('ko-KR', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            
+            const item = document.createElement('div');
+            item.className = 'timeline-item';
+            
+            const icon = document.createElement('div');
+            icon.className = 'timeline-icon';
+            icon.textContent = index === 0 ? '🏆' : '💰';
+            
+            const content = document.createElement('div');
+            content.className = 'timeline-content';
+            
+            const bidder = document.createElement('div');
+            bidder.className = 'timeline-bidder';
+            bidder.textContent = this.sanitizeHTML(bid.bidderEmail || bid.bidderId || 'Unknown');
+            
+            const amount = document.createElement('div');
+            amount.className = 'timeline-amount';
+            amount.textContent = `$${bid.amount.toFixed(2)}`;
+            
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'timeline-time';
+            timeDiv.textContent = timeStr;
+            
+            content.appendChild(bidder);
+            content.appendChild(amount);
+            content.appendChild(timeDiv);
+            
+            item.appendChild(icon);
+            item.appendChild(content);
+            timelineList.appendChild(item);
+        });
     }
     
     // 기업 정보 모달 숨기기
@@ -16991,6 +18154,5163 @@ class BillionaireMap {
         };
         
         return sourceMap[this.currentMapMode] || 'world-regions';
+    }
+    
+    // ==================== 옥션 시스템 ====================
+    
+    /**
+     * 옥션 생성 또는 조회
+     * 규칙: 초기가 1달러, 최소 12시간 보장
+     */
+    async createOrGetAuction(regionId, regionData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 옥션을 생성할 수 없습니다.');
+            return null;
+        }
+        
+        try {
+            const { doc, getDoc, setDoc, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            if (auctionSnap.exists()) {
+                // 기존 옥션이 있는 경우
+                const auctionData = auctionSnap.data();
+                this.activeAuctions.set(regionId, auctionData);
+                this.startAuctionCountdown(regionId, auctionData);
+                return auctionData;
+            } else {
+                // 새 옥션 생성
+                const now = Timestamp.now();
+                const endTime = Timestamp.fromMillis(now.toMillis() + (12 * 60 * 60 * 1000)); // 12시간 후
+                
+                const newAuction = {
+                    regionId: regionId,
+                    regionName: regionData.name_ko || regionData.name || 'Unknown',
+                    regionNameEn: regionData.name_en || regionData.name || 'Unknown',
+                    country: regionData.country || 'Unknown',
+                    status: 'active', // active, ended, sold
+                    startPrice: 1.0, // 초기가 1달러
+                    currentBid: 1.0,
+                    highestBidder: null,
+                    highestBidderId: null,
+                    highestBidderEmail: null,
+                    bidHistory: [],
+                    startTime: now,
+                    endTime: endTime,
+                    originalEndTime: endTime, // 원래 종료 시간 (연장 계산용)
+                    extended: false, // 연장 여부
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                };
+                
+                await setDoc(auctionRef, newAuction);
+                this.activeAuctions.set(regionId, newAuction);
+                this.startAuctionCountdown(regionId, newAuction);
+                
+                // Firestore 실시간 리스너 설정
+                this.setupAuctionListener(regionId);
+                
+                console.log(`[옥션 생성] ${regionId}: 초기가 $1.00, 종료 시간 ${endTime.toDate()}`);
+                return newAuction;
+            }
+        } catch (error) {
+            console.error(`[옥션 생성 실패] ${regionId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 옥션 조회
+     */
+    async getAuction(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return null;
+        }
+        
+        // 캐시에서 먼저 확인
+        if (this.activeAuctions.has(regionId)) {
+            return this.activeAuctions.get(regionId);
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            if (auctionSnap.exists()) {
+                const auctionData = auctionSnap.data();
+                this.activeAuctions.set(regionId, auctionData);
+                return auctionData;
+            }
+            return null;
+        } catch (error) {
+            console.error(`[옥션 조회 실패] ${regionId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 입찰 처리
+     * 규칙: 마지막 5분 내 입찰 시 자동 연장
+     */
+    async placeBid(regionId, bidAmount, bidderId, bidderEmail) {
+        // 입찰 이벤트 로깅
+        this.logEvent('bid_placed', {
+            regionId,
+            amount: bidAmount,
+            bidderId,
+            bidderEmail
+        });
+        
+        // 성능 메트릭 기록 시작
+        const startTime = performance.now();
+        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
+            this.showNotification('로그인이 필요합니다.', 'error');
+            return { success: false, message: '로그인이 필요합니다.' };
+        }
+        
+        try {
+            const { doc, getDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            
+            // 트랜잭션으로 동시 입찰 처리
+            const result = await runTransaction(this.firestore, async (transaction) => {
+                const auctionSnap = await transaction.get(auctionRef);
+                
+                if (!auctionSnap.exists()) {
+                    throw new Error('옥션이 존재하지 않습니다.');
+                }
+                
+                const auctionData = auctionSnap.data();
+                
+                // 옥션 상태 확인
+                if (auctionData.status !== 'active') {
+                    throw new Error('이미 종료된 옥션입니다.');
+                }
+                
+                // 종료 시간 확인
+                const now = Timestamp.now();
+                const endTime = auctionData.endTime.toMillis();
+                if (now.toMillis() >= endTime) {
+                    throw new Error('옥션이 이미 종료되었습니다.');
+                }
+                
+                // 입찰 금액 검증
+                const minBid = auctionData.currentBid + this.minBidIncrement;
+                if (bidAmount < minBid) {
+                    throw new Error(`최소 입찰 금액은 $${minBid.toFixed(2)}입니다.`);
+                }
+                
+                // 입찰 이력 추가
+                const bidEntry = {
+                    bidderId: bidderId,
+                    bidderEmail: bidderEmail,
+                    amount: bidAmount,
+                    timestamp: now
+                };
+                
+                const updatedBidHistory = [...(auctionData.bidHistory || []), bidEntry];
+                
+                // 마지막 5분 내 입찰 시 자동 연장
+                const timeRemaining = endTime - now.toMillis();
+                const fiveMinutes = 5 * 60 * 1000;
+                let newEndTime = auctionData.endTime;
+                let extended = auctionData.extended;
+                
+                if (timeRemaining <= fiveMinutes) {
+                    // 5분 연장
+                    newEndTime = Timestamp.fromMillis(endTime + fiveMinutes);
+                    extended = true;
+                    console.log(`[옥션 연장] ${regionId}: 5분 연장, 새로운 종료 시간 ${newEndTime.toDate()}`);
+                }
+                
+                // 옥션 업데이트
+                transaction.update(auctionRef, {
+                    currentBid: bidAmount,
+                    highestBidder: bidderEmail,
+                    highestBidderId: bidderId,
+                    highestBidderEmail: bidderEmail,
+                    bidHistory: updatedBidHistory,
+                    endTime: newEndTime,
+                    extended: extended,
+                    updatedAt: serverTimestamp()
+                });
+                
+                return { success: true, extended: timeRemaining <= fiveMinutes };
+            });
+            
+            // 캐시 업데이트
+            const updatedAuction = await this.getAuction(regionId);
+            if (updatedAuction) {
+                this.activeAuctions.set(regionId, updatedAuction);
+                this.startAuctionCountdown(regionId, updatedAuction);
+            }
+            
+            // 성능 메트릭 기록
+            const endTime = performance.now();
+            this.recordPerformanceMetric('bidTime', endTime - startTime);
+            
+            if (result.extended) {
+                this.showNotification('입찰이 완료되었습니다. 옥션이 5분 연장되었습니다.', 'success');
+            } else {
+                this.showNotification('입찰이 완료되었습니다.', 'success');
+            }
+            
+            return { success: true, message: '입찰이 완료되었습니다.' };
+        } catch (error) {
+            console.error(`[입찰 실패] ${regionId}:`, error);
+            
+            // 실패 이벤트도 로깅
+            this.logEvent('bid_failed', {
+                regionId,
+                amount: bidAmount,
+                error: error.message
+            });
+            
+            this.showNotification(error.message || '입찰에 실패했습니다.', 'error');
+            return { success: false, message: error.message || '입찰에 실패했습니다.' };
+        }
+    }
+    
+    /**
+     * 옥션 카운트다운 시작
+     */
+    startAuctionCountdown(regionId, auctionData) {
+        // 기존 타이머 정리
+        if (this.auctionTimers.has(regionId)) {
+            clearInterval(this.auctionTimers.get(regionId));
+        }
+        
+        const updateCountdown = async () => {
+            try {
+                const { Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const now = Timestamp.now();
+                const endTime = auctionData.endTime.toMillis();
+                const remaining = endTime - now.toMillis();
+                
+                if (remaining <= 0) {
+                    // 옥션 종료 처리
+                    clearInterval(this.auctionTimers.get(regionId));
+                    this.auctionTimers.delete(regionId);
+                    await this.finalizeAuction(regionId);
+                } else {
+                    // UI 업데이트 (옥션 모달이 열려있는 경우)
+                    this.updateAuctionUI(regionId, remaining);
+                }
+            } catch (error) {
+                console.error(`[카운트다운 오류] ${regionId}:`, error);
+            }
+        };
+        
+        // 즉시 실행 후 1초마다 업데이트
+        updateCountdown();
+        const timerId = setInterval(updateCountdown, 1000);
+        this.auctionTimers.set(regionId, timerId);
+    }
+    
+    /**
+     * 옥션 UI 업데이트 (카운트다운 표시)
+     */
+    updateAuctionUI(regionId, remainingMs) {
+        const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+        const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
+        
+        const countdownElement = document.getElementById('auction-countdown');
+        if (countdownElement) {
+            countdownElement.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+    }
+    
+    /**
+     * 옥션 최종 낙찰 처리
+     * 규칙: 12시간 종료 시점에 최고가 자동 낙찰
+     * 개선: 낙찰 후 자동 결제 처리 및 결제 실패 시 롤백
+     */
+    async finalizeAuction(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { doc, getDoc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            if (!auctionSnap.exists()) {
+                return;
+            }
+            
+            const auctionData = auctionSnap.data();
+            
+            if (auctionData.status !== 'active') {
+                return; // 이미 처리됨
+            }
+            
+            // 최고 입찰자가 있는 경우 낙찰 처리
+            if (auctionData.highestBidderId) {
+                // 먼저 옥션 상태를 'pending_payment'로 변경 (결제 대기 중)
+                await updateDoc(auctionRef, {
+                    status: 'pending_payment',
+                    finalizedAt: serverTimestamp(),
+                    paymentDeadline: serverTimestamp() // 24시간 내 결제 필요
+                });
+                
+                // 낙찰자에게 결제 알림 및 자동 결제 프로세스 시작
+                const paymentResult = await this.initiateAuctionPayment(regionId, auctionData);
+                
+                if (paymentResult.success) {
+                    // 결제 성공: 소유권 부여 및 커뮤니티 풀 업데이트
+                    await updateDoc(auctionRef, {
+                        status: 'sold',
+                        paymentCompleted: true,
+                        paypalOrderId: paymentResult.orderId,
+                        paymentCompletedAt: serverTimestamp()
+                    });
+                    
+                    // 지역 소유권 업데이트
+                    await this.updateRegionOwnership(regionId, {
+                        ownerId: auctionData.highestBidderId,
+                        ownerEmail: auctionData.highestBidderEmail,
+                        purchasePrice: auctionData.currentBid,
+                        purchasedAt: serverTimestamp(),
+                        paypalOrderId: paymentResult.orderId
+                    });
+
+                    // 커뮤니티 상금/무료 픽셀 풀 업데이트
+                    await this.updateCommunityPoolContribution(auctionData);
+                    
+                    console.log(`[옥션 낙찰 완료] ${regionId}: ${auctionData.highestBidderEmail} - $${auctionData.currentBid}`);
+                    this.showNotification(`${auctionData.regionName} 옥션이 $${auctionData.currentBid}에 낙찰되었고 결제가 완료되었습니다.`, 'success');
+                } else {
+                    // 결제 실패: 옥션 상태 롤백
+                    await this.rollbackAuction(regionId, auctionData, paymentResult.error);
+                }
+            } else {
+                // 입찰자가 없는 경우 옥션 종료
+                await updateDoc(auctionRef, {
+                    status: 'ended',
+                    finalizedAt: serverTimestamp()
+                });
+                console.log(`[옥션 종료] ${regionId}: 입찰자 없음`);
+            }
+            
+            // 캐시 및 리스너 정리
+            this.activeAuctions.delete(regionId);
+            if (this.auctionListeners.has(regionId)) {
+                this.auctionListeners.get(regionId)();
+                this.auctionListeners.delete(regionId);
+            }
+        } catch (error) {
+            console.error(`[옥션 낙찰 처리 실패] ${regionId}:`, error);
+            // 오류 발생 시 옥션 상태 롤백 시도
+            try {
+                const { doc, getDoc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const auctionRef = doc(this.firestore, 'auctions', regionId);
+                const auctionSnap = await getDoc(auctionRef);
+                if (auctionSnap.exists()) {
+                    const auctionData = auctionSnap.data();
+                    if (auctionData.status === 'pending_payment') {
+                        await this.rollbackAuction(regionId, auctionData, error.message);
+                    }
+                }
+            } catch (rollbackError) {
+                console.error(`[롤백 실패] ${regionId}:`, rollbackError);
+            }
+        }
+    }
+    
+    /**
+     * 지역 ID로 지역 정보 가져오기
+     */
+    async getRegionById(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return null;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            const regionSnap = await getDoc(regionRef);
+            
+            if (regionSnap.exists()) {
+                const regionData = regionSnap.data();
+                return {
+                    id: regionId,
+                    ...regionData
+                };
+            }
+            
+            // Firestore에 없으면 옥션 데이터에서 지역 정보 추출
+            const { doc: auctionDoc, getDoc: getAuctionDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = auctionDoc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getAuctionDoc(auctionRef);
+            
+            if (auctionSnap.exists()) {
+                const auctionData = auctionSnap.data();
+                return {
+                    id: regionId,
+                    name_ko: auctionData.regionName,
+                    name_en: auctionData.regionNameEn || auctionData.regionName,
+                    country: auctionData.country || 'Unknown',
+                    ad_price: auctionData.currentBid || 1000,
+                    ad_status: 'available'
+                };
+            }
+            
+            return null;
+        } catch (error) {
+            console.error(`[지역 정보 가져오기 실패] ${regionId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 옥션 낙찰 후 자동 결제 프로세스 시작
+     * 낙찰자에게 결제 알림을 보내고 결제 모달을 자동으로 표시
+     */
+    async initiateAuctionPayment(regionId, auctionData) {
+        try {
+            // 낙찰자가 현재 로그인한 사용자인지 확인
+            if (this.currentUser && this.currentUser.uid === auctionData.highestBidderId) {
+                // 현재 사용자가 낙찰자인 경우 자동으로 결제 모달 표시
+                const region = await this.getRegionById(regionId);
+                if (region) {
+                    // 결제 모달 표시
+                    this.showAuctionPaymentModal(region, auctionData);
+                    return { success: true, orderId: null, requiresUserAction: true };
+                }
+            }
+            
+            // 낙찰자가 다른 사용자인 경우 이메일 알림 (향후 구현)
+            // 현재는 결제 대기 상태로 유지
+            return { success: false, error: '낙찰자가 로그인하지 않았습니다. 결제를 완료해주세요.', requiresUserAction: true };
+        } catch (error) {
+            console.error(`[결제 프로세스 시작 실패] ${regionId}:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * 옥션 결제 모달 표시
+     */
+    showAuctionPaymentModal(region, auctionData) {
+        // 기존 모달이 있으면 닫기
+        const existingModal = document.getElementById('auction-payment-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 결제 모달 생성
+        const modal = document.createElement('div');
+        modal.id = 'auction-payment-modal';
+        modal.className = 'modal';
+        
+        const regionName = this.sanitizeHTML(this.getRegionDisplayName(region) || auctionData.regionName || '');
+        const amount = auctionData.currentBid || 0;
+        
+        modal.innerHTML = `
+            <div class="modal-content auction-payment-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">옥션 낙찰 - 결제 필요</span>
+                        <span class="label-secondary">Auction Won - Payment Required</span>
+                    </h2>
+                    <button class="close-btn" id="close-auction-payment-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="payment-info">
+                        <h3>축하합니다! 옥션에서 낙찰되었습니다.</h3>
+                        <p><strong>지역:</strong> ${regionName}</p>
+                        <p><strong>낙찰가:</strong> $${amount.toFixed(2)}</p>
+                        <p class="payment-deadline">⚠️ 24시간 내 결제를 완료해주세요. 결제하지 않으면 낙찰이 취소됩니다.</p>
+                    </div>
+                    <div id="auction-payment-paypal-buttons" style="margin-top: 20px;"></div>
+                    <div id="auction-payment-status" style="margin-top: 15px;"></div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        modal.classList.remove('hidden');
+        
+        // 닫기 버튼 이벤트
+        const closeBtn = modal.querySelector('#close-auction-payment-modal');
+        closeBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+            setTimeout(() => modal.remove(), 300);
+        });
+        
+        // PayPal 버튼 렌더링 (낙찰가로 설정)
+        const tempRegion = { ...region, ad_price: amount };
+        this.renderAuctionPaymentButtons('auction-payment-paypal-buttons', tempRegion, auctionData);
+    }
+    
+    /**
+     * 옥션 결제용 PayPal 버튼 렌더링
+     */
+    renderAuctionPaymentButtons(containerId, region, auctionData) {
+        try {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // 비어있게 초기화
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+            
+            if (!(window.paypal && window.paypal.Buttons)) {
+                this.showNotification('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
+                return;
+            }
+            
+            const amount = auctionData.currentBid || region.ad_price || 1000;
+            const description = `옥션 낙찰: ${this.getRegionDisplayName(region)} (${region.id})`;
+            
+            window.paypal.Buttons({
+                style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'paypal' },
+                createOrder: (data, actions) => {
+                    return actions.order.create({
+                        purchase_units: [{
+                            description: description,
+                            amount: {
+                                currency_code: 'USD',
+                                value: String(amount)
+                            }
+                        }]
+                    });
+                },
+                onApprove: async (data, actions) => {
+                    try {
+                        const details = await actions.order.capture();
+                        
+                        // 결제 성공 처리
+                        const buyerEmail = details.payer?.email_address || details.payer?.payer_info?.email || auctionData.highestBidderEmail;
+                        const orderId = details.id;
+                        
+                        // Firestore에 구매 기록 저장
+                        await this.savePurchaseToFirestore(
+                            region.id,
+                            this.getRegionDisplayName(region),
+                            orderId,
+                            buyerEmail,
+                            amount
+                        );
+                        
+                        // 옥션 상태를 'sold'로 업데이트
+                        const { doc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const auctionRef = doc(this.firestore, 'auctions', region.id);
+                        await updateDoc(auctionRef, {
+                            status: 'sold',
+                            paymentCompleted: true,
+                            paypalOrderId: orderId,
+                            paymentCompletedAt: serverTimestamp()
+                        });
+                        
+                        // 지역 소유권 업데이트
+                        await this.updateRegionOwnership(region.id, {
+                            ownerId: auctionData.highestBidderId,
+                            ownerEmail: buyerEmail,
+                            purchasePrice: amount,
+                            purchasedAt: serverTimestamp(),
+                            paypalOrderId: orderId
+                        });
+                        
+                        // 커뮤니티 상금/무료 픽셀 풀 업데이트
+                        await this.updateCommunityPoolContribution(auctionData);
+                        
+                        // 성공 메시지 표시
+                        const statusDiv = document.getElementById('auction-payment-status');
+                        if (statusDiv) {
+                            statusDiv.innerHTML = '<div style="color: #2ecc71; font-weight: 600;">✅ 결제가 완료되었습니다! 소유권이 부여되었습니다.</div>';
+                        }
+                        
+                        // PayPal 버튼 제거
+                        container.innerHTML = '';
+                        
+                        // 모달 자동 닫기 (3초 후)
+                        setTimeout(() => {
+                            const modal = document.getElementById('auction-payment-modal');
+                            if (modal) {
+                                modal.classList.add('hidden');
+                                setTimeout(() => modal.remove(), 300);
+                            }
+                        }, 3000);
+                        
+                        this.showNotification('결제가 완료되었습니다! 지역 소유권이 부여되었습니다.', 'success');
+                        
+                        // 지역 상태 업데이트
+                        region.ad_status = 'occupied';
+                        this.updateRegionStatus(region.id, true);
+                        this.updateStatistics();
+                        
+                    } catch (err) {
+                        console.error('결제 처리 오류:', err);
+                        this.showNotification('결제 처리 중 오류가 발생했습니다.', 'error');
+                        const statusDiv = document.getElementById('auction-payment-status');
+                        if (statusDiv) {
+                            statusDiv.innerHTML = '<div style="color: #e74c3c; font-weight: 600;">❌ 결제 처리 중 오류가 발생했습니다. 다시 시도해주세요.</div>';
+                        }
+                    }
+                },
+                onCancel: () => {
+                    this.showNotification('결제가 취소되었습니다. 24시간 내 결제를 완료해주세요.', 'warning');
+                },
+                onError: (err) => {
+                    console.error('PayPal 오류:', err);
+                    this.showNotification('결제 초기화 중 오류가 발생했습니다.', 'error');
+                }
+            }).render(`#${containerId}`);
+        } catch (e) {
+            console.error('결제 버튼 렌더링 오류:', e);
+            this.showNotification('결제 버튼 렌더링에 실패했습니다.', 'error');
+        }
+    }
+    
+    /**
+     * 옥션 상태 롤백 (결제 실패 시)
+     */
+    async rollbackAuction(regionId, auctionData, errorMessage) {
+        try {
+            const { doc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            
+            // 옥션 상태를 'ended'로 변경하고 다음 입찰자에게 재옥션 또는 옥션 종료
+            await updateDoc(auctionRef, {
+                status: 'ended',
+                rollbackReason: errorMessage || '결제 실패',
+                rollbackAt: serverTimestamp()
+            });
+            
+            console.log(`[옥션 롤백] ${regionId}: 결제 실패로 인한 롤백`);
+            this.showNotification(`${auctionData.regionName} 옥션의 결제가 실패하여 낙찰이 취소되었습니다.`, 'error');
+            
+            // 낙찰자에게 알림 (향후 이메일 알림 구현)
+            // 현재는 콘솔 로그만
+        } catch (error) {
+            console.error(`[롤백 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * 지역 소유권 업데이트
+     */
+    async updateRegionOwnership(regionId, ownershipData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            
+            await setDoc(regionRef, {
+                ...ownershipData,
+                ad_status: 'occupied',
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+        } catch (error) {
+            console.error(`[소유권 업데이트 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * Firestore 실시간 옥션 리스너 설정
+     */
+    setupAuctionListener(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        // 기존 리스너 정리
+        if (this.auctionListeners.has(regionId)) {
+            this.auctionListeners.get(regionId)();
+        }
+        
+        try {
+            const { doc, onSnapshot } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            
+            const unsubscribe = onSnapshot(auctionRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const auctionData = snapshot.data();
+                    this.activeAuctions.set(regionId, auctionData);
+                    
+                    // 카운트다운 재시작
+                    this.startAuctionCountdown(regionId, auctionData);
+                    
+                    // UI 업데이트 (옥션 모달이 열려있는 경우)
+                    this.refreshAuctionModal(regionId, auctionData);
+                }
+            }, (error) => {
+                console.error(`[옥션 리스너 오류] ${regionId}:`, error);
+            });
+            
+            this.auctionListeners.set(regionId, unsubscribe);
+        } catch (error) {
+            console.error(`[옥션 리스너 설정 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * 옥션 모달 새로고침
+     */
+    refreshAuctionModal(regionId, auctionData) {
+        // 옥션 모달이 열려있는 경우 UI 업데이트
+        const modal = document.getElementById('auction-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            // 현재 지역이 옥션 지역과 일치하는 경우에만 업데이트
+            if (this.currentRegion && this.currentRegion.id === regionId) {
+                // 옥션 정보 표시 업데이트
+                const currentBidElement = document.getElementById('auction-current-bid');
+                if (currentBidElement) {
+                    currentBidElement.textContent = `$${auctionData.currentBid.toFixed(2)}`;
+                }
+                
+                const bidHistoryElement = document.getElementById('auction-bid-history');
+                if (bidHistoryElement && auctionData.bidHistory) {
+                    this.renderBidHistory(bidHistoryElement, auctionData.bidHistory);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 입찰 이력 렌더링
+     */
+    renderBidHistory(container, bidHistory) {
+        // 컨테이너 초기화
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+        
+        if (!bidHistory || bidHistory.length === 0) {
+            const p = document.createElement('p');
+            p.textContent = '아직 입찰이 없습니다.';
+            container.appendChild(p);
+            return;
+        }
+        
+        // 최신 입찰부터 표시
+        const sortedHistory = [...bidHistory].sort((a, b) => {
+            return b.timestamp.toMillis() - a.timestamp.toMillis();
+        });
+        
+        sortedHistory.forEach((bid, index) => {
+            const entry = document.createElement('div');
+            entry.className = `bid-entry ${index === 0 ? 'latest' : ''}`;
+            
+            const amount = document.createElement('span');
+            amount.className = 'bid-amount';
+            amount.textContent = `$${bid.amount.toFixed(2)}`;
+            
+            const bidder = document.createElement('span');
+            bidder.className = 'bid-bidder';
+            bidder.textContent = this.sanitizeHTML(bid.bidderEmail || '-');
+            
+            const time = document.createElement('span');
+            time.className = 'bid-time';
+            const date = bid.timestamp.toDate();
+            time.textContent = date.toLocaleString('ko-KR');
+            
+            entry.appendChild(amount);
+            entry.appendChild(bidder);
+            entry.appendChild(time);
+            container.appendChild(entry);
+        });
+    }
+
+    getDefaultCommunityPoolData() {
+        return {
+            rewardFund: 0,
+            totalAuctions: 0,
+            freePixelPool: 0,
+            lastContributionAt: null,
+            lastDistributionAt: null,
+            recentContribution: 0,
+            recentAuctionRegion: null
+        };
+    }
+
+    async subscribeToCommunityPool() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+
+        if (this.communityPoolListener) {
+            return;
+        }
+
+        try {
+            const { doc, onSnapshot } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const poolRef = doc(this.firestore, 'communityPools', 'global');
+            this.communityPoolListener = onSnapshot(poolRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    this.communityPoolData = {
+                        ...this.getDefaultCommunityPoolData(),
+                        ...snapshot.data()
+                    };
+                } else {
+                    this.communityPoolData = this.getDefaultCommunityPoolData();
+                }
+                this.updateCommunityRewardUI(this.communityPoolData);
+            }, (error) => {
+                console.error('커뮤니티 풀 리스너 오류:', error);
+            });
+        } catch (error) {
+            console.error('커뮤니티 풀 구독 실패:', error);
+        }
+    }
+
+    updateCommunityRewardUI(poolData = {}) {
+        const rewardEl = document.getElementById('community-reward-total');
+        if (rewardEl) {
+            rewardEl.textContent = this.formatCurrency(poolData.rewardFund || 0);
+        }
+
+        const freePixelEl = document.getElementById('community-free-pixels');
+        if (freePixelEl) {
+            freePixelEl.textContent = `${(poolData.freePixelPool || 0).toLocaleString()} px`;
+        }
+
+        const auctionCountEl = document.getElementById('community-auctions-count');
+        if (auctionCountEl) {
+            auctionCountEl.textContent = `${(poolData.totalAuctions || 0).toLocaleString()}회`;
+        }
+
+        const lastDropEl = document.getElementById('community-last-drop');
+        if (lastDropEl) {
+            lastDropEl.textContent = poolData.lastDistributionAt ? this.formatDateTime(poolData.lastDistributionAt) : '아직 없음';
+        }
+
+        const lastContributionEl = document.getElementById('community-last-contribution');
+        if (lastContributionEl) {
+            const amount = poolData.recentContribution || 0;
+            const region = poolData.recentAuctionRegion || '-';
+            lastContributionEl.textContent = amount > 0
+                ? `${this.formatCurrency(amount)} (${region})`
+                : '아직 없음';
+        }
+
+        const triggerBtn = document.getElementById('trigger-pixel-airdrop');
+        if (triggerBtn) {
+            const available = (poolData.freePixelPool || 0) >= this.freePixelDropSize;
+            triggerBtn.disabled = !available;
+            triggerBtn.textContent = available ? '무료 픽셀 드랍 실행' : '적립 대기중';
+        }
+    }
+
+    formatCurrency(amount = 0, currency = 'USD') {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(amount);
+    }
+
+    formatDateTime(timestamp) {
+        if (!timestamp) {
+            return '-';
+        }
+        const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : timestamp;
+        if (!(date instanceof Date)) {
+            return '-';
+        }
+        return date.toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    async updateCommunityPoolContribution(auctionData) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+
+        try {
+            const { doc, setDoc, serverTimestamp, increment } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const poolRef = doc(this.firestore, 'communityPools', 'global');
+            const rewardContribution = Math.max(0, Number((auctionData.currentBid || 0) * this.communityRewardRate));
+            const roundedContribution = Math.round(rewardContribution * 100) / 100;
+            const freePixelsEarned = Math.max(0, Math.floor(roundedContribution / this.freePixelConversionRate));
+
+            await setDoc(poolRef, {
+                rewardFund: increment(roundedContribution),
+                totalAuctions: increment(1),
+                freePixelPool: increment(freePixelsEarned),
+                recentContribution: roundedContribution,
+                recentAuctionRegion: auctionData.regionName || auctionData.regionNameEn || auctionData.regionId || 'Unknown',
+                lastContributionAt: serverTimestamp()
+            }, { merge: true });
+        } catch (error) {
+            console.error('커뮤니티 풀 업데이트 실패:', error);
+        }
+    }
+
+    async triggerCommunityAirdrop() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            this.showNotification('Firebase가 초기화되지 않았습니다.', 'warning');
+            return;
+        }
+
+        try {
+            const { doc, runTransaction, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const poolRef = doc(this.firestore, 'communityPools', 'global');
+
+            await runTransaction(this.firestore, async (transaction) => {
+                const poolSnap = await transaction.get(poolRef);
+                const poolData = poolSnap.exists() ? poolSnap.data() : this.getDefaultCommunityPoolData();
+                const availablePixels = poolData.freePixelPool || 0;
+
+                if (availablePixels < this.freePixelDropSize) {
+                    throw new Error('무료 픽셀 풀에 잔여 픽셀이 부족합니다.');
+                }
+
+                transaction.set(poolRef, {
+                    freePixelPool: availablePixels - this.freePixelDropSize,
+                    lastDistributionAt: serverTimestamp(),
+                    lastDistributionSize: this.freePixelDropSize
+                }, { merge: true });
+            });
+
+            this.showNotification(`무료 픽셀 ${this.freePixelDropSize.toLocaleString()}개가 커뮤니티에 배포되었습니다.`, 'success');
+        } catch (error) {
+            console.error('무료 픽셀 드랍 실패:', error);
+            this.showNotification(error.message || '무료 픽셀 드랍에 실패했습니다.', 'error');
+        }
+    }
+    
+    /**
+     * 옥션 모달 열기
+     */
+    async openAuctionModal(region) {
+        if (!region) {
+            this.showNotification('지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
+        // 로그인 체크
+        if (!this.currentUser) {
+            this.showNotification('옥션에 참여하려면 먼저 로그인이 필요합니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        
+        // 이미 점유된 지역인지 확인
+        if (region.ad_status === 'occupied' || region.occupied) {
+            this.showNotification('이미 광고가 진행 중인 지역입니다.', 'info');
+            return;
+        }
+        
+        // 옥션 생성 또는 조회
+        const auction = await this.createOrGetAuction(region.id, region);
+        if (!auction) {
+            this.showNotification('옥션을 불러오는데 실패했습니다.', 'error');
+            return;
+        }
+        
+        // 모달 표시
+        const modal = document.getElementById('auction-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            
+            // 옥션 정보 표시
+            document.getElementById('auction-region-name').textContent = region.name_ko || region.name || 'Unknown';
+            document.getElementById('auction-country').textContent = region.country || 'Unknown';
+            document.getElementById('auction-current-bid').textContent = `$${auction.currentBid.toFixed(2)}`;
+            
+            // 최소 입찰가 계산
+            const minBid = auction.currentBid + this.minBidIncrement;
+            document.getElementById('min-bid-amount').textContent = `$${minBid.toFixed(2)}`;
+            document.getElementById('bid-amount-input').min = minBid;
+            document.getElementById('bid-amount-input').value = minBid.toFixed(2);
+            
+            // 입찰 이력 표시
+            const bidHistoryContainer = document.getElementById('auction-bid-history');
+            if (bidHistoryContainer) {
+                this.renderBidHistory(bidHistoryContainer, auction.bidHistory || []);
+            }
+            
+            // 카운트다운 시작
+            this.startAuctionCountdown(region.id, auction);
+        }
+    }
+    
+    /**
+     * 옥션 모달 닫기
+     */
+    closeAuctionModal() {
+        const modal = document.getElementById('auction-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 옥션 모달 이벤트 리스너 설정
+     */
+    setupAuctionModalListeners() {
+        // 모달 닫기 버튼
+        const closeBtn = document.getElementById('close-auction-modal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.closeAuctionModal();
+            });
+        }
+        
+        // 입찰 버튼
+        const placeBidBtn = document.getElementById('place-bid-btn');
+        if (placeBidBtn) {
+            placeBidBtn.addEventListener('click', async () => {
+                if (!this.currentRegion || !this.currentUser) {
+                    this.showNotification('로그인이 필요합니다.', 'error');
+                    return;
+                }
+                
+                const bidAmountInput = document.getElementById('bid-amount-input');
+                const bidAmount = parseFloat(bidAmountInput.value);
+                
+                if (isNaN(bidAmount) || bidAmount <= 0) {
+                    this.showNotification('올바른 입찰 금액을 입력해주세요.', 'error');
+                    return;
+                }
+                
+                // 입찰 처리
+                const result = await this.placeBid(
+                    this.currentRegion.id,
+                    bidAmount,
+                    this.currentUser.uid,
+                    this.currentUser.email
+                );
+                
+                if (result.success) {
+                    // 입찰 금액 입력 필드 업데이트
+                    const auction = await this.getAuction(this.currentRegion.id);
+                    if (auction) {
+                        const minBid = auction.currentBid + this.minBidIncrement;
+                        bidAmountInput.value = minBid.toFixed(2);
+                        document.getElementById('min-bid-amount').textContent = `$${minBid.toFixed(2)}`;
+                    }
+                }
+            });
+        }
+        
+        // 모달 외부 클릭 시 닫기
+        const modal = document.getElementById('auction-modal');
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.closeAuctionModal();
+                }
+            });
+        }
+    }
+    
+    // ========== 픽셀 아트 스튜디오 기능 ==========
+    
+    buildPixelBrandGuides() {
+        return [
+            {
+                id: 'neon-impact',
+                name: '네온 임팩트',
+                description: '청록-옐로우 대비, 산세리프 계열 폰트',
+                palette: ['#4ecdc4', '#ffe66d', '#1a535c', '#ff6b6b'],
+                accent: '#ffe66d',
+                fontFamily: "'Pretendard', 'Noto Sans KR', sans-serif"
+            },
+            {
+                id: 'noir-premium',
+                name: '프리미엄 누아르',
+                description: '블랙 & 골드 톤, 세리프 계열 폰트',
+                palette: ['#0d0d0d', '#d4af37', '#2c2c34', '#f7f1e3'],
+                accent: '#f5d76e',
+                fontFamily: "'Cormorant Garamond', 'Noto Serif KR', serif"
+            },
+            {
+                id: 'playful-pop',
+                name: '플레이풀 팝',
+                description: '대비가 강한 팝 아트 팔레트, 라운드 폰트',
+                palette: ['#ff6b6b', '#f368e0', '#48dbfb', '#1dd1a1'],
+                accent: '#f368e0',
+                fontFamily: "'Fredoka', 'GmarketSansMedium', sans-serif"
+            }
+        ];
+    }
+    
+    buildPixelTemplates() {
+        return [
+            {
+                id: 'hero-gradient',
+                name: '히어로 배너',
+                description: '상단 히어로 그라데이션과 하단 CTA 패널을 자동 배치합니다.',
+                previewStyle: 'background: linear-gradient(135deg, #ff6b6b, #ffe66d);',
+                draw: (ctx, size, guide) => {
+                    const colors = guide?.palette || [];
+                    const primary = colors[0] || '#4ecdc4';
+                    const secondary = colors[1] || '#ffe66d';
+                    const contrast = colors[2] || '#1a535c';
+                    ctx.save();
+                    const gradient = ctx.createLinearGradient(0, 0, size, size);
+                    gradient.addColorStop(0, primary);
+                    gradient.addColorStop(1, secondary);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, size, size);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillRect(size * 0.08, size * 0.15, size * 0.45, size * 0.12);
+                    ctx.fillStyle = contrast;
+                    ctx.fillRect(size * 0.08, size * 0.65, size * 0.84, size * 0.2);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                    ctx.fillRect(size * 0.12, size * 0.7, size * 0.5, size * 0.1);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 'spotlight-diagonal',
+                name: '스포트라이트',
+                description: '대각선 스포트라이트와 하단 배경으로 브랜드를 강조합니다.',
+                previewStyle: 'background: linear-gradient(160deg, #0d0d0d 0%, #0d0d0d 55%, #ffe66d 55%, #ffe66d 100%);',
+                draw: (ctx, size, guide) => {
+                    const primary = guide?.palette?.[0] || '#1a535c';
+                    const accent = guide?.accent || '#ffe66d';
+                    const neutral = guide?.palette?.[2] || '#111111';
+                    ctx.save();
+                    ctx.fillStyle = neutral;
+                    ctx.fillRect(0, 0, size, size);
+                    ctx.fillStyle = primary;
+                    ctx.fillRect(0, size * 0.55, size, size * 0.45);
+                    ctx.fillStyle = accent;
+                    ctx.beginPath();
+                    ctx.moveTo(0, size * 0.35);
+                    ctx.lineTo(size * 0.75, 0);
+                    ctx.lineTo(size, 0);
+                    ctx.lineTo(size, size * 0.3);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+                    ctx.fillRect(size * 0.1, size * 0.58, size * 0.55, size * 0.18);
+                    ctx.restore();
+                }
+            },
+            {
+                id: 'modular-grid',
+                name: '모듈러 그리드',
+                description: '4분할 컬러 그리드로 로고/슬로건을 빠르게 배치합니다.',
+                previewStyle: 'background: repeating-linear-gradient(90deg, #4ecdc4 0, #4ecdc4 20px, #ffe66d 20px, #ffe66d 40px);',
+                draw: (ctx, size, guide) => {
+                    const colors = guide?.palette?.length ? guide.palette : ['#ff6b6b', '#4ecdc4', '#ffe66d', '#1a535c'];
+                    const cell = size / 4;
+                    ctx.save();
+                    ctx.fillStyle = '#f5f5f5';
+                    ctx.fillRect(0, 0, size, size);
+                    for (let row = 0; row < 4; row++) {
+                        for (let col = 0; col < 4; col++) {
+                            const colorIndex = (row + col) % colors.length;
+                            ctx.fillStyle = colors[colorIndex];
+                            ctx.fillRect(col * cell, row * cell, cell - 1, cell - 1);
+                        }
+                    }
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                    ctx.fillRect(cell * 0.5, cell * 2.8, cell * 3, cell * 0.9);
+                    ctx.restore();
+                }
+            }
+        ];
+    }
+    
+    buildPixelStickers() {
+        const starPixels = [
+            { x: 2, y: 0, color: 'accent' },
+            { x: 1, y: 1, color: 'accent' },
+            { x: 2, y: 1, color: 'accent' },
+            { x: 3, y: 1, color: 'accent' },
+            { x: 0, y: 2, color: 'accent' },
+            { x: 1, y: 2, color: 'accent' },
+            { x: 2, y: 2, color: 'accent' },
+            { x: 3, y: 2, color: 'accent' },
+            { x: 4, y: 2, color: 'accent' },
+            { x: 1, y: 3, color: 'accent' },
+            { x: 2, y: 3, color: 'accent' },
+            { x: 3, y: 3, color: 'accent' },
+            { x: 2, y: 4, color: 'accent' }
+        ];
+        
+        const heartPixels = [
+            { x: 1, y: 0, color: 'primary' },
+            { x: 2, y: 0, color: 'accent' },
+            { x: 3, y: 0, color: 'accent' },
+            { x: 4, y: 0, color: 'primary' },
+            { x: 0, y: 1, color: 'primary' },
+            { x: 1, y: 1, color: 'accent' },
+            { x: 2, y: 1, color: 'accent' },
+            { x: 3, y: 1, color: 'accent' },
+            { x: 4, y: 1, color: 'accent' },
+            { x: 5, y: 1, color: 'primary' },
+            { x: 0, y: 2, color: 'primary' },
+            { x: 1, y: 2, color: 'accent' },
+            { x: 2, y: 2, color: 'accent' },
+            { x: 3, y: 2, color: 'accent' },
+            { x: 4, y: 2, color: 'accent' },
+            { x: 5, y: 2, color: 'primary' },
+            { x: 1, y: 3, color: 'primary' },
+            { x: 2, y: 3, color: 'accent' },
+            { x: 3, y: 3, color: 'accent' },
+            { x: 4, y: 3, color: 'primary' },
+            { x: 2, y: 4, color: 'primary' },
+            { x: 3, y: 4, color: 'primary' }
+        ];
+        
+        const ctaPixels = [];
+        for (let y = 0; y < 4; y++) {
+            for (let x = 0; x < 10; x++) {
+                const isBorder = y === 0 || y === 3 || x === 0 || x === 9;
+                ctaPixels.push({
+                    x,
+                    y,
+                    color: isBorder ? 'secondary' : '#ffffff'
+                });
+            }
+        }
+        // 화살표 강조
+        ctaPixels.push(
+            { x: 7, y: 1, color: 'accent' },
+            { x: 8, y: 1, color: 'accent' },
+            { x: 8, y: 2, color: 'accent' },
+            { x: 7, y: 2, color: 'accent' }
+        );
+        
+        return [
+            { id: 'starburst', name: '스타 버스트', emoji: '✨', width: 5, height: 5, pixels: starPixels },
+            { id: 'heart', name: '하트', emoji: '❤️', width: 6, height: 5, pixels: heartPixels },
+            { id: 'cta-tag', name: 'CTA 배지', emoji: '🏷️', width: 10, height: 4, pixels: ctaPixels }
+        ];
+    }
+    
+    /**
+     * 픽셀 에디터 초기화
+     */
+    initPixelEditor() {
+        this.pixelEditor = {
+            canvas: null,
+            ctx: null,
+            currentTool: 'pencil',
+            currentColor: '#FF0000',
+            canvasSize: 32,
+            isDrawing: false,
+            pixelData: null,
+            regionId: null,
+            currentSticker: null,
+            activeStickerId: null,
+            currentBrandGuide: this.pixelBrandGuides?.[0] || null,
+            lastTemplateId: null,
+            // 실시간 협업 관련
+            realtimeListener: null, // Firestore 실시간 리스너 unsubscribe 함수
+            editBatch: [], // 배치 처리할 편집 이벤트들
+            editBatchTimer: null, // 배치 처리 타이머
+            lastProcessedEditTime: null, // 마지막으로 처리한 편집 시간
+            isApplyingRemoteEdit: false // 원격 편집 적용 중 플래그 (무한 루프 방지)
+        };
+    }
+    
+    setPixelTool(toolName) {
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        toolButtons.forEach(btn => {
+            const isActive = btn.dataset.tool === toolName;
+            btn.classList.toggle('active', isActive);
+        });
+        
+        if (!this.pixelEditor) {
+            this.initPixelEditor();
+        }
+        
+        this.pixelEditor.currentTool = toolName;
+        
+        if (toolName !== 'sticker') {
+            this.pixelEditor.currentSticker = null;
+            this.pixelEditor.activeStickerId = null;
+            this.updateStickerSelectionUI(null);
+        } else if (!this.pixelEditor.currentSticker) {
+            this.showPixelMessage('사용할 스티커를 먼저 선택하세요.', 'warning');
+        }
+    }
+    
+    renderBrandGuideOptions() {
+        const select = document.getElementById('pixel-brand-guide-select');
+        if (!select || select.dataset.initialized === 'true') {
+            return;
+        }
+        
+        // 안전한 innerHTML 설정
+        const optionsHTML = this.pixelBrandGuides.map(guide => {
+            const safeId = this.sanitizeHTML(guide.id || '');
+            const safeName = this.sanitizeHTML(guide.name || '');
+            return `<option value="${safeId}">${safeName}</option>`;
+        }).join('');
+        select.innerHTML = optionsHTML;
+        
+        select.dataset.initialized = 'true';
+        const defaultGuideId = this.pixelEditor?.currentBrandGuide?.id || this.pixelBrandGuides[0]?.id;
+        if (defaultGuideId) {
+            select.value = defaultGuideId;
+        }
+        
+        select.addEventListener('change', (e) => {
+            this.applyBrandGuide(e.target.value);
+        });
+        
+        if (defaultGuideId) {
+            this.applyBrandGuide(defaultGuideId, { silent: true });
+        }
+    }
+    
+    applyBrandGuide(guideId, options = { silent: false }) {
+        const guide = this.pixelBrandGuides.find(g => g.id === guideId);
+        if (!guide) return;
+        
+        if (!this.pixelEditor) {
+            this.initPixelEditor();
+        }
+        
+        this.pixelEditor.currentBrandGuide = guide;
+        document.documentElement.style.setProperty('--pixel-brand-font', guide.fontFamily);
+        
+        const descEl = document.getElementById('pixel-brand-guide-desc');
+        if (descEl) {
+            descEl.textContent = `${guide.description} · 추천 폰트: ${guide.fontFamily}`;
+        }
+        
+        const colorPicker = document.getElementById('pixel-color-picker');
+        const defaultColor = guide.palette?.[0] || '#FF0000';
+        this.pixelEditor.currentColor = defaultColor;
+        if (colorPicker) {
+            colorPicker.value = defaultColor;
+        }
+        
+        this.updateBrandSwatches(guide.palette);
+        
+        if (!options.silent) {
+            this.showPixelMessage(`${guide.name} 브랜딩 가이드를 적용했습니다.`, 'info');
+        }
+    }
+    
+    updateBrandSwatches(colors = []) {
+        const swatchContainer = document.getElementById('pixel-brand-swatches');
+        if (!swatchContainer) return;
+        
+        // 컨테이너 초기화
+        while (swatchContainer.firstChild) {
+            swatchContainer.removeChild(swatchContainer.firstChild);
+        }
+        
+        if (!colors.length) {
+            const emptyP = document.createElement('p');
+            emptyP.className = 'empty-state';
+            emptyP.textContent = '추천 색상이 없습니다.';
+            swatchContainer.appendChild(emptyP);
+            return;
+        }
+        
+        swatchContainer.classList.remove('empty-state');
+        colors.forEach(color => {
+            const btn = document.createElement('button');
+            btn.className = 'brand-swatch';
+            btn.type = 'button';
+            btn.dataset.color = this.sanitizeHTML(color);
+            btn.style.background = color; // CSS 속성은 안전
+            swatchContainer.appendChild(btn);
+        });
+        
+        swatchContainer.querySelectorAll('.brand-swatch').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const selectedColor = btn.dataset.color;
+                this.pixelEditor.currentColor = selectedColor;
+                const colorPicker = document.getElementById('pixel-color-picker');
+                if (colorPicker) {
+                    colorPicker.value = selectedColor;
+                }
+            });
+        });
+    }
+    
+    renderPixelTemplates() {
+        const container = document.getElementById('pixel-template-list');
+        if (!container || container.dataset.initialized === 'true') {
+            return;
+        }
+        
+        container.classList.remove('empty-state');
+        // 컨테이너 초기화
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+        
+        this.pixelTemplates.forEach(template => {
+            const btn = document.createElement('button');
+            btn.className = 'template-card';
+            btn.type = 'button';
+            btn.dataset.templateId = template.id;
+            
+            const preview = document.createElement('div');
+            preview.className = 'template-preview';
+            preview.style.cssText = template.previewStyle || '';
+            
+            const title = document.createElement('div');
+            title.className = 'template-title';
+            title.textContent = this.sanitizeHTML(template.name || '');
+            
+            const desc = document.createElement('p');
+            desc.textContent = this.sanitizeHTML(template.description || '');
+            
+            btn.appendChild(preview);
+            btn.appendChild(title);
+            btn.appendChild(desc);
+            container.appendChild(btn);
+        });
+        
+        container.dataset.initialized = 'true';
+        
+        container.querySelectorAll('.template-card').forEach(card => {
+            card.addEventListener('click', () => {
+                this.applyPixelTemplate(card.dataset.templateId);
+            });
+        });
+    }
+    
+    highlightSelectedTemplate(templateId) {
+        const cards = document.querySelectorAll('.template-card');
+        cards.forEach(card => {
+            card.classList.toggle('active', card.dataset.templateId === templateId);
+        });
+    }
+    
+    applyPixelTemplate(templateId) {
+        const template = this.pixelTemplates.find(t => t.id === templateId);
+        if (!template) return;
+        
+        if (!this.pixelEditor) {
+            this.initPixelEditor();
+        }
+        
+        if (!this.pixelEditor.canvas || !this.pixelEditor.ctx) {
+            this.initPixelCanvas();
+        }
+        
+        const proceed = confirm('템플릿을 적용하면 현재 작업 내용이 덮어씌워질 수 있습니다. 계속하시겠습니까?');
+        if (!proceed) return;
+        
+        this.initPixelCanvas();
+        template.draw(this.pixelEditor.ctx, this.pixelEditor.canvasSize, this.pixelEditor.currentBrandGuide);
+        this.drawPixelGrid(0.05);
+        this.pixelEditor.lastTemplateId = templateId;
+        this.highlightSelectedTemplate(templateId);
+        this.showPixelMessage(`${template.name} 템플릿을 적용했습니다.`, 'info');
+    }
+    
+    renderPixelStickers() {
+        const container = document.getElementById('pixel-sticker-list');
+        if (!container || container.dataset.initialized === 'true') {
+            return;
+        }
+        
+        container.classList.remove('empty-state');
+        // 컨테이너 초기화
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+        
+        this.pixelStickers.forEach(sticker => {
+            const btn = document.createElement('button');
+            btn.className = 'sticker-chip';
+            btn.type = 'button';
+            btn.dataset.stickerId = sticker.id;
+            
+            const emojiSpan = document.createElement('span');
+            emojiSpan.textContent = sticker.emoji || '';
+            const nameText = document.createTextNode(this.sanitizeHTML(sticker.name || ''));
+            
+            btn.appendChild(emojiSpan);
+            btn.appendChild(nameText);
+            container.appendChild(btn);
+        });
+        
+        container.dataset.initialized = 'true';
+        container.querySelectorAll('.sticker-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                this.setActiveSticker(chip.dataset.stickerId);
+            });
+        });
+    }
+    
+    setActiveSticker(stickerId) {
+        const sticker = this.pixelStickers.find(s => s.id === stickerId);
+        if (!sticker) return;
+        
+        if (!this.pixelEditor) {
+            this.initPixelEditor();
+        }
+        
+        this.pixelEditor.currentSticker = sticker;
+        this.pixelEditor.activeStickerId = stickerId;
+        this.setPixelTool('sticker');
+        this.updateStickerSelectionUI(stickerId);
+        this.showPixelMessage(`${sticker.name} 스티커를 배치할 위치를 클릭하세요.`, 'info');
+    }
+    
+    updateStickerSelectionUI(activeStickerId) {
+        const chips = document.querySelectorAll('.sticker-chip');
+        chips.forEach(chip => {
+            chip.classList.toggle('active', chip.dataset.stickerId === activeStickerId);
+        });
+    }
+    
+    resolveStickerColor(token, guide) {
+        switch (token) {
+            case 'accent':
+                return guide?.accent || '#ffd93d';
+            case 'primary':
+                return guide?.palette?.[0] || '#ff6b6b';
+            case 'secondary':
+                return guide?.palette?.[1] || '#4ecdc4';
+            case 'contrast':
+                return guide?.palette?.[2] || '#1a535c';
+            default:
+                return token || '#ffffff';
+        }
+    }
+    
+    placeStickerAt(x, y) {
+        if (!this.pixelEditor || !this.pixelEditor.currentSticker) {
+            this.showPixelMessage('스티커를 먼저 선택하세요.', 'warning');
+            return;
+        }
+        
+        const sticker = this.pixelEditor.currentSticker;
+        const ctx = this.pixelEditor.ctx;
+        const size = this.pixelEditor.canvasSize;
+        const width = sticker.width || sticker.size || 5;
+        const height = sticker.height || sticker.size || 5;
+        const offsetX = x - Math.floor(width / 2);
+        const offsetY = y - Math.floor(height / 2);
+        let placed = false;
+        
+        sticker.pixels.forEach(pixel => {
+            const targetX = offsetX + pixel.x;
+            const targetY = offsetY + pixel.y;
+            if (targetX < 0 || targetX >= size || targetY < 0 || targetY >= size) {
+                return;
+            }
+            const fillColor = this.resolveStickerColor(pixel.color, this.pixelEditor.currentBrandGuide);
+            ctx.fillStyle = fillColor;
+            ctx.fillRect(targetX, targetY, 1, 1);
+            this.recordEditEvent(targetX, targetY, fillColor, 'sticker');
+            placed = true;
+        });
+        
+        if (placed) {
+            this.showPixelMessage(`${sticker.name} 스티커가 배치되었습니다.`, 'success');
+        } else {
+            this.showPixelMessage('스티커를 배치할 공간이 충분하지 않습니다.', 'warning');
+        }
+    }
+    
+    drawPixelGrid(opacity = 0.12) {
+        if (!this.pixelEditor || !this.pixelEditor.ctx) return;
+        const ctx = this.pixelEditor.ctx;
+        const size = this.pixelEditor.canvasSize;
+        ctx.save();
+        ctx.strokeStyle = `rgba(0, 0, 0, ${opacity})`;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= size; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i, size);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(size, i);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+    
+    /**
+     * 픽셀 에디터 버튼 표시/숨김 업데이트
+     */
+    async updatePixelEditorButtonVisibility(buttonElement, regionId) {
+        if (!buttonElement || !regionId) return;
+        
+        // 관리자는 항상 표시
+        if (this.isAdminLoggedIn) {
+            buttonElement.classList.remove('hidden');
+            return;
+        }
+        
+        // 소유자 확인
+        const isOwner = await this.checkRegionOwnership(regionId);
+        if (isOwner) {
+            buttonElement.classList.remove('hidden');
+        } else {
+            buttonElement.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 픽셀 스튜디오 모달 이벤트 리스너 설정
+     */
+    setupPixelStudioListeners() {
+        // 닫기 버튼
+        const closeBtn = document.getElementById('close-pixel-studio');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.closePixelStudio();
+            });
+        }
+        
+        // 도구 버튼들
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        toolButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tool = e.target.closest('.tool-btn').dataset.tool;
+                this.setPixelTool(tool);
+            });
+        });
+        
+        // 색상 선택기
+        const colorPicker = document.getElementById('pixel-color-picker');
+        if (colorPicker) {
+            colorPicker.addEventListener('change', (e) => {
+                this.pixelEditor.currentColor = e.target.value;
+            });
+        }
+        
+        // 색상 프리셋
+        const colorPresets = document.querySelectorAll('.color-preset');
+        colorPresets.forEach(preset => {
+            preset.addEventListener('click', (e) => {
+                const color = e.target.closest('.color-preset').dataset.color;
+                this.pixelEditor.currentColor = color;
+                if (colorPicker) colorPicker.value = color;
+            });
+        });
+        
+        // 캔버스 크기 변경
+        const canvasSizeSelect = document.getElementById('pixel-canvas-size');
+        if (canvasSizeSelect) {
+            canvasSizeSelect.addEventListener('change', (e) => {
+                this.resizePixelCanvas(parseInt(e.target.value));
+            });
+        }
+        
+        // 액션 버튼들
+        const clearBtn = document.getElementById('pixel-clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.clearPixelCanvas();
+            });
+        }
+        
+        const resetBtn = document.getElementById('pixel-reset-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                this.resetPixelCanvas();
+            });
+        }
+        
+        // 저장/로드 버튼
+        const saveBtn = document.getElementById('pixel-save-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.savePixelCanvas();
+            });
+        }
+        
+        const loadBtn = document.getElementById('pixel-load-btn');
+        if (loadBtn) {
+            loadBtn.addEventListener('click', () => {
+                this.loadPixelCanvas();
+            });
+        }
+        
+        const closeStudioBtn = document.getElementById('pixel-close-btn');
+        if (closeStudioBtn) {
+            closeStudioBtn.addEventListener('click', () => {
+                this.closePixelStudio();
+            });
+        }
+        
+        // 버전 히스토리 버튼
+        const historyBtn = document.getElementById('pixel-history-btn');
+        if (historyBtn) {
+            historyBtn.addEventListener('click', async () => {
+                await this.toggleVersionHistory();
+            });
+        }
+        
+        // 버전 히스토리 닫기 버튼
+        const versionHistoryCloseBtn = document.getElementById('pixel-version-history-close');
+        if (versionHistoryCloseBtn) {
+            versionHistoryCloseBtn.addEventListener('click', () => {
+                const versionHistorySection = document.getElementById('pixel-version-history-section');
+                if (versionHistorySection) {
+                    versionHistorySection.classList.add('hidden');
+                }
+            });
+        }
+        
+        this.renderBrandGuideOptions();
+        this.renderPixelTemplates();
+        this.renderPixelStickers();
+    }
+    
+    /**
+     * 픽셀 스튜디오 모달 열기
+     */
+    async openPixelStudio(regionId, regionData) {
+        // 권한 확인
+        const isOwner = await this.checkRegionOwnership(regionId);
+        if (!isOwner && !this.isAdminLoggedIn) {
+            this.showNotification('이 지역의 소유자만 픽셀 아트를 편집할 수 있습니다.', 'error');
+            return;
+        }
+        
+        // 픽셀 에디터 초기화
+        if (!this.pixelEditor) {
+            this.initPixelEditor();
+        }
+        
+        this.pixelEditor.regionId = regionId;
+        
+        // 모달 표시
+        const modal = document.getElementById('pixel-studio-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            
+            // 지역 정보 표시
+            const regionNameEl = document.getElementById('pixel-studio-region-name');
+            const countryEl = document.getElementById('pixel-studio-country');
+            const permissionStatusEl = document.getElementById('pixel-studio-permission-status');
+            
+            if (regionNameEl) {
+                regionNameEl.textContent = regionData.name_ko || regionData.name_en || regionData.name || '-';
+            }
+            if (countryEl) {
+                countryEl.textContent = regionData.country || '-';
+            }
+            if (permissionStatusEl) {
+                permissionStatusEl.classList.remove('locked', 'unlocked');
+                permissionStatusEl.classList.add(isOwner || this.isAdminLoggedIn ? 'unlocked' : 'locked');
+                const statusText = permissionStatusEl.querySelector('.status-text');
+                if (statusText) {
+                    statusText.textContent = isOwner || this.isAdminLoggedIn ? '편집 가능' : '편집 불가';
+                }
+            }
+            
+            // 캔버스 초기화
+            this.initPixelCanvas();
+            
+            // 저장된 픽셀 데이터 로드 시도
+            await this.loadPixelCanvas();
+            
+            // 실시간 협업 리스너 설정
+            await this.setupRealtimeCollaboration(regionId);
+            
+            // 버전 히스토리 섹션 숨기기
+            const versionHistorySection = document.getElementById('pixel-version-history-section');
+            if (versionHistorySection) {
+                versionHistorySection.classList.add('hidden');
+            }
+        }
+    }
+    
+    /**
+     * 픽셀 캔버스 초기화
+     */
+    initPixelCanvas() {
+        const canvas = document.getElementById('pixel-canvas');
+        if (!canvas) return;
+        
+        const size = this.pixelEditor.canvasSize;
+        canvas.width = size;
+        canvas.height = size;
+        
+        this.pixelEditor.canvas = canvas;
+        this.pixelEditor.ctx = canvas.getContext('2d');
+        
+        // 그리드 배경
+        this.pixelEditor.ctx.fillStyle = '#f0f0f0';
+        this.pixelEditor.ctx.fillRect(0, 0, size, size);
+        this.drawPixelGrid();
+        
+        // 이벤트 리스너
+        canvas.addEventListener('mousedown', (e) => this.onPixelCanvasMouseDown(e));
+        canvas.addEventListener('mousemove', (e) => this.onPixelCanvasMouseMove(e));
+        canvas.addEventListener('mouseup', () => this.onPixelCanvasMouseUp());
+        canvas.addEventListener('mouseleave', () => this.onPixelCanvasMouseUp());
+    }
+    
+    /**
+     * 픽셀 캔버스 마우스 이벤트 처리
+     */
+    getPixelCoordinates(e) {
+        const canvas = this.pixelEditor.canvas;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        
+        const x = Math.floor((e.clientX - rect.left) * scaleX);
+        const y = Math.floor((e.clientY - rect.top) * scaleY);
+        
+        return { x, y };
+    }
+    
+    onPixelCanvasMouseDown(e) {
+        if (!this.pixelEditor) return;
+        this.pixelEditor.isDrawing = true;
+        this.drawPixel(e);
+    }
+    
+    onPixelCanvasMouseMove(e) {
+        if (!this.pixelEditor || !this.pixelEditor.isDrawing) return;
+        this.drawPixel(e);
+    }
+    
+    onPixelCanvasMouseUp() {
+        if (!this.pixelEditor) return;
+        this.pixelEditor.isDrawing = false;
+    }
+    
+    /**
+     * 픽셀 그리기
+     */
+    drawPixel(e) {
+        // 원격 편집 적용 중이면 로컬 편집 무시 (무한 루프 방지)
+        if (this.pixelEditor && this.pixelEditor.isApplyingRemoteEdit) {
+            return;
+        }
+        
+        const { x, y } = this.getPixelCoordinates(e);
+        const size = this.pixelEditor.canvasSize;
+        
+        if (x < 0 || x >= size || y < 0 || y >= size) return;
+        
+        const ctx = this.pixelEditor.ctx;
+        
+        switch (this.pixelEditor.currentTool) {
+            case 'pencil':
+                ctx.fillStyle = this.pixelEditor.currentColor;
+                ctx.fillRect(x, y, 1, 1);
+                // 편집 이벤트 기록
+                this.recordEditEvent(x, y, this.pixelEditor.currentColor, 'pencil');
+                break;
+            case 'eraser':
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(x, y, 1, 1);
+                // 그리드 선 다시 그리기
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, 1, 1);
+                // 편집 이벤트 기록
+                this.recordEditEvent(x, y, '#f0f0f0', 'eraser');
+                break;
+            case 'fill':
+                this.floodFill(x, y);
+                // 채우기는 여러 픽셀에 영향을 주므로 별도 처리
+                this.recordEditEvent(x, y, this.pixelEditor.currentColor, 'fill');
+                break;
+            case 'sticker':
+                this.placeStickerAt(x, y);
+                // 드래그 상태를 해제하여 중복 배치를 방지
+                this.pixelEditor.isDrawing = false;
+                break;
+        }
+    }
+    
+    /**
+     * Flood Fill 알고리즘 (채우기)
+     */
+    floodFill(startX, startY) {
+        const ctx = this.pixelEditor.ctx;
+        const size = this.pixelEditor.canvasSize;
+        const targetColor = this.getPixelColor(startX, startY);
+        const fillColor = this.pixelEditor.currentColor;
+        
+        if (targetColor === fillColor) return;
+        
+        const stack = [[startX, startY]];
+        const visited = new Set();
+        
+        while (stack.length > 0) {
+            const [x, y] = stack.pop();
+            const key = `${x},${y}`;
+            
+            if (x < 0 || x >= size || y < 0 || y >= size || visited.has(key)) continue;
+            
+            const pixelColor = this.getPixelColor(x, y);
+            if (pixelColor !== targetColor) continue;
+            
+            visited.add(key);
+            ctx.fillStyle = fillColor;
+            ctx.fillRect(x, y, 1, 1);
+            
+            stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+        }
+    }
+    
+    /**
+     * 픽셀 색상 가져오기
+     */
+    getPixelColor(x, y) {
+        const imageData = this.pixelEditor.ctx.getImageData(x, y, 1, 1);
+        const [r, g, b] = imageData.data;
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+    
+    /**
+     * 캔버스 크기 변경
+     */
+    resizePixelCanvas(newSize) {
+        if (!this.pixelEditor) return;
+        
+        // 현재 캔버스 데이터 저장
+        const oldData = this.pixelEditor.ctx.getImageData(0, 0, this.pixelEditor.canvasSize, this.pixelEditor.canvasSize);
+        
+        this.pixelEditor.canvasSize = newSize;
+        this.initPixelCanvas();
+        
+        // 기존 데이터 복원 (가능한 범위만)
+        const minSize = Math.min(newSize, oldData.width);
+        const newData = this.pixelEditor.ctx.createImageData(minSize, minSize);
+        for (let i = 0; i < minSize * minSize * 4; i++) {
+            newData.data[i] = oldData.data[i];
+        }
+        this.pixelEditor.ctx.putImageData(newData, 0, 0);
+    }
+    
+    /**
+     * 캔버스 전체 지우기
+     */
+    clearPixelCanvas() {
+        if (!this.pixelEditor) return;
+        this.initPixelCanvas();
+    }
+    
+    /**
+     * 캔버스 초기화 (저장된 데이터로 복원)
+     */
+    resetPixelCanvas() {
+        if (!this.pixelEditor) return;
+        this.initPixelCanvas();
+        this.loadPixelCanvas();
+    }
+    
+    /**
+     * 픽셀 캔버스 데이터를 Firestore에 저장
+     */
+    async savePixelCanvas() {
+        if (!this.pixelEditor || !this.pixelEditor.regionId) {
+            this.showPixelMessage('저장할 지역이 선택되지 않았습니다.', 'error');
+            return;
+        }
+        
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            this.showPixelMessage('Firebase가 초기화되지 않았습니다.', 'error');
+            return;
+        }
+        
+        // 권한 확인
+        const isOwner = await this.checkRegionOwnership(this.pixelEditor.regionId);
+        if (!isOwner && !this.isAdminLoggedIn) {
+            this.showPixelMessage('저장 권한이 없습니다.', 'error');
+            return;
+        }
+        
+        try {
+            const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 캔버스 데이터를 base64로 변환
+            const imageData = this.pixelEditor.canvas.toDataURL('image/png');
+            
+            const pixelData = {
+                regionId: this.pixelEditor.regionId,
+                imageData: imageData,
+                canvasSize: this.pixelEditor.canvasSize,
+                savedBy: this.currentUser?.email || 'admin',
+                savedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            };
+            
+            const pixelRef = doc(this.firestore, 'pixelArt', this.pixelEditor.regionId);
+            await setDoc(pixelRef, pixelData, { merge: true });
+            
+            // 버전 히스토리에 스냅샷 저장
+            await this.saveVersionSnapshot(imageData, this.pixelEditor.canvasSize);
+            
+            this.showPixelMessage('픽셀 아트가 저장되었습니다!', 'success');
+            console.log(`[픽셀 아트 저장] ${this.pixelEditor.regionId}`);
+        } catch (error) {
+            console.error('[픽셀 아트 저장 실패]:', error);
+            this.showPixelMessage('저장에 실패했습니다: ' + error.message, 'error');
+        }
+    }
+    
+    /**
+     * Firestore에서 픽셀 캔버스 데이터 로드
+     */
+    async loadPixelCanvas() {
+        if (!this.pixelEditor || !this.pixelEditor.regionId) {
+            return;
+        }
+        
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const pixelRef = doc(this.firestore, 'pixelArt', this.pixelEditor.regionId);
+            const pixelDoc = await getDoc(pixelRef);
+            
+            if (pixelDoc.exists()) {
+                const pixelData = pixelDoc.data();
+                const img = new Image();
+                img.onload = () => {
+                    // 캔버스 크기 설정
+                    if (pixelData.canvasSize) {
+                        this.pixelEditor.canvasSize = pixelData.canvasSize;
+                        const canvasSizeSelect = document.getElementById('pixel-canvas-size');
+                        if (canvasSizeSelect) {
+                            canvasSizeSelect.value = pixelData.canvasSize;
+                        }
+                    }
+                    
+                    // 캔버스 초기화 후 이미지 그리기
+                    this.initPixelCanvas();
+                    this.pixelEditor.ctx.drawImage(img, 0, 0);
+                    
+                    this.showPixelMessage('픽셀 아트를 불러왔습니다!', 'success');
+                };
+                img.src = pixelData.imageData;
+            } else {
+                // 저장된 데이터가 없으면 빈 캔버스만 표시
+                this.initPixelCanvas();
+            }
+        } catch (error) {
+            console.error('[픽셀 아트 로드 실패]:', error);
+            this.showPixelMessage('로드에 실패했습니다: ' + error.message, 'error');
+        }
+    }
+    
+    /**
+     * 버전 스냅샷 저장
+     */
+    async saveVersionSnapshot(imageData, canvasSize) {
+        if (!this.pixelEditor || !this.pixelEditor.regionId || !this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const versionsRef = collection(this.firestore, 'pixelArt', this.pixelEditor.regionId, 'versions');
+            
+            const versionData = {
+                imageData: imageData,
+                canvasSize: canvasSize,
+                savedBy: this.currentUser?.email || 'admin',
+                savedAt: serverTimestamp(),
+                note: '자동 저장' // 나중에 사용자가 메모를 추가할 수 있도록 확장 가능
+            };
+            
+            await addDoc(versionsRef, versionData);
+            
+            console.log(`[버전 스냅샷 저장] ${this.pixelEditor.regionId}`);
+        } catch (error) {
+            console.error('[버전 스냅샷 저장 실패]:', error);
+        }
+    }
+    
+    /**
+     * 버전 목록 로드
+     */
+    async loadVersionList() {
+        if (!this.pixelEditor || !this.pixelEditor.regionId || !this.isFirebaseInitialized || !this.firestore) {
+            return [];
+        }
+        
+        try {
+            const { collection, query, orderBy, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const versionsRef = collection(this.firestore, 'pixelArt', this.pixelEditor.regionId, 'versions');
+            const versionsQuery = query(versionsRef, orderBy('savedAt', 'desc'));
+            
+            const snapshot = await getDocs(versionsQuery);
+            const versions = [];
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                versions.push({
+                    id: doc.id,
+                    imageData: data.imageData,
+                    canvasSize: data.canvasSize,
+                    savedBy: data.savedBy,
+                    savedAt: data.savedAt,
+                    note: data.note || '자동 저장'
+                });
+            });
+            
+            return versions;
+        } catch (error) {
+            console.error('[버전 목록 로드 실패]:', error);
+            return [];
+        }
+    }
+    
+    /**
+     * 특정 버전으로 복구 (롤백)
+     */
+    async restoreVersion(versionId) {
+        if (!this.pixelEditor || !this.pixelEditor.regionId || !this.isFirebaseInitialized || !this.firestore) {
+            this.showPixelMessage('복구할 수 없습니다.', 'error');
+            return;
+        }
+        
+        // 권한 확인
+        const isOwner = await this.checkRegionOwnership(this.pixelEditor.regionId);
+        if (!isOwner && !this.isAdminLoggedIn) {
+            this.showPixelMessage('복구 권한이 없습니다.', 'error');
+            return;
+        }
+        
+        try {
+            const { collection, doc, getDoc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 버전 데이터 가져오기
+            const versionRef = doc(this.firestore, 'pixelArt', this.pixelEditor.regionId, 'versions', versionId);
+            const versionDoc = await getDoc(versionRef);
+            
+            if (!versionDoc.exists()) {
+                this.showPixelMessage('버전을 찾을 수 없습니다.', 'error');
+                return;
+            }
+            
+            const versionData = versionDoc.data();
+            
+            // 캔버스에 적용
+            if (versionData.canvasSize) {
+                this.pixelEditor.canvasSize = versionData.canvasSize;
+                const canvasSizeSelect = document.getElementById('pixel-canvas-size');
+                if (canvasSizeSelect) {
+                    canvasSizeSelect.value = versionData.canvasSize;
+                }
+            }
+            
+            this.initPixelCanvas();
+            
+            const img = new Image();
+            img.onload = async () => {
+                this.pixelEditor.ctx.drawImage(img, 0, 0);
+                
+                // 현재 버전으로 저장 (복구된 버전을 새로운 현재 버전으로 만들기)
+                const pixelRef = doc(this.firestore, 'pixelArt', this.pixelEditor.regionId);
+                await setDoc(pixelRef, {
+                    regionId: this.pixelEditor.regionId,
+                    imageData: versionData.imageData,
+                    canvasSize: versionData.canvasSize,
+                    savedBy: this.currentUser?.email || 'admin',
+                    savedAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    restoredFrom: versionId // 복구 정보 기록
+                }, { merge: true });
+                
+                // 새로운 버전 스냅샷 저장
+                await this.saveVersionSnapshot(versionData.imageData, versionData.canvasSize);
+                
+                // 버전 목록 새로고침
+                await this.refreshVersionList();
+                
+                this.showPixelMessage('버전이 복구되었습니다!', 'success');
+                console.log(`[버전 복구] ${this.pixelEditor.regionId} -> ${versionId}`);
+            };
+            img.src = versionData.imageData;
+            
+        } catch (error) {
+            console.error('[버전 복구 실패]:', error);
+            this.showPixelMessage('복구에 실패했습니다: ' + error.message, 'error');
+        }
+    }
+    
+    /**
+     * 버전 목록 UI 새로고침
+     */
+    async refreshVersionList() {
+        const versions = await this.loadVersionList();
+        this.displayVersionList(versions);
+    }
+    
+    /**
+     * 버전 목록 UI 표시
+     */
+    displayVersionList(versions) {
+        const versionListEl = document.getElementById('pixel-version-list');
+        if (!versionListEl) return;
+        
+        // 컨테이너 초기화
+        while (versionListEl.firstChild) {
+            versionListEl.removeChild(versionListEl.firstChild);
+        }
+        
+        if (versions.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.textAlign = 'center';
+            emptyP.style.color = '#666';
+            emptyP.style.padding = '20px';
+            emptyP.textContent = '저장된 버전이 없습니다.';
+            versionListEl.appendChild(emptyP);
+            return;
+        }
+        
+        versions.forEach((version, index) => {
+            const savedAt = version.savedAt?.toDate ? version.savedAt.toDate() : new Date();
+            const dateStr = savedAt.toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            const item = document.createElement('div');
+            item.className = 'version-item';
+            item.dataset.versionId = version.id;
+            
+            const preview = document.createElement('div');
+            preview.className = 'version-preview';
+            const img = document.createElement('img');
+            img.src = version.imageData; // 이미지 URL은 안전
+            img.alt = `버전 ${index + 1}`;
+            img.style.width = '60px';
+            img.style.height = '60px';
+            img.style.imageRendering = 'pixelated';
+            img.style.border = '1px solid #ddd';
+            preview.appendChild(img);
+            
+            const info = document.createElement('div');
+            info.className = 'version-info';
+            
+            const title = document.createElement('div');
+            title.className = 'version-title';
+            title.textContent = `버전 ${versions.length - index}`;
+            
+            const meta = document.createElement('div');
+            meta.className = 'version-meta';
+            const dateSpan = document.createElement('span');
+            dateSpan.className = 'version-date';
+            dateSpan.textContent = dateStr;
+            const authorSpan = document.createElement('span');
+            authorSpan.className = 'version-author';
+            authorSpan.textContent = this.sanitizeHTML(version.savedBy || '');
+            meta.appendChild(dateSpan);
+            meta.appendChild(authorSpan);
+            
+            const note = document.createElement('div');
+            note.className = 'version-note';
+            note.textContent = this.sanitizeHTML(version.note || '');
+            
+            info.appendChild(title);
+            info.appendChild(meta);
+            info.appendChild(note);
+            
+            const actions = document.createElement('div');
+            actions.className = 'version-actions';
+            
+            const restoreBtn = document.createElement('button');
+            restoreBtn.className = 'version-restore-btn';
+            restoreBtn.dataset.versionId = version.id;
+            restoreBtn.title = '이 버전으로 복구';
+            restoreBtn.textContent = '🔄';
+            
+            const previewBtn = document.createElement('button');
+            previewBtn.className = 'version-preview-btn';
+            previewBtn.dataset.versionId = version.id;
+            previewBtn.title = '미리보기';
+            previewBtn.textContent = '👁️';
+            
+            actions.appendChild(restoreBtn);
+            actions.appendChild(previewBtn);
+            
+            item.appendChild(preview);
+            item.appendChild(info);
+            item.appendChild(actions);
+            versionListEl.appendChild(item);
+        });
+        
+        // 버전 복구 버튼 이벤트
+        versionListEl.querySelectorAll('.version-restore-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const versionId = e.target.closest('.version-restore-btn').dataset.versionId;
+                if (confirm('이 버전으로 복구하시겠습니까? 현재 작업 내용은 저장되지 않을 수 있습니다.')) {
+                    await this.restoreVersion(versionId);
+                }
+            });
+        });
+        
+        // 버전 미리보기 버튼 이벤트
+        versionListEl.querySelectorAll('.version-preview-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const versionId = e.target.closest('.version-preview-btn').dataset.versionId;
+                const version = versions.find(v => v.id === versionId);
+                if (version) {
+                    this.previewVersion(version);
+                }
+            });
+        });
+    }
+    
+    /**
+     * 버전 히스토리 토글
+     */
+    async toggleVersionHistory() {
+        const versionHistorySection = document.getElementById('pixel-version-history-section');
+        if (!versionHistorySection) return;
+        
+        if (versionHistorySection.classList.contains('hidden')) {
+            // 버전 히스토리 표시
+            versionHistorySection.classList.remove('hidden');
+            await this.refreshVersionList();
+        } else {
+            // 버전 히스토리 숨기기
+            versionHistorySection.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 버전 미리보기
+     */
+    previewVersion(version) {
+        // 간단한 alert로 미리보기 (나중에 모달로 확장 가능)
+        const savedAt = version.savedAt?.toDate ? version.savedAt.toDate() : new Date();
+        const dateStr = savedAt.toLocaleString('ko-KR');
+        
+        // 새 창으로 이미지 열기
+        const previewWindow = window.open('', '_blank', 'width=400,height=400');
+        if (previewWindow) {
+            previewWindow.document.write(`
+                <html>
+                    <head>
+                        <title>버전 미리보기</title>
+                        <style>
+                            body { 
+                                margin: 0; 
+                                padding: 20px; 
+                                display: flex; 
+                                flex-direction: column; 
+                                align-items: center; 
+                                background: #f0f0f0;
+                            }
+                            img { 
+                                image-rendering: pixelated;
+                                border: 2px solid #333;
+                                max-width: 100%;
+                                height: auto;
+                            }
+                            .info {
+                                margin-top: 10px;
+                                text-align: center;
+                                color: #666;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <img src="${version.imageData}" alt="버전 미리보기">
+                        <div class="info">
+                            <p><strong>저장일:</strong> ${dateStr}</p>
+                            <p><strong>저장자:</strong> ${version.savedBy}</p>
+                            <p><strong>캔버스 크기:</strong> ${version.canvasSize}x${version.canvasSize}</p>
+                        </div>
+                    </body>
+                </html>
+            `);
+            previewWindow.document.close();
+        }
+    }
+    
+    /**
+     * 실시간 협업 리스너 설정
+     */
+    async setupRealtimeCollaboration(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.pixelEditor) {
+            return;
+        }
+        
+        // 기존 리스너가 있으면 정리
+        if (this.pixelEditor.realtimeListener) {
+            this.pixelEditor.realtimeListener();
+            this.pixelEditor.realtimeListener = null;
+        }
+        
+        try {
+            const { collection, query, orderBy, onSnapshot, serverTimestamp, where } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 실시간 편집 이벤트 리스너 설정
+            const editsRef = collection(this.firestore, 'pixelArt', regionId, 'edits');
+            const editsQuery = query(editsRef, orderBy('timestamp', 'desc'));
+            
+            this.pixelEditor.realtimeListener = onSnapshot(editsQuery, (snapshot) => {
+                // 자신의 편집은 제외 (무한 루프 방지)
+                const currentUserEmail = this.currentUser?.email || 'anonymous';
+                
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added' || change.type === 'modified') {
+                        const editData = change.doc.data();
+                        
+                        // 자신의 편집이 아니고, 이미 처리한 편집이 아니면 적용
+                        if (editData.editedBy !== currentUserEmail) {
+                            // 타임스탬프 기반 충돌 해결
+                            if (!this.pixelEditor.lastProcessedEditTime || 
+                                editData.timestamp?.toMillis() > this.pixelEditor.lastProcessedEditTime) {
+                                this.applyRemoteEdit(editData);
+                                this.pixelEditor.lastProcessedEditTime = editData.timestamp?.toMillis() || Date.now();
+                            }
+                        }
+                    }
+                });
+            }, (error) => {
+                console.error('[실시간 협업 리스너 오류]:', error);
+            });
+            
+            console.log(`[실시간 협업 활성화] ${regionId}`);
+        } catch (error) {
+            console.error('[실시간 협업 설정 실패]:', error);
+        }
+    }
+    
+    /**
+     * 원격 편집 적용
+     */
+    applyRemoteEdit(editData) {
+        if (!this.pixelEditor || !this.pixelEditor.ctx || this.pixelEditor.isApplyingRemoteEdit) {
+            return;
+        }
+        
+        this.pixelEditor.isApplyingRemoteEdit = true;
+        
+        try {
+            const { x, y, color, tool } = editData;
+            
+            if (x === undefined || y === undefined) {
+                return;
+            }
+            
+            const ctx = this.pixelEditor.ctx;
+            const size = this.pixelEditor.canvasSize;
+            
+            // 좌표 범위 확인
+            if (x < 0 || x >= size || y < 0 || y >= size) {
+                return;
+            }
+            
+            switch (tool) {
+                case 'pencil':
+                    ctx.fillStyle = color || '#FF0000';
+                    ctx.fillRect(x, y, 1, 1);
+                    break;
+                case 'eraser':
+                    ctx.fillStyle = '#f0f0f0';
+                    ctx.fillRect(x, y, 1, 1);
+                    // 그리드 선 다시 그리기
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, 1, 1);
+                    break;
+                case 'fill':
+                    // 채우기 도구는 복잡하므로 저장된 이미지를 다시 로드
+                    this.loadPixelCanvas();
+                    break;
+                case 'sticker':
+                    ctx.fillStyle = color || '#ffd93d';
+                    ctx.fillRect(x, y, 1, 1);
+                    break;
+            }
+        } catch (error) {
+            console.error('[원격 편집 적용 실패]:', error);
+        } finally {
+            this.pixelEditor.isApplyingRemoteEdit = false;
+        }
+    }
+    
+    /**
+     * 편집 이벤트를 Firestore에 기록 (배치 처리)
+     */
+    async recordEditEvent(x, y, color, tool) {
+        if (!this.pixelEditor || !this.pixelEditor.regionId || !this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        // 편집 이벤트를 배치에 추가
+        this.pixelEditor.editBatch.push({
+            x,
+            y,
+            color,
+            tool,
+            timestamp: Date.now()
+        });
+        
+        // 배치 처리 타이머 설정 (100ms마다 배치 전송)
+        if (this.pixelEditor.editBatchTimer) {
+            clearTimeout(this.pixelEditor.editBatchTimer);
+        }
+        
+        this.pixelEditor.editBatchTimer = setTimeout(() => {
+            this.flushEditBatch();
+        }, 100);
+    }
+    
+    /**
+     * 편집 배치를 Firestore에 전송
+     */
+    async flushEditBatch() {
+        if (!this.pixelEditor || !this.pixelEditor.editBatch.length || !this.pixelEditor.regionId) {
+            return;
+        }
+        
+        const batch = this.pixelEditor.editBatch;
+        this.pixelEditor.editBatch = []; // 배치 초기화
+        
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 각 편집 이벤트를 Firestore에 추가
+            for (const edit of batch) {
+                const editsRef = collection(this.firestore, 'pixelArt', this.pixelEditor.regionId, 'edits');
+                await addDoc(editsRef, {
+                    x: edit.x,
+                    y: edit.y,
+                    color: edit.color,
+                    tool: edit.tool,
+                    editedBy: this.currentUser?.email || 'anonymous',
+                    timestamp: serverTimestamp(),
+                    clientTimestamp: edit.timestamp
+                });
+            }
+        } catch (error) {
+            console.error('[편집 이벤트 기록 실패]:', error);
+        }
+    }
+    
+    /**
+     * 픽셀 스튜디오 모달 닫기
+     */
+    closePixelStudio() {
+        // 실시간 리스너 정리
+        if (this.pixelEditor && this.pixelEditor.realtimeListener) {
+            this.pixelEditor.realtimeListener();
+            this.pixelEditor.realtimeListener = null;
+        }
+        
+        // 배치 타이머 정리 및 남은 편집 전송
+        if (this.pixelEditor && this.pixelEditor.editBatchTimer) {
+            clearTimeout(this.pixelEditor.editBatchTimer);
+            this.pixelEditor.editBatchTimer = null;
+        }
+        
+        // 남은 편집 이벤트 전송
+        if (this.pixelEditor && this.pixelEditor.editBatch.length > 0) {
+            this.flushEditBatch();
+        }
+        
+        const modal = document.getElementById('pixel-studio-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 픽셀 스튜디오 메시지 표시
+     */
+    showPixelMessage(message, type = 'success') {
+        const messageEl = document.getElementById('pixel-studio-message');
+        if (messageEl) {
+            messageEl.textContent = message;
+            messageEl.className = `pixel-message ${type}`;
+            messageEl.classList.remove('hidden');
+            
+            setTimeout(() => {
+                messageEl.classList.add('hidden');
+            }, 3000);
+        }
+    }
+    
+    // ========== 옥션 대시보드 ==========
+    
+    /**
+     * 옥션 대시보드 열기
+     */
+    async openAuctionDashboard() {
+        const modal = document.getElementById('auction-dashboard-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            await this.loadDashboardAuctions('active');
+        }
+    }
+    
+    /**
+     * 옥션 대시보드 닫기
+     */
+    closeAuctionDashboard() {
+        const modal = document.getElementById('auction-dashboard-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 대시보드 탭 전환
+     */
+    async switchDashboardTab(tabName) {
+        const tabs = document.querySelectorAll('.dashboard-tabs .tab-btn');
+        tabs.forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+        
+        await this.loadDashboardAuctions(tabName);
+    }
+    
+    /**
+     * 대시보드 옥션 목록 로드
+     */
+    async loadDashboardAuctions(filter = 'active') {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        const listContainer = document.getElementById('dashboard-auction-list');
+        if (!listContainer) return;
+        
+        // 로딩 메시지 표시 (안전한 방법)
+        while (listContainer.firstChild) {
+            listContainer.removeChild(listContainer.firstChild);
+        }
+        const loadingP = document.createElement('p');
+        loadingP.style.textAlign = 'center';
+        loadingP.style.color = '#666';
+        loadingP.style.padding = '20px';
+        loadingP.textContent = '로딩 중...';
+        listContainer.appendChild(loadingP);
+        
+        try {
+            const { collection, query, where, orderBy, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            
+            let q;
+            const now = Timestamp.now();
+            
+            switch (filter) {
+                case 'active':
+                    q = query(auctionsRef, where('status', '==', 'active'), orderBy('endTime', 'asc'));
+                    break;
+                case 'upcoming':
+                    // 예정된 옥션은 아직 구현되지 않았으므로 빈 목록
+                    while (listContainer.firstChild) {
+                        listContainer.removeChild(listContainer.firstChild);
+                    }
+                    const upcomingP = document.createElement('p');
+                    upcomingP.style.textAlign = 'center';
+                    upcomingP.style.color = '#666';
+                    upcomingP.style.padding = '20px';
+                    upcomingP.textContent = '예정된 옥션이 없습니다.';
+                    listContainer.appendChild(upcomingP);
+                    return;
+                case 'ended':
+                    q = query(auctionsRef, where('status', 'in', ['ended', 'sold']), orderBy('finalizedAt', 'desc'));
+                    break;
+                case 'watching':
+                    // 관심 등록된 옥션 (사용자별)
+                    if (!this.currentUser) {
+                        while (listContainer.firstChild) {
+                            listContainer.removeChild(listContainer.firstChild);
+                        }
+                        const loginP = document.createElement('p');
+                        loginP.style.textAlign = 'center';
+                        loginP.style.color = '#666';
+                        loginP.style.padding = '20px';
+                        loginP.textContent = '로그인이 필요합니다.';
+                        listContainer.appendChild(loginP);
+                        return;
+                    }
+                    q = query(auctionsRef, where('watchers', 'array-contains', this.currentUser.uid), orderBy('endTime', 'asc'));
+                    break;
+                default:
+                    q = query(auctionsRef, orderBy('endTime', 'asc'));
+            }
+            
+            const snapshot = await getDocs(q);
+            const auctions = [];
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                auctions.push({
+                    id: doc.id,
+                    ...data
+                });
+            });
+            
+            this.renderDashboardAuctions(auctions, filter);
+        } catch (error) {
+            console.error('[대시보드 옥션 로드 실패]:', error);
+            while (listContainer.firstChild) {
+                listContainer.removeChild(listContainer.firstChild);
+            }
+            const errorP = document.createElement('p');
+            errorP.style.textAlign = 'center';
+            errorP.style.color = '#ff6b6b';
+            errorP.style.padding = '20px';
+            errorP.textContent = '옥션을 불러오는데 실패했습니다.';
+            listContainer.appendChild(errorP);
+        }
+    }
+    
+    /**
+     * 대시보드 옥션 목록 렌더링
+     */
+    renderDashboardAuctions(auctions, filter) {
+        const listContainer = document.getElementById('dashboard-auction-list');
+        if (!listContainer) return;
+        
+        // 컨테이너 초기화
+        while (listContainer.firstChild) {
+            listContainer.removeChild(listContainer.firstChild);
+        }
+        
+        if (auctions.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.textAlign = 'center';
+            emptyP.style.color = '#666';
+            emptyP.style.padding = '20px';
+            emptyP.textContent = '옥션이 없습니다.';
+            listContainer.appendChild(emptyP);
+            return;
+        }
+        
+        auctions.forEach(auction => {
+            const endTime = auction.endTime?.toDate ? auction.endTime.toDate() : new Date();
+            const timeRemaining = endTime.getTime() - Date.now();
+            const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+            const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+            
+            const isWatching = auction.watchers && this.currentUser && auction.watchers.includes(this.currentUser.uid);
+            
+            // 안전한 데이터 추출
+            const regionName = this.sanitizeHTML(auction.regionName || auction.regionNameEn || auction.regionId || '');
+            const country = this.sanitizeHTML(auction.country || 'Unknown');
+            const currentBid = auction.currentBid?.toFixed(2) || '0.00';
+            const winnerEmail = this.sanitizeHTML(auction.highestBidderEmail || '없음');
+            
+            // DOM 요소 생성
+            const item = document.createElement('div');
+            item.className = 'dashboard-auction-item';
+            item.dataset.auctionId = auction.id;
+            
+            // 헤더
+            const header = document.createElement('div');
+            header.className = 'auction-item-header';
+            const h4 = document.createElement('h4');
+            h4.textContent = regionName;
+            const countrySpan = document.createElement('span');
+            countrySpan.className = 'auction-country';
+            countrySpan.textContent = country;
+            header.appendChild(h4);
+            header.appendChild(countrySpan);
+            
+            // 바디
+            const body = document.createElement('div');
+            body.className = 'auction-item-body';
+            
+            // 입찰가
+            const bidDiv = document.createElement('div');
+            bidDiv.className = 'auction-item-bid';
+            const bidLabel = document.createElement('span');
+            bidLabel.className = 'label';
+            bidLabel.textContent = '현재 입찰가';
+            const bidValue = document.createElement('span');
+            bidValue.className = 'value';
+            bidValue.textContent = `$${currentBid}`;
+            bidDiv.appendChild(bidLabel);
+            bidDiv.appendChild(bidValue);
+            body.appendChild(bidDiv);
+            
+            // 남은 시간 (active 필터일 때만)
+            if (filter === 'active') {
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'auction-item-time';
+                const timeLabel = document.createElement('span');
+                timeLabel.className = 'label';
+                timeLabel.textContent = '남은 시간';
+                const timeValue = document.createElement('span');
+                timeValue.className = 'value';
+                timeValue.textContent = `${hours}시간 ${minutes}분`;
+                timeDiv.appendChild(timeLabel);
+                timeDiv.appendChild(timeValue);
+                body.appendChild(timeDiv);
+            }
+            
+            // 낙찰자 (ended 필터일 때만)
+            if (filter === 'ended') {
+                const winnerDiv = document.createElement('div');
+                winnerDiv.className = 'auction-item-winner';
+                const winnerLabel = document.createElement('span');
+                winnerLabel.className = 'label';
+                winnerLabel.textContent = '낙찰자';
+                const winnerValue = document.createElement('span');
+                winnerValue.className = 'value';
+                winnerValue.textContent = winnerEmail;
+                winnerDiv.appendChild(winnerLabel);
+                winnerDiv.appendChild(winnerValue);
+                body.appendChild(winnerDiv);
+            }
+            
+            // 액션 버튼
+            const actions = document.createElement('div');
+            actions.className = 'auction-item-actions';
+            
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn-view-auction';
+            viewBtn.dataset.regionId = auction.regionId;
+            viewBtn.textContent = '옥션 보기';
+            actions.appendChild(viewBtn);
+            
+            if (filter === 'active') {
+                const watchBtn = document.createElement('button');
+                watchBtn.className = `btn-watch-auction ${isWatching ? 'watching' : ''}`;
+                watchBtn.dataset.auctionId = auction.id;
+                watchBtn.textContent = isWatching ? '관심 해제' : '관심 등록';
+                actions.appendChild(watchBtn);
+            }
+            
+            item.appendChild(header);
+            item.appendChild(body);
+            item.appendChild(actions);
+            listContainer.appendChild(item);
+        });
+        
+        // 이벤트 리스너 추가
+        listContainer.querySelectorAll('.btn-view-auction').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const regionId = e.target.dataset.regionId;
+                const region = this.regionData.get(regionId);
+                if (region) {
+                    this.closeAuctionDashboard();
+                    this.currentRegion = region;
+                    await this.openAuctionModal(region);
+                }
+            });
+        });
+        
+        listContainer.querySelectorAll('.btn-watch-auction').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const auctionId = e.target.dataset.auctionId;
+                await this.toggleWatchAuction(auctionId);
+            });
+        });
+    }
+    
+    /**
+     * 옥션 관심 등록/해제
+     */
+    async toggleWatchAuction(auctionId) {
+        if (!this.currentUser || !this.isFirebaseInitialized || !this.firestore) {
+            this.showNotification('로그인이 필요합니다.', 'warning');
+            return;
+        }
+        
+        try {
+            const { doc, getDoc, updateDoc, arrayUnion, arrayRemove } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', auctionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            if (!auctionSnap.exists()) {
+                return;
+            }
+            
+            const auctionData = auctionSnap.data();
+            const watchers = auctionData.watchers || [];
+            const isWatching = watchers.includes(this.currentUser.uid);
+            
+            if (isWatching) {
+                await updateDoc(auctionRef, {
+                    watchers: arrayRemove(this.currentUser.uid)
+                });
+                this.showNotification('관심 등록이 해제되었습니다.', 'success');
+            } else {
+                await updateDoc(auctionRef, {
+                    watchers: arrayUnion(this.currentUser.uid)
+                });
+                this.showNotification('관심 등록되었습니다.', 'success');
+            }
+            
+            // 대시보드 새로고침
+            await this.loadDashboardAuctions('active');
+        } catch (error) {
+            console.error('[관심 등록 실패]:', error);
+            this.showNotification('관심 등록에 실패했습니다.', 'error');
+        }
+    }
+    
+    // ========== 통계 & 수익 모델 ==========
+    
+    /**
+     * 통계 모달 열기
+     */
+    async openMarketStatsModal() {
+        const modal = document.getElementById('market-stats-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            await this.loadMarketStatistics();
+            
+            // 통계 탭이 활성화되어 있으면 차트 렌더링
+            const statisticsTab = document.getElementById('statistics-tab');
+            if (statisticsTab && statisticsTab.classList.contains('active')) {
+                await this.renderStatistics();
+            }
+        }
+    }
+    
+    /**
+     * 통계 모달 닫기
+     */
+    closeMarketStatsModal() {
+        const modal = document.getElementById('market-stats-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 통계 탭 전환
+     */
+    switchStatsTab(tabName) {
+        const tabs = document.querySelectorAll('.stats-tabs .tab-btn');
+        tabs.forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+        
+        const contents = document.querySelectorAll('.tab-content');
+        contents.forEach(content => {
+            content.classList.toggle('active', content.id === `${tabName}-tab`);
+        });
+        
+        if (tabName === 'statistics') {
+            this.renderStatistics();
+        }
+    }
+    
+    /**
+     * 시장 통계 로드
+     */
+    async loadMarketStatistics() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 총 낙찰 금액 계산
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const soldQuery = query(auctionsRef, where('status', '==', 'sold'));
+            const soldSnapshot = await getDocs(soldQuery);
+            
+            let totalRevenue = 0;
+            soldSnapshot.forEach((doc) => {
+                const data = doc.data();
+                totalRevenue += data.currentBid || 0;
+            });
+            
+            // 진행 중 옥션 수
+            const activeQuery = query(auctionsRef, where('status', '==', 'active'));
+            const activeSnapshot = await getDocs(activeQuery);
+            const activeCount = activeSnapshot.size;
+            
+            // 통계 업데이트
+            const totalRevenueEl = document.getElementById('total-revenue-stat');
+            if (totalRevenueEl) {
+                totalRevenueEl.textContent = this.formatCurrency(totalRevenue);
+            }
+            
+            const activeAuctionsEl = document.getElementById('active-auctions-stat');
+            if (activeAuctionsEl) {
+                activeAuctionsEl.textContent = activeCount.toString();
+            }
+            
+            const communityRewardEl = document.getElementById('community-reward-stat');
+            if (communityRewardEl) {
+                communityRewardEl.textContent = this.formatCurrency(this.communityPoolData.rewardFund || 0);
+            }
+            
+            const p2wMitigationEl = document.getElementById('p2w-mitigation-stat');
+            if (p2wMitigationEl) {
+                p2wMitigationEl.textContent = '10%';
+            }
+        } catch (error) {
+            console.error('[시장 통계 로드 실패]:', error);
+        }
+    }
+    
+    /**
+     * 통계 차트 렌더링 (Chart.js 통합)
+     */
+    async renderStatistics() {
+        if (!window.Chart) {
+            console.warn('[통계 차트] Chart.js가 로드되지 않았습니다.');
+            return;
+        }
+        
+        try {
+            // 낙찰가 히스토그램 차트
+            await this.renderBidHistogramChart();
+            
+            // 클릭/노출 데이터 차트
+            await this.renderClickExposureChart();
+            
+            // P2W 완화 지표 차트
+            await this.renderP2WMitigationChart();
+        } catch (error) {
+            console.error('[통계 차트 렌더링 실패]:', error);
+        }
+    }
+    
+    /**
+     * 낙찰가 히스토그램 차트 렌더링
+     */
+    async renderBidHistogramChart() {
+        const canvas = document.getElementById('bid-histogram-chart');
+        if (!canvas) return;
+        
+        // 기존 차트 제거
+        if (this.bidHistogramChart) {
+            this.bidHistogramChart.destroy();
+        }
+        
+        try {
+            // Firestore에서 낙찰된 옥션 데이터 가져오기
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const soldQuery = query(auctionsRef, where('status', '==', 'sold'));
+            const soldSnapshot = await getDocs(soldQuery);
+            
+            const bidAmounts = [];
+            soldSnapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.currentBid && data.currentBid > 0) {
+                    bidAmounts.push(data.currentBid);
+                }
+            });
+            
+            // 히스토그램 구간 생성
+            const bins = 10;
+            const maxBid = Math.max(...bidAmounts, 100);
+            const minBid = Math.min(...bidAmounts, 1);
+            const binSize = (maxBid - minBid) / bins;
+            
+            const histogramData = new Array(bins).fill(0);
+            const labels = [];
+            
+            bidAmounts.forEach(bid => {
+                const binIndex = Math.min(Math.floor((bid - minBid) / binSize), bins - 1);
+                histogramData[binIndex]++;
+            });
+            
+            for (let i = 0; i < bins; i++) {
+                const start = minBid + (i * binSize);
+                const end = minBid + ((i + 1) * binSize);
+                labels.push(`$${start.toFixed(0)}-${end.toFixed(0)}`);
+            }
+            
+            // Chart.js로 히스토그램 생성
+            const ctx = canvas.getContext('2d');
+            this.bidHistogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '낙찰 건수',
+                        data: histogramData,
+                        backgroundColor: 'rgba(78, 205, 196, 0.6)',
+                        borderColor: 'rgba(78, 205, 196, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#ffffff'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#ffffff',
+                                stepSize: 1
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#ffffff',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('[낙찰가 히스토그램 차트 생성 실패]:', error);
+        }
+    }
+    
+    /**
+     * 클릭/노출 데이터 차트 렌더링
+     */
+    async renderClickExposureChart() {
+        const canvas = document.getElementById('click-exposure-chart');
+        if (!canvas) return;
+        
+        // 기존 차트 제거
+        if (this.clickExposureChart) {
+            this.clickExposureChart.destroy();
+        }
+        
+        try {
+            // Firestore에서 옥션 데이터 가져오기 (클릭/노출 데이터는 향후 추가 예정)
+            // 현재는 예시 데이터 사용
+            const labels = ['월', '화', '수', '목', '금', '토', '일'];
+            const clickData = [120, 190, 300, 250, 220, 180, 150];
+            const exposureData = [5000, 7000, 9000, 8000, 7500, 6000, 5500];
+            
+            const ctx = canvas.getContext('2d');
+            this.clickExposureChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '클릭 수',
+                            data: clickData,
+                            borderColor: 'rgba(78, 205, 196, 1)',
+                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '노출 수',
+                            data: exposureData,
+                            borderColor: 'rgba(255, 107, 107, 1)',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#ffffff'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            ticks: {
+                                color: '#ffffff'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            ticks: {
+                                color: '#ffffff'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#ffffff'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('[클릭/노출 차트 생성 실패]:', error);
+        }
+    }
+    
+    /**
+     * P2W 완화 지표 차트 렌더링
+     */
+    async renderP2WMitigationChart() {
+        const canvas = document.getElementById('p2w-mitigation-chart');
+        if (!canvas) return;
+        
+        // 기존 차트 제거
+        if (this.p2wMitigationChart) {
+            this.p2wMitigationChart.destroy();
+        }
+        
+        try {
+            // Firestore에서 P2W 완화 데이터 가져오기
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const soldQuery = query(auctionsRef, where('status', '==', 'sold'));
+            const soldSnapshot = await getDocs(soldQuery);
+            
+            // 월별 P2W 완화 데이터 계산
+            const monthlyData = {};
+            soldSnapshot.forEach((doc) => {
+                const data = doc.data();
+                const bidAmount = data.currentBid || 0;
+                const p2wAmount = bidAmount * 0.1; // 10% P2W 완화
+                const soldDate = data.soldAt?.toDate?.() || data.endTime?.toDate?.() || new Date();
+                const monthKey = `${soldDate.getFullYear()}-${String(soldDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                if (!monthlyData[monthKey]) {
+                    monthlyData[monthKey] = {
+                        totalBid: 0,
+                        p2wAmount: 0,
+                        auctionCount: 0
+                    };
+                }
+                
+                monthlyData[monthKey].totalBid += bidAmount;
+                monthlyData[monthKey].p2wAmount += p2wAmount;
+                monthlyData[monthKey].auctionCount += 1;
+            });
+            
+            // 최근 6개월 데이터만 사용
+            const sortedMonths = Object.keys(monthlyData).sort().slice(-6);
+            const labels = sortedMonths.map(month => {
+                const [year, monthNum] = month.split('-');
+                return `${year}년 ${parseInt(monthNum)}월`;
+            });
+            
+            const p2wData = sortedMonths.map(month => monthlyData[month].p2wAmount);
+            const totalBidData = sortedMonths.map(month => monthlyData[month].totalBid);
+            const auctionCountData = sortedMonths.map(month => monthlyData[month].auctionCount);
+            
+            // 데이터가 없으면 예시 데이터 사용
+            if (labels.length === 0) {
+                labels.push('1월', '2월', '3월', '4월', '5월', '6월');
+                p2wData.push(0, 0, 0, 0, 0, 0);
+                totalBidData.push(0, 0, 0, 0, 0, 0);
+                auctionCountData.push(0, 0, 0, 0, 0, 0);
+            }
+            
+            const ctx = canvas.getContext('2d');
+            this.p2wMitigationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'P2W 완화 금액 ($)',
+                            data: p2wData,
+                            backgroundColor: 'rgba(255, 193, 7, 0.6)',
+                            borderColor: 'rgba(255, 193, 7, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '총 낙찰 금액 ($)',
+                            data: totalBidData,
+                            backgroundColor: 'rgba(78, 205, 196, 0.4)',
+                            borderColor: 'rgba(78, 205, 196, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'y1',
+                            type: 'line'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#ffffff'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += '$' + context.parsed.y.toLocaleString();
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#ffffff',
+                                callback: function(value) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#ffffff',
+                                callback: function(value) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#ffffff'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('[P2W 완화 차트 생성 실패]:', error);
+        }
+    }
+    
+    // ========== 기술 인프라 개선: 데이터 파이프라인 ==========
+    
+    /**
+     * GeoJSON 데이터 파이프라인: 행정구역 단위 분리 및 캐싱 구조 재정비
+     */
+    async loadGeoJsonWithPipeline(countryKey, url) {
+        // 캐시 확인
+        if (this.geoJsonPipeline.cache.has(countryKey)) {
+            const cached = this.geoJsonPipeline.cache.get(countryKey);
+            if (cached.timestamp && Date.now() - cached.timestamp < 3600000) { // 1시간 캐시
+                return cached.data;
+            }
+        }
+        
+        // 로딩 상태 확인
+        if (this.geoJsonPipeline.loadingStates.get(countryKey)) {
+            return await this.geoJsonPipeline.loadingStates.get(countryKey);
+        }
+        
+        // 로딩 시작
+        const loadPromise = this.fetchGeoJsonStreaming(url);
+        this.geoJsonPipeline.loadingStates.set(countryKey, loadPromise);
+        
+        try {
+            const data = await loadPromise;
+            
+            // 행정구역 단위로 분리하여 캐시
+            const separatedFeatures = this.separateAdministrativeUnits(data, countryKey);
+            
+            // 캐시 저장
+            this.geoJsonPipeline.cache.set(countryKey, {
+                data: separatedFeatures,
+                timestamp: Date.now(),
+                size: JSON.stringify(separatedFeatures).length
+            });
+            
+            // 캐시 크기 관리
+            this.manageCacheSize();
+            
+            return separatedFeatures;
+        } finally {
+            this.geoJsonPipeline.loadingStates.delete(countryKey);
+        }
+    }
+    
+    /**
+     * 스트리밍 방식으로 GeoJSON 로드
+     */
+    async fetchGeoJsonStreaming(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                
+                // 스트리밍 중간 처리 가능 (필요시)
+            }
+            
+            return JSON.parse(buffer);
+        } catch (error) {
+            console.error(`[GeoJSON 스트리밍 실패] ${url}:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 행정구역 단위로 GeoJSON 분리
+     */
+    separateAdministrativeUnits(geoJson, countryKey) {
+        if (!geoJson || !geoJson.features) {
+            return geoJson;
+        }
+        
+        const separated = {
+            type: 'FeatureCollection',
+            features: geoJson.features.map(feature => {
+                // 각 feature에 행정구역 메타데이터 추가
+                const props = feature.properties || {};
+                props._countryKey = countryKey;
+                props._adminUnit = props.admin_level || props.ADMIN_LEVEL || 'unknown';
+                props._regionId = props.id || props.regionId || props.stateId || `${countryKey}_${props.name}`;
+                
+                return {
+                    ...feature,
+                    properties: props
+                };
+            })
+        };
+        
+        return separated;
+    }
+    
+    /**
+     * 캐시 크기 관리
+     */
+    manageCacheSize() {
+        let totalSize = 0;
+        const entries = Array.from(this.geoJsonPipeline.cache.entries());
+        
+        // 크기 계산
+        entries.forEach(([key, value]) => {
+            totalSize += value.size || 0;
+        });
+        
+        // 최대 크기 초과 시 오래된 항목 제거
+        if (totalSize > this.geoJsonPipeline.maxCacheSize) {
+            entries.sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
+            
+            while (totalSize > this.geoJsonPipeline.maxCacheSize * 0.8 && entries.length > 0) {
+                const [key, value] = entries.shift();
+                this.geoJsonPipeline.cache.delete(key);
+                totalSize -= value.size || 0;
+            }
+        }
+    }
+    
+    // ========== 성능 최적화: 뷰포트 기반 로딩 및 쿼드트리 타일링 ==========
+    
+    /**
+     * 쿼드트리 인덱스 초기화
+     */
+    initQuadtree(features) {
+        if (!features || features.length === 0) return;
+        
+        // 간단한 공간 인덱스 구조 생성
+        this.quadtree = {
+            bounds: this.calculateBounds(features),
+            features: features,
+            tiles: new Map()
+        };
+        
+        // 타일 분할 (간단한 그리드 기반)
+        this.createTiles(features);
+    }
+    
+    /**
+     * 전체 bounds 계산
+     */
+    calculateBounds(features) {
+        let minLng = Infinity, minLat = Infinity;
+        let maxLng = -Infinity, maxLat = -Infinity;
+        
+        features.forEach(feature => {
+            if (feature.geometry && feature.geometry.coordinates) {
+                this.processCoordinates(feature.geometry.coordinates, (lng, lat) => {
+                    minLng = Math.min(minLng, lng);
+                    minLat = Math.min(minLat, lat);
+                    maxLng = Math.max(maxLng, lng);
+                    maxLat = Math.max(maxLat, lat);
+                });
+            }
+        });
+        
+        return { minLng, minLat, maxLng, maxLat };
+    }
+    
+    /**
+     * 좌표 처리 헬퍼
+     */
+    processCoordinates(coords, callback) {
+        if (Array.isArray(coords[0])) {
+            coords.forEach(coord => this.processCoordinates(coord, callback));
+        } else {
+            callback(coords[0], coords[1]);
+        }
+    }
+    
+    /**
+     * 타일 생성 (간단한 그리드 기반)
+     */
+    createTiles(features, tileSize = 10) {
+        if (!this.quadtree) return;
+        
+        const { bounds } = this.quadtree;
+        const lngStep = (bounds.maxLng - bounds.minLng) / tileSize;
+        const latStep = (bounds.maxLat - bounds.minLat) / tileSize;
+        
+        for (let i = 0; i < tileSize; i++) {
+            for (let j = 0; j < tileSize; j++) {
+                const tileKey = `${i}_${j}`;
+                const tileBounds = {
+                    minLng: bounds.minLng + i * lngStep,
+                    maxLng: bounds.minLng + (i + 1) * lngStep,
+                    minLat: bounds.minLat + j * latStep,
+                    maxLat: bounds.minLat + (j + 1) * latStep
+                };
+                
+                // 타일 내 features 필터링
+                const tileFeatures = features.filter(feature => 
+                    this.featureInBounds(feature, tileBounds)
+                );
+                
+                if (tileFeatures.length > 0) {
+                    this.quadtree.tiles.set(tileKey, {
+                        bounds: tileBounds,
+                        features: tileFeatures
+                    });
+                }
+            }
+        }
+    }
+    
+    /**
+     * Feature가 bounds 내에 있는지 확인
+     */
+    featureInBounds(feature, bounds) {
+        if (!feature.geometry || !feature.geometry.coordinates) return false;
+        
+        let inBounds = false;
+        this.processCoordinates(feature.geometry.coordinates, (lng, lat) => {
+            if (lng >= bounds.minLng && lng <= bounds.maxLng &&
+                lat >= bounds.minLat && lat <= bounds.maxLat) {
+                inBounds = true;
+            }
+        });
+        
+        return inBounds;
+    }
+    
+    /**
+     * 뷰포트 기반 features 로드
+     */
+    loadFeaturesForViewport() {
+        if (!this.map || !this.quadtree) return;
+        
+        const bounds = this.map.getBounds();
+        const viewportBounds = {
+            minLng: bounds.getWest(),
+            maxLng: bounds.getEast(),
+            minLat: bounds.getSouth(),
+            maxLat: bounds.getNorth()
+        };
+        
+        this.viewportBounds = viewportBounds;
+        
+        // 뷰포트와 교차하는 타일 찾기
+        const visibleFeatures = [];
+        const tilesToLoad = [];
+        
+        this.quadtree.tiles.forEach((tile, tileKey) => {
+            if (this.tilesIntersect(tile.bounds, viewportBounds)) {
+                if (!this.loadedTiles.has(tileKey)) {
+                    tilesToLoad.push(tileKey);
+                }
+                visibleFeatures.push(...tile.features);
+            }
+        });
+        
+        // 새 타일 로드
+        if (tilesToLoad.length > 0) {
+            this.loadTiles(tilesToLoad);
+        }
+        
+        return visibleFeatures;
+    }
+    
+    /**
+     * 타일 교차 확인
+     */
+    tilesIntersect(tileBounds, viewportBounds) {
+        return !(tileBounds.maxLng < viewportBounds.minLng ||
+                 tileBounds.minLng > viewportBounds.maxLng ||
+                 tileBounds.maxLat < viewportBounds.minLat ||
+                 tileBounds.minLat > viewportBounds.maxLat);
+    }
+    
+    /**
+     * 타일 로드
+     */
+    loadTiles(tileKeys) {
+        tileKeys.forEach(key => {
+            if (!this.loadedTiles.has(key)) {
+                this.loadedTiles.add(key);
+                // 타일 로드 이벤트 기록
+                this.logEvent('tile_loaded', { tileKey: key });
+            }
+        });
+    }
+    
+    /**
+     * MapLibre 레이어 단순화
+     */
+    simplifyMapLayers() {
+        if (!this.map) return;
+        
+        // 불필요한 레이어 제거 및 통합
+        const layers = ['regions-fill', 'regions-border', 'regions-hover'];
+        
+        layers.forEach(layerId => {
+            if (this.map.getLayer(layerId)) {
+                // 레이어 스타일 최적화
+                const layer = this.map.getLayer(layerId);
+                if (layer.type === 'fill') {
+                    // fill-opacity 최적화
+                    this.map.setPaintProperty(layerId, 'fill-opacity', [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 0.5,
+                        5, 0.7,
+                        10, 0.8
+                    ]);
+                }
+            }
+        });
+    }
+    
+    // ========== 모니터링: 이벤트 트래킹 및 이상 탐지 ==========
+    
+    /**
+     * 이벤트 로깅
+     */
+    logEvent(eventType, eventData = {}) {
+        const event = {
+            type: eventType,
+            data: eventData,
+            timestamp: Date.now(),
+            userId: this.currentUser?.uid || 'anonymous',
+            sessionId: this.getSessionId()
+        };
+        
+        // 로그 추가
+        this.monitoring.eventLog.push(event);
+        
+        // 로그 크기 관리
+        if (this.monitoring.eventLog.length > this.monitoring.maxLogSize) {
+            this.monitoring.eventLog.shift();
+        }
+        
+        // Cloud Logging 전송 (Firebase Functions 사용)
+        this.sendToCloudLogging(event).catch(err => {
+            console.warn('[Cloud Logging 실패]:', err);
+        });
+        
+        // 이상 탐지
+        this.detectAnomalies(event);
+    }
+    
+    /**
+     * 세션 ID 생성/가져오기
+     */
+    getSessionId() {
+        let sessionId = sessionStorage.getItem('sessionId');
+        if (!sessionId) {
+            sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            sessionStorage.setItem('sessionId', sessionId);
+        }
+        return sessionId;
+    }
+    
+    /**
+     * Cloud Logging 전송
+     */
+    async sendToCloudLogging(event) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const logsRef = collection(this.firestore, 'event_logs');
+            
+            await addDoc(logsRef, {
+                ...event,
+                timestamp: new Date(event.timestamp)
+            });
+        } catch (error) {
+            // 조용히 실패 (로깅은 비중요)
+            console.debug('[Cloud Logging 전송 실패]:', error);
+        }
+    }
+    
+    /**
+     * 이상 입찰 탐지
+     */
+    detectAnomalies(event) {
+        if (event.type === 'bid_placed') {
+            const bidData = event.data;
+            const userId = event.userId;
+            
+            // 빠른 연속 입찰 패턴 탐지
+            const userBids = this.monitoring.anomalyDetection.rapidBidPatterns.get(userId) || [];
+            userBids.push({
+                timestamp: event.timestamp,
+                amount: bidData.amount,
+                regionId: bidData.regionId
+            });
+            
+            // 최근 1분 내 입찰 확인
+            const recentBids = userBids.filter(
+                bid => event.timestamp - bid.timestamp < 60000
+            );
+            
+            if (recentBids.length > 5) {
+                // 1분 내 5회 이상 입찰 시 의심
+                this.monitoring.anomalyDetection.suspiciousBids.push({
+                    userId,
+                    pattern: 'rapid_bidding',
+                    count: recentBids.length,
+                    timestamp: event.timestamp
+                });
+                
+                this.logEvent('anomaly_detected', {
+                    type: 'rapid_bidding',
+                    userId,
+                    count: recentBids.length
+                });
+            }
+            
+            // 최근 10개만 유지
+            if (userBids.length > 10) {
+                userBids.shift();
+            }
+            this.monitoring.anomalyDetection.rapidBidPatterns.set(userId, userBids);
+            
+            // 비정상적으로 높은 입찰가 탐지
+            if (bidData.amount > 10000) {
+                this.monitoring.anomalyDetection.suspiciousBids.push({
+                    userId,
+                    pattern: 'unusually_high_bid',
+                    amount: bidData.amount,
+                    timestamp: event.timestamp
+                });
+            }
+        }
+    }
+    
+    /**
+     * 성능 메트릭 기록
+     */
+    recordPerformanceMetric(metricType, value) {
+        if (!this.monitoring.performanceMetrics[metricType]) {
+            this.monitoring.performanceMetrics[metricType] = [];
+        }
+        
+        this.monitoring.performanceMetrics[metricType].push({
+            value,
+            timestamp: Date.now()
+        });
+        
+        // 최근 100개만 유지
+        if (this.monitoring.performanceMetrics[metricType].length > 100) {
+            this.monitoring.performanceMetrics[metricType].shift();
+        }
+    }
+    
+    // ========== API 문서화: 외부 파트너용 API ==========
+    
+    /**
+     * 소유권 정보 API (외부 파트너용)
+     * GET /api/ownership/:regionId
+     */
+    async getOwnershipInfo(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            throw new Error('Firebase가 초기화되지 않았습니다.');
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            const regionSnap = await getDoc(regionRef);
+            
+            if (!regionSnap.exists()) {
+                return { error: 'Region not found', regionId };
+            }
+            
+            const regionData = regionSnap.data();
+            
+            // 옥션 정보 확인
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            let auctionInfo = null;
+            if (auctionSnap.exists()) {
+                const auctionData = auctionSnap.data();
+                auctionInfo = {
+                    status: auctionData.status,
+                    currentBid: auctionData.currentBid,
+                    endTime: auctionData.endTime?.toDate?.()?.toISOString() || null,
+                    highestBidder: auctionData.highestBidder || null
+                };
+            }
+            
+            return {
+                regionId,
+                name: regionData.name || regionId,
+                owner: regionData.owner || null,
+                ownerEmail: regionData.ownerEmail || null,
+                purchasedAt: regionData.purchasedAt?.toDate?.()?.toISOString() || null,
+                auction: auctionInfo,
+                status: auctionInfo ? auctionInfo.status : (regionData.owner ? 'owned' : 'available'),
+                metadata: {
+                    population: regionData.population || null,
+                    area: regionData.area || null,
+                    country: regionData.country || null
+                }
+            };
+        } catch (error) {
+            console.error('[소유권 정보 조회 실패]:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 옥션 상태 API (외부 파트너용)
+     * GET /api/auction/:regionId
+     */
+    async getAuctionStatus(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            throw new Error('Firebase가 초기화되지 않았습니다.');
+        }
+        
+        try {
+            const { doc, getDoc, collection, query, where, getDocs, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const auctionSnap = await getDoc(auctionRef);
+            
+            if (!auctionSnap.exists()) {
+                return { error: 'Auction not found', regionId, status: 'not_started' };
+            }
+            
+            const auctionData = auctionSnap.data();
+            
+            // 입찰 이력 조회
+            const bidsRef = collection(this.firestore, 'auctions', regionId, 'bids');
+            const bidsQuery = query(bidsRef, orderBy('timestamp', 'desc'), limit(10));
+            const bidsSnap = await getDocs(bidsQuery);
+            
+            const bidHistory = [];
+            bidsSnap.forEach(doc => {
+                const bidData = doc.data();
+                bidHistory.push({
+                    bidder: bidData.bidder || 'anonymous',
+                    amount: bidData.amount,
+                    timestamp: bidData.timestamp?.toDate?.()?.toISOString() || null
+                });
+            });
+            
+            return {
+                regionId,
+                status: auctionData.status,
+                currentBid: auctionData.currentBid || 0,
+                startTime: auctionData.startTime?.toDate?.()?.toISOString() || null,
+                endTime: auctionData.endTime?.toDate?.()?.toISOString() || null,
+                highestBidder: auctionData.highestBidder || null,
+                bidCount: auctionData.bidCount || 0,
+                bidHistory: bidHistory.slice(0, 10), // 최근 10개만
+                metadata: {
+                    minBidIncrement: auctionData.minBidIncrement || 0.1,
+                    extensionMinutes: auctionData.extensionMinutes || 5
+                }
+            };
+        } catch (error) {
+            console.error('[옥션 상태 조회 실패]:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 지역 정보 API (외부 파트너용)
+     * GET /api/region/:regionId
+     */
+    async getRegionInfo(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            throw new Error('Firebase가 초기화되지 않았습니다.');
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const regionRef = doc(this.firestore, 'regions', regionId);
+            const regionSnap = await getDoc(regionRef);
+            
+            if (!regionSnap.exists()) {
+                return { error: 'Region not found', regionId };
+            }
+            
+            const regionData = regionSnap.data();
+            
+            return {
+                regionId,
+                name: regionData.name || regionId,
+                country: regionData.country || null,
+                administrativeLevel: regionData.admin_level || null,
+                population: regionData.population || null,
+                area: regionData.area || null,
+                adPrice: regionData.ad_price || null,
+                status: regionData.ad_status || 'available',
+                owner: regionData.owner || null,
+                ownerEmail: regionData.ownerEmail || null,
+                purchasedAt: regionData.purchasedAt?.toDate?.()?.toISOString() || null,
+                metadata: {
+                    logoUrl: regionData.logoUrl || null,
+                    color: regionData.color || null,
+                    companyInfo: regionData.companyInfo || null
+                }
+            };
+        } catch (error) {
+            console.error('[지역 정보 조회 실패]:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * API 엔드포인트 초기화 (Firebase Functions와 연동 가능)
+     */
+    initAPIEndpoints() {
+        // API 엔드포인트를 전역으로 노출 (개발용)
+        if (typeof window !== 'undefined') {
+            window.WorldMapAPI = {
+                getOwnership: (regionId) => this.getOwnershipInfo(regionId),
+                getAuction: (regionId) => this.getAuctionStatus(regionId),
+                getRegion: (regionId) => this.getRegionInfo(regionId)
+            };
+            
+            console.log('[API 엔드포인트 초기화 완료]');
+            console.log('사용법: window.WorldMapAPI.getOwnership(regionId)');
+        }
+    }
+    
+    // ========== 커뮤니티 & 운영: 신고/모더레이션 ==========
+    
+    /**
+     * 픽셀 아트 신고
+     */
+    async reportPixelArt(regionId, reason, details) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
+            this.showNotification('로그인이 필요합니다.', 'error');
+            return { success: false };
+        }
+        
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const reportsRef = collection(this.firestore, 'reports');
+            
+            const reportData = {
+                regionId,
+                reason,
+                details: details || '',
+                reporterId: this.currentUser.uid,
+                reporterEmail: this.currentUser.email,
+                status: 'pending',
+                createdAt: serverTimestamp(),
+                reviewedBy: null,
+                reviewedAt: null
+            };
+            
+            await addDoc(reportsRef, reportData);
+            
+            // 이벤트 로깅
+            this.logEvent('pixel_art_reported', {
+                regionId,
+                reason,
+                reporterId: this.currentUser.uid
+            });
+            
+            this.showNotification('신고가 접수되었습니다. 검토 후 조치하겠습니다.', 'success');
+            return { success: true };
+        } catch (error) {
+            console.error('[신고 접수 실패]:', error);
+            this.showNotification('신고 접수에 실패했습니다.', 'error');
+            return { success: false };
+        }
+    }
+    
+    /**
+     * 모더레이션: 신고 승인/거부
+     */
+    async moderateReport(reportId, action, moderatorNote = '') {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.isModerator()) {
+            this.showNotification('모더레이터 권한이 필요합니다.', 'error');
+            return { success: false };
+        }
+        
+        try {
+            const { doc, updateDoc, serverTimestamp, deleteDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const reportRef = doc(this.firestore, 'reports', reportId);
+            
+            if (action === 'approve') {
+                // 신고 승인: 픽셀 아트 삭제
+                const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const reportSnap = await getDoc(reportRef);
+                const reportData = reportSnap.data();
+                
+                // 픽셀 아트 초기화
+                await this.resetPixelArt(reportData.regionId);
+                
+                await updateDoc(reportRef, {
+                    status: 'approved',
+                    reviewedBy: this.currentUser.uid,
+                    reviewedAt: serverTimestamp(),
+                    moderatorNote
+                });
+                
+                this.logEvent('report_approved', {
+                    reportId,
+                    regionId: reportData.regionId,
+                    moderatorId: this.currentUser.uid
+                });
+                
+                this.showNotification('신고가 승인되어 픽셀 아트가 초기화되었습니다.', 'success');
+            } else if (action === 'reject') {
+                // 신고 거부
+                await updateDoc(reportRef, {
+                    status: 'rejected',
+                    reviewedBy: this.currentUser.uid,
+                    reviewedAt: serverTimestamp(),
+                    moderatorNote
+                });
+                
+                this.logEvent('report_rejected', {
+                    reportId,
+                    moderatorId: this.currentUser.uid
+                });
+                
+                this.showNotification('신고가 거부되었습니다.', 'success');
+            }
+            
+            // 모더레이션 패널 새로고침
+            await this.loadModerationReports();
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[모더레이션 처리 실패]:', error);
+            this.showNotification('모더레이션 처리에 실패했습니다.', 'error');
+            return { success: false };
+        }
+    }
+    
+    /**
+     * 모더레이터 권한 확인
+     */
+    isModerator() {
+        if (!this.currentUser) return false;
+        
+        // 관리자는 자동으로 모더레이터
+        if (this.isAdminLoggedIn) return true;
+        
+        // Firestore에서 모더레이터 목록 확인 (캐시 사용)
+        return this.community.moderators.has(this.currentUser.uid);
+    }
+    
+    /**
+     * 모더레이터 목록 로드
+     */
+    async loadModerators() {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const moderatorsRef = collection(this.firestore, 'moderators');
+            const snapshot = await getDocs(moderatorsRef);
+            
+            this.community.moderators.clear();
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.userId) {
+                    this.community.moderators.add(data.userId);
+                }
+            });
+            
+            // 모더레이터 섹션 표시/숨김
+            const moderatorSection = document.getElementById('side-moderator-section');
+            if (moderatorSection) {
+                moderatorSection.style.display = this.isModerator() ? 'block' : 'none';
+            }
+        } catch (error) {
+            console.error('[모더레이터 목록 로드 실패]:', error);
+        }
+    }
+    
+    /**
+     * 모더레이션 신고 목록 로드
+     */
+    async loadModerationReports(status = 'pending') {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { collection, query, where, getDocs, orderBy } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const reportsRef = collection(this.firestore, 'reports');
+            const q = query(
+                reportsRef,
+                where('status', '==', status),
+                orderBy('createdAt', 'desc')
+            );
+            const snapshot = await getDocs(q);
+            
+            const reports = [];
+            snapshot.forEach(doc => {
+                reports.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+            
+            this.renderModerationReports(reports, status);
+        } catch (error) {
+            console.error('[모더레이션 신고 로드 실패]:', error);
+        }
+    }
+    
+    /**
+     * 모더레이션 신고 목록 렌더링
+     */
+    renderModerationReports(reports, status) {
+        const listEl = document.getElementById('moderation-list');
+        if (!listEl) return;
+        
+        // 컨테이너 초기화
+        while (listEl.firstChild) {
+            listEl.removeChild(listEl.firstChild);
+        }
+        
+        if (reports.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.textAlign = 'center';
+            emptyP.style.color = '#666';
+            emptyP.style.padding = '20px';
+            emptyP.textContent = '신고가 없습니다.';
+            listEl.appendChild(emptyP);
+            return;
+        }
+        
+        reports.forEach(report => {
+            const item = document.createElement('div');
+            item.className = 'moderation-item';
+            
+            const header = document.createElement('div');
+            header.className = 'moderation-item-header';
+            const h4 = document.createElement('h4');
+            h4.textContent = this.sanitizeHTML(report.regionId || '');
+            const statusSpan = document.createElement('span');
+            statusSpan.className = `moderation-status status-${report.status}`;
+            statusSpan.textContent = this.getStatusLabel(report.status);
+            header.appendChild(h4);
+            header.appendChild(statusSpan);
+            
+            const body = document.createElement('div');
+            body.className = 'moderation-item-body';
+            
+            const reasonP = document.createElement('p');
+            reasonP.innerHTML = `<strong>사유:</strong> ${this.sanitizeHTML(this.getReasonLabel(report.reason))}`;
+            
+            const reporterP = document.createElement('p');
+            reporterP.innerHTML = `<strong>신고자:</strong> ${this.sanitizeHTML(report.reporterEmail || '익명')}`;
+            
+            const detailsP = document.createElement('p');
+            detailsP.innerHTML = `<strong>상세:</strong> ${this.sanitizeHTML(report.details || '없음')}`;
+            
+            const dateP = document.createElement('p');
+            const dateStr = report.createdAt?.toDate?.()?.toLocaleString() || '알 수 없음';
+            dateP.innerHTML = `<strong>신고일:</strong> ${this.sanitizeHTML(dateStr)}`;
+            
+            body.appendChild(reasonP);
+            body.appendChild(reporterP);
+            body.appendChild(detailsP);
+            body.appendChild(dateP);
+            
+            if (status === 'pending') {
+                const actions = document.createElement('div');
+                actions.className = 'moderation-item-actions';
+                
+                const approveBtn = document.createElement('button');
+                approveBtn.className = 'moderation-btn approve-btn';
+                approveBtn.dataset.reportId = report.id;
+                approveBtn.textContent = '승인';
+                
+                const rejectBtn = document.createElement('button');
+                rejectBtn.className = 'moderation-btn reject-btn';
+                rejectBtn.dataset.reportId = report.id;
+                rejectBtn.textContent = '거부';
+                
+                actions.appendChild(approveBtn);
+                actions.appendChild(rejectBtn);
+                item.appendChild(actions);
+            }
+            
+            item.appendChild(header);
+            item.appendChild(body);
+            listEl.appendChild(item);
+        });
+        
+        // 이벤트 리스너 추가
+        if (status === 'pending') {
+            listEl.querySelectorAll('.approve-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.moderateReport(btn.dataset.reportId, 'approve');
+                });
+            });
+            
+            listEl.querySelectorAll('.reject-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.moderateReport(btn.dataset.reportId, 'reject');
+                });
+            });
+        }
+    }
+    
+    /**
+     * 상태 라벨 가져오기
+     */
+    getStatusLabel(status) {
+        const labels = {
+            'pending': '대기 중',
+            'approved': '승인됨',
+            'rejected': '거부됨'
+        };
+        return labels[status] || status;
+    }
+    
+    /**
+     * 신고 사유 라벨 가져오기
+     */
+    getReasonLabel(reason) {
+        const labels = {
+            'inappropriate': '부적절한 내용',
+            'spam': '스팸/광고',
+            'copyright': '저작권 침해',
+            'harassment': '괴롭힘/혐오 표현',
+            'other': '기타'
+        };
+        return labels[reason] || reason;
+    }
+    
+    /**
+     * 픽셀 아트 초기화
+     */
+    async resetPixelArt(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { doc, deleteDoc, collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 픽셀 아트 데이터 삭제
+            const pixelArtRef = doc(this.firestore, 'pixelArt', regionId);
+            await deleteDoc(pixelArtRef);
+            
+            // 편집 이력 삭제
+            const editsRef = collection(this.firestore, 'pixelArt', regionId, 'edits');
+            const editsSnap = await getDocs(editsRef);
+            const deletePromises = editsSnap.docs.map(d => deleteDoc(d.ref));
+            await Promise.all(deletePromises);
+            
+            // 버전 히스토리 삭제
+            const versionsRef = collection(this.firestore, 'pixelArt', regionId, 'versions');
+            const versionsSnap = await getDocs(versionsRef);
+            const versionDeletePromises = versionsSnap.docs.map(d => deleteDoc(d.ref));
+            await Promise.all(versionDeletePromises);
+            
+            this.logEvent('pixel_art_reset', { regionId, reason: 'moderation' });
+        } catch (error) {
+            console.error('[픽셀 아트 초기화 실패]:', error);
+            throw error;
+        }
+    }
+    
+    // ========== 커뮤니티 & 운영: 이벤트 기획 ==========
+    
+    /**
+     * 이벤트 목록 로드
+     */
+    async loadEvents() {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { collection, query, where, getDocs, orderBy, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const eventsRef = collection(this.firestore, 'events');
+            const now = Timestamp.now();
+            
+            // 진행 중인 이벤트
+            const activeQuery = query(
+                eventsRef,
+                where('startDate', '<=', now),
+                where('endDate', '>=', now),
+                orderBy('startDate', 'desc')
+            );
+            const activeSnapshot = await getDocs(activeQuery);
+            
+            const events = [];
+            activeSnapshot.forEach(doc => {
+                events.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+            
+            this.community.events = events;
+            this.renderEvents(events);
+        } catch (error) {
+            console.error('[이벤트 로드 실패]:', error);
+        }
+    }
+    
+    /**
+     * 이벤트 목록 렌더링
+     */
+    renderEvents(events) {
+        const listEl = document.getElementById('events-list');
+        if (!listEl) return;
+        
+        // 컨테이너 초기화
+        while (listEl.firstChild) {
+            listEl.removeChild(listEl.firstChild);
+        }
+        
+        if (events.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.textAlign = 'center';
+            emptyP.style.color = '#666';
+            emptyP.style.padding = '20px';
+            emptyP.textContent = '진행 중인 이벤트가 없습니다.';
+            listEl.appendChild(emptyP);
+            return;
+        }
+        
+        events.forEach(event => {
+            const card = document.createElement('div');
+            card.className = 'event-card';
+            
+            const header = document.createElement('div');
+            header.className = 'event-header';
+            const h3 = document.createElement('h3');
+            h3.textContent = this.sanitizeHTML(event.title || '');
+            const typeSpan = document.createElement('span');
+            typeSpan.className = `event-type type-${event.type}`;
+            typeSpan.textContent = this.getEventTypeLabel(event.type);
+            header.appendChild(h3);
+            header.appendChild(typeSpan);
+            
+            const body = document.createElement('div');
+            body.className = 'event-body';
+            
+            const descP = document.createElement('p');
+            descP.textContent = this.sanitizeHTML(event.description || '');
+            
+            const datesDiv = document.createElement('div');
+            datesDiv.className = 'event-dates';
+            const startSpan = document.createElement('span');
+            startSpan.textContent = `시작: ${event.startDate?.toDate?.()?.toLocaleDateString() || '알 수 없음'}`;
+            const endSpan = document.createElement('span');
+            endSpan.textContent = `종료: ${event.endDate?.toDate?.()?.toLocaleDateString() || '알 수 없음'}`;
+            datesDiv.appendChild(startSpan);
+            datesDiv.appendChild(endSpan);
+            
+            body.appendChild(descP);
+            body.appendChild(datesDiv);
+            
+            if (event.participants) {
+                const participantsP = document.createElement('p');
+                participantsP.innerHTML = `<strong>참가자:</strong> ${event.participants.length}명`;
+                body.appendChild(participantsP);
+            }
+            
+            card.appendChild(header);
+            card.appendChild(body);
+            
+            if (event.type === 'challenge') {
+                const joinBtn = document.createElement('button');
+                joinBtn.className = 'event-join-btn';
+                joinBtn.dataset.eventId = event.id;
+                joinBtn.textContent = '참가하기';
+                card.appendChild(joinBtn);
+            }
+            
+            listEl.appendChild(card);
+        });
+        
+        // 참가 버튼 이벤트 리스너
+        listEl.querySelectorAll('.event-join-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.joinEvent(btn.dataset.eventId);
+            });
+        });
+    }
+    
+    /**
+     * 이벤트 타입 라벨
+     */
+    getEventTypeLabel(type) {
+        const labels = {
+            'theme_week': '테마 주간',
+            'challenge': '챌린지',
+            'collaboration': '협업 프로젝트'
+        };
+        return labels[type] || type;
+    }
+    
+    /**
+     * 이벤트 참가
+     */
+    async joinEvent(eventId) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
+            this.showNotification('로그인이 필요합니다.', 'error');
+            return;
+        }
+        
+        try {
+            const { doc, updateDoc, arrayUnion } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const eventRef = doc(this.firestore, 'events', eventId);
+            
+            await updateDoc(eventRef, {
+                participants: arrayUnion({
+                    userId: this.currentUser.uid,
+                    email: this.currentUser.email,
+                    joinedAt: new Date()
+                })
+            });
+            
+            this.logEvent('event_joined', { eventId, userId: this.currentUser.uid });
+            this.showNotification('이벤트에 참가했습니다!', 'success');
+            
+            // 이벤트 목록 새로고침
+            await this.loadEvents();
+        } catch (error) {
+            console.error('[이벤트 참가 실패]:', error);
+            this.showNotification('이벤트 참가에 실패했습니다.', 'error');
+        }
+    }
+    
+    // ========== 커뮤니티 & 운영: 월간 리포트 ==========
+    
+    /**
+     * 월간 리포트 생성 및 로드
+     */
+    async loadMonthlyReport(year, month) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { collection, query, where, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 해당 월의 시작/종료 시간
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 0, 23, 59, 59);
+            const startTimestamp = Timestamp.fromDate(startDate);
+            const endTimestamp = Timestamp.fromDate(endDate);
+            
+            // 옥션 통계
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const auctionsQuery = query(
+                auctionsRef,
+                where('createdAt', '>=', startTimestamp),
+                where('createdAt', '<=', endTimestamp)
+            );
+            const auctionsSnap = await getDocs(auctionsQuery);
+            
+            let totalRevenue = 0;
+            let soldCount = 0;
+            auctionsSnap.forEach(doc => {
+                const data = doc.data();
+                if (data.status === 'sold') {
+                    totalRevenue += data.currentBid || 0;
+                    soldCount++;
+                }
+            });
+            
+            // 커뮤니티 상금
+            const communityReward = totalRevenue * 0.1;
+            
+            // 리포트 데이터 구성
+            const report = {
+                year,
+                month,
+                totalRevenue,
+                soldCount,
+                communityReward,
+                freePixelPool: communityReward / 20, // $20당 1세트
+                serverCost: 50, // 예상 서버 비용 (실제로는 계산 필요)
+                p2wMitigationRate: 0.1,
+                reportDate: new Date()
+            };
+            
+            this.renderMonthlyReport(report);
+        } catch (error) {
+            console.error('[월간 리포트 로드 실패]:', error);
+        }
+    }
+    
+    /**
+     * 월간 리포트 렌더링
+     */
+    renderMonthlyReport(report) {
+        const contentEl = document.getElementById('monthly-report-content');
+        if (!contentEl) return;
+        
+        // 컨테이너 초기화
+        while (contentEl.firstChild) {
+            contentEl.removeChild(contentEl.firstChild);
+        }
+        
+        const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+        
+        // 헤더
+        const header = document.createElement('div');
+        header.className = 'monthly-report-header';
+        const h3 = document.createElement('h3');
+        h3.textContent = `${report.year}년 ${monthNames[report.month - 1]} 운영 리포트`;
+        const dateP = document.createElement('p');
+        dateP.className = 'report-date';
+        dateP.textContent = `작성일: ${report.reportDate.toLocaleDateString()}`;
+        header.appendChild(h3);
+        header.appendChild(dateP);
+        
+        // 통계 카드
+        const stats = document.createElement('div');
+        stats.className = 'monthly-report-stats';
+        
+        const createStatCard = (title, value) => {
+            const card = document.createElement('div');
+            card.className = 'report-stat-card';
+            const h4 = document.createElement('h4');
+            h4.textContent = title;
+            const valueDiv = document.createElement('div');
+            valueDiv.className = 'stat-value';
+            valueDiv.textContent = value;
+            card.appendChild(h4);
+            card.appendChild(valueDiv);
+            return card;
+        };
+        
+        stats.appendChild(createStatCard('총 수익', this.formatCurrency(report.totalRevenue)));
+        stats.appendChild(createStatCard('낙찰된 옥션', `${report.soldCount}개`));
+        stats.appendChild(createStatCard('커뮤니티 상금', this.formatCurrency(report.communityReward)));
+        stats.appendChild(createStatCard('무료 픽셀 풀', `${Math.floor(report.freePixelPool)}세트`));
+        
+        // 상세 내역
+        const details = document.createElement('div');
+        details.className = 'monthly-report-details';
+        const detailsH4 = document.createElement('h4');
+        detailsH4.textContent = '상세 내역';
+        const ul = document.createElement('ul');
+        
+        const createDetailItem = (text) => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            return li;
+        };
+        
+        ul.appendChild(createDetailItem(`서버 운영 비용: ${this.formatCurrency(report.serverCost)}`));
+        ul.appendChild(createDetailItem(`P2W 완화율: ${(report.p2wMitigationRate * 100).toFixed(1)}%`));
+        ul.appendChild(createDetailItem('커뮤니티 기여율: 10%'));
+        
+        details.appendChild(detailsH4);
+        details.appendChild(ul);
+        
+        contentEl.appendChild(header);
+        contentEl.appendChild(stats);
+        contentEl.appendChild(details);
+    }
+    
+    // ========== 커뮤니티 & 운영: 지속가능성 ==========
+    
+    /**
+     * 오픈소스 기여 가이드 생성
+     */
+    generateContributionGuide() {
+        return {
+            title: '오픈소스 기여 가이드',
+            sections: [
+                {
+                    title: '기여 방법',
+                    content: [
+                        '1. GitHub 저장소를 Fork합니다',
+                        '2. 새로운 브랜치를 생성합니다 (git checkout -b feature/amazing-feature)',
+                        '3. 변경사항을 커밋합니다 (git commit -m "Add amazing feature")',
+                        '4. 브랜치에 푸시합니다 (git push origin feature/amazing-feature)',
+                        '5. Pull Request를 생성합니다'
+                    ]
+                },
+                {
+                    title: '코드 스타일',
+                    content: [
+                        'JavaScript: ES6+ 문법 사용',
+                        '들여쓰기: 4 spaces',
+                        '변수명: camelCase',
+                        '함수명: 동사로 시작 (예: getData, updateUser)'
+                    ]
+                },
+                {
+                    title: '커밋 메시지 규칙',
+                    content: [
+                        '형식: [타입] 간단한 설명',
+                        '타입: feat, fix, docs, style, refactor, test, chore',
+                        '예시: [feat] 픽셀 아트 신고 기능 추가'
+                    ]
+                }
+            ]
+        };
+    }
+    
+    /**
+     * 모더레이터 프로그램 정보
+     */
+    getModeratorProgramInfo() {
+        return {
+            title: '커뮤니티 모더레이터 프로그램',
+            description: '플랫폼의 건강한 커뮤니티를 위해 모더레이터를 모집합니다.',
+            requirements: [
+                '플랫폼 이용 경력 3개월 이상',
+                '신고 처리 경험 또는 커뮤니티 관리 경험',
+                '공정하고 객관적인 판단 능력',
+                '주 5시간 이상 활동 가능'
+            ],
+            benefits: [
+                '모더레이터 배지 및 특별 권한',
+                '월간 활동 보상',
+                '커뮤니티 리더십 인정',
+                '플랫폼 개발에 참여할 기회'
+            ],
+            applicationLink: 'mailto:moderator@worldadvertisingmap.com'
+        };
+    }
+    
+    /**
+     * 커뮤니티 기능 초기화
+     */
+    initCommunityFeatures() {
+        // 모더레이터 목록 로드
+        this.loadModerators();
+        
+        // 이벤트 목록 로드
+        this.loadEvents();
+        
+        // 커뮤니티 이벤트 리스너 설정
+        this.setupCommunityEventListeners();
+    }
+    
+    /**
+     * 커뮤니티 이벤트 리스너 설정
+     */
+    setupCommunityEventListeners() {
+        // 신고 버튼
+        const reportBtn = document.getElementById('pixel-report-btn');
+        if (reportBtn) {
+            reportBtn.addEventListener('click', () => {
+                if (!this.currentRegion) {
+                    this.showNotification('지역을 선택해주세요.', 'error');
+                    return;
+                }
+                this.showReportModal();
+            });
+        }
+        
+        // 신고 모달 닫기
+        const closeReportModal = document.getElementById('close-report-modal');
+        if (closeReportModal) {
+            closeReportModal.addEventListener('click', () => {
+                document.getElementById('report-modal')?.classList.add('hidden');
+            });
+        }
+        
+        // 신고 제출
+        const submitReportBtn = document.getElementById('submit-report-btn');
+        if (submitReportBtn) {
+            submitReportBtn.addEventListener('click', async () => {
+                if (!this.currentRegion) return;
+                
+                const reason = document.getElementById('report-reason')?.value;
+                const details = document.getElementById('report-details')?.value;
+                
+                if (!reason) {
+                    this.showNotification('신고 사유를 선택해주세요.', 'error');
+                    return;
+                }
+                
+                await this.reportPixelArt(this.currentRegion.id, reason, details);
+                document.getElementById('report-modal')?.classList.add('hidden');
+            });
+        }
+        
+        // 모더레이션 패널
+        const moderationBtn = document.getElementById('side-moderation-btn');
+        if (moderationBtn) {
+            moderationBtn.addEventListener('click', () => {
+                this.showModerationPanel();
+            });
+        }
+        
+        const closeModerationPanel = document.getElementById('close-moderation-panel');
+        if (closeModerationPanel) {
+            closeModerationPanel.addEventListener('click', () => {
+                document.getElementById('moderation-panel')?.classList.add('hidden');
+            });
+        }
+        
+        // 모더레이션 탭 전환
+        const moderationTabs = document.querySelectorAll('.moderation-tabs .tab-btn');
+        moderationTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                moderationTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this.loadModerationReports(tab.dataset.tab);
+            });
+        });
+        
+        // 이벤트 모달
+        const eventsBtn = document.getElementById('side-events-btn');
+        if (eventsBtn) {
+            eventsBtn.addEventListener('click', () => {
+                this.showEventsModal();
+            });
+        }
+        
+        const closeEventsModal = document.getElementById('close-events-modal');
+        if (closeEventsModal) {
+            closeEventsModal.addEventListener('click', () => {
+                document.getElementById('events-modal')?.classList.add('hidden');
+            });
+        }
+        
+        // 월간 리포트 모달
+        const monthlyReportBtn = document.getElementById('side-monthly-report-btn');
+        if (monthlyReportBtn) {
+            monthlyReportBtn.addEventListener('click', () => {
+                this.showMonthlyReportModal();
+            });
+        }
+        
+        const closeMonthlyReportModal = document.getElementById('close-monthly-report-modal');
+        if (closeMonthlyReportModal) {
+            closeMonthlyReportModal.addEventListener('click', () => {
+                document.getElementById('monthly-report-modal')?.classList.add('hidden');
+            });
+        }
+    }
+    
+    /**
+     * 신고 모달 표시
+     */
+    showReportModal() {
+        const modal = document.getElementById('report-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            // 폼 초기화
+            document.getElementById('report-reason').value = 'inappropriate';
+            document.getElementById('report-details').value = '';
+        }
+    }
+    
+    /**
+     * 모더레이션 패널 표시
+     */
+    async showModerationPanel() {
+        if (!this.isModerator()) {
+            this.showNotification('모더레이터 권한이 필요합니다.', 'error');
+            return;
+        }
+        
+        const panel = document.getElementById('moderation-panel');
+        if (panel) {
+            panel.classList.remove('hidden');
+            await this.loadModerationReports('pending');
+        }
+    }
+    
+    /**
+     * 이벤트 모달 표시
+     */
+    async showEventsModal() {
+        const modal = document.getElementById('events-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            await this.loadEvents();
+        }
+    }
+    
+    /**
+     * 월간 리포트 모달 표시
+     */
+    async showMonthlyReportModal() {
+        const modal = document.getElementById('monthly-report-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            const now = new Date();
+            await this.loadMonthlyReport(now.getFullYear(), now.getMonth() + 1);
+        }
+    }
+    
+    // ========== 온보딩 투어 ==========
+    
+    /**
+     * 온보딩 투어 초기화
+     */
+    initOnboardingTour() {
+        // 첫 방문 여부 확인 (localStorage)
+        const hasSeenTour = localStorage.getItem('hasSeenOnboardingTour');
+        if (hasSeenTour === 'true') {
+            return; // 이미 본 경우 투어 표시 안 함
+        }
+        
+        // 약간의 지연 후 투어 시작 (지도 로드 완료 후)
+        setTimeout(() => {
+            this.startOnboardingTour();
+        }, 2000);
+    }
+    
+    /**
+     * 온보딩 투어 시작
+     */
+    startOnboardingTour() {
+        const tour = document.getElementById('onboarding-tour');
+        if (!tour) return;
+        
+        tour.classList.remove('hidden');
+        this.currentTourStep = 1;
+        this.updateTourStep();
+        this.setupTourEventListeners();
+    }
+    
+    /**
+     * 온보딩 투어 이벤트 리스너 설정
+     */
+    setupTourEventListeners() {
+        const tourNext = document.getElementById('tour-next');
+        const tourPrev = document.getElementById('tour-prev');
+        const tourSkip = document.getElementById('tour-skip');
+        const tourClose = document.getElementById('tour-close');
+        const tourFinish = document.getElementById('tour-finish');
+        
+        if (tourNext) {
+            tourNext.addEventListener('click', () => this.nextTourStep());
+        }
+        if (tourPrev) {
+            tourPrev.addEventListener('click', () => this.prevTourStep());
+        }
+        if (tourSkip || tourClose) {
+            const skipHandler = () => this.finishTour();
+            if (tourSkip) tourSkip.addEventListener('click', skipHandler);
+            if (tourClose) tourClose.addEventListener('click', skipHandler);
+        }
+        if (tourFinish) {
+            tourFinish.addEventListener('click', () => this.finishTour());
+        }
+    }
+    
+    /**
+     * 다음 투어 단계
+     */
+    nextTourStep() {
+        if (this.currentTourStep < 4) {
+            this.currentTourStep++;
+            this.updateTourStep();
+        }
+    }
+    
+    /**
+     * 이전 투어 단계
+     */
+    prevTourStep() {
+        if (this.currentTourStep > 1) {
+            this.currentTourStep--;
+            this.updateTourStep();
+        }
+    }
+    
+    /**
+     * 투어 단계 업데이트
+     */
+    updateTourStep() {
+        const steps = document.querySelectorAll('.tour-step');
+        const tourPrev = document.getElementById('tour-prev');
+        const tourNext = document.getElementById('tour-next');
+        const tourFinish = document.getElementById('tour-finish');
+        const tourSkip = document.getElementById('tour-skip');
+        
+        steps.forEach((step, index) => {
+            if (index + 1 === this.currentTourStep) {
+                step.classList.add('active');
+            } else {
+                step.classList.remove('active');
+            }
+        });
+        
+        // 버튼 상태 업데이트
+        if (tourPrev) {
+            tourPrev.disabled = this.currentTourStep === 1;
+        }
+        if (tourNext) {
+            tourNext.classList.toggle('hidden', this.currentTourStep === 4);
+        }
+        if (tourFinish) {
+            tourFinish.classList.toggle('hidden', this.currentTourStep !== 4);
+        }
+        if (tourSkip) {
+            tourSkip.classList.toggle('hidden', this.currentTourStep === 4);
+        }
+        
+        // 하이라이트 업데이트 (각 단계별로 다른 요소 하이라이트)
+        this.updateTourHighlight();
+    }
+    
+    /**
+     * 투어 하이라이트 업데이트
+     */
+    updateTourHighlight() {
+        const highlight = document.getElementById(`tour-highlight-${this.currentTourStep}`);
+        if (!highlight) return;
+        
+        let targetElement = null;
+        
+        switch(this.currentTourStep) {
+            case 1:
+                // 지도 영역 하이라이트
+                targetElement = document.getElementById('map');
+                break;
+            case 2:
+                // 옥션 모달 하이라이트 (열려있을 때만)
+                targetElement = document.getElementById('auction-modal');
+                break;
+            case 3:
+                // 픽셀 스튜디오 모달 하이라이트 (열려있을 때만)
+                targetElement = document.getElementById('pixel-studio-modal');
+                break;
+            case 4:
+                // 사이드 메뉴 하이라이트
+                targetElement = document.getElementById('side-menu');
+                break;
+        }
+        
+        if (targetElement && targetElement.offsetParent !== null) {
+            const rect = targetElement.getBoundingClientRect();
+            highlight.style.top = `${rect.top}px`;
+            highlight.style.left = `${rect.left}px`;
+            highlight.style.width = `${rect.width}px`;
+            highlight.style.height = `${rect.height}px`;
+            highlight.style.display = 'block';
+        } else {
+            highlight.style.display = 'none';
+        }
+    }
+    
+    /**
+     * 투어 완료
+     */
+    finishTour() {
+        const tour = document.getElementById('onboarding-tour');
+        if (tour) {
+            tour.classList.add('hidden');
+        }
+        localStorage.setItem('hasSeenOnboardingTour', 'true');
+    }
+    
+    // ========== 모바일 최적화 ==========
+    
+    /**
+     * 모바일 최적화 초기화
+     */
+    initMobileOptimization() {
+        // 모바일 화면 감지
+        this.checkMobileView();
+        
+        // 리사이즈 이벤트 리스너
+        window.addEventListener('resize', () => {
+            this.checkMobileView();
+        });
+        
+        // 모바일 전환 버튼 이벤트
+        const mapViewBtn = document.getElementById('mobile-map-view-btn');
+        const listViewBtn = document.getElementById('mobile-list-view-btn');
+        const listCloseBtn = document.getElementById('mobile-list-close');
+        
+        if (mapViewBtn) {
+            mapViewBtn.addEventListener('click', () => this.switchToMapView());
+        }
+        if (listViewBtn) {
+            listViewBtn.addEventListener('click', () => this.switchToListView());
+        }
+        if (listCloseBtn) {
+            listCloseBtn.addEventListener('click', () => this.switchToMapView());
+        }
+    }
+    
+    /**
+     * 모바일 화면 감지
+     */
+    checkMobileView() {
+        const isMobile = window.innerWidth <= 768;
+        const toggle = document.getElementById('mobile-view-toggle');
+        
+        if (toggle) {
+            if (isMobile) {
+                toggle.classList.remove('hidden');
+            } else {
+                toggle.classList.add('hidden');
+                // 데스크톱에서는 항상 지도 뷰
+                this.switchToMapView();
+            }
+        }
+    }
+    
+    /**
+     * 지도 뷰로 전환
+     */
+    switchToMapView() {
+        const mapContainer = document.getElementById('map-container');
+        const listView = document.getElementById('mobile-list-view');
+        const mapViewBtn = document.getElementById('mobile-map-view-btn');
+        const listViewBtn = document.getElementById('mobile-list-view-btn');
+        
+        if (mapContainer) {
+            mapContainer.classList.remove('mobile-list-mode');
+        }
+        if (listView) {
+            listView.classList.remove('active');
+        }
+        if (mapViewBtn) {
+            mapViewBtn.classList.add('active');
+        }
+        if (listViewBtn) {
+            listViewBtn.classList.remove('active');
+        }
+    }
+    
+    /**
+     * 리스트 뷰로 전환
+     */
+    async switchToListView() {
+        const mapContainer = document.getElementById('map-container');
+        const listView = document.getElementById('mobile-list-view');
+        const mapViewBtn = document.getElementById('mobile-map-view-btn');
+        const listViewBtn = document.getElementById('mobile-list-view-btn');
+        
+        if (mapContainer) {
+            mapContainer.classList.add('mobile-list-mode');
+        }
+        if (listView) {
+            listView.classList.add('active');
+        }
+        if (mapViewBtn) {
+            mapViewBtn.classList.remove('active');
+        }
+        if (listViewBtn) {
+            listViewBtn.classList.add('active');
+        }
+        
+        // 옥션 리스트 로드
+        await this.loadMobileAuctionList();
+    }
+    
+    /**
+     * 모바일 옥션 리스트 로드
+     */
+    async loadMobileAuctionList() {
+        const listContainer = document.getElementById('mobile-auction-list');
+        if (!listContainer) return;
+        
+        // 옥션 대시보드의 옥션 로드 함수 재사용
+        await this.loadDashboardAuctions('active');
+        
+        // 로드된 옥션을 모바일 리스트에 표시
+        const dashboardList = document.getElementById('dashboard-auction-list');
+        if (dashboardList && dashboardList.innerHTML) {
+            listContainer.innerHTML = dashboardList.innerHTML;
+            
+            // 옥션 항목 클릭 이벤트 추가
+            listContainer.querySelectorAll('.dashboard-auction-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const auctionId = item.dataset.auctionId;
+                    if (auctionId) {
+                        this.openAuctionModal(auctionId);
+                        this.switchToMapView(); // 지도 뷰로 돌아가기
+                    }
+                });
+            });
+        }
     }
     
     

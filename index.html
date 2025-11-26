@@ -4,6 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mr.Young's Billionaire Homepage - Interactive World Map</title>
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" 
+          content="default-src 'self'; 
+                   script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.mapbox.com https://www.paypal.com https://www.gstatic.com https://cdn.jsdelivr.net; 
+                   style-src 'self' 'unsafe-inline' https://api.mapbox.com; 
+                   img-src 'self' data: https: blob:; 
+                   font-src 'self' data:; 
+                   connect-src 'self' https://api.mapbox.com https://raw.githubusercontent.com https://www.paypal.com https://*.firebaseio.com https://*.googleapis.com https://*.gstatic.com wss://*.firebaseio.com;
+                   frame-src https://www.paypal.com;">
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -39,6 +53,19 @@
                     <button id="side-admin-logout-btn" class="side-menu-btn admin-logout-btn hidden">Admin 로그아웃</button>
                 </div>
                 <div class="side-menu-section">
+                    <h4>옥션 대시보드</h4>
+                    <button id="side-auction-dashboard-btn" class="side-menu-btn auction-dashboard-btn">옥션 대시보드</button>
+                </div>
+                <div class="side-menu-section">
+                    <h4>커뮤니티</h4>
+                    <button id="side-events-btn" class="side-menu-btn events-btn">이벤트</button>
+                    <button id="side-monthly-report-btn" class="side-menu-btn monthly-report-btn">월간 리포트</button>
+                </div>
+                <div class="side-menu-section" id="side-moderator-section" style="display: none;">
+                    <h4>모더레이션</h4>
+                    <button id="side-moderation-btn" class="side-menu-btn moderation-btn">모더레이션 패널</button>
+                </div>
+                <div class="side-menu-section">
                     <h4>도움말</h4>
                     <button id="side-help-btn" class="side-menu-btn help-btn">Help</button>
                 </div>
@@ -52,6 +79,7 @@
                 <p>Global Advertising Platform</p>
             </div>
             <div class="header-actions">
+                <button id="market-stats-btn" class="market-stats-btn">통계</button>
                 <button id="user-login-btn" class="user-login-btn">로그인</button>
                 <button id="user-logout-btn" class="user-logout-btn hidden">로그아웃</button>
                 <span id="user-email" class="user-email hidden"></span>
@@ -131,6 +159,36 @@
                         <span class="stat-label">점유율:</span>
                         <span id="occupancy-rate" class="stat-value">20%</span>
                     </div>
+                </div>
+                <div class="community-reward-card">
+                    <h4>커뮤니티 상금 & 무료 픽셀</h4>
+                    <div class="community-metrics">
+                        <div class="metric-item">
+                            <span class="metric-label">상금 풀</span>
+                            <span id="community-reward-total" class="metric-value">$0.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">무료 픽셀 풀</span>
+                            <span id="community-free-pixels" class="metric-value">0 px</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">기여 옥션 수</span>
+                            <span id="community-auctions-count" class="metric-value">0회</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">최근 기여</span>
+                            <span id="community-last-contribution" class="metric-value">아직 없음</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">최근 무료 픽셀 드랍</span>
+                            <span id="community-last-drop" class="metric-value">아직 없음</span>
+                        </div>
+                    </div>
+                    <button id="trigger-pixel-airdrop" class="airdrop-btn" disabled>적립 대기중</button>
+                    <p class="airdrop-hint">
+                        모든 옥션 낙찰 금액의 10%가 커뮤니티 상금으로 적립됩니다. 상금이 충분히 모이면
+                        무료 픽셀 드랍으로 전체 이용자에게 배포됩니다.
+                    </p>
                 </div>
             </div>
         </div>
@@ -545,6 +603,7 @@
                         <div class="company-actions" id="company-modal-actions">
                             <button id="company-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
                             <button id="company-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
+                            <button id="company-edit-pixel-btn" class="edit-pixel-btn hidden">픽셀 아트 편집</button>
                             <div id="company-paypal-buttons" style="margin-top: 15px;"></div>
                         </div>
                     </div>
@@ -634,12 +693,451 @@
                             </div>
                         </div>
                         
+                        <!-- 옥션 정보 섹션 (옥션이 있을 때만 표시) -->
+                        <div id="region-auction-section" class="region-auction-section hidden">
+                            <h4>
+                                <span class="label-primary">🔨 옥션 정보</span>
+                                <span class="label-secondary">Auction Information</span>
+                            </h4>
+                            <div class="auction-info-grid">
+                                <div class="detail-card">
+                                    <div class="detail-icon">💰</div>
+                                    <div class="detail-content">
+                                        <label>
+                                            <span class="label-primary">현재 입찰가</span>
+                                            <span class="label-secondary">Current Bid</span>
+                                        </label>
+                                        <span id="region-auction-current-bid">-</span>
+                                    </div>
+                                </div>
+                                <div class="detail-card">
+                                    <div class="detail-icon">⏰</div>
+                                    <div class="detail-content">
+                                        <label>
+                                            <span class="label-primary">남은 시간</span>
+                                            <span class="label-secondary">Time Remaining</span>
+                                        </label>
+                                        <span id="region-auction-time-remaining">-</span>
+                                    </div>
+                                </div>
+                                <div class="detail-card">
+                                    <div class="detail-icon">👤</div>
+                                    <div class="detail-content">
+                                        <label>
+                                            <span class="label-primary">최고 입찰자</span>
+                                            <span class="label-secondary">Highest Bidder</span>
+                                        </label>
+                                        <span id="region-auction-highest-bidder">-</span>
+                                    </div>
+                                </div>
+                                <div class="detail-card">
+                                    <div class="detail-icon">📈</div>
+                                    <div class="detail-content">
+                                        <label>
+                                            <span class="label-primary">예상 노출 수</span>
+                                            <span class="label-secondary">Estimated Impressions</span>
+                                        </label>
+                                        <span id="region-estimated-impressions">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 홀더 프로필 -->
+                            <div id="region-holder-profile" class="holder-profile hidden">
+                                <h4>
+                                    <span class="label-primary">👑 현재 소유자</span>
+                                    <span class="label-secondary">Current Owner</span>
+                                </h4>
+                                <div class="holder-info">
+                                    <div class="holder-avatar">👤</div>
+                                    <div class="holder-details">
+                                        <div class="holder-name" id="region-holder-name">-</div>
+                                        <div class="holder-email" id="region-holder-email">-</div>
+                                        <div class="holder-stats">
+                                            <span class="holder-stat">소유 지역: <span id="region-holder-regions-count">0</span>개</span>
+                                            <span class="holder-stat">총 입찰: <span id="region-holder-total-bids">0</span>회</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 입찰 타임라인 -->
+                            <div id="region-bid-timeline" class="bid-timeline">
+                                <h4>
+                                    <span class="label-primary">📅 입찰 이력</span>
+                                    <span class="label-secondary">Bid History</span>
+                                </h4>
+                                <div id="region-bid-timeline-list" class="timeline-list">
+                                    <p style="text-align: center; color: #666; padding: 20px;">입찰 이력이 없습니다.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="region-actions">
                             <button id="region-purchase-btn" class="purchase-btn">이 지역 구매하기</button>
                             <button id="region-edit-btn" class="edit-btn hidden">지역 정보 편집</button>
+                            <button id="region-edit-pixel-btn" class="edit-pixel-btn hidden">픽셀 아트 편집</button>
                             <div id="region-paypal-buttons" style="margin-top: 15px;"></div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 옥션 모달 -->
+        <div id="auction-modal" class="modal hidden">
+            <div class="modal-content auction-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">옥션 참여</span>
+                        <span class="label-secondary">Auction</span>
+                    </h2>
+                    <button id="close-auction-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="auction-info">
+                        <div class="auction-header">
+                            <h3 id="auction-region-name">-</h3>
+                            <p class="auction-location">📍 <span id="auction-country">-</span></p>
+                        </div>
+                        
+                        <div class="auction-status">
+                            <div class="auction-timer">
+                                <h4>남은 시간</h4>
+                                <div id="auction-countdown" class="countdown">00:00:00</div>
+                            </div>
+                            <div class="auction-current-bid">
+                                <h4>현재 입찰가</h4>
+                                <div id="auction-current-bid" class="current-bid-amount">$1.00</div>
+                            </div>
+                        </div>
+                        
+                        <div class="auction-rules">
+                            <h4>옥션 규칙</h4>
+                            <ul>
+                                <li>초기가: $1.00</li>
+                                <li>최소 입찰 증가액: $0.10</li>
+                                <li>옥션 기간: 최소 12시간 보장</li>
+                                <li>마지막 5분 내 입찰 시 자동 5분 연장</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="auction-bid-section">
+                            <h4>입찰하기</h4>
+                            <div class="bid-input-group">
+                                <label>입찰 금액 (USD)</label>
+                                <input type="number" id="bid-amount-input" min="1" step="0.1" value="1.0">
+                                <button id="place-bid-btn" class="bid-btn">입찰하기</button>
+                            </div>
+                            <p class="bid-hint">최소 입찰가: <span id="min-bid-amount">$1.10</span></p>
+                        </div>
+                        
+                        <div class="auction-bid-history">
+                            <h4>입찰 이력</h4>
+                            <div id="auction-bid-history" class="bid-history-list">
+                                <p>아직 입찰이 없습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 픽셀 아트 스튜디오 모달 -->
+        <div id="pixel-studio-modal" class="modal hidden">
+            <div class="modal-content pixel-studio-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">픽셀 아트 스튜디오</span>
+                        <span class="label-secondary">Pixel Art Studio</span>
+                    </h2>
+                    <button id="close-pixel-studio" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="pixel-studio-info">
+                        <div class="pixel-studio-header">
+                            <h3 id="pixel-studio-region-name">-</h3>
+                            <p class="pixel-studio-location">📍 <span id="pixel-studio-country">-</span></p>
+                            <div id="pixel-studio-permission-status" class="permission-status">
+                                <span class="status-icon">🔒</span>
+                                <span class="status-text">소유자 전용</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pixel-studio-controls">
+                            <div class="pixel-control-section">
+                                <h4>도구</h4>
+                                <div class="tool-buttons">
+                                    <button id="pixel-tool-pencil" class="tool-btn active" data-tool="pencil" title="연필">✏️</button>
+                                    <button id="pixel-tool-eraser" class="tool-btn" data-tool="eraser" title="지우개">🧹</button>
+                                    <button id="pixel-tool-fill" class="tool-btn" data-tool="fill" title="채우기">🪣</button>
+                                    <button id="pixel-tool-sticker" class="tool-btn" data-tool="sticker" title="스티커">🌟</button>
+                                </div>
+                            </div>
+                            
+                            <div class="pixel-control-section">
+                                <h4>색상 선택</h4>
+                                <div class="color-picker-wrapper">
+                                    <input type="color" id="pixel-color-picker" value="#FF0000">
+                                    <div class="color-presets">
+                                        <div class="color-preset" data-color="#FF0000" style="background: #FF0000;"></div>
+                                        <div class="color-preset" data-color="#00FF00" style="background: #00FF00;"></div>
+                                        <div class="color-preset" data-color="#0000FF" style="background: #0000FF;"></div>
+                                        <div class="color-preset" data-color="#FFFF00" style="background: #FFFF00;"></div>
+                                        <div class="color-preset" data-color="#FF00FF" style="background: #FF00FF;"></div>
+                                        <div class="color-preset" data-color="#00FFFF" style="background: #00FFFF;"></div>
+                                        <div class="color-preset" data-color="#FFFFFF" style="background: #FFFFFF; border: 1px solid #ccc;"></div>
+                                        <div class="color-preset" data-color="#000000" style="background: #000000;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="pixel-control-section">
+                                <h4>캔버스 크기</h4>
+                                <select id="pixel-canvas-size">
+                                    <option value="16">16x16</option>
+                                    <option value="32" selected>32x32</option>
+                                    <option value="64">64x64</option>
+                                    <option value="128">128x128</option>
+                                </select>
+                            </div>
+                            
+                            <div class="pixel-control-section">
+                                <h4>액션</h4>
+                                <div class="action-buttons">
+                                    <button id="pixel-clear-btn" class="action-btn">전체 지우기</button>
+                                    <button id="pixel-reset-btn" class="action-btn">초기화</button>
+                                </div>
+                            </div>
+
+                            <div class="pixel-control-section">
+                                <h4>템플릿</h4>
+                                <div id="pixel-template-list" class="template-list empty-state">
+                                    <p>템플릿을 불러오는 중...</p>
+                                </div>
+                            </div>
+
+                            <div class="pixel-control-section">
+                                <h4>스티커</h4>
+                                <div id="pixel-sticker-list" class="sticker-list empty-state">
+                                    <p>스티커를 불러오는 중...</p>
+                                </div>
+                            </div>
+
+                            <div class="pixel-control-section">
+                                <h4>브랜딩 가이드</h4>
+                                <select id="pixel-brand-guide-select" class="brand-guide-select">
+                                    <option>로딩 중...</option>
+                                </select>
+                                <p id="pixel-brand-guide-desc" class="brand-guide-desc">
+                                    브랜드 팔레트를 선택하면 컬러 프리셋과 추천 폰트가 자동으로 적용됩니다.
+                                </p>
+                                <div id="pixel-brand-swatches" class="brand-swatches empty-state">
+                                    <p>추천 색상을 불러오는 중...</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="pixel-canvas-wrapper">
+                            <canvas id="pixel-canvas"></canvas>
+                        </div>
+                        
+                        <div class="pixel-studio-actions">
+                            <button id="pixel-save-btn" class="save-btn">저장</button>
+                            <button id="pixel-load-btn" class="load-btn">불러오기</button>
+                            <button id="pixel-history-btn" class="history-btn">버전 히스토리</button>
+                            <button id="pixel-report-btn" class="report-btn">신고하기</button>
+                            <button id="pixel-close-btn" class="close-studio-btn">닫기</button>
+                        </div>
+                        
+                        <!-- 버전 히스토리 섹션 -->
+                        <div id="pixel-version-history-section" class="pixel-version-history hidden">
+                            <div class="version-history-header">
+                                <h4>버전 히스토리</h4>
+                                <button id="pixel-version-history-close" class="close-btn-small">×</button>
+                            </div>
+                            <div id="pixel-version-list" class="version-list">
+                                <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                            </div>
+                        </div>
+                        
+                        <div id="pixel-studio-message" class="pixel-message hidden"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 옥션 대시보드 모달 -->
+        <div id="auction-dashboard-modal" class="modal hidden">
+            <div class="modal-content auction-dashboard-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">옥션 대시보드</span>
+                        <span class="label-secondary">Auction Dashboard</span>
+                    </h2>
+                    <button id="close-auction-dashboard" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="dashboard-tabs">
+                        <button class="tab-btn active" data-tab="active">진행 중</button>
+                        <button class="tab-btn" data-tab="upcoming">예정</button>
+                        <button class="tab-btn" data-tab="ended">종료</button>
+                        <button class="tab-btn" data-tab="watching">관심 등록</button>
+                    </div>
+                    
+                    <div class="dashboard-filters">
+                        <select id="dashboard-country-filter">
+                            <option value="all">모든 국가</option>
+                        </select>
+                        <input type="text" id="dashboard-search" placeholder="지역명 검색...">
+                    </div>
+                    
+                    <div id="dashboard-auction-list" class="auction-list">
+                        <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 통계 & 수익 모델 모달 -->
+        <div id="market-stats-modal" class="modal hidden">
+            <div class="modal-content market-stats-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">시장 통계 & 수익 모델</span>
+                        <span class="label-secondary">Market Statistics & Revenue</span>
+                    </h2>
+                    <button id="close-market-stats" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="stats-tabs">
+                        <button class="tab-btn active" data-tab="pricing">수익 모델</button>
+                        <button class="tab-btn" data-tab="statistics">통계</button>
+                        <button class="tab-btn" data-tab="fees">수수료 정책</button>
+                    </div>
+                    
+                    <div id="pricing-tab" class="tab-content active">
+                        <div class="pricing-plans">
+                            <div class="pricing-card">
+                                <h3>단기 임대</h3>
+                                <div class="price">$1.00</div>
+                                <p class="duration">12시간</p>
+                                <ul>
+                                    <li>옥션 기반 경매</li>
+                                    <li>최소 12시간 보장</li>
+                                    <li>마지막 5분 연장 가능</li>
+                                </ul>
+                                <button class="plan-btn">선택</button>
+                            </div>
+                            <div class="pricing-card featured">
+                                <h3>장기 점유</h3>
+                                <div class="price">$50.00</div>
+                                <p class="duration">7일</p>
+                                <ul>
+                                    <li>7일간 소유권 보장</li>
+                                    <li>자동 갱신 옵션</li>
+                                    <li>우선 입찰권</li>
+                                </ul>
+                                <button class="plan-btn">선택</button>
+                            </div>
+                            <div class="pricing-card">
+                                <h3>스폰서 배너</h3>
+                                <div class="price">$200.00</div>
+                                <p class="duration">30일</p>
+                                <ul>
+                                    <li>프리미엄 배치</li>
+                                    <li>추가 노출 보장</li>
+                                    <li>브랜딩 강화</li>
+                                </ul>
+                                <button class="plan-btn">선택</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="statistics-tab" class="tab-content">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <h4>총 낙찰 금액</h4>
+                                <div id="total-revenue-stat" class="stat-value">$0.00</div>
+                            </div>
+                            <div class="stat-card">
+                                <h4>진행 중 옥션</h4>
+                                <div id="active-auctions-stat" class="stat-value">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <h4>커뮤니티 상금</h4>
+                                <div id="community-reward-stat" class="stat-value">$0.00</div>
+                            </div>
+                            <div class="stat-card">
+                                <h4>P2W 완화율</h4>
+                                <div id="p2w-mitigation-stat" class="stat-value">10%</div>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <h4>지역별 낙찰가 히스토그램</h4>
+                            <canvas id="bid-histogram-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h4>클릭/노출 데이터</h4>
+                            <canvas id="click-exposure-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h4>P2W 완화 지표</h4>
+                            <canvas id="p2w-mitigation-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div id="fees-tab" class="tab-content">
+                        <div class="fees-info">
+                            <h3>수수료 정책</h3>
+                            <div class="fee-item">
+                                <strong>플랫폼 수수료:</strong>
+                                <span>5% (옥션 낙찰가의 5%)</span>
+                            </div>
+                            <div class="fee-item">
+                                <strong>크리에이터 리워드:</strong>
+                                <span>10% (커뮤니티 상금 풀로 적립)</span>
+                            </div>
+                            <div class="fee-item">
+                                <strong>P2W 완화 기여:</strong>
+                                <span>10% (무료 픽셀 풀로 전환)</span>
+                            </div>
+                            <div class="fee-breakdown">
+                                <h4>수수료 구조 예시 ($100 낙찰 시)</h4>
+                                <ul>
+                                    <li>플랫폼 수수료: $5.00 (5%)</li>
+                                    <li>커뮤니티 상금: $10.00 (10%)</li>
+                                    <li>무료 픽셀 풀: $10.00 (10%)</li>
+                                    <li>판매자 수익: $75.00 (75%)</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 모바일 전환 버튼 (세로 화면에서만 표시) -->
+        <div id="mobile-view-toggle" class="mobile-view-toggle hidden">
+            <button id="mobile-map-view-btn" class="mobile-toggle-btn active">
+                <span>🗺️</span>
+                <span>지도</span>
+            </button>
+            <button id="mobile-list-view-btn" class="mobile-toggle-btn">
+                <span>📋</span>
+                <span>리스트</span>
+            </button>
+        </div>
+        
+        <!-- 모바일 리스트 뷰 -->
+        <div id="mobile-list-view" class="mobile-list-view">
+            <div class="mobile-list-header">
+                <h2>옥션 리스트</h2>
+                <button id="mobile-list-close" class="mobile-list-close">&times;</button>
+            </div>
+            <div class="mobile-list-content">
+                <div id="mobile-auction-list" class="auction-list">
+                    <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
                 </div>
             </div>
         </div>
@@ -649,9 +1147,147 @@
             <div class="spinner"></div>
             <p>지도를 불러오는 중...</p>
         </div>
+        
+        <!-- 신고 모달 -->
+        <div id="report-modal" class="modal hidden">
+            <div class="modal-content report-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">픽셀 아트 신고</span>
+                        <span class="label-secondary">Report Pixel Art</span>
+                    </h2>
+                    <button id="close-report-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="report-form">
+                        <div class="form-group">
+                            <label>
+                                <span class="label-primary">신고 사유</span>
+                                <span class="label-secondary">Reason</span>
+                            </label>
+                            <select id="report-reason" class="report-select">
+                                <option value="inappropriate">부적절한 내용</option>
+                                <option value="spam">스팸/광고</option>
+                                <option value="copyright">저작권 침해</option>
+                                <option value="harassment">괴롭힘/혐오 표현</option>
+                                <option value="other">기타</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <span class="label-primary">상세 설명</span>
+                                <span class="label-secondary">Details</span>
+                            </label>
+                            <textarea id="report-details" rows="4" placeholder="신고 사유를 자세히 설명해주세요."></textarea>
+                        </div>
+                        <button id="submit-report-btn" class="report-submit-btn">신고 제출</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 모더레이션 패널 (관리자/모더레이터용) -->
+        <div id="moderation-panel" class="moderation-panel hidden">
+            <div class="panel-header">
+                <h3>
+                    <span class="label-primary">모더레이션 패널</span>
+                    <span class="label-secondary">Moderation Panel</span>
+                </h3>
+                <button id="close-moderation-panel" class="close-btn">&times;</button>
+            </div>
+            <div class="panel-content">
+                <div class="moderation-tabs">
+                    <button class="tab-btn active" data-tab="pending">대기 중</button>
+                    <button class="tab-btn" data-tab="approved">승인됨</button>
+                    <button class="tab-btn" data-tab="rejected">거부됨</button>
+                </div>
+                <div id="moderation-list" class="moderation-list">
+                    <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 이벤트 모달 -->
+        <div id="events-modal" class="modal hidden">
+            <div class="modal-content events-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">커뮤니티 이벤트</span>
+                        <span class="label-secondary">Community Events</span>
+                    </h2>
+                    <button id="close-events-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="events-list" class="events-list">
+                        <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 월간 리포트 모달 -->
+        <div id="monthly-report-modal" class="modal hidden">
+            <div class="modal-content monthly-report-modal">
+                <div class="modal-header">
+                    <h2>
+                        <span class="label-primary">월간 운영 리포트</span>
+                        <span class="label-secondary">Monthly Report</span>
+                    </h2>
+                    <button id="close-monthly-report-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="monthly-report-content" class="monthly-report-content">
+                        <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 온보딩 투어 -->
+        <div id="onboarding-tour" class="onboarding-tour hidden">
+            <div class="tour-overlay"></div>
+            <div class="tour-content">
+                <div class="tour-header">
+                    <h2>🌍 세계지도 광고판에 오신 것을 환영합니다!</h2>
+                    <button id="tour-close" class="tour-close-btn">&times;</button>
+                </div>
+                <div class="tour-body">
+                    <div class="tour-step active" data-step="1">
+                        <h3>1. 옥션 참여하기</h3>
+                        <p>지도에서 지역을 클릭하면 옥션에 참여할 수 있습니다. 초기가 $1.00부터 시작하며, 최소 12시간 동안 진행됩니다.</p>
+                        <div class="tour-highlight" id="tour-highlight-1"></div>
+                    </div>
+                    <div class="tour-step" data-step="2">
+                        <h3>2. 입찰하기</h3>
+                        <p>옥션 모달에서 입찰 금액을 입력하고 입찰 버튼을 클릭하세요. 마지막 5분 내 입찰 시 자동으로 5분 연장됩니다.</p>
+                        <div class="tour-highlight" id="tour-highlight-2"></div>
+                    </div>
+                    <div class="tour-step" data-step="3">
+                        <h3>3. 픽셀 아트 편집하기</h3>
+                        <p>옥션에서 낙찰되면 해당 지역의 픽셀 아트를 자유롭게 편집할 수 있습니다. 연필, 지우개, 채우기 도구를 사용해보세요.</p>
+                        <div class="tour-highlight" id="tour-highlight-3"></div>
+                    </div>
+                    <div class="tour-step" data-step="4">
+                        <h3>4. 옥션 대시보드</h3>
+                        <p>좌측 메뉴에서 옥션 대시보드를 열어 진행 중인 옥션, 예정된 옥션, 종료된 옥션을 확인할 수 있습니다.</p>
+                        <div class="tour-highlight" id="tour-highlight-4"></div>
+                    </div>
+                </div>
+                <div class="tour-footer">
+                    <button id="tour-prev" class="tour-btn tour-btn-secondary" disabled>이전</button>
+                    <button id="tour-skip" class="tour-btn tour-btn-secondary">건너뛰기</button>
+                    <button id="tour-next" class="tour-btn tour-btn-primary">다음</button>
+                    <button id="tour-finish" class="tour-btn tour-btn-primary hidden">완료</button>
+                </div>
+            </div>
+        </div>
     </div>
     
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <!-- DOMPurify - XSS 방어 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js" integrity="sha384-8jHjflj8L8vV8f8X0Z8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f8X8f" crossorigin="anonymous"></script>
+    <!-- Chart.js - 통계 차트 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <!-- PayPal JS SDK (Live Mode) - 실제 결제 가능 -->
     <script src="https://www.paypal.com/sdk/js?client-id=AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp&currency=USD" data-sdk-integration-source="developer-studio"></script>
     <!-- Firebase SDK -->
