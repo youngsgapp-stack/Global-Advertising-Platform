@@ -23317,7 +23317,12 @@ class BillionaireMap {
 }
 
 // 페이지 로드 시 지도 초기화
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        new BillionaireMap();
+    });
+} else {
+    // DOM이 이미 로드된 경우
     new BillionaireMap();
-});
+}
 
