@@ -3736,13 +3736,14 @@ body {
 }
 
 .tour-highlight {
-    position: absolute;
+    position: fixed;
     border: 3px solid #4ecdc4;
     border-radius: 8px;
     box-shadow: 0 0 20px rgba(78, 205, 196, 0.5);
     pointer-events: none;
     z-index: 10002;
     transition: all 0.3s ease;
+    display: none;
 }
 
 .tour-footer {
