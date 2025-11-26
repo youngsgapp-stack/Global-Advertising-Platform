@@ -11,7 +11,8 @@
                    style-src 'self' 'unsafe-inline' https://api.mapbox.com; 
                    img-src 'self' data: https: blob:; 
                    font-src 'self' data:; 
-                   connect-src 'self' https://api.mapbox.com https://raw.githubusercontent.com https://www.paypal.com https://*.firebaseio.com https://*.googleapis.com https://*.gstatic.com https://cdn.jsdelivr.net wss://*.firebaseio.com;
+                   worker-src 'self' blob:;
+                   connect-src 'self' https://api.mapbox.com https://events.mapbox.com https://server.arcgisonline.com https://geo.datav.aliyun.com https://echarts.apache.org https://raw.githubusercontent.com https://www.paypal.com https://*.firebaseio.com https://*.googleapis.com https://*.gstatic.com https://cdn.jsdelivr.net wss://*.firebaseio.com;
                    frame-src https://www.paypal.com;">
     <!-- Security Headers -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">

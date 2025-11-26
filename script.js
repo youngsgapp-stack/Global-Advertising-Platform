@@ -15380,9 +15380,12 @@ class BillionaireMap {
         }, 5000);
         
         // 수동 제거
-        notification.querySelector('.notification-close').addEventListener('click', () => {
-            this.hideNotification();
-        });
+        const closeButton = notification.querySelector('.notification-close');
+        if (closeButton) {
+            closeButton.addEventListener('click', () => {
+                this.hideNotification();
+            });
+        }
     }
     
     hideNotification() {
