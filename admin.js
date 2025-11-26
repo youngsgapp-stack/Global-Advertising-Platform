@@ -80,8 +80,13 @@ class AdminDashboard {
             // onAuthStateChanged가 즉시 실행되는 것을 방지하기 위한 플래그
             let authStateChangeHandled = false;
             let sessionResumeInProgress = false;
+            let authStateChangeSetup = false;
 
             this.firebaseAuth.onAuthStateChanged(async (user) => {
+                // 첫 실행 시 플래그 설정
+                if (!authStateChangeSetup) {
+                    authStateChangeSetup = true;
+                }
                 // 중복 실행 방지
                 if (authStateChangeHandled && !user) {
                     return;
@@ -106,29 +111,12 @@ class AdminDashboard {
                             authStateChangeHandled = false; // 재시도 허용
                             return;
                         }
-                        // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                        // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
+                        // 따라서 리다이렉트
                         if (!storedSession.signature) {
-                            console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
-                            // Firestore 접근 시도하여 권한 확인
-                            try {
-                                const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
-                                const testRef = collection(this.firestore, 'regions');
-                                await getDocs(query(testRef, limit(1)));
-                                // 성공하면 권한이 있는 것으로 간주
-                                console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
-                                authStateChangeHandled = true;
-                                // 실시간 리스너 설정
-                                this.setupRealtimeListeners();
-                                await this.refreshAll(true);
-                                this.startAutoRefresh();
-                                return;
-                            } catch (testError) {
-                                console.error('[ADMIN] Firestore 접근 실패, 권한 없음', testError);
-                                if (testError.code === 'permission-denied') {
-                                    this.redirectToMap('관리자 권한이 필요합니다.');
-                                    return;
-                                }
-                            }
+                            console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
+                            this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
+                            return;
                         }
                         // 로그인 실패하면 리다이렉트
                         this.redirectToMap('관리자 로그인이 필요합니다.');
@@ -161,25 +149,11 @@ class AdminDashboard {
                                 authStateChangeHandled = false; // 재시도 허용
                                 return;
                             }
-                            // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                            // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
                             if (!storedSession.signature) {
-                                console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
-                                try {
-                                    const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
-                                    const testRef = collection(this.firestore, 'regions');
-                                    await getDocs(query(testRef, limit(1)));
-                                    console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
-                                    authStateChangeHandled = true;
-                                    this.setupRealtimeListeners();
-                                    await this.refreshAll(true);
-                                    this.startAutoRefresh();
-                                    return;
-                                } catch (testError) {
-                                    if (testError.code === 'permission-denied') {
-                                        this.redirectToMap('관리자 권한이 필요합니다.');
-                                        return;
-                                    }
-                                }
+                                console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
+                                this.redirectToMap('관리자 권한이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
+                                return;
                             }
                         }
                         this.redirectToMap('관리자 권한이 필요합니다.');
@@ -209,25 +183,11 @@ class AdminDashboard {
                             authStateChangeHandled = false; // 재시도 허용
                             return;
                         }
-                        // signature가 없는 세션인 경우 Firestore 규칙에 의존
+                        // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
                         if (!storedSession.signature) {
-                            console.log('[ADMIN] signature가 없는 세션, Firestore 규칙에 의존하여 진행');
-                            try {
-                                const { collection, getDocs, limit, query } = await this.firestoreModulePromise;
-                                const testRef = collection(this.firestore, 'regions');
-                                await getDocs(query(testRef, limit(1)));
-                                console.log('[ADMIN] Firestore 접근 성공, 관리자 권한 확인됨');
-                                authStateChangeHandled = true;
-                                this.setupRealtimeListeners();
-                                await this.refreshAll(true);
-                                this.startAutoRefresh();
-                                return;
-                            } catch (testError) {
-                                if (testError.code === 'permission-denied') {
-                                    this.redirectToMap('관리자 권한 확인에 실패했습니다.');
-                                    return;
-                                }
-                            }
+                            console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
+                            this.redirectToMap('관리자 권한 확인에 실패했습니다. 메인 페이지에서 다시 로그인해주세요.');
+                            return;
                         }
                     }
                     this.redirectToMap('관리자 권한 확인에 실패했습니다.');
@@ -519,6 +479,12 @@ class AdminDashboard {
             return;
         }
 
+        // 사용자가 null이면 리스너 설정 불가
+        if (!this.firebaseAuth?.currentUser) {
+            console.warn('[ADMIN] Firebase Auth 사용자가 없어 실시간 리스너를 설정할 수 없습니다.');
+            return;
+        }
+
         // 기존 리스너 정리
         this.cleanupRealtimeListeners();
 
@@ -690,6 +656,12 @@ class AdminDashboard {
 
     async refreshAll(notify = false) {
         if (!this.isFirebaseInitialized) return;
+
+        // 사용자가 null이면 데이터 갱신 불가
+        if (!this.firebaseAuth?.currentUser) {
+            console.warn('[ADMIN] Firebase Auth 사용자가 없어 데이터를 갱신할 수 없습니다.');
+            return;
+        }
 
         this.setRefreshing(true);
 
