@@ -15590,8 +15590,8 @@ class BillionaireMap {
         
         if (this.isAdminLoggedIn && adminLogoutBtn) {
             adminLogoutBtn.classList.remove('hidden');
-            // 관리자 로그인 상태일 때만 관리자 패널 표시
-            this.showAdminPanel();
+            // 관리자 패널은 P키 연타로만 표시 (자동 표시하지 않음)
+            // this.showAdminPanel(); // 제거
         }
         
         // 헤더 자동 조정
@@ -16054,10 +16054,9 @@ class BillionaireMap {
                 this.uiVisible = true;
             }
             
-            this.showNotification('관리자 페이지로 이동합니다...', 'success');
-            setTimeout(() => {
-                window.location.href = 'admin.html';
-            }, 600);
+            // admin.html로 리다이렉트하지 않고 현재 페이지에서 관리자 모드 유지
+            // admin.html은 별도로 접근 가능 (URL 직접 입력 또는 메뉴)
+            this.showNotification('관리자 모드가 활성화되었습니다. P키를 연타하여 관리자 패널을 열 수 있습니다.', 'success');
         } catch (error) {
             console.error('로그인 처리 중 오류:', error);
             this.recordLoginAttempt(identifier, false);

@@ -85,21 +85,15 @@ class AdminDashboard {
                 }
             } else if (hasValidSession && !hasSignature) {
                 // signature가 없는 세션은 script.js에서 생성한 세션
-                // 이 경우 리다이렉트를 지연시켜 Firebase Auth 상태 확인 대기
-                console.log('[ADMIN] signature가 없는 세션 확인됨, Firebase Auth 상태 확인 대기 (3초)');
-                allowRedirect = false; // 리다이렉트 차단
-                initialCheckDone = true; // 초기 체크 완료로 표시하여 onAuthStateChanged 실행 허용
-                // 3초 대기 후 Firebase Auth 상태 확인
+                // admin.html에서는 Firebase Auth 기반 인증이 필요하므로 즉시 리다이렉트
+                console.log('[ADMIN] signature가 없는 세션 확인됨. admin.html은 Firebase Auth 기반 인증이 필요합니다.');
+                console.log('[ADMIN] 메인 페이지로 리다이렉트합니다. 메인 페이지에서 관리자 모드를 사용할 수 있습니다.');
+                allowRedirect = true;
+                initialCheckDone = true;
+                // 즉시 리다이렉트 (짧은 딜레이로 사용자에게 메시지 표시)
                 setTimeout(() => {
-                    if (!this.firebaseAuth.currentUser) {
-                        console.warn('[ADMIN] Firebase Auth 사용자가 없음, 리다이렉트');
-                        allowRedirect = true;
-                        this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
-                    } else {
-                        console.log('[ADMIN] Firebase Auth 사용자 확인됨');
-                        allowRedirect = true;
-                    }
-                }, 3000);
+                    this.redirectToMap('admin.html은 Firebase Auth 기반 인증이 필요합니다. 메인 페이지에서 관리자 모드를 사용할 수 있습니다.');
+                }, 500);
             } else {
                 initialCheckDone = true; // 세션이 없어도 초기 체크 완료
             }
