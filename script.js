@@ -16012,11 +16012,6 @@ class BillionaireMap {
             const adminDocRef = doc(this.firestore, 'admin', 'credentials');
             const adminDoc = await getDoc(adminDocRef);
             
-            if (!adminDoc.exists()) {
-                throw new Error('관리자 설정이 없습니다. Firestore에 admin/credentials 문서를 생성해주세요.');
-            }
-
-            const adminData = adminDoc.data();
             const usernameHash = await this.simpleHash(username.trim());
             const passwordHash = await this.simpleHash(password);
 
@@ -16024,8 +16019,15 @@ class BillionaireMap {
             const defaultUsernameHash = '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918'; // admin
             const defaultPasswordHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // admin123
 
-            const storedUsernameHash = adminData.usernameHash || defaultUsernameHash;
-            const storedPasswordHash = adminData.passwordHash || defaultPasswordHash;
+            // 문서가 없으면 기본값 사용, 있으면 저장된 값 사용
+            let storedUsernameHash = defaultUsernameHash;
+            let storedPasswordHash = defaultPasswordHash;
+            
+            if (adminDoc.exists()) {
+                const adminData = adminDoc.data();
+                storedUsernameHash = adminData.usernameHash || defaultUsernameHash;
+                storedPasswordHash = adminData.passwordHash || defaultPasswordHash;
+            }
 
             if (usernameHash !== storedUsernameHash || passwordHash !== storedPasswordHash) {
                 throw new Error('잘못된 로그인 정보입니다.');
