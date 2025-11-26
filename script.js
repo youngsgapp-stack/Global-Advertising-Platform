@@ -15545,18 +15545,30 @@ class BillionaireMap {
             clearTimeout(this.pKeyTimer);
         }
         
-        // 3번 연타 시 관리자 로그인 모달 표시
+        // 3번 연타 시 관리자 로그인 모달 표시 또는 admin.html로 이동
         if (this.pKeyCount >= 3) {
-            // 로그인되어 있지 않거나, 로그인되어 있지만 관리자 모드가 비활성화된 경우 모달 표시
+            // 로그인되어 있지 않으면 관리자 로그인 모달 표시
             if (!this.isAdminLoggedIn) {
                 this.showAdminLoginModal();
                 this.showNotification('관리자 로그인 모달이 열렸습니다.', 'info');
-            } else if (!this.adminMode) {
-                // 로그인되어 있지만 관리자 모드가 해제된 경우, 관리자 모드 다시 활성화
-                this.toggleAdminMode();
-                this.showNotification('관리자 모드가 다시 활성화되었습니다.', 'success');
             } else {
-                this.showNotification('이미 관리자 모드가 활성화되어 있습니다.', 'info');
+                // 이미 로그인되어 있으면 admin.html로 이동
+                const storedSession = this.getStoredAdminSession();
+                if (storedSession && storedSession.signature) {
+                    // signature가 있는 세션이 있으면 admin.html로 이동
+                    this.showNotification('관리자 페이지로 이동합니다...', 'success');
+                    setTimeout(() => {
+                        window.location.href = 'admin.html';
+                    }, 300);
+                } else {
+                    // signature가 없는 세션이면 관리자 모드 토글
+                    if (!this.adminMode) {
+                        this.toggleAdminMode();
+                        this.showNotification('관리자 모드가 활성화되었습니다.', 'success');
+                    } else {
+                        this.showNotification('이미 관리자 모드가 활성화되어 있습니다.', 'info');
+                    }
+                }
             }
             this.pKeyCount = 0;
         } else {
@@ -16033,30 +16045,46 @@ class BillionaireMap {
                 throw new Error('잘못된 로그인 정보입니다.');
             }
 
-            // 세션 생성
-            const session = {
-                sessionId: crypto.randomUUID(),
-                issuedAt: Date.now(),
-                expiresAt: Date.now() + (2 * 60 * 60 * 1000), // 2시간
-                username: username.trim()
-            };
-
-            // 로컬스토리지에 세션 저장
-            localStorage.setItem('worldad.adminSession', JSON.stringify(session));
+            // Firebase Functions를 통해 관리자 인증 (signature가 있는 세션 생성)
+            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
+            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            
+            if (!this.firebaseApp) {
+                throw new Error('Firebase가 초기화되지 않았습니다.');
+            }
+            
+            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
+            const authenticateAdmin = httpsCallable(functions, 'authenticateAdmin');
+            
+            console.log('[ADMIN] Firebase Functions 호출: authenticateAdmin');
+            const response = await authenticateAdmin({
+                username: username.trim(),
+                password: password
+            });
+            
+            const { token, session } = response?.data || {};
+            if (!token || !session) {
+                throw new Error('관리자 인증에 실패했습니다.');
+            }
+            
+            // Firebase Auth에 로그인
+            console.log('[ADMIN] Firebase Auth 로그인 시도');
+            await signInWithCustomToken(this.firebaseAuth, token);
+            await this.firebaseAuth.currentUser?.getIdToken(true);
+            console.log('[ADMIN] Firebase Auth 로그인 성공');
+            
+            // signature가 있는 세션 저장
+            this.persistAdminSession(session);
             this.recordLoginAttempt(identifier, true);
 
             this.isAdminLoggedIn = true;
             this.hideAdminLoginModal();
-            this.switchToAdminMode();
             
-            if (!this.uiVisible) {
-                this.showUI();
-                this.uiVisible = true;
-            }
-            
-            // admin.html로 리다이렉트하지 않고 현재 페이지에서 관리자 모드 유지
-            // admin.html은 별도로 접근 가능 (URL 직접 입력 또는 메뉴)
-            this.showNotification('관리자 모드가 활성화되었습니다. P키를 연타하여 관리자 패널을 열 수 있습니다.', 'success');
+            // admin.html로 리다이렉트
+            this.showNotification('관리자 페이지로 이동합니다...', 'success');
+            setTimeout(() => {
+                window.location.href = 'admin.html';
+            }, 600);
         } catch (error) {
             console.error('로그인 처리 중 오류:', error);
             this.recordLoginAttempt(identifier, false);
