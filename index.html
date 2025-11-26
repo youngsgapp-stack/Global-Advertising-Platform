@@ -1317,6 +1317,19 @@
         // Firebase 초기화는 script.js에서 처리
         window.firebaseModules = { initializeApp, getAuth, getFirestore, firebaseConfig };
     </script>
+    <!-- 전역 오류 처리 -->
+    <script>
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error, event.filename, event.lineno, event.colno);
+            if (event.error && event.error.message && event.error.message.includes('Unexpected reserved word')) {
+                console.error('Syntax error detected. Please check the browser console for details.');
+                const loadingDiv = document.getElementById('loading');
+                if (loadingDiv) {
+                    loadingDiv.innerHTML = '<div class="spinner"></div><p>스크립트 구문 오류가 발생했습니다. 브라우저 콘솔을 확인해주세요.</p>';
+                }
+            }
+        }, true);
+    </script>
     <script type="module" src="script.js"></script>
 </body>
 </html>
