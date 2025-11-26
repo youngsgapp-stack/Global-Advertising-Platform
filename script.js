@@ -15945,13 +15945,7 @@ class BillionaireMap {
     }
 
     async tryResumeAdminSession(sessionOverride = null) {
-        if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
-            return false;
-        }
         if (this.sessionResumeInFlight) {
-            return false;
-        }
-        if (this.firebaseAuth.currentUser) {
             return false;
         }
         const session = sessionOverride || this.getStoredAdminSession();
@@ -15963,36 +15957,22 @@ class BillionaireMap {
             return false;
         }
 
-        this.sessionResumeInFlight = true;
-        try {
-            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
-            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
-            const resumeAdminSession = httpsCallable(functions, 'resumeAdminSession');
-            const response = await resumeAdminSession({
-                sessionId: session.sessionId,
-                expiresAt: session.expiresAt,
-                signature: session.signature
-            });
-            const { token, session: refreshedSession } = response?.data || {};
-            if (!token) {
-                throw new Error('관리자 세션 토큰을 가져오지 못했습니다.');
-            }
-            await signInWithCustomToken(this.firebaseAuth, token);
-            await this.firebaseAuth.currentUser?.getIdToken(true);
-            if (refreshedSession) {
-                this.persistAdminSession(refreshedSession);
-            }
-            return true;
-        } catch (error) {
-            console.warn('[ADMIN] 세션 재개 실패', error);
-            return false;
-        } finally {
-            this.sessionResumeInFlight = false;
-        }
+        // 세션이 유효하면 관리자 모드 활성화
+        this.isAdminLoggedIn = true;
+        this.switchToAdminMode();
+        return true;
     }
     
-    // 관리자 로그인 처리 (Firebase Functions + Custom Token)
+    // 간단한 해시 함수 (클라이언트 측)
+    async simpleHash(str) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // 관리자 로그인 처리 (Firestore 기반, Functions 없이)
     async handleAdminLogin() {
         const username = document.getElementById('admin-username').value;
         const password = document.getElementById('admin-password').value;
@@ -16021,27 +16001,42 @@ class BillionaireMap {
         }
         
         try {
-            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
-            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            
-            if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
+            if (!this.isFirebaseInitialized || !this.firestore) {
                 await this.initializeFirebase();
             }
 
-            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
-            const authenticateAdmin = httpsCallable(functions, 'authenticateAdmin');
-            const response = await authenticateAdmin({ username: username.trim(), password });
-            const { token, session } = response?.data || {};
+            // Firestore에서 관리자 정보 확인
+            const adminDoc = await this.firestore.collection('admin').doc('credentials').get();
             
-            if (!token) {
-                throw new Error('관리자 토큰을 가져오지 못했습니다.');
+            if (!adminDoc.exists) {
+                throw new Error('관리자 설정이 없습니다. Firestore에 admin/credentials 문서를 생성해주세요.');
             }
 
-            await signInWithCustomToken(this.firebaseAuth, token);
-            await this.firebaseAuth.currentUser?.getIdToken(true);
-            if (session) {
-                this.persistAdminSession(session);
+            const adminData = adminDoc.data();
+            const usernameHash = await this.simpleHash(username.trim());
+            const passwordHash = await this.simpleHash(password);
+
+            // 기본값: admin / admin123 (처음 설정 시 사용)
+            const defaultUsernameHash = '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918'; // admin
+            const defaultPasswordHash = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // admin123
+
+            const storedUsernameHash = adminData.usernameHash || defaultUsernameHash;
+            const storedPasswordHash = adminData.passwordHash || defaultPasswordHash;
+
+            if (usernameHash !== storedUsernameHash || passwordHash !== storedPasswordHash) {
+                throw new Error('잘못된 로그인 정보입니다.');
             }
+
+            // 세션 생성
+            const session = {
+                sessionId: crypto.randomUUID(),
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + (2 * 60 * 60 * 1000), // 2시간
+                username: username.trim()
+            };
+
+            // 로컬스토리지에 세션 저장
+            localStorage.setItem('worldad.adminSession', JSON.stringify(session));
             this.recordLoginAttempt(identifier, true);
 
             this.isAdminLoggedIn = true;
@@ -16061,9 +16056,7 @@ class BillionaireMap {
             console.error('로그인 처리 중 오류:', error);
             this.recordLoginAttempt(identifier, false);
             errorDiv.classList.remove('hidden');
-            const message = error?.code === 'functions/unauthenticated'
-                ? '잘못된 로그인 정보입니다.'
-                : error?.message || '로그인 처리 중 오류가 발생했습니다.';
+            const message = error?.message || '로그인 처리 중 오류가 발생했습니다.';
             this.setSafeHTML(errorDiv, message);
             this.showNotification(message, 'error');
         }
