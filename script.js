@@ -16005,10 +16005,14 @@ class BillionaireMap {
                 await this.initializeFirebase();
             }
 
+            // Firestore 모듈식 API import
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+
             // Firestore에서 관리자 정보 확인
-            const adminDoc = await this.firestore.collection('admin').doc('credentials').get();
+            const adminDocRef = doc(this.firestore, 'admin', 'credentials');
+            const adminDoc = await getDoc(adminDocRef);
             
-            if (!adminDoc.exists) {
+            if (!adminDoc.exists()) {
                 throw new Error('관리자 설정이 없습니다. Firestore에 admin/credentials 문서를 생성해주세요.');
             }
 
