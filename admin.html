@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Ad Admin Console</title>
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <div class="admin-app">
+        <aside class="admin-sidebar">
+            <div class="brand">
+                <p class="eyebrow">Mr.Young Map</p>
+                <h2>Ops Command</h2>
+                <span class="beta-pill">live</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#overview" class="active">📊 운영 현황</a>
+                <a href="#regions-panel">🗺️ 지역 관리</a>
+                <a href="#auctions-panel">🔨 옥션 추적</a>
+                <a href="#purchases-panel">💸 결제 기록</a>
+                <a href="#reports-panel">🛡️ 모더레이션</a>
+                <a href="#logs-panel">📡 시스템 로그</a>
+            </nav>
+            <div class="session-summary">
+                <p>세션 만료</p>
+                <strong id="admin-session-expiry">-</strong>
+                <small>만료 시 자동으로 로그아웃됩니다.</small>
+            </div>
+            <button id="return-to-map-btn" class="secondary-btn">🌍 라이브 맵 열기</button>
+        </aside>
+        <main class="admin-main">
+            <header class="admin-header" id="overview">
+                <div>
+                    <p class="eyebrow">GLOBAL AD operations</p>
+                    <h1>관리자 콘솔</h1>
+                    <p class="subtitle">실시간 점유 현황과 커뮤니티 품질을 한눈에 확인하세요.</p>
+                </div>
+                <div class="header-actions">
+                    <span class="live-indicator">
+                        <span class="dot"></span>
+                        <span id="last-refresh-at">-</span>
+                    </span>
+                    <button id="admin-refresh-btn" class="ghost-btn">데이터 새로고침</button>
+                    <button id="admin-logout-btn" class="primary-btn">세션 종료</button>
+                </div>
+            </header>
+
+            <section class="stat-grid">
+                <article class="stat-card">
+                    <div class="stat-label">총 지역</div>
+                    <div class="stat-value" data-stat="total-regions">--</div>
+                    <div class="stat-sub" data-stat="occupancy-rate">점유율 --%</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-label">광고 진행 중</div>
+                    <div class="stat-value" data-stat="occupied-regions">--</div>
+                    <div class="stat-sub" data-stat="available-regions">가용 지역 --</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-label">누적 수익</div>
+                    <div class="stat-value" data-stat="total-revenue">$0</div>
+                    <div class="stat-sub">PayPal completed</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-label">진행 중 옥션</div>
+                    <div class="stat-value" data-stat="active-auctions">--</div>
+                    <div class="stat-sub" data-stat="pending-bids">최근 입찰 --건</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-label">커뮤니티 상금</div>
+                    <div class="stat-value" data-stat="community-reward">$0</div>
+                    <div class="stat-sub" data-stat="free-pixels">무료 픽셀 풀 0px</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-label">처리 대기 신고</div>
+                    <div class="stat-value" data-stat="pending-reports">--</div>
+                    <div class="stat-sub">Pixel Studio / 콘텐츠 신고</div>
+                </article>
+            </section>
+
+            <section class="panel-grid">
+                <article class="panel" id="regions-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Region control</p>
+                            <h2>최우선 관리 지역</h2>
+                        </div>
+                        <button class="ghost-btn small" id="download-region-csv-btn">CSV 내보내기</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>지역</th>
+                                    <th>국가</th>
+                                    <th>단가 (USD)</th>
+                                    <th>상태</th>
+                                    <th>업데이트</th>
+                                </tr>
+                            </thead>
+                            <tbody id="region-table-body">
+                                <tr>
+                                    <td colspan="5">데이터를 불러오는 중입니다...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="panel" id="auctions-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Auction monitor</p>
+                            <h2>진행 중 옥션</h2>
+                        </div>
+                        <span class="chip" id="auction-health-chip">-</span>
+                    </div>
+                    <ul class="item-list" id="auction-list">
+                        <li class="empty">옥션 데이터를 불러오는 중입니다...</li>
+                    </ul>
+                </article>
+            </section>
+
+            <section class="panel-grid three">
+                <article class="panel" id="purchases-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Settlement</p>
+                            <h2>최근 결제</h2>
+                        </div>
+                    </div>
+                    <ul class="item-list timeline" id="purchase-list">
+                        <li class="empty">결제 기록을 불러오는 중입니다...</li>
+                    </ul>
+                </article>
+
+                <article class="panel" id="reports-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Moderation</p>
+                            <h2>신고 / 검토</h2>
+                        </div>
+                        <button class="ghost-btn small" id="open-map-moderation-btn">모더레이션 패널</button>
+                    </div>
+                    <ul class="item-list" id="report-list">
+                        <li class="empty">신고 데이터를 불러오는 중입니다...</li>
+                    </ul>
+                </article>
+
+                <article class="panel" id="logs-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Telemetry</p>
+                            <h2>실시간 로그</h2>
+                        </div>
+                        <button class="ghost-btn small" id="copy-log-btn">내보내기</button>
+                    </div>
+                    <div class="log-section">
+                        <h3>시스템 로그</h3>
+                        <ul class="log-list" id="log-list">
+                            <li class="empty">로그를 불러오는 중입니다...</li>
+                        </ul>
+                    </div>
+                    <div class="log-section">
+                        <h3>감사 로그</h3>
+                        <ul class="log-list" id="audit-log-list">
+                            <li class="empty">감사 로그를 불러오는 중입니다...</li>
+                        </ul>
+                    </div>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <div id="admin-toast" class="toast hidden"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAa0BTlcqX9T1PYaHTiv3CmjmZ6srmdZVY",
+            authDomain: "worldad-8be07.firebaseapp.com",
+            projectId: "worldad-8be07",
+            storageBucket: "worldad-8be07.firebasestorage.app",
+            messagingSenderId: "460480155784",
+            appId: "1:460480155784:web:68e6cea86cf492b3b64f3d",
+            measurementId: "G-L2WYZGZK90"
+        };
+
+        window.firebaseModules = { initializeApp, getAuth, getFirestore, firebaseConfig };
+    </script>
+    <script type="module" src="admin.js"></script>
+</body>
+</html>
+

@@ -67,6 +67,9 @@ class BillionaireMap {
         this.eventListenersAdded = false; // 이벤트 리스너 중복 추가 방지
         this.currentHoverRegionId = null; // 현재 hover된 지역 ID 추적
         this.isAdminLoggedIn = false; // 관리자 로그인 상태
+        this.ADMIN_SESSION_KEY = 'worldad.adminSession';
+        this.hasSessionSync = false;
+        this.sessionResumeInFlight = false;
         this.selectedStateId = null; // 현재 선택된 주 ID
         this.uiVisible = false; // UI 요소 표시 상태
         
@@ -97,6 +100,9 @@ class BillionaireMap {
         this.pixelBrandGuides = this.buildPixelBrandGuides();
         this.pixelTemplates = this.buildPixelTemplates();
         this.pixelStickers = this.buildPixelStickers();
+        if (typeof window !== 'undefined') {
+            this.setupAdminSessionSync();
+        }
         
         // Chart.js 인스턴스 저장
         this.bidHistogramChart = null;
@@ -1396,6 +1402,7 @@ class BillionaireMap {
             await this.initializeFirebase().catch(err => {
                 console.warn('Firebase 초기화 실패 (계속 진행):', err);
             });
+            await this.tryResumeAdminSession();
             
             await this.initializeMap();
             // 모든 국가를 한꺼번에 로드
@@ -1586,19 +1593,45 @@ class BillionaireMap {
             this.isFirebaseInitialized = true;
 
             // 인증 상태 변경 감지
-            this.firebaseAuth.onAuthStateChanged((user) => {
-                const wasLoggedOut = !this.currentUser && user; // 로그아웃 상태에서 로그인으로 변경
+            this.firebaseAuth.onAuthStateChanged(async (user) => {
+                const wasLoggedOut = !this.currentUser && user;
                 this.currentUser = user;
+                
                 if (user) {
+                    try {
+                        const tokenResult = await user.getIdTokenResult(true);
+                        const isAdmin = tokenResult?.claims?.role === 'admin';
+                        this.isAdminLoggedIn = isAdmin;
+                        if (isAdmin && !this.adminMode) {
+                            this.switchToAdminMode();
+                        } else if (!isAdmin && this.adminMode) {
+                            this.switchToUserMode();
+                        }
+                    } catch (tokenError) {
+                        console.warn('토큰 정보를 가져오지 못했습니다.', tokenError);
+                        this.isAdminLoggedIn = false;
+                        if (this.adminMode) {
+                            this.switchToUserMode();
+                        }
+                    }
+
                     console.log('사용자 로그인:', user.email);
-                    // 로그인 성공 시 열려있는 모달/패널에 PayPal 버튼 자동 렌더링
                     if (wasLoggedOut && this.currentRegion) {
                         this.autoRenderPayPalButtons();
                     }
                 } else {
                     console.log('사용자 로그아웃');
+                    this.isAdminLoggedIn = false;
+                    if (this.adminMode) {
+                        this.switchToUserMode();
+                    }
+                    const storedSession = this.getStoredAdminSession();
+                    if (storedSession) {
+                        await this.tryResumeAdminSession(storedSession);
+                    }
                 }
-                // UI 업데이트
+                
+                this.updateAdminModeControls();
                 this.updateUserUI();
             });
 
@@ -1719,6 +1752,14 @@ class BillionaireMap {
             // 지역 ID를 문서 ID로 사용하여 저장 (덮어쓰기)
             const regionRef = doc(this.firestore, 'regions', regionId);
             await setDoc(regionRef, firestoreData, { merge: true });
+            
+            const auditFields = { ...firestoreData };
+            delete auditFields.updatedAt;
+            delete auditFields.regionId;
+            this.recordAdminAudit('region.update', {
+                regionId,
+                fields: auditFields
+            });
             
             console.log('Firestore에 지역 데이터 저장 완료:', regionId, firestoreData);
             return true;
@@ -2041,6 +2082,12 @@ class BillionaireMap {
             this.showNotification(`Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`, successCount > 0 ? 'success' : 'error');
             console.log(`모든 지역 데이터 Firestore 저장 완료: ${successCount}개 성공, ${failedCount}개 실패`);
             
+            this.recordAdminAudit('region.bulk_save', {
+                success: successCount,
+                failed: failedCount,
+                total: totalRegions
+            });
+            
             return { success: successCount, failed: failedCount, collected: collectedCount };
         } catch (error) {
             console.error('모든 지역 데이터 Firestore 저장 오류:', error);
@@ -2133,12 +2180,21 @@ class BillionaireMap {
             
             // 7. 모든 지역 데이터를 Firestore에 저장
             const result = await this.saveAllRegionsToFirestore();
-            
-            return { 
+            const output = { 
                 ...result, 
                 priceUpdated: this.regionData.size,
                 merged: mergeCount 
             };
+
+            this.recordAdminAudit('region.bulk_sync', {
+                priceUpdated: output.priceUpdated,
+                success: output.success,
+                failed: output.failed,
+                collected: output.collected,
+                merged: output.merged
+            });
+            
+            return output;
         } catch (error) {
             console.error('동기화 오류:', error);
             this.showNotification('동기화 중 오류가 발생했습니다.', 'error');
@@ -15778,17 +15834,164 @@ class BillionaireMap {
         document.getElementById('admin-password').value = '';
         document.getElementById('login-error').classList.add('hidden');
     }
-    
-    // 해시 함수 (SHA-256)
-    async hashString(str) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(str);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    getStoredAdminSession() {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return null;
+        }
+        try {
+            const raw = window.localStorage.getItem(this.ADMIN_SESSION_KEY);
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.sessionId || !parsed.signature) {
+                return null;
+            }
+            return parsed;
+        } catch (error) {
+            console.warn('[ADMIN] 세션 정보를 불러오지 못했습니다.', error);
+            return null;
+        }
+    }
+
+    isAdminSessionExpired(session) {
+        if (!session) return true;
+        const expiresAt = Number(session.expiresAt);
+        if (!Number.isFinite(expiresAt)) {
+            return true;
+        }
+        return expiresAt <= Date.now();
+    }
+
+    persistAdminSession(session) {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return;
+        }
+        if (!session || !session.sessionId) {
+            return;
+        }
+        try {
+            const payload = {
+                sessionId: session.sessionId,
+                issuedAt: session.issuedAt,
+                expiresAt: session.expiresAt,
+                signature: session.signature
+            };
+            window.localStorage.setItem(this.ADMIN_SESSION_KEY, JSON.stringify(payload));
+        } catch (error) {
+            console.warn('[ADMIN] 세션 정보를 저장하지 못했습니다.', error);
+        }
+    }
+
+    clearPersistedAdminSession() {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return;
+        }
+        try {
+            window.localStorage.removeItem(this.ADMIN_SESSION_KEY);
+        } catch (error) {
+            console.warn('[ADMIN] 세션 정보를 삭제하지 못했습니다.', error);
+        }
+    }
+
+    setupAdminSessionSync() {
+        if (this.hasSessionSync || typeof window === 'undefined') {
+            return;
+        }
+        this.hasSessionSync = true;
+        window.addEventListener('storage', (event) => {
+            if (event.key !== this.ADMIN_SESSION_KEY) {
+                return;
+            }
+            if (!event.newValue) {
+                this.handleExternalAdminLogout();
+                return;
+            }
+            try {
+                const parsed = JSON.parse(event.newValue);
+                if (this.isAdminSessionExpired(parsed)) {
+                    return;
+                }
+                if (!this.firebaseAuth || !this.isFirebaseInitialized) {
+                    return;
+                }
+                if (this.firebaseAuth.currentUser) {
+                    return;
+                }
+                this.tryResumeAdminSession(parsed);
+            } catch (error) {
+                console.warn('[ADMIN] 세션 동기화 중 오류', error);
+            }
+        });
+    }
+
+    async handleExternalAdminLogout() {
+        this.disableAdminMode({ silent: true });
+        this.clearPersistedAdminSession();
+        if (!this.isFirebaseInitialized || !this.firebaseAuth) {
+            return;
+        }
+        if (!this.firebaseAuth.currentUser) {
+            return;
+        }
+        try {
+            const { signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            await signOut(this.firebaseAuth);
+        } catch (error) {
+            console.warn('[ADMIN] 외부 세션 종료 처리 실패', error);
+        }
+    }
+
+    async tryResumeAdminSession(sessionOverride = null) {
+        if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
+            return false;
+        }
+        if (this.sessionResumeInFlight) {
+            return false;
+        }
+        if (this.firebaseAuth.currentUser) {
+            return false;
+        }
+        const session = sessionOverride || this.getStoredAdminSession();
+        if (!session) {
+            return false;
+        }
+        if (this.isAdminSessionExpired(session)) {
+            this.clearPersistedAdminSession();
+            return false;
+        }
+
+        this.sessionResumeInFlight = true;
+        try {
+            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
+            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
+            const resumeAdminSession = httpsCallable(functions, 'resumeAdminSession');
+            const response = await resumeAdminSession({
+                sessionId: session.sessionId,
+                expiresAt: session.expiresAt,
+                signature: session.signature
+            });
+            const { token, session: refreshedSession } = response?.data || {};
+            if (!token) {
+                throw new Error('관리자 세션 토큰을 가져오지 못했습니다.');
+            }
+            await signInWithCustomToken(this.firebaseAuth, token);
+            await this.firebaseAuth.currentUser?.getIdToken(true);
+            if (refreshedSession) {
+                this.persistAdminSession(refreshedSession);
+            }
+            return true;
+        } catch (error) {
+            console.warn('[ADMIN] 세션 재개 실패', error);
+            return false;
+        } finally {
+            this.sessionResumeInFlight = false;
+        }
     }
     
-    // 관리자 로그인 처리 (보안 강화: 해싱된 자격증명 사용 + Rate Limiting)
+    // 관리자 로그인 처리 (Firebase Functions + Custom Token)
     async handleAdminLogin() {
         const username = document.getElementById('admin-username').value;
         const password = document.getElementById('admin-password').value;
@@ -15817,70 +16020,59 @@ class BillionaireMap {
         }
         
         try {
-            // 입력값 해싱
-            const usernameHash = await this.hashString(username.trim());
-            const passwordHash = await this.hashString(password);
+            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
+            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
             
-            // 해싱된 관리자 자격증명 (평문 노출 방지)
-            // 주의: 완전한 보안을 위해서는 서버 기반 인증 시스템이 필요합니다.
-            // 이 방법은 최소한의 보안 조치로, 소스 코드에서 평문 자격증명을 숨깁니다.
-            // 해시값은 SHA-256으로 생성되었으며, 평문은 코드에 포함되지 않습니다.
-            const ADMIN_USERNAME_HASH = '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918';
-            const ADMIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
-            
-            // 해싱된 값 비교
-            if (usernameHash === ADMIN_USERNAME_HASH && passwordHash === ADMIN_PASSWORD_HASH) {
-                // 로그인 성공: Rate Limiting 기록
-                this.recordLoginAttempt(identifier, true);
-                
-                this.isAdminLoggedIn = true;
-                this.hideAdminLoginModal();
-                this.switchToAdminMode();
-                
-                // 관리자 로그인 시 UI 자동 표시
-                if (!this.uiVisible) {
-                    this.showUI();
-                    this.uiVisible = true;
-                }
-                
-                this.showNotification('관리자로 로그인되었습니다.', 'success');
-                // 보안: 콘솔에 로그인 성공 메시지 출력하지 않음
-            } else {
-                // 로그인 실패: Rate Limiting 기록
-                this.recordLoginAttempt(identifier, false);
-                
-                errorDiv.classList.remove('hidden');
-                const remainingAttempts = rateLimit.remainingAttempts - 1;
-                const message = remainingAttempts > 0
-                    ? `잘못된 로그인 정보입니다. (남은 시도 횟수: ${remainingAttempts}회)`
-                    : '잘못된 로그인 정보입니다.';
-                this.setSafeHTML(errorDiv, message);
-                this.showNotification(message, 'error');
+            if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
+                await this.initializeFirebase();
             }
+
+            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
+            const authenticateAdmin = httpsCallable(functions, 'authenticateAdmin');
+            const response = await authenticateAdmin({ username: username.trim(), password });
+            const { token, session } = response?.data || {};
+            
+            if (!token) {
+                throw new Error('관리자 토큰을 가져오지 못했습니다.');
+            }
+
+            await signInWithCustomToken(this.firebaseAuth, token);
+            await this.firebaseAuth.currentUser?.getIdToken(true);
+            if (session) {
+                this.persistAdminSession(session);
+            }
+            this.recordLoginAttempt(identifier, true);
+
+            this.isAdminLoggedIn = true;
+            this.hideAdminLoginModal();
+            this.switchToAdminMode();
+            
+            if (!this.uiVisible) {
+                this.showUI();
+                this.uiVisible = true;
+            }
+            
+            this.showNotification('관리자 페이지로 이동합니다...', 'success');
+            setTimeout(() => {
+                window.location.href = 'admin.html';
+            }, 600);
         } catch (error) {
             console.error('로그인 처리 중 오류:', error);
+            this.recordLoginAttempt(identifier, false);
             errorDiv.classList.remove('hidden');
-            this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
-            this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
+            const message = error?.code === 'functions/unauthenticated'
+                ? '잘못된 로그인 정보입니다.'
+                : error?.message || '로그인 처리 중 오류가 발생했습니다.';
+            this.setSafeHTML(errorDiv, message);
+            this.showNotification(message, 'error');
         }
     }
     
     // 관리자 로그아웃 처리
-    handleAdminLogout() {
-        this.isAdminLoggedIn = false;
+    async handleAdminLogout() {
+        this.clearPersistedAdminSession();
+        await this.logoutUser();
         this.disableAdminMode({ silent: true });
-        
-        // 관리자 모드에서 열린 모든 모달 닫기
-        this.hideCompanyInfoModal();
-        
-        this.switchToUserMode();
-        
-        // UI가 보이는 상태라면 UI도 숨기기
-        if (this.uiVisible) {
-            this.hideUI();
-        }
-        
-        this.showNotification('관리자에서 로그아웃되었습니다.', 'info');
         console.log('관리자 로그아웃');
     }
     
@@ -21955,6 +22147,32 @@ class BillionaireMap {
         // 이상 탐지
         this.detectAnomalies(event);
     }
+
+    async recordAdminAudit(action, details = {}) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.isAdminLoggedIn) {
+            return;
+        }
+
+        try {
+            const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auditRef = collection(this.firestore, 'admin_audit');
+            await addDoc(auditRef, {
+                action,
+                details,
+                context: {
+                    regionId: details.regionId || null,
+                    mapMode: this.currentMapMode || null
+                },
+                actor: {
+                    uid: this.currentUser?.uid || 'unknown',
+                    email: this.currentUser?.email || null
+                },
+                createdAt: serverTimestamp()
+            });
+        } catch (error) {
+            console.warn('[ADMIN AUDIT] 기록 실패:', error);
+        }
+    }
     
     /**
      * 세션 ID 생성/가져오기
@@ -22290,15 +22508,19 @@ class BillionaireMap {
         }
         
         try {
-            const { doc, updateDoc, serverTimestamp, deleteDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, updateDoc, serverTimestamp, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             const reportRef = doc(this.firestore, 'reports', reportId);
+            const reportSnap = await getDoc(reportRef);
+            
+            if (!reportSnap.exists()) {
+                this.showNotification('해당 신고를 찾을 수 없습니다.', 'error');
+                return { success: false };
+            }
+
+            const reportData = reportSnap.data();
             
             if (action === 'approve') {
                 // 신고 승인: 픽셀 아트 삭제
-                const { getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                const reportSnap = await getDoc(reportRef);
-                const reportData = reportSnap.data();
-                
                 // 픽셀 아트 초기화
                 await this.resetPixelArt(reportData.regionId);
                 
@@ -22314,6 +22536,11 @@ class BillionaireMap {
                     regionId: reportData.regionId,
                     moderatorId: this.currentUser.uid
                 });
+                this.recordAdminAudit('report.approve', {
+                    reportId,
+                    regionId: reportData.regionId,
+                    moderatorNote
+                });
                 
                 this.showNotification('신고가 승인되어 픽셀 아트가 초기화되었습니다.', 'success');
             } else if (action === 'reject') {
@@ -22328,6 +22555,11 @@ class BillionaireMap {
                 this.logEvent('report_rejected', {
                     reportId,
                     moderatorId: this.currentUser.uid
+                });
+                this.recordAdminAudit('report.reject', {
+                    reportId,
+                    regionId: reportData.regionId,
+                    moderatorNote
                 });
                 
                 this.showNotification('신고가 거부되었습니다.', 'success');
@@ -22565,6 +22797,7 @@ class BillionaireMap {
             await Promise.all(versionDeletePromises);
             
             this.logEvent('pixel_art_reset', { regionId, reason: 'moderation' });
+            this.recordAdminAudit('pixel.reset', { regionId });
         } catch (error) {
             console.error('[픽셀 아트 초기화 실패]:', error);
             throw error;
