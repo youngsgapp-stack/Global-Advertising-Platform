@@ -23144,9 +23144,38 @@ window.addEventListener('error', (event) => {
         event.message.includes('popup.ts')
     )) {
         event.preventDefault(); // 콘솔에 오류가 표시되지 않도록
+        event.stopPropagation(); // 이벤트 전파 중지
         return true;
     }
 });
+
+// Promise rejection 핸들러: COOP 관련 오류 무시
+window.addEventListener('unhandledrejection', (event) => {
+    const error = event.reason;
+    const errorMessage = error?.message || error?.toString() || '';
+    if (errorMessage.includes('Cross-Origin-Opener-Policy') ||
+        errorMessage.includes('window.close') ||
+        errorMessage.includes('window.closed') ||
+        errorMessage.includes('popup.ts')) {
+        event.preventDefault(); // 콘솔에 오류가 표시되지 않도록
+        return true;
+    }
+});
+
+// console.error 오버라이드: COOP 관련 오류 필터링
+const originalConsoleError = console.error;
+console.error = function(...args) {
+    const message = args.join(' ');
+    if (message.includes('Cross-Origin-Opener-Policy') ||
+        message.includes('window.close') ||
+        message.includes('window.closed') ||
+        message.includes('popup.ts')) {
+        // COOP 관련 오류는 무시
+        return;
+    }
+    // 다른 오류는 정상적으로 출력
+    originalConsoleError.apply(console, args);
+};
 
 // 페이지 로드 시 지도 초기화
 if (document.readyState === 'loading') {

@@ -61,6 +61,22 @@
       ]
     },
     {
+      "collectionGroup": "auctions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "endTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auctions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "watchers", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "endTime", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "purchases",
       "queryScope": "COLLECTION",
       "fields": [
