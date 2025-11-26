@@ -30,7 +30,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "endTime", "order": "ASCENDING" }
+        { "fieldPath": "endTime", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -46,8 +47,17 @@
       "collectionGroup": "auctions",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "finalizedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auctions",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "watchers", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "endTime", "order": "ASCENDING" }
+        { "fieldPath": "endTime", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -64,6 +74,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "regionId", "order": "ASCENDING" },
+        { "fieldPath": "buyerEmail", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "purchases",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "buyerEmail", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]

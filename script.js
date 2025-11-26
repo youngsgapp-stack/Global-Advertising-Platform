@@ -1660,17 +1660,34 @@ class BillionaireMap {
                 }
             }
             
-            // 2. purchases 컬렉션에서 구매 기록 확인 (기존 방식)
-            const q = query(
-                collection(this.firestore, 'purchases'),
-                where('regionId', '==', regionId),
-                where('buyerEmail', '==', this.currentUser.email),
-                where('status', '==', 'completed')
-            );
+            // 2. purchases 컬렉션에서 구매 기록 확인
+            // 권한 문제를 피하기 위해 buyerEmail로만 쿼리하고 클라이언트에서 필터링
+            try {
+                const q = query(
+                    collection(this.firestore, 'purchases'),
+                    where('buyerEmail', '==', this.currentUser.email),
+                    where('status', '==', 'completed')
+                );
 
-            const querySnapshot = await getDocs(q);
-            return !querySnapshot.empty; // 구매 기록이 있으면 소유자
+                const querySnapshot = await getDocs(q);
+                // 클라이언트 측에서 regionId 필터링
+                const matchingPurchase = querySnapshot.docs.find(doc => {
+                    const data = doc.data();
+                    return data.regionId === regionId;
+                });
+                return !!matchingPurchase;
+            } catch (purchaseError) {
+                // purchases 쿼리 실패 시 조용히 false 반환 (권한 없음으로 간주)
+                if (purchaseError.code === 'permission-denied') {
+                    return false;
+                }
+                throw purchaseError;
+            }
         } catch (error) {
+            // 권한 오류는 조용히 처리 (로그만 남기고 false 반환)
+            if (error.code === 'permission-denied') {
+                return false;
+            }
             console.error('소유권 확인 오류:', error);
             return false;
         }
@@ -2542,6 +2559,11 @@ class BillionaireMap {
                 this.autoRenderPayPalButtons();
             }
         } catch (error) {
+            // COOP 오류는 무시 (브라우저 보안 정책으로 인한 경고일 뿐)
+            if (error.message && error.message.includes('Cross-Origin-Opener-Policy')) {
+                // 로그인은 성공했을 수 있으므로 조용히 처리
+                return;
+            }
             console.error('구글 로그인 오류:', error);
             const errorMsg = error.code === 'auth/popup-closed-by-user' ? '로그인 창이 닫혔습니다.'
                 : error.code === 'auth/popup-blocked' ? '팝업이 차단되었습니다. 브라우저 설정을 확인해주세요.'
@@ -20867,7 +20889,35 @@ class BillionaireMap {
                     listContainer.appendChild(upcomingP);
                     return;
                 case 'ended':
-                    q = query(auctionsRef, where('status', 'in', ['ended', 'sold']), orderBy('finalizedAt', 'desc'));
+                    // 'in' 연산자와 orderBy를 함께 사용할 때는 복잡한 인덱스 필요
+                    // 두 개의 별도 쿼리로 나누어 실행 후 클라이언트에서 병합
+                    try {
+                        const q1 = query(auctionsRef, where('status', '==', 'ended'), orderBy('finalizedAt', 'desc'));
+                        const q2 = query(auctionsRef, where('status', '==', 'sold'), orderBy('finalizedAt', 'desc'));
+                        const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+                        
+                        const auctionsMap = new Map();
+                        snapshot1.forEach((doc) => {
+                            auctionsMap.set(doc.id, { id: doc.id, ...doc.data() });
+                        });
+                        snapshot2.forEach((doc) => {
+                            auctionsMap.set(doc.id, { id: doc.id, ...doc.data() });
+                        });
+                        
+                        // finalizedAt 기준으로 정렬
+                        const auctions = Array.from(auctionsMap.values()).sort((a, b) => {
+                            const timeA = a.finalizedAt?.toMillis() || 0;
+                            const timeB = b.finalizedAt?.toMillis() || 0;
+                            return timeB - timeA; // 내림차순
+                        });
+                        
+                        this.renderDashboardAuctions(auctions, filter);
+                        return;
+                    } catch (endedError) {
+                        // 인덱스 오류인 경우 ended만 조회 (오류 발생 시)
+                        console.warn('ended 옥션 쿼리 오류, ended만 조회:', endedError);
+                        q = query(auctionsRef, where('status', '==', 'ended'), orderBy('finalizedAt', 'desc'));
+                    }
                     break;
                 case 'watching':
                     // 관심 등록된 옥션 (사용자별)
