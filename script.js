@@ -16731,12 +16731,26 @@ class BillionaireMap {
             hoverColorExpr.push(['==', ['get', 'ad_status'], 'occupied']);
             hoverColorExpr.push('#ff6b6b');
             
+            // 옥션 상태들
+            hoverColorExpr.push(['==', ['get', 'auction_status'], 'active']);
+            hoverColorExpr.push('#3498db');
+            hoverColorExpr.push(['==', ['get', 'auction_status'], 'upcoming']);
+            hoverColorExpr.push('#f39c12');
+            hoverColorExpr.push(['==', ['get', 'auction_status'], 'ended']);
+            hoverColorExpr.push('#95a5a6');
+            hoverColorExpr.push(['==', ['get', 'auction_status'], 'sold']);
+            hoverColorExpr.push('#7f8c8d');
+            
             // 호버 지역은 밝은 색상
             hoverColorExpr.push(['==', ['get', 'id'], regionId]);
             hoverColorExpr.push('#6dd5d8');
             
-            // 기본 색상
-            hoverColorExpr.push('#4ecdc4');
+            // 기본 색상: 원래 GeoJSON의 색상 사용 (country_color 또는 color 속성)
+            hoverColorExpr.push(['coalesce', 
+                ['get', 'country_color'], 
+                ['get', 'color'],
+                '#4ecdc4' // 기본 색상
+            ]);
             
             this.map.setPaintProperty('regions-fill', 'fill-color', hoverColorExpr);
         }
@@ -16818,7 +16832,7 @@ class BillionaireMap {
                     '#4ecdc4'
                 ]);
             } else {
-                // 저장된 색상이 없으면 기본값
+                // 저장된 색상이 없으면 원래 GeoJSON의 색상 사용 (country_color 또는 color 속성)
                 if (currentMode === 'japan') {
                     fillColorExpr = [
                         'case',
@@ -16826,14 +16840,30 @@ class BillionaireMap {
                         '#ff6b6b',
                         ['==', ['get', 'ad_status'], 'selected'],
                         '#feca57',
-                        '#4ecdc4'
+                        ['coalesce', 
+                            ['get', 'country_color'], 
+                            ['get', 'color'],
+                            '#4ecdc4' // 기본 색상
+                        ]
                     ];
                 } else {
                     fillColorExpr = [
                         'case',
                         ['==', ['get', 'ad_status'], 'occupied'],
                         '#ff6b6b',
-                        '#4ecdc4'
+                        ['==', ['get', 'auction_status'], 'active'],
+                        '#3498db',
+                        ['==', ['get', 'auction_status'], 'upcoming'],
+                        '#f39c12',
+                        ['==', ['get', 'auction_status'], 'ended'],
+                        '#95a5a6',
+                        ['==', ['get', 'auction_status'], 'sold'],
+                        '#7f8c8d',
+                        ['coalesce', 
+                            ['get', 'country_color'], 
+                            ['get', 'color'],
+                            '#4ecdc4' // 기본 색상
+                        ]
                     ];
                 }
             }
