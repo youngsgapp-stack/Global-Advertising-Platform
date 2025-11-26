@@ -33,6 +33,14 @@ class AdminDashboard {
             auditLogs: []
         };
         this.toastTimer = null;
+        // 실시간 리스너 구독 해제 함수들
+        this.regionUnsubscribe = null;
+        this.auctionUnsubscribe = null;
+        this.purchaseUnsubscribe = null;
+        this.reportUnsubscribe = null;
+        this.poolUnsubscribe = null;
+        this.logUnsubscribe = null;
+        this.auditUnsubscribe = null;
 
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
@@ -49,39 +57,33 @@ class AdminDashboard {
 
     async init() {
         try {
-            // 먼저 localStorage 세션 확인 (script.js에서 생성한 세션)
-            const storedSession = this.getStoredAdminSession();
-            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                // localStorage 세션이 유효하면 Firebase Auth 없이도 진행
-                console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
-                await this.initializeFirebase();
-                this.setupEventListeners();
-                
-                // Firebase Auth 없이도 관리자 모드로 진행
-                this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
-                this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
-                this.updateSessionMeta();
-                
-                await this.refreshAll(true);
-                this.startAutoRefresh();
-                return;
-            }
-
             await this.initializeFirebase();
             this.setupEventListeners();
+
+            // localStorage 세션 확인 및 Firebase Auth 로그인 시도
+            const storedSession = this.getStoredAdminSession();
+            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
+                console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
+                const resumed = await this.tryResumeAdminSession(storedSession);
+                if (!resumed && storedSession.signature) {
+                    // signature가 있는 경우에만 tryResumeAdminSession을 호출했지만 실패한 경우
+                    console.warn('[ADMIN] Firebase Auth 로그인 실패, 하지만 세션이 유효하므로 계속 진행');
+                }
+            }
 
             this.firebaseAuth.onAuthStateChanged(async (user) => {
                 if (!user) {
                     const storedSession = this.getStoredAdminSession();
                     if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                        // localStorage 세션이 있으면 Firebase Auth 없이도 진행
-                        console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
-                        this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
-                        this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
-                        this.updateSessionMeta();
-                        
-                        await this.refreshAll(true);
-                        this.startAutoRefresh();
+                        // localStorage 세션이 있으면 Firebase Auth 로그인 시도
+                        console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
+                        const resumed = await this.tryResumeAdminSession(storedSession);
+                        if (resumed) {
+                            // 로그인 성공하면 아래 코드에서 처리됨
+                            return;
+                        }
+                        // 로그인 실패하면 리다이렉트
+                        this.redirectToMap('관리자 로그인이 필요합니다.');
                         return;
                     }
                     this.redirectToMap('관리자 로그인이 필요합니다.');
@@ -91,17 +93,14 @@ class AdminDashboard {
                 try {
                     const tokenResult = await user.getIdTokenResult(true);
                     if (tokenResult?.claims?.role !== 'admin') {
-                        // Firebase Auth에 admin 권한이 없어도 localStorage 세션 확인
+                        // Firebase Auth에 admin 권한이 없으면 localStorage 세션 확인
                         const storedSession = this.getStoredAdminSession();
                         if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                            console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
-                            this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
-                            this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
-                            this.updateSessionMeta();
-                            
-                            await this.refreshAll(true);
-                            this.startAutoRefresh();
-                            return;
+                            console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
+                            const resumed = await this.tryResumeAdminSession(storedSession);
+                            if (resumed) {
+                                return;
+                            }
                         }
                         this.redirectToMap('관리자 권한이 필요합니다.');
                         return;
@@ -111,6 +110,9 @@ class AdminDashboard {
                     this.sessionExpiry = tokenResult.expirationTime ? new Date(tokenResult.expirationTime) : null;
                     this.updateSessionMeta();
 
+                    // 실시간 리스너 설정
+                    this.setupRealtimeListeners();
+                    
                     await this.refreshAll(true);
                     this.startAutoRefresh();
                 } catch (error) {
@@ -118,33 +120,22 @@ class AdminDashboard {
                     // 에러 발생 시에도 localStorage 세션 확인
                     const storedSession = this.getStoredAdminSession();
                     if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                        console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행');
-                        this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
-                        this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
-                        this.updateSessionMeta();
-                        
-                        await this.refreshAll(true);
-                        this.startAutoRefresh();
-                        return;
+                        console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
+                        const resumed = await this.tryResumeAdminSession(storedSession);
+                        if (resumed) {
+                            return;
+                        }
                     }
                     this.redirectToMap('관리자 권한 확인에 실패했습니다.');
                 }
             });
-            await this.tryResumeAdminSession();
+            
+            // 초기 세션 재개 시도
+            if (!this.firebaseAuth.currentUser) {
+                await this.tryResumeAdminSession();
+            }
         } catch (error) {
             console.error('[ADMIN] Firebase 초기화 실패', error);
-            // Firebase 초기화 실패 시에도 localStorage 세션 확인
-            const storedSession = this.getStoredAdminSession();
-            if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                console.log('[ADMIN] localStorage 세션 확인됨, 관리자 모드로 진행 (Firebase 초기화 실패 무시)');
-                // Firebase 없이도 기본 기능은 사용 가능하도록 설정
-                this.setupEventListeners();
-                this.currentUser = { uid: 'admin-session', email: storedSession.username || 'admin' };
-                this.sessionExpiry = storedSession.expiresAt ? new Date(storedSession.expiresAt) : null;
-                this.updateSessionMeta();
-                this.showToast('Firebase 초기화에 실패했지만 관리자 모드로 진행합니다.', 'warning');
-                return;
-            }
             this.showToast('Firebase 초기화에 실패했습니다.', 'error');
         }
     }
@@ -307,28 +298,33 @@ class AdminDashboard {
 
     async tryResumeAdminSession(sessionOverride = null) {
         if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
+            console.warn('[ADMIN] Firebase가 초기화되지 않았습니다.');
             return false;
         }
         if (this.sessionResumeInFlight) {
+            console.log('[ADMIN] 세션 재개가 이미 진행 중입니다.');
             return false;
         }
         if (this.firebaseAuth.currentUser) {
-            return false;
+            console.log('[ADMIN] 이미 로그인된 사용자가 있습니다.');
+            return true;
         }
         const session = sessionOverride || this.getStoredAdminSession();
         if (!session) {
+            console.log('[ADMIN] 저장된 세션이 없습니다.');
             return false;
         }
         if (this.isAdminSessionExpired(session)) {
+            console.warn('[ADMIN] 세션이 만료되었습니다.');
             this.clearPersistedAdminSession();
             return false;
         }
 
-        // script.js에서 생성한 세션은 signature가 없을 수 있음
-        // 이 경우 Firebase Functions를 호출하지 않고 false를 반환
-        // (init() 함수에서 이미 localStorage 세션을 확인하므로 문제없음)
+        // signature가 없는 세션은 script.js에서 생성한 세션일 수 있음
+        // 이 경우 Firebase Functions를 호출할 수 없으므로 false 반환
         if (!session.signature) {
-            console.log('[ADMIN] signature가 없는 세션 (script.js에서 생성), Firebase Functions 호출 건너뜀');
+            console.log('[ADMIN] signature가 없는 세션 (script.js에서 생성), Firebase Functions 호출 불가');
+            console.warn('[ADMIN] 권한 문제가 발생할 수 있습니다. Firebase Functions를 통해 생성된 세션을 사용하세요.');
             return false;
         }
 
@@ -338,6 +334,7 @@ class AdminDashboard {
             const { signInWithCustomToken } = await import(AUTH_SDK);
             const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
             const resumeAdminSession = httpsCallable(functions, 'resumeAdminSession');
+            console.log('[ADMIN] Firebase Functions 호출: resumeAdminSession');
             const response = await resumeAdminSession({
                 sessionId: session.sessionId,
                 expiresAt: session.expiresAt,
@@ -347,14 +344,21 @@ class AdminDashboard {
             if (!token) {
                 throw new Error('관리자 세션 토큰을 가져오지 못했습니다.');
             }
+            console.log('[ADMIN] Firebase Auth 로그인 시도');
             await signInWithCustomToken(this.firebaseAuth, token);
             await this.firebaseAuth.currentUser?.getIdToken(true);
+            console.log('[ADMIN] Firebase Auth 로그인 성공');
             if (refreshedSession) {
                 this.persistAdminSession(refreshedSession);
             }
             return true;
         } catch (error) {
-            console.warn('[ADMIN] 세션 재개 실패', error);
+            console.error('[ADMIN] 세션 재개 실패', error);
+            console.error('[ADMIN] 에러 상세:', {
+                message: error.message,
+                code: error.code,
+                details: error.details
+            });
             return false;
         } finally {
             this.sessionResumeInFlight = false;
@@ -377,6 +381,10 @@ class AdminDashboard {
     async signOutAdmin() {
         if (!this.firebaseAuth) return;
         try {
+            // 실시간 리스너 정리
+            this.cleanupRealtimeListeners();
+            this.stopAutoRefresh();
+            
             this.clearPersistedAdminSession();
             const { signOut } = await import(AUTH_SDK);
             await signOut(this.firebaseAuth);
@@ -390,13 +398,189 @@ class AdminDashboard {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        this.refreshTimer = setInterval(() => this.refreshAll(), this.refreshIntervalMs);
+        // 실시간 리스너가 있으면 자동 갱신 간격을 늘림 (백업용)
+        this.refreshTimer = setInterval(() => this.refreshAll(), this.refreshIntervalMs * 2);
     }
 
     stopAutoRefresh() {
         if (this.refreshTimer) {
             clearInterval(this.refreshTimer);
             this.refreshTimer = null;
+        }
+    }
+
+    async setupRealtimeListeners() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('[ADMIN] Firebase가 초기화되지 않아 실시간 리스너를 설정할 수 없습니다.');
+            return;
+        }
+
+        // 기존 리스너 정리
+        this.cleanupRealtimeListeners();
+
+        try {
+            const { collection, onSnapshot, query, where, orderBy, limit, doc } = await this.firestoreModulePromise;
+
+            // Regions 실시간 리스너
+            const regionsRef = collection(this.firestore, 'regions');
+            this.regionUnsubscribe = onSnapshot(regionsRef, 
+                (snapshot) => {
+                    console.log('[ADMIN] Regions 업데이트됨');
+                    this.fetchRegionMetrics().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Regions 리스너 오류', error);
+                    if (error.code !== 'permission-denied') {
+                        this.showToast('지역 데이터 실시간 업데이트 실패', 'error');
+                    }
+                }
+            );
+
+            // Auctions 실시간 리스너
+            const auctionsRef = collection(this.firestore, 'auctions');
+            let auctionsQuery;
+            try {
+                auctionsQuery = query(auctionsRef, where('status', '==', 'active'), orderBy('endTime', 'asc'));
+            } catch {
+                auctionsQuery = query(auctionsRef, where('status', '==', 'active'));
+            }
+            this.auctionUnsubscribe = onSnapshot(auctionsQuery,
+                (snapshot) => {
+                    console.log('[ADMIN] Auctions 업데이트됨');
+                    this.fetchAuctions().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Auctions 리스너 오류', error);
+                    if (error.code !== 'permission-denied') {
+                        this.showToast('옥션 데이터 실시간 업데이트 실패', 'error');
+                    }
+                }
+            );
+
+            // Purchases 실시간 리스너
+            const purchasesRef = collection(this.firestore, 'purchases');
+            let purchasesQuery;
+            try {
+                purchasesQuery = query(purchasesRef, orderBy('purchaseDate', 'desc'), limit(20));
+            } catch {
+                purchasesQuery = query(purchasesRef, limit(20));
+            }
+            this.purchaseUnsubscribe = onSnapshot(purchasesQuery,
+                (snapshot) => {
+                    console.log('[ADMIN] Purchases 업데이트됨');
+                    this.fetchPurchases().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Purchases 리스너 오류', error);
+                    if (error.code !== 'permission-denied') {
+                        this.showToast('결제 데이터 실시간 업데이트 실패', 'error');
+                    }
+                }
+            );
+
+            // Reports 실시간 리스너
+            const reportsRef = collection(this.firestore, 'reports');
+            let reportsQuery;
+            try {
+                reportsQuery = query(reportsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(6));
+            } catch {
+                reportsQuery = query(reportsRef, where('status', '==', 'pending'), limit(6));
+            }
+            this.reportUnsubscribe = onSnapshot(reportsQuery,
+                (snapshot) => {
+                    console.log('[ADMIN] Reports 업데이트됨');
+                    this.fetchReports().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Reports 리스너 오류', error);
+                    if (error.code !== 'permission-denied') {
+                        this.showToast('신고 데이터 실시간 업데이트 실패', 'error');
+                    }
+                }
+            );
+
+            // Community Pool 실시간 리스너
+            const poolRef = doc(this.firestore, 'communityPools', 'global');
+            this.poolUnsubscribe = onSnapshot(poolRef,
+                (snapshot) => {
+                    console.log('[ADMIN] Community Pool 업데이트됨');
+                    this.fetchCommunityPool().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Community Pool 리스너 오류', error);
+                }
+            );
+
+            // System Logs 실시간 리스너
+            const logsRef = collection(this.firestore, 'event_logs');
+            let logsQuery;
+            try {
+                logsQuery = query(logsRef, orderBy('timestamp', 'desc'), limit(12));
+            } catch {
+                logsQuery = query(logsRef, limit(12));
+            }
+            this.logUnsubscribe = onSnapshot(logsQuery,
+                (snapshot) => {
+                    console.log('[ADMIN] System Logs 업데이트됨');
+                    this.fetchSystemLogs().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] System Logs 리스너 오류', error);
+                }
+            );
+
+            // Audit Logs 실시간 리스너
+            const auditRef = collection(this.firestore, 'admin_audit');
+            let auditQuery;
+            try {
+                auditQuery = query(auditRef, orderBy('createdAt', 'desc'), limit(12));
+            } catch {
+                auditQuery = query(auditRef, limit(12));
+            }
+            this.auditUnsubscribe = onSnapshot(auditQuery,
+                (snapshot) => {
+                    console.log('[ADMIN] Audit Logs 업데이트됨');
+                    this.fetchAuditLogs().then(() => this.render());
+                },
+                (error) => {
+                    console.error('[ADMIN] Audit Logs 리스너 오류', error);
+                }
+            );
+
+            console.log('[ADMIN] 실시간 리스너 설정 완료');
+        } catch (error) {
+            console.error('[ADMIN] 실시간 리스너 설정 실패', error);
+        }
+    }
+
+    cleanupRealtimeListeners() {
+        if (this.regionUnsubscribe) {
+            this.regionUnsubscribe();
+            this.regionUnsubscribe = null;
+        }
+        if (this.auctionUnsubscribe) {
+            this.auctionUnsubscribe();
+            this.auctionUnsubscribe = null;
+        }
+        if (this.purchaseUnsubscribe) {
+            this.purchaseUnsubscribe();
+            this.purchaseUnsubscribe = null;
+        }
+        if (this.reportUnsubscribe) {
+            this.reportUnsubscribe();
+            this.reportUnsubscribe = null;
+        }
+        if (this.poolUnsubscribe) {
+            this.poolUnsubscribe();
+            this.poolUnsubscribe = null;
+        }
+        if (this.logUnsubscribe) {
+            this.logUnsubscribe();
+            this.logUnsubscribe = null;
+        }
+        if (this.auditUnsubscribe) {
+            this.auditUnsubscribe();
+            this.auditUnsubscribe = null;
         }
     }
 
@@ -428,7 +612,21 @@ class AdminDashboard {
             }
         } catch (error) {
             console.error('[ADMIN] 데이터 갱신 실패', error);
-            this.showToast('데이터를 불러오지 못했습니다.', 'error');
+            console.error('[ADMIN] 에러 상세:', {
+                message: error.message,
+                code: error.code,
+                details: error.details,
+                stack: error.stack
+            });
+            
+            // 권한 오류인 경우 특별 처리
+            if (error.code === 'permission-denied' || error.message?.includes('permission')) {
+                this.showToast('권한이 없습니다. 관리자 권한을 확인해주세요.', 'error');
+                console.error('[ADMIN] 권한 오류 - 현재 사용자:', this.currentUser);
+                console.error('[ADMIN] Firebase Auth 상태:', this.firebaseAuth?.currentUser);
+            } else {
+                this.showToast('데이터를 불러오지 못했습니다.', 'error');
+            }
         } finally {
             this.setRefreshing(false);
         }
@@ -443,9 +641,10 @@ class AdminDashboard {
     }
 
     async fetchRegionMetrics() {
-        const { collection, getDocs } = await this.firestoreModulePromise;
-        const regionsRef = collection(this.firestore, 'regions');
-        const snapshot = await getDocs(regionsRef);
+        try {
+            const { collection, getDocs } = await this.firestoreModulePromise;
+            const regionsRef = collection(this.firestore, 'regions');
+            const snapshot = await getDocs(regionsRef);
 
         const regions = [];
         let occupied = 0;
@@ -475,47 +674,57 @@ class AdminDashboard {
         const availableRegions = Math.max(totalRegions - occupied, 0);
         const occupancyRate = totalRegions ? Math.round((occupied / totalRegions) * 100) : 0;
 
-        this.state.summary.totalRegions = totalRegions;
-        this.state.summary.occupiedRegions = occupied;
-        this.state.summary.availableRegions = availableRegions;
-        this.state.summary.occupancyRate = occupancyRate;
-        this.state.topRegions = regions.slice(0, 12);
-        this.state.regionsForExport = regions;
+            this.state.summary.totalRegions = totalRegions;
+            this.state.summary.occupiedRegions = occupied;
+            this.state.summary.availableRegions = availableRegions;
+            this.state.summary.occupancyRate = occupancyRate;
+            this.state.topRegions = regions.slice(0, 12);
+            this.state.regionsForExport = regions;
+        } catch (error) {
+            console.error('[ADMIN] fetchRegionMetrics 실패', error);
+            throw error;
+        }
     }
 
     async fetchCommunityPool() {
-        const { doc, getDoc } = await this.firestoreModulePromise;
-        const poolRef = doc(this.firestore, 'communityPools', 'global');
-        const snapshot = await getDoc(poolRef);
+        try {
+            const { doc, getDoc } = await this.firestoreModulePromise;
+            const poolRef = doc(this.firestore, 'communityPools', 'global');
+            const snapshot = await getDoc(poolRef);
 
-        if (snapshot.exists()) {
-            const data = snapshot.data();
-            this.state.summary.communityReward = Number(data.rewardFund || 0);
-            this.state.summary.freePixelPool = Number(data.freePixelPool || 0);
-        } else {
-            this.state.summary.communityReward = 0;
-            this.state.summary.freePixelPool = 0;
+            if (snapshot.exists()) {
+                const data = snapshot.data();
+                this.state.summary.communityReward = Number(data.rewardFund || 0);
+                this.state.summary.freePixelPool = Number(data.freePixelPool || 0);
+            } else {
+                this.state.summary.communityReward = 0;
+                this.state.summary.freePixelPool = 0;
+            }
+        } catch (error) {
+            console.error('[ADMIN] fetchCommunityPool 실패', error);
+            throw error;
         }
     }
 
     async fetchAuctions() {
-        const { collection, query, where, getDocs, orderBy } = await this.firestoreModulePromise;
-        const auctionsRef = collection(this.firestore, 'auctions');
-        let auctionsQuery;
         try {
-            auctionsQuery = query(
-                auctionsRef,
-                where('status', '==', 'active'),
-                orderBy('endTime', 'asc')
-            );
-        } catch {
-            auctionsQuery = query(
-                auctionsRef,
-                where('status', '==', 'active')
-            );
-        }
+            const { collection, query, where, getDocs, orderBy } = await this.firestoreModulePromise;
+            const auctionsRef = collection(this.firestore, 'auctions');
+            let auctionsQuery;
+            try {
+                auctionsQuery = query(
+                    auctionsRef,
+                    where('status', '==', 'active'),
+                    orderBy('endTime', 'asc')
+                );
+            } catch {
+                auctionsQuery = query(
+                    auctionsRef,
+                    where('status', '==', 'active')
+                );
+            }
 
-        const snapshot = await getDocs(auctionsQuery);
+            const snapshot = await getDocs(auctionsQuery);
         const auctions = [];
         let bidCount = 0;
 
@@ -539,15 +748,20 @@ class AdminDashboard {
             return a.endTime - b.endTime;
         });
 
-        this.state.activeAuctions = auctions;
-        this.state.summary.activeAuctions = auctions.length;
-        this.state.summary.recentBidCount = bidCount;
+            this.state.activeAuctions = auctions;
+            this.state.summary.activeAuctions = auctions.length;
+            this.state.summary.recentBidCount = bidCount;
+        } catch (error) {
+            console.error('[ADMIN] fetchAuctions 실패', error);
+            throw error;
+        }
     }
 
     async fetchPurchases() {
-        const { collection, getDocs } = await this.firestoreModulePromise;
-        const purchasesRef = collection(this.firestore, 'purchases');
-        const snapshot = await getDocs(purchasesRef);
+        try {
+            const { collection, getDocs } = await this.firestoreModulePromise;
+            const purchasesRef = collection(this.firestore, 'purchases');
+            const snapshot = await getDocs(purchasesRef);
 
         const purchases = [];
         let totalRevenue = 0;
@@ -567,35 +781,40 @@ class AdminDashboard {
             });
         });
 
-        purchases.sort((a, b) => {
-            const aTime = a.date?.getTime?.() || 0;
-            const bTime = b.date?.getTime?.() || 0;
-            return bTime - aTime;
-        });
+            purchases.sort((a, b) => {
+                const aTime = a.date?.getTime?.() || 0;
+                const bTime = b.date?.getTime?.() || 0;
+                return bTime - aTime;
+            });
 
-        this.state.recentPurchases = purchases.slice(0, 6);
-        this.state.summary.totalRevenue = totalRevenue;
+            this.state.recentPurchases = purchases.slice(0, 6);
+            this.state.summary.totalRevenue = totalRevenue;
+        } catch (error) {
+            console.error('[ADMIN] fetchPurchases 실패', error);
+            throw error;
+        }
     }
 
     async fetchReports() {
-        const { collection, query, where, orderBy, limit, getDocs } = await this.firestoreModulePromise;
-        const reportsRef = collection(this.firestore, 'reports');
-        let reportsQuery;
         try {
-            reportsQuery = query(
-                reportsRef,
-                where('status', '==', 'pending'),
-                orderBy('createdAt', 'desc'),
-                limit(6)
-            );
-        } catch {
-            reportsQuery = query(
-                reportsRef,
-                where('status', '==', 'pending'),
-                limit(6)
-            );
-        }
-        const snapshot = await getDocs(reportsQuery);
+            const { collection, query, where, orderBy, limit, getDocs } = await this.firestoreModulePromise;
+            const reportsRef = collection(this.firestore, 'reports');
+            let reportsQuery;
+            try {
+                reportsQuery = query(
+                    reportsRef,
+                    where('status', '==', 'pending'),
+                    orderBy('createdAt', 'desc'),
+                    limit(6)
+                );
+            } catch {
+                reportsQuery = query(
+                    reportsRef,
+                    where('status', '==', 'pending'),
+                    limit(6)
+                );
+            }
+            const snapshot = await getDocs(reportsQuery);
 
         const reports = [];
         snapshot.forEach(doc => {
@@ -610,21 +829,26 @@ class AdminDashboard {
             });
         });
 
-        this.state.pendingReports = reports;
-        this.state.summary.pendingReports = reports.length;
+            this.state.pendingReports = reports;
+            this.state.summary.pendingReports = reports.length;
+        } catch (error) {
+            console.error('[ADMIN] fetchReports 실패', error);
+            throw error;
+        }
     }
 
     async fetchSystemLogs() {
-        const { collection, query, orderBy, limit, getDocs } = await this.firestoreModulePromise;
-        const logsRef = collection(this.firestore, 'event_logs');
-        let logsQuery;
         try {
-            logsQuery = query(logsRef, orderBy('timestamp', 'desc'), limit(12));
-        } catch {
-            logsQuery = query(logsRef, limit(12));
-        }
+            const { collection, query, orderBy, limit, getDocs } = await this.firestoreModulePromise;
+            const logsRef = collection(this.firestore, 'event_logs');
+            let logsQuery;
+            try {
+                logsQuery = query(logsRef, orderBy('timestamp', 'desc'), limit(12));
+            } catch {
+                logsQuery = query(logsRef, limit(12));
+            }
 
-        const snapshot = await getDocs(logsQuery);
+            const snapshot = await getDocs(logsQuery);
         const logs = [];
         snapshot.forEach(doc => {
             const data = doc.data();
@@ -636,21 +860,26 @@ class AdminDashboard {
             });
         });
 
-        logs.sort((a, b) => b.timestamp - a.timestamp);
-        this.state.systemLogs = logs;
+            logs.sort((a, b) => b.timestamp - a.timestamp);
+            this.state.systemLogs = logs;
+        } catch (error) {
+            console.error('[ADMIN] fetchSystemLogs 실패', error);
+            throw error;
+        }
     }
 
     async fetchAuditLogs() {
-        const { collection, query, orderBy, limit, getDocs } = await this.firestoreModulePromise;
-        const auditRef = collection(this.firestore, 'admin_audit');
-        let auditQuery;
         try {
-            auditQuery = query(auditRef, orderBy('createdAt', 'desc'), limit(12));
-        } catch {
-            auditQuery = query(auditRef, limit(12));
-        }
+            const { collection, query, orderBy, limit, getDocs } = await this.firestoreModulePromise;
+            const auditRef = collection(this.firestore, 'admin_audit');
+            let auditQuery;
+            try {
+                auditQuery = query(auditRef, orderBy('createdAt', 'desc'), limit(12));
+            } catch {
+                auditQuery = query(auditRef, limit(12));
+            }
 
-        const snapshot = await getDocs(auditQuery);
+            const snapshot = await getDocs(auditQuery);
         const audits = [];
         snapshot.forEach(doc => {
             const data = doc.data();
@@ -664,7 +893,11 @@ class AdminDashboard {
             });
         });
 
-        this.state.auditLogs = audits;
+            this.state.auditLogs = audits;
+        } catch (error) {
+            console.error('[ADMIN] fetchAuditLogs 실패', error);
+            throw error;
+        }
     }
 
     render() {
