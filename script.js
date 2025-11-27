@@ -3037,7 +3037,15 @@ class BillionaireMap {
                 throw new Error('Invalid GeoJSON structure');
             } catch (error) {
                 lastError = error;
-                console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, error);
+                // CORS나 404 같은 예상 가능한 오류는 조용히 처리 (마지막 후보만 경고)
+                const isExpectedError = error.message.includes('CORS') || 
+                                       error.message.includes('403') || 
+                                       error.message.includes('404') ||
+                                       error.message.includes('Failed to fetch');
+                if (!isExpectedError || urls.indexOf(targetUrl) === urls.length - 1) {
+                    // 마지막 시도거나 예상치 못한 오류만 경고 로그
+                    console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, error.message);
+                }
                 attempt += 1;
                 await this.waitForGeoRetry(attempt);
                 return null;
@@ -3137,7 +3145,7 @@ class BillionaireMap {
                 };
                 
                 // 각 주에 광고 정보 추가
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const props = feature.properties;
                     const stateName = props.name;
                     const stateId = stateName.toLowerCase().replace(/\s+/g, '_');
@@ -5765,9 +5773,8 @@ class BillionaireMap {
     // 인도 데이터 로드 (주/연방령 단위)
     async loadIndiaData() {
         try {
-            const geoJsonData = await this.loadGeoJsonWithCache('india', async () => {
-                // 인도 주/연방령별 실제 인구 및 면적 데이터
-                const indiaRegionData = {
+            // 인도 주/연방령별 실제 인구 및 면적 데이터
+            const indiaRegionData = {
                 // 주 (28개)
                 'Andhra Pradesh': { population: 52000000, area: 162970 },
                 'Arunachal Pradesh': { population: 1700000, area: 83743 },
@@ -5844,8 +5851,10 @@ class BillionaireMap {
                 'लद्दाख़': { population: 320000, area: 59146 },
                 'लक्षद्वीप': { population: 70000, area: 32 },
                 'पुदुचेरी': { population: 1700000, area: 490 }
-                };
-                
+            };
+            
+            const geoJsonData = await this.loadGeoJsonWithCache('india', async () => {
+                // indiaRegionData는 함수 상단에 정의되어 있음
                 const data = await this.fetchGeoJsonWithFallback('india', {
                     urls: [
                         this.getAssetUrl('data/india-states.geojson'),
@@ -6242,7 +6251,7 @@ class BillionaireMap {
             };
             
             const geoJsonData = await this.loadGeoJsonWithCache('germany', async () => {
-                let geoJsonData = null;
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries DEU ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/DEU/ADM1/geoBoundaries-DEU-ADM1.geojson',
@@ -6277,10 +6286,10 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Germany dataset available');
-                return data;
                 
+                // 데이터 처리
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `DEU_${index}`;
@@ -6340,7 +6349,7 @@ class BillionaireMap {
                     this.regionData.set(finalId, feature.properties);
                 });
                 
-                return geoJsonData;
+                return data;
             });
             
             // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
@@ -6484,21 +6493,50 @@ class BillionaireMap {
                     // 잉글랜드 지역들을 9개 지역으로, 스코틀랜드/웨일스/북아일랜드는 각각 하나로 통합
                     const ukRegionMapping = {
                     // England Regions (9개)
-                    'North East': ['Northumberland', 'County Durham', 'Tyne and Wear', 'Tees Valley', 'North East England'],
-                    'North West': ['Greater Manchester', 'Merseyside', 'Lancashire', 'Cumbria', 'Cheshire', 'North West England'],
-                    'Yorkshire and the Humber': ['West Yorkshire', 'South Yorkshire', 'East Riding of Yorkshire', 'North Yorkshire', 'Yorkshire and the Humber'],
-                    'East Midlands': ['Derbyshire', 'Nottinghamshire', 'Lincolnshire', 'Leicestershire', 'Rutland', 'Northamptonshire', 'East Midlands'],
-                    'West Midlands': ['West Midlands', 'Warwickshire', 'Staffordshire', 'Shropshire', 'Herefordshire', 'Worcestershire'],
-                    'East of England': ['Norfolk', 'Suffolk', 'Cambridgeshire', 'Essex', 'Hertfordshire', 'Bedfordshire', 'East of England'],
-                    'London': ['Greater London', 'London', 'Inner London', 'Outer London'],
-                    'South East': ['Kent', 'Surrey', 'East Sussex', 'West Sussex', 'Hampshire', 'Isle of Wight', 'Berkshire', 'Oxfordshire', 'Buckinghamshire', 'South East England'],
-                    'South West': ['Gloucestershire', 'Wiltshire', 'Somerset', 'Dorset', 'Devon', 'Cornwall', 'South West England'],
+                    'North East': ['Northumberland', 'County Durham', 'Tyne and Wear', 'Tees Valley', 'North East England', 
+                                   'North Tyneside', 'South Tyneside', 'Sunderland', 'Gateshead', 'Newcastle upon Tyne', 
+                                   'Hartlepool', 'Redcar and Cleveland', 'Stockton-on-Tees', 'Darlington', 'Middlesbrough'],
+                    'North West': ['Greater Manchester', 'Merseyside', 'Lancashire', 'Cumbria', 'Cheshire', 'North West England',
+                                   'Liverpool', 'Manchester', 'Bolton', 'Bury', 'Oldham', 'Rochdale', 'Salford', 'Stockport', 
+                                   'Tameside', 'Trafford', 'Wigan', 'Blackpool', 'Blackburn with Darwen', 'Burnley', 'Preston',
+                                   'Halton', 'Warrington', 'Knowsley', 'Sefton', 'St Helens', 'Wirral'],
+                    'Yorkshire and the Humber': ['West Yorkshire', 'South Yorkshire', 'East Riding of Yorkshire', 'North Yorkshire', 'Yorkshire and the Humber',
+                                                  'Leeds', 'Sheffield', 'Bradford', 'Wakefield', 'Kirklees', 'Calderdale', 
+                                                  'Barnsley', 'Doncaster', 'Rotherham', 'York', 'Hull', 'Kingston upon Hull'],
+                    'East Midlands': ['Derbyshire', 'Nottinghamshire', 'Lincolnshire', 'Leicestershire', 'Rutland', 'Northamptonshire', 'East Midlands',
+                                      'Nottingham', 'Derby', 'Leicester', 'Northampton', 'Mansfield', 'Chesterfield'],
+                    'West Midlands': ['West Midlands', 'Warwickshire', 'Staffordshire', 'Shropshire', 'Herefordshire', 'Worcestershire',
+                                      'Birmingham', 'Coventry', 'Wolverhampton', 'Dudley', 'Walsall', 'Sandwell', 'Solihull',
+                                      'Stoke-on-Trent', 'Telford and Wrekin'],
+                    'East of England': ['Norfolk', 'Suffolk', 'Cambridgeshire', 'Essex', 'Hertfordshire', 'Bedfordshire', 'East of England',
+                                        'Norwich', 'Ipswich', 'Cambridge', 'Peterborough', 'Colchester', 'Luton', 'Southend-on-Sea',
+                                        'Thurrock', 'Harlow', 'Chelmsford'],
+                    'London': ['Greater London', 'London', 'Inner London', 'Outer London',
+                               'Westminster', 'City', 'Camden', 'Islington', 'Hackney', 'Haringey', 'Enfield', 'Barnet',
+                               'Harrow', 'Brent', 'Ealing', 'Hounslow', 'Richmond upon Thames', 'Kingston upon Thames',
+                               'Merton', 'Wandsworth', 'Lambeth', 'Southwark', 'Lewisham', 'Greenwich', 'Bexley',
+                               'Bromley', 'Croydon', 'Sutton', 'Waltham Forest', 'Redbridge', 'Havering', 'Barking and Dagenham',
+                               'Newham', 'Tower Hamlets', 'Hammersmith and Fulham', 'Kensington and Chelsea'],
+                    'South East': ['Kent', 'Surrey', 'East Sussex', 'West Sussex', 'Hampshire', 'Isle of Wight', 'Berkshire', 'Oxfordshire', 'Buckinghamshire', 'South East England',
+                                   'Brighton and Hove', 'Portsmouth', 'Southampton', 'Reading', 'Slough', 'Wokingham', 'Bracknell Forest',
+                                   'Royal Borough of Windsor and Maidenhead', 'Medway', 'Milton Keynes', 'Canterbury', 'Maidstone'],
+                    'South West': ['Gloucestershire', 'Wiltshire', 'Somerset', 'Dorset', 'Devon', 'Cornwall', 'South West England',
+                                   'Bristol', 'Bournemouth', 'Poole', 'Plymouth', 'Swindon', 'Exeter', 'Bath', 'Torbay'],
                     // Scotland
-                    'Scotland': ['Scotland', 'Highland', 'Aberdeenshire', 'Perth and Kinross', 'Argyll and Bute', 'Scottish Borders', 'Dumfries and Galloway', 'Fife', 'Edinburgh', 'Glasgow'],
+                    'Scotland': ['Scotland', 'Highland', 'Aberdeenshire', 'Perth and Kinross', 'Argyll and Bute', 'Scottish Borders', 'Dumfries and Galloway', 'Fife', 'Edinburgh', 'Glasgow',
+                                 'Perthshire and Kinross', 'Angus', 'Dundee', 'Aberdeen', 'Stirling', 'Falkirk', 'West Lothian',
+                                 'Midlothian', 'East Lothian', 'Clackmannanshire', 'South Ayrshire', 'North Ayshire', 'East Ayrshire',
+                                 'Inverclyde', 'Renfrewshire', 'West Dunbartonshire', 'East Dunbartonshire', 'East Renfrewshire',
+                                 'North Lanarkshire', 'South Lanarkshire', 'Moray', 'Orkney', 'Shetland Islands', 'Eilean Siar'],
                     // Wales
-                    'Wales': ['Wales', 'Gwynedd', 'Conwy', 'Denbighshire', 'Flintshire', 'Wrexham', 'Powys', 'Ceredigion', 'Pembrokeshire', 'Carmarthenshire', 'Swansea', 'Cardiff'],
+                    'Wales': ['Wales', 'Gwynedd', 'Conwy', 'Denbighshire', 'Flintshire', 'Wrexham', 'Powys', 'Ceredigion', 'Pembrokeshire', 'Carmarthenshire', 'Swansea', 'Cardiff',
+                              'Newport', 'Bridgend', 'Vale of Glamorgan', 'Neath Port Talbot', 'Caerphilly', 'Rhondda, Cynon, Taff',
+                              'Blaenau Gwent', 'Torfaen', 'Merthyr Tydfil', 'Monmouthshire', 'Anglesey'],
                     // Northern Ireland
-                    'Northern Ireland': ['Northern Ireland', 'Antrim', 'Armagh', 'Down', 'Fermanagh', 'Londonderry', 'Tyrone', 'Belfast']
+                    'Northern Ireland': ['Northern Ireland', 'Antrim', 'Armagh', 'Down', 'Fermanagh', 'Londonderry', 'Tyrone', 'Belfast',
+                                         'Strabane', 'Dungannon', 'Newry and Mourne', 'Limavady', 'Coleraine', 'Moyle', 'Larne',
+                                         'Carrickfergus', 'Newtownabbey', 'Ards', 'Craigavon', 'Banbridge', 'Lisburn', 'Magherafelt',
+                                         'Omagh', 'Mid Ulster', 'Ballymoney', 'Ballymena', 'Castlereagh']
                 };
                 
                 // 역매핑 생성 (소지역 -> 대지역)
@@ -9709,9 +9747,15 @@ class BillionaireMap {
                         }
                     }
                     
-                    // 데이터 로드 실패 시 해당 국가 건너뛰기
+                    // 데이터 로드 실패 시 해당 국가 건너뛰기 (Malta 같은 소규모 국가는 자주 실패할 수 있음)
                     if (!countryData || countryData.length === 0) {
-                        console.warn(`[EU] Failed to load ${country.name} (${country.code}), skipping`);
+                        // Malta 같은 소규모 국가는 경고로 처리 (에러 아님)
+                        const isSmallCountry = ['MLT', 'LUX', 'CYP'].includes(country.code);
+                        if (isSmallCountry) {
+                            console.info(`[EU] ${country.name} (${country.code}) 데이터를 로드할 수 없습니다. 건너뜁니다.`);
+                        } else {
+                            console.warn(`[EU] Failed to load ${country.name} (${country.code}), skipping`);
+                        }
                         return null;
                     }
                     
@@ -9764,6 +9808,10 @@ class BillionaireMap {
                     features: validFeatures
                 };
                 
+                if (validFeatures.length === 0) {
+                    throw new Error(`EU: No valid features loaded from ${euCountries.length} countries`);
+                }
+                
                 console.log(`[EU] Loaded ${validFeatures.length} features from ${euCountries.length} countries`);
                 
                 // regionData에 저장 (유효한 features만)
@@ -9773,7 +9821,7 @@ class BillionaireMap {
                     }
                 });
                 
-                return data;
+                return geoJsonData;
             });
             
             // 소스 업데이트 또는 생성
@@ -9830,12 +9878,24 @@ class BillionaireMap {
                 }
             }
             
-            console.log('유럽연합 데이터 로드 완료:', geoJsonData.features.length, '개 국가');
-            this.showNotification(`유럽연합 데이터 로드 완료: ${geoJsonData.features.length}개 국가`, 'info');
-            this.updateStatistics();
+            if (geoJsonData && geoJsonData.features && geoJsonData.features.length > 0) {
+                console.log('유럽연합 데이터 로드 완료:', geoJsonData.features.length, '개 국가');
+                this.showNotification(`유럽연합 데이터 로드 완료: ${geoJsonData.features.length}개 국가`, 'info');
+                this.updateStatistics();
+            } else {
+                // 일부 국가만 로드된 경우 경고만 표시
+                console.warn('유럽연합 데이터: 일부 국가만 로드되었습니다.');
+                this.showNotification('유럽연합 데이터 일부를 불러오는데 실패했습니다.', 'warning');
+            }
         } catch (error) {
-            console.error('유럽연합 데이터 로드 실패:', error);
-            this.showNotification('유럽연합 데이터를 불러오는데 실패했습니다.', 'error');
+            // Malta 같은 소규모 국가 실패는 전체 실패로 처리하지 않음
+            const isMinorError = error.message && error.message.includes('MLT');
+            if (isMinorError) {
+                console.warn('유럽연합 데이터 로드: 일부 국가(Malta 등)를 로드할 수 없습니다.', error.message);
+            } else {
+                console.error('유럽연합 데이터 로드 실패:', error);
+                this.showNotification('유럽연합 데이터를 불러오는데 실패했습니다.', 'error');
+            }
         }
     }
 
