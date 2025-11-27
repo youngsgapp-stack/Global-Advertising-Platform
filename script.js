@@ -1406,13 +1406,14 @@ class BillionaireMap {
             await this.tryResumeAdminSession();
             
             await this.initializeMap();
-            // 모든 국가를 한꺼번에 로드
-            await this.loadAllCountriesForDisplay();
             
-            // Firestore에서 지역 데이터 불러오기 (지도 로드 후)
-            await this.loadRegionDataForMode('usa').catch(err => {
-                console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
-            });
+            // 모든 국가 데이터와 Firestore 데이터를 동시에 병렬로 로드
+            await Promise.all([
+                this.loadAllCountriesForDisplay(),
+                this.loadRegionDataForMode('usa').catch(err => {
+                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                })
+            ]);
             
             // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
             this.setAllRegionsPriceToUniform();
@@ -2387,11 +2388,19 @@ class BillionaireMap {
         ];
         
         // 모든 국가 데이터를 병렬로 동시에 로드하여 최대한 빠르게 처리
-        const loadPromises = countryConfig.map(async (config) => {
-            try {
-                // 각 국가 로드 함수 호출 (캐시에 데이터 저장됨)
-                await config.loadFn();
-                
+        console.log(`[loadAllCountriesForDisplay] ${countryConfig.length}개 국가 데이터 동시 로딩 시작...`);
+        const startTime = performance.now();
+        
+        // Promise.all()을 사용하여 모든 로드 함수를 동시에 시작
+        const loadPromises = countryConfig.map((config) => {
+            // 각 국가 로드 함수를 즉시 시작 (await 없이 Promise 반환)
+            const loadPromise = config.loadFn().catch(error => {
+                console.warn(`[${config.name}] 로드 실패:`, error);
+                return null;
+            });
+            
+            // 로드 완료 후 캐시에서 데이터 가져오기
+            return loadPromise.then(() => {
                 // 캐시에서 GeoJSON 데이터 가져오기
                 const cachedData = this.cachedGeoJsonData[config.key];
                 
@@ -2411,14 +2420,17 @@ class BillionaireMap {
                     return cachedData.features;
                 }
                 return [];
-            } catch (error) {
-                console.warn(`[${config.name}] 로드 실패:`, error);
+            }).catch(error => {
+                console.warn(`[${config.name}] 처리 실패:`, error);
                 return [];
-            }
+            });
         });
         
-        // 모든 국가 데이터 로드가 완료될 때까지 대기
+        // 모든 국가 데이터 로드가 완료될 때까지 대기 (모든 fetch 요청이 동시에 시작됨)
         const allLoadedFeatures = await Promise.all(loadPromises);
+        
+        const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`[loadAllCountriesForDisplay] 모든 국가 데이터 로딩 완료 (${loadTime}초)`);
         
         // 모든 features를 하나의 배열로 병합
         allLoadedFeatures.forEach(features => {
