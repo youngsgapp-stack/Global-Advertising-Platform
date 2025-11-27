@@ -87,6 +87,7 @@ class BillionaireMap {
         this.pKeyCount = 0; // P키 연타 카운트
         this.pKeyTimer = null; // P키 타이머
         this.isGlobeMode = false; // 3D 지구본 모드 상태 (initializeMap에서 초기화)
+        this.modeDropdown = null; // 지도 모드 선택 드롭다운 참조
         this.globeRotationInterval = null; // 지구본 자동 회전 인터벌
         this.cloudRotation = 0; // 구름 회전 각도
         this.cloudImage = null; // 구름 이미지
@@ -2886,15 +2887,7 @@ class BillionaireMap {
                 
                 // 3D 지구본 스타일 설정
                 this.setupGlobeStyle();
-                
-                if (this.map && this.map.setLight) {
-                    this.map.setLight({
-                        anchor: 'viewport',
-                        color: '#ffffff',
-                        intensity: 0.4,
-                        position: [0.3, 0.3, 1.2]
-                    });
-                }
+                this.applyMapLighting();
                 
                 // 줌 이벤트 리스너 추가 (로고 크기 조절용) - 최적화된 버전
                 this.map.on('zoomend', () => {
@@ -2934,30 +2927,32 @@ class BillionaireMap {
         // 1. 메모리 캐시 확인
         if (this.cachedGeoJsonData[countryKey]) {
             console.log(`[${countryKey}] 메모리 캐시 사용`);
-            return this.cachedGeoJsonData[countryKey];
+            return this.ensureRegionIdentifiers(countryKey, this.cachedGeoJsonData[countryKey]);
         }
         
         // 2. IndexedDB 캐시 확인
         const cachedData = await this.getCachedGeoJson(countryKey);
         if (cachedData) {
-            this.cachedGeoJsonData[countryKey] = cachedData;
+            const preparedCachedData = this.ensureRegionIdentifiers(countryKey, cachedData);
+            this.cachedGeoJsonData[countryKey] = preparedCachedData;
             console.log(`[${countryKey}] IndexedDB 캐시 사용`);
-            return cachedData;
+            return preparedCachedData;
         }
         
         // 3. 네트워크에서 로드
         console.log(`[${countryKey}] 네트워크에서 로드`);
         const geoJsonData = await loadFunction();
+        const preparedData = this.ensureRegionIdentifiers(countryKey, geoJsonData);
         
         // 메모리 캐시에 저장
-        this.cachedGeoJsonData[countryKey] = geoJsonData;
+        this.cachedGeoJsonData[countryKey] = preparedData;
         
         // IndexedDB에 캐시 저장 (비동기, 실패해도 계속 진행)
-        this.setCachedGeoJson(countryKey, geoJsonData).catch(err => {
+        this.setCachedGeoJson(countryKey, preparedData).catch(err => {
             console.warn(`[${countryKey}] IndexedDB 캐시 저장 실패:`, err);
         });
         
-        return geoJsonData;
+        return preparedData;
     }
     
     normalizeGeoJsonPayload(payload) {
@@ -2975,6 +2970,85 @@ class BillionaireMap {
             return { type: 'FeatureCollection', features: payload };
         }
         return null;
+    }
+
+    normalizeIdentifierValue(value) {
+        if (!value && value !== 0) return '';
+        return value
+            .toString()
+            .trim()
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .toLowerCase();
+    }
+
+    generateRegionIdentifier(countryKey, properties = {}, index = 0) {
+        const candidateKeys = [
+            'id',
+            'region_id',
+            'regionId',
+            'code',
+            'CODE',
+            'iso',
+            'isoCode',
+            'iso_3166_2',
+            'name',
+            'NAME',
+            'NAME_1',
+            'NAME_2',
+            'ADMIN',
+            'admin',
+            'state',
+            'province'
+        ];
+        let baseValue = '';
+        for (const key of candidateKeys) {
+            if (properties[key]) {
+                baseValue = properties[key];
+                break;
+            }
+        }
+        if (!baseValue) {
+            baseValue = `region-${index}`;
+        }
+        const slug = this.normalizeIdentifierValue(baseValue) || `region-${index}`;
+        return `${countryKey}-${slug}`;
+    }
+
+    ensureRegionIdentifiers(countryKey, geoJsonData) {
+        if (!geoJsonData || !Array.isArray(geoJsonData.features)) {
+            return geoJsonData;
+        }
+
+        const usedIds = new Set();
+
+        geoJsonData.features.forEach((feature, index) => {
+            if (!feature) return;
+            feature.properties = feature.properties || {};
+
+            let regionId = feature.properties.id || feature.id;
+            let generated = false;
+
+            if (!regionId) {
+                regionId = this.generateRegionIdentifier(countryKey, feature.properties, index);
+                generated = true;
+            }
+
+            regionId = regionId.toString();
+
+            if (usedIds.has(regionId)) {
+                const fallbackId = generated
+                    ? `${regionId}-${index}`
+                    : `${regionId}-${countryKey}-${index}`;
+                regionId = fallbackId;
+            }
+
+            usedIds.add(regionId);
+            feature.properties.id = regionId;
+            feature.id = regionId;
+        });
+
+        return geoJsonData;
     }
     
     expandMirrorUrls(url) {
@@ -3254,6 +3328,28 @@ class BillionaireMap {
         } catch (error) {
             console.error('미국 데이터 로드 실패:', error);
             this.showNotification('미국 데이터를 불러오는데 실패했습니다.', 'error');
+        }
+    }
+    
+    applyMapLighting() {
+        if (!this.map) return;
+
+        const lightConfig = {
+            anchor: 'viewport',
+            color: '#ffffff',
+            intensity: 0.4,
+            position: [0.3, 0.3, 1.2],
+            type: 'flat'
+        };
+
+        if (typeof this.map.setLights === 'function') {
+            this.map.setLights([{
+                id: 'world-light',
+                ...lightConfig
+            }]);
+        } else if (typeof this.map.setLight === 'function') {
+            const { type, id, ...legacyConfig } = lightConfig;
+            this.map.setLight(legacyConfig);
         }
     }
     
@@ -3602,8 +3698,63 @@ class BillionaireMap {
         globeBtn.className = 'mode-btn';
         globeBtn.textContent = '🌍 3D 지구본';
         
+        const dropdown = document.createElement('select');
+        dropdown.id = 'country-mode-dropdown';
+        dropdown.className = 'country-dropdown';
+        
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '🌐 전 세계 (3D/2D)';
+        dropdown.appendChild(defaultOption);
+        
+        const countryOptions = [
+            { value: 'usa', label: '🇺🇸 미국' },
+            { value: 'korea', label: '🇰🇷 한국' },
+            { value: 'japan', label: '🇯🇵 일본' },
+            { value: 'china', label: '🇨🇳 중국' },
+            { value: 'russia', label: '🇷🇺 러시아' },
+            { value: 'india', label: '🇮🇳 인도' },
+            { value: 'canada', label: '🇨🇦 캐나다' },
+            { value: 'germany', label: '🇩🇪 독일' },
+            { value: 'uk', label: '🇬🇧 영국' },
+            { value: 'france', label: '🇫🇷 프랑스' },
+            { value: 'italy', label: '🇮🇹 이탈리아' },
+            { value: 'brazil', label: '🇧🇷 브라질' },
+            { value: 'australia', label: '🇦🇺 호주' },
+            { value: 'mexico', label: '🇲🇽 멕시코' },
+            { value: 'indonesia', label: '🇮🇩 인도네시아' },
+            { value: 'saudi-arabia', label: '🇸🇦 사우디아라비아' },
+            { value: 'turkey', label: '🇹🇷 터키' },
+            { value: 'south-africa', label: '🇿🇦 남아프리카공화국' },
+            { value: 'argentina', label: '🇦🇷 아르헨티나' },
+            { value: 'spain', label: '🇪🇸 스페인' },
+            { value: 'portugal', label: '🇵🇹 포르투갈' },
+            { value: 'greece', label: '🇬🇷 그리스' },
+            { value: 'czech-republic', label: '🇨🇿 체코' },
+            { value: 'hungary', label: '🇭🇺 헝가리' },
+            { value: 'poland', label: '🇵🇱 폴란드' },
+            { value: 'belgium', label: '🇧🇪 벨기에' },
+            { value: 'netherlands', label: '🇳🇱 네덜란드' },
+            { value: 'sweden', label: '🇸🇪 스웨덴' },
+            { value: 'austria', label: '🇦🇹 오스트리아' },
+            { value: 'denmark', label: '🇩🇰 덴마크' },
+            { value: 'finland', label: '🇫🇮 핀란드' },
+            { value: 'ireland', label: '🇮🇪 아일랜드' },
+            { value: 'romania', label: '🇷🇴 루마니아' },
+            { value: 'bulgaria', label: '🇧🇬 불가리아' }
+        ];
+        
+        countryOptions.forEach(({ value, label }) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            dropdown.appendChild(option);
+        });
+        
         // 요소들을 컨테이너에 추가
         mapModeToggle.appendChild(globeBtn);
+        mapModeToggle.appendChild(dropdown);
+        this.modeDropdown = dropdown;
         
         // 기존 버튼 스타일 유지 (하위 호환성)
         const usaBtn = document.createElement('button');
@@ -3726,6 +3877,58 @@ class BillionaireMap {
         // 3D/2D 토글 버튼 이벤트 리스너
         globeBtn.addEventListener('click', () => {
             this.toggleGlobeMode();
+        });
+
+        const dropdownModeHandlers = {
+            'usa': () => this.switchToUSAMode(),
+            'korea': () => this.switchToKoreaMode(),
+            'japan': () => this.switchToJapanMode(),
+            'china': () => this.switchToChinaMode(),
+            'russia': () => this.switchToRussiaMode(),
+            'india': () => this.switchToIndiaMode(),
+            'canada': () => this.switchToCanadaMode(),
+            'germany': () => this.switchToGermanyMode(),
+            'uk': () => this.switchToUKMode(),
+            'france': () => this.switchToFranceMode(),
+            'italy': () => this.switchToItalyMode(),
+            'brazil': () => this.switchToBrazilMode(),
+            'australia': () => this.switchToAustraliaMode(),
+            'mexico': () => this.switchToMexicoMode(),
+            'indonesia': () => this.switchToIndonesiaMode(),
+            'saudi-arabia': () => this.switchToSaudiArabiaMode(),
+            'turkey': () => this.switchToTurkeyMode(),
+            'south-africa': () => this.switchToSouthAfricaMode(),
+            'argentina': () => this.switchToArgentinaMode(),
+            'spain': () => this.switchToSpainMode(),
+            'portugal': () => this.switchToPortugalMode(),
+            'greece': () => this.switchToGreeceMode(),
+            'czech-republic': () => this.switchToCzechRepublicMode(),
+            'hungary': () => this.switchToHungaryMode(),
+            'poland': () => this.switchToPolandMode(),
+            'belgium': () => this.switchToBelgiumMode(),
+            'netherlands': () => this.switchToNetherlandsMode(),
+            'sweden': () => this.switchToSwedenMode(),
+            'austria': () => this.switchToAustriaMode(),
+            'denmark': () => this.switchToDenmarkMode(),
+            'finland': () => this.switchToFinlandMode(),
+            'ireland': () => this.switchToIrelandMode(),
+            'romania': () => this.switchToRomaniaMode(),
+            'bulgaria': () => this.switchToBulgariaMode()
+        };
+
+        dropdown.addEventListener('change', async (event) => {
+            const selectedMode = event.target.value;
+            if (!selectedMode) {
+                if (!this.isGlobeMode) {
+                    this.toggleGlobeMode();
+                }
+                return;
+            }
+
+            const handler = dropdownModeHandlers[selectedMode];
+            if (handler) {
+                await handler();
+            }
         });
         
         // 기존 버튼 이벤트 리스너 (하위 호환성)
@@ -4865,16 +5068,16 @@ class BillionaireMap {
         const globeBtn = document.getElementById('globe-mode-btn');
         
         // 드롭다운 선택 업데이트
+        const dropdown = this.modeDropdown || document.getElementById('country-mode-dropdown');
+        if (!this.modeDropdown && dropdown) {
+            this.modeDropdown = dropdown;
+        }
         if (dropdown) {
             if (this.isGlobeMode) {
                 dropdown.value = '';
             } else {
-                // currentMapMode와 드롭다운 값 매핑
-                let dropdownValue = this.currentMapMode;
-                if (this.currentMapMode === 'korea') {
-                    dropdownValue = 'south-korea';
-                }
-                dropdown.value = dropdownValue;
+                const availableOption = Array.from(dropdown.options).some(option => option.value === this.currentMapMode);
+                dropdown.value = availableOption ? this.currentMapMode : '';
             }
         }
         
