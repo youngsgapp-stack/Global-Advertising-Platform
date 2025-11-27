@@ -2837,17 +2837,6 @@ class BillionaireMap {
                         }
                     }
                 ],
-                // 대기 및 조명 효과 (구글어스/nullschool 스타일)
-                lights: [
-                    {
-                        id: 'sun-light',
-                        type: 'directional',
-                        anchor: 'viewport',
-                        color: '#ffffff',
-                        intensity: 0.4,
-                        position: [0.3, 0.3, 1.2]
-                    }
-                ],
                 sky: {
                     'sky-type': 'atmosphere',
                     'sky-atmosphere-sun': [0.0, 0.0],
@@ -2897,6 +2886,15 @@ class BillionaireMap {
                 
                 // 3D 지구본 스타일 설정
                 this.setupGlobeStyle();
+                
+                if (this.map && this.map.setLight) {
+                    this.map.setLight({
+                        anchor: 'viewport',
+                        color: '#ffffff',
+                        intensity: 0.4,
+                        position: [0.3, 0.3, 1.2]
+                    });
+                }
                 
                 // 줌 이벤트 리스너 추가 (로고 크기 조절용) - 최적화된 버전
                 this.map.on('zoomend', () => {
@@ -2962,19 +2960,127 @@ class BillionaireMap {
         return geoJsonData;
     }
     
+    normalizeGeoJsonPayload(payload) {
+        if (!payload) return null;
+        if (payload.type === 'FeatureCollection' && Array.isArray(payload.features)) {
+            return payload;
+        }
+        if (payload.geoJson) {
+            return this.normalizeGeoJsonPayload(payload.geoJson);
+        }
+        if (Array.isArray(payload.features)) {
+            return { type: 'FeatureCollection', features: payload.features };
+        }
+        if (Array.isArray(payload) && payload.length > 0 && payload[0].geometry) {
+            return { type: 'FeatureCollection', features: payload };
+        }
+        return null;
+    }
+    
+    expandMirrorUrls(url) {
+        if (!url) return [];
+        const variants = [];
+        const addVariant = (candidate) => {
+            if (candidate && !variants.includes(candidate)) {
+                variants.push(candidate);
+            }
+        };
+        
+        addVariant(url);
+        
+        try {
+            const parsed = new URL(url);
+            if (parsed.hostname === 'raw.githubusercontent.com') {
+                const path = parsed.pathname.replace(/^\/+/, '');
+                addVariant(`https://raw.fastgit.org/${path}`);
+                
+                const segments = path.split('/');
+                if (segments.length >= 4) {
+                    const [owner, repo, branch, ...rest] = segments;
+                    const restPath = rest.join('/');
+                    addVariant(`https://rawcdn.githack.com/${owner}/${repo}/${branch}/${restPath}`);
+                    addVariant(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${restPath}`);
+                }
+            }
+        } catch (error) {
+            console.warn('URL 파싱 실패로 미러 확장을 건너뜁니다:', url, error);
+        }
+        
+        return variants;
+    }
+    
+    async waitForGeoRetry(attempt) {
+        const clampedAttempt = Math.min(attempt, 5);
+        const delay = 200 * (clampedAttempt + 1); // 200ms, 400ms, ...
+        return new Promise(resolve => setTimeout(resolve, delay));
+    }
+    
+    async fetchGeoJsonWithFallback(countryKey, {
+        urls = [],
+        localPath = null,
+        minFeatures = 1
+    } = {}) {
+        let lastError = null;
+        let attempt = 0;
+        const tried = new Set();
+        
+        const tryFetch = async (targetUrl) => {
+            try {
+                const response = await fetch(targetUrl, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const json = await response.json();
+                const normalized = this.normalizeGeoJsonPayload(json);
+                if (normalized && Array.isArray(normalized.features) && normalized.features.length >= minFeatures) {
+                    console.log(`[${countryKey}] Loaded from ${targetUrl} (features: ${normalized.features.length})`);
+                    return normalized;
+                }
+                throw new Error('Invalid GeoJSON structure');
+            } catch (error) {
+                lastError = error;
+                console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, error);
+                attempt += 1;
+                await this.waitForGeoRetry(attempt);
+                return null;
+            }
+        };
+        
+        for (const url of urls) {
+            const variants = this.expandMirrorUrls(url);
+            for (const candidate of variants) {
+                if (tried.has(candidate)) continue;
+                tried.add(candidate);
+                const result = await tryFetch(candidate);
+                if (result) return result;
+            }
+        }
+        
+        if (localPath) {
+            const assetUrl = this.getAssetUrl(localPath);
+            if (!tried.has(assetUrl)) {
+                tried.add(assetUrl);
+                const assetResult = await tryFetch(assetUrl);
+                if (assetResult) return assetResult;
+            }
+            if (!tried.has(localPath)) {
+                const localResult = await tryFetch(localPath);
+                if (localResult) return localResult;
+            }
+        }
+        
+        throw lastError || new Error(`No ${countryKey} dataset available`);
+    }
+    
     async loadWorldData() {
         try {
             const geoJsonData = await this.loadGeoJsonWithCache('usa', async () => {
-                // 실제 미국 주 경계선 데이터를 공개 API에서 로드
-                let data;
-                try {
-                    const response = await fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json');
-                    data = await response.json();
-                } catch (error) {
-                    console.error('API 데이터 로드 실패:', error);
-                    const localResponse = await fetch('data/us-states.geojson');
-                    data = await localResponse.json();
-                }
+                const data = await this.fetchGeoJsonWithFallback('usa', {
+                    urls: [
+                        this.getAssetUrl('data/us-states.geojson'),
+                        'https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json'
+                    ],
+                    localPath: 'data/us-states.geojson',
+                    minFeatures: 30
+                });
                 
                 // 미국 주별 실제 인구 및 면적 데이터
                 const usaStateData = {
@@ -5088,76 +5194,19 @@ class BillionaireMap {
     async loadChinaData() {
         try {
             const geoJsonData = await this.loadGeoJsonWithCache('china', async () => {
-                // 중국 성급 경계 데이터 다중 소스 시도
-                const candidateUrls = [
-                    // DataV GeoJSON API (권장) - 일부 환경에서 403 발생 가능
-                    'https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=100000_full',
-                    // DataV 정적 JSON (동일 데이터 다른 엔드포인트)
-                    'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json',
-                    // Apache ECharts 공식 예제 데이터
-                    'https://echarts.apache.org/examples/data/asset/geo/CHN.json',
-                    // GitHub: 중국 성 GeoJSON (province level)
-                    'https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/master/dist/geojson/areas/provinces.geojson',
-                    // GitHub: china province geojson alternative
-                    'https://raw.githubusercontent.com/hesongshy/China_Province_Line_GeoJSON/master/china_province.geojson',
-                    // GitHub: longwosion repo
-                    'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
-                ];
-                
-                let lastError = null;
-                let data = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const response = await fetch(url, { cache: 'no-store' });
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const fetchedData = await response.json();
-                        // 형식 단순 정규화 (FeatureCollection 보장)
-                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
-                            data = fetchedData;
-                            console.log('[China] Loaded from', url, 'features:', fetchedData.features.length);
-                            break;
-                        }
-                        // 일부 소스는 {features: [...]} 형태만 제공
-                        if (!fetchedData.type && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
-                            data = { type: 'FeatureCollection', features: fetchedData.features };
-                            console.log('[China] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
-                            break;
-                        }
-                        // ECharts 일부 데이터는 객체에 geoJson 키를 가짐
-                        if (fetchedData && fetchedData.geoJson && fetchedData.geoJson.type === 'FeatureCollection' && Array.isArray(fetchedData.geoJson.features)) {
-                            data = fetchedData.geoJson;
-                            console.log('[China] Loaded (geoJson key) from', url, 'features:', fetchedData.geoJson.features.length);
-                            break;
-                        }
-                        // 일부 저장소는 { geometry: {...}, properties: {...} }의 배열만 제공
-                        if (Array.isArray(fetchedData) && fetchedData.length > 10 && fetchedData[0].geometry) {
-                            data = { type: 'FeatureCollection', features: fetchedData };
-                            console.log('[China] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (err) {
-                        lastError = err;
-                        console.warn('[China] Failed loading from', url, err);
-                    }
-                }
-                // 로컬 폴백
-                if (!data) {
-                    try {
-                        const localResp = await fetch('data/china-provinces.geojson', { cache: 'no-store' });
-                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
-                        const localData = await localResp.json();
-                        if (localData && Array.isArray(localData.features) && localData.features.length > 10) {
-                            data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
-                            console.log('[China] Loaded from local fallback data/china-provinces.geojson');
-                        }
-                    } catch (e) {
-                        console.warn('[China] Local fallback missing or invalid', e);
-                    }
-                }
-                if (!data) {
-                    throw lastError || new Error('No China dataset available');
-                }
+                const data = await this.fetchGeoJsonWithFallback('china', {
+                    urls: [
+                        this.getAssetUrl('data/china-provinces.geojson'),
+                        'https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=100000_full',
+                        'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json',
+                        'https://echarts.apache.org/examples/data/asset/geo/CHN.json',
+                        'https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/master/dist/geojson/areas/provinces.geojson',
+                        'https://raw.githubusercontent.com/hesongshy/China_Province_Line_GeoJSON/master/china_province.geojson',
+                        'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
+                    ],
+                    localPath: 'data/china-provinces.geojson',
+                    minFeatures: 25
+                });
                 
                 // 중국 성급 행정구역별 실제 인구 및 면적 데이터
                 const chinaProvinceData = {
@@ -5795,56 +5844,18 @@ class BillionaireMap {
                 'लद्दाख़': { population: 320000, area: 59146 },
                 'लक्षद्वीप': { population: 70000, area: 32 },
                 'पुदुचेरी': { population: 1700000, area: 490 }
-            };
-            
-                const candidateUrls = [
-                    // geoBoundaries IND ADM1
-                    'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IND/ADM1/geoBoundaries-IND-ADM1.geojson',
-                    // click_that_hood india
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/india.geojson',
-                    // Humanitarian Data Exchange mirror via GitHub
-                    'https://raw.githubusercontent.com/datasets/geo-admin1-us/master/data/india_states.geojson'
-                ];
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const resp = await fetch(url, { cache: 'no-store' });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const fetchedData = await resp.json();
-                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 25) {
-                            data = fetchedData;
-                            console.log('[India] Loaded from', url, 'features:', fetchedData.features.length);
-                            break;
-                        }
-                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 25) {
-                            data = { type: 'FeatureCollection', features: fetchedData.features };
-                            console.log('[India] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
-                            break;
-                        }
-                        if (Array.isArray(fetchedData) && fetchedData.length > 25 && fetchedData[0].geometry) {
-                            data = { type: 'FeatureCollection', features: fetchedData };
-                            console.log('[India] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (e) {
-                        lastError = e;
-                        console.warn('[India] Failed loading from', url, e);
-                    }
-                }
-                // 로컬 폴백
-                if (!data) {
-                    try {
-                        const localResp = await fetch('data/india-states.geojson', { cache: 'no-store' });
-                        if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
-                        const localData = await localResp.json();
-                        data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
-                        console.log('[India] Loaded from local fallback data/india-states.geojson');
-                    } catch (e) {
-                        console.warn('[India] Local fallback missing or invalid', e);
-                    }
-                }
-                if (!data) throw lastError || new Error('No India dataset available');
+                };
+                
+                const data = await this.fetchGeoJsonWithFallback('india', {
+                    urls: [
+                        this.getAssetUrl('data/india-states.geojson'),
+                        'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IND/ADM1/geoBoundaries-IND-ADM1.geojson',
+                        'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/india.geojson',
+                        'https://raw.githubusercontent.com/datasets/geo-admin1-us/master/data/india_states.geojson'
+                    ],
+                    localPath: 'data/india-states.geojson',
+                    minFeatures: 25
+                });
                 
                 // 속성 정규화
                 const idSet = new Set();
@@ -7207,10 +7218,13 @@ class BillionaireMap {
                 }
                 if (!data) throw lastError || new Error('No Italy dataset available');
                 
-                // 50개 이상의 feature가 있으면 그룹화 필요 (프로빈치아 -> 레지오네)
-                const needsGrouping = data.features && data.features.length > 50;
+                let processedData = data;
+                const originalFeatureCount = Array.isArray(data.features) ? data.features.length : 0;
                 
-                if (needsGrouping) {
+                // 50개 이상의 feature가 있으면 그룹화 필요 (프로빈치아 -> 레지오네)
+                const needsGrouping = originalFeatureCount > 50;
+                
+                if (needsGrouping && Array.isArray(data.features)) {
                     // 이탈리아 프로빈치아를 20개 레지오네로 그룹화하는 매핑
                     const italyRegionMapping = {
                         'Abruzzo': ['Chieti', 'L\'Aquila', 'Pescara', 'Teramo'],
@@ -7284,7 +7298,7 @@ class BillionaireMap {
                     const groupedFeatures = new Map();
                     const idSet = new Set();
                     
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
                         const nameLower = rawName.toLowerCase().trim();
@@ -7487,13 +7501,13 @@ class BillionaireMap {
                         this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
-                    console.log(`[Italy] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    console.log(`[Italy] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${originalFeatureCount}개)`);
                     
-                    geoJsonData = {
+                    processedData = {
                         type: 'FeatureCollection',
                         features: mergedFeatures
                     };
-                } else {
+                } else if (Array.isArray(data.features)) {
                     // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
                     // 이탈리아 레지오네별 인구 및 면적 데이터 (2024 기준)
                     const italyRegionData = {
@@ -7520,7 +7534,7 @@ class BillionaireMap {
                     };
                     
                     const idSet = new Set();
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
                         const baseIdSrc = p.hasc || p.shapeID || rawName || `ITA_${index}`;
@@ -7568,7 +7582,7 @@ class BillionaireMap {
                     });
                 }
                 
-                return data;
+                return processedData;
             });
 
             if (this.map.getSource('world-regions')) {
@@ -17000,6 +17014,10 @@ class BillionaireMap {
     
     // hover 효과 적용 함수 (즉시 적용)
     applyHoverEffect(regionId) {
+        if (!regionId) {
+            console.warn('[Hover] regionId가 정의되지 않아 hover 효과를 건너뜁니다.');
+            return;
+        }
         // hover 레이어에 해당 지역만 표시
         if (this.map.getLayer('regions-hover')) {
             this.map.setFilter('regions-hover', ['==', 'id', regionId]);
