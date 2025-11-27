@@ -46,6 +46,7 @@
                     <h4>사용자</h4>
                     <button id="side-user-login-btn" class="side-menu-btn user-login-btn">로그인</button>
                     <button id="side-user-logout-btn" class="side-menu-btn user-logout-btn hidden">로그아웃</button>
+                    <button id="side-my-page-btn" class="side-menu-btn my-page-btn hidden">내 활동</button>
                     <span id="side-user-email" class="side-user-email hidden"></span>
                 </div>
                 <div class="side-menu-section" id="side-admin-section" style="display: none;">
@@ -79,6 +80,7 @@
             </div>
             <div class="header-actions">
                 <button id="market-stats-btn" class="market-stats-btn">통계</button>
+                <button id="my-page-btn" class="my-page-btn hidden">내 활동</button>
                 <button id="user-login-btn" class="user-login-btn">로그인</button>
                 <button id="user-logout-btn" class="user-logout-btn hidden">로그아웃</button>
                 <span id="user-email" class="user-email hidden"></span>
@@ -993,6 +995,74 @@
                     
                     <div id="dashboard-auction-list" class="auction-list">
                         <p style="text-align: center; color: #666; padding: 20px;">로딩 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 사용자 대시보드 모달 -->
+        <div id="user-dashboard-modal" class="modal hidden">
+            <div class="modal-content user-dashboard-modal">
+                <div class="modal-header">
+                    <div>
+                        <h2>
+                            <span class="label-primary">내 활동</span>
+                            <span class="label-secondary">My Page</span>
+                        </h2>
+                        <p class="modal-subtitle">참여 중인 옥션과 결과를 한눈에 확인하세요.</p>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="refresh-user-dashboard" class="refresh-btn" title="새로고침">새로고침</button>
+                        <button id="close-user-dashboard" class="close-btn">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body user-dashboard-body">
+                    <div id="user-dashboard-loading" class="user-dashboard-loading">
+                        <div class="loading-spinner"></div>
+                        <p>데이터를 불러오는 중입니다...</p>
+                    </div>
+                    <div id="user-dashboard-error" class="user-dashboard-error hidden">
+                        <p>데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>
+                        <button id="user-dashboard-retry-btn" class="retry-btn">다시 시도</button>
+                    </div>
+                    <div id="user-dashboard-content" class="user-dashboard-content hidden">
+                        <div class="user-dashboard-summary">
+                            <div class="summary-card">
+                                <span class="summary-label">진행 중</span>
+                                <span id="user-bids-active-count" class="summary-value">0</span>
+                                <span class="summary-helper">Active Bids</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">낙찰</span>
+                                <span id="user-bids-won-count" class="summary-value">0</span>
+                                <span class="summary-helper">Won</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">유찰/종료</span>
+                                <span id="user-bids-lost-count" class="summary-value">0</span>
+                                <span class="summary-helper">Lost</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">총 입찰액</span>
+                                <span id="user-bids-total-amount" class="summary-value">$0.00</span>
+                                <span class="summary-helper">Total Bid Value</span>
+                            </div>
+                        </div>
+                        <div class="user-dashboard-tabs">
+                            <button class="tab-btn active" data-tab="active">진행 중</button>
+                            <button class="tab-btn" data-tab="won">낙찰</button>
+                            <button class="tab-btn" data-tab="lost">유찰/종료</button>
+                        </div>
+                        <div id="user-dashboard-empty" class="user-dashboard-empty hidden">
+                            <p>아직 참여한 옥션이 없습니다. 관심 지역에 입찰해보세요!</p>
+                        </div>
+                        <div id="user-dashboard-list" class="user-dashboard-list"></div>
+                        <div class="user-dashboard-timeline">
+                            <div class="timeline-header">
+                                <h3>최근 활동</h3>
+                            </div>
+                            <div id="user-dashboard-activity" class="user-dashboard-activity"></div>
+                        </div>
                     </div>
                 </div>
             </div>

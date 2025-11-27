@@ -1,3 +1,306 @@
+/* === My Page / User Dashboard === */
+.my-page-btn {
+    background: rgba(78, 205, 196, 0.15);
+    border: 1px solid rgba(78, 205, 196, 0.5);
+    color: #4ecdc4;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.my-page-btn:hover {
+    background: rgba(78, 205, 196, 0.25);
+    transform: translateY(-1px);
+}
+
+.user-dashboard-modal {
+    max-width: 960px;
+    width: 90%;
+}
+
+.user-dashboard-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.user-dashboard-loading,
+.user-dashboard-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    text-align: center;
+    gap: 16px;
+}
+
+.user-dashboard-error p {
+    color: #ff6b6b;
+}
+
+.retry-btn,
+.refresh-btn {
+    background: rgba(78, 205, 196, 0.2);
+    border: 1px solid rgba(78, 205, 196, 0.4);
+    color: #4ecdc4;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.retry-btn:hover,
+.refresh-btn:hover {
+    background: rgba(78, 205, 196, 0.3);
+}
+
+.user-dashboard-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.user-dashboard-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+
+.summary-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.summary-label {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.summary-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.summary-helper {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.user-dashboard-tabs {
+    display: flex;
+    gap: 10px;
+}
+
+.user-dashboard-tabs .tab-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.02);
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-dashboard-tabs .tab-btn.active {
+    background: rgba(78, 205, 196, 0.15);
+    border-color: rgba(78, 205, 196, 0.4);
+    color: #4ecdc4;
+}
+
+.user-dashboard-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+}
+
+.user-dashboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.user-dashboard-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 18px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    align-items: center;
+}
+
+.user-card-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.user-card-meta {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.status-active {
+    background: rgba(78, 205, 196, 0.15);
+    color: #4ecdc4;
+}
+
+.status-won {
+    background: rgba(255, 214, 102, 0.15);
+    color: #ffd666;
+}
+
+.status-lost {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+}
+
+.status-pending {
+    background: rgba(255, 165, 0, 0.15);
+    color: #ffb347;
+}
+
+.user-card-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.user-card-actions button {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(78, 205, 196, 0.4);
+    background: transparent;
+    color: #4ecdc4;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-card-actions button:hover {
+    background: rgba(78, 205, 196, 0.15);
+}
+
+.user-card-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-card-stat label {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.user-card-stat span {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.user-dashboard-timeline {
+    margin-top: 10px;
+    padding: 20px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.user-dashboard-activity {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.timeline-event {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.timeline-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(78, 205, 196, 0.2);
+}
+
+.timeline-content {
+    flex: 1;
+}
+
+.timeline-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.timeline-meta {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.loading-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #4ecdc4;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
 /* 기본 스타일 */
 * {
     margin: 0;

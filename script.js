@@ -165,6 +165,16 @@ class BillionaireMap {
             },
             maxLogSize: 1000 // 최대 로그 크기
         };
+
+        // 사용자 대시보드 상태
+        this.userDashboardState = {
+            loading: false,
+            activeTab: 'active',
+            entries: [],
+            timeline: [],
+            lastLoadedAt: null,
+            error: null
+        };
         
         // API 엔드포인트 설정
         this.apiEndpoints = {
@@ -14513,6 +14523,75 @@ class BillionaireMap {
                 this.signInWithGoogle();
             });
         }
+
+        // 내 활동 (My Page) 버튼들
+        const myPageBtn = document.getElementById('my-page-btn');
+        if (myPageBtn) {
+            myPageBtn.addEventListener('click', () => {
+                this.openUserDashboard();
+            });
+        }
+
+        const sideMyPageBtn = document.getElementById('side-my-page-btn');
+        if (sideMyPageBtn) {
+            sideMyPageBtn.addEventListener('click', () => {
+                this.openUserDashboard();
+            });
+        }
+
+        const closeUserDashboardBtn = document.getElementById('close-user-dashboard');
+        if (closeUserDashboardBtn) {
+            closeUserDashboardBtn.addEventListener('click', () => {
+                this.closeUserDashboard();
+            });
+        }
+
+        const refreshUserDashboardBtn = document.getElementById('refresh-user-dashboard');
+        if (refreshUserDashboardBtn) {
+            refreshUserDashboardBtn.addEventListener('click', () => {
+                this.loadUserDashboardData(true);
+            });
+        }
+
+        const retryUserDashboardBtn = document.getElementById('user-dashboard-retry-btn');
+        if (retryUserDashboardBtn) {
+            retryUserDashboardBtn.addEventListener('click', () => {
+                this.loadUserDashboardData(true);
+            });
+        }
+
+        const userDashboardModal = document.getElementById('user-dashboard-modal');
+        if (userDashboardModal) {
+            userDashboardModal.addEventListener('click', (event) => {
+                if (event.target === userDashboardModal) {
+                    this.closeUserDashboard();
+                }
+            });
+        }
+
+        const userDashboardTabs = document.querySelectorAll('.user-dashboard-tabs .tab-btn');
+        if (userDashboardTabs.length > 0) {
+            userDashboardTabs.forEach(tab => {
+                tab.addEventListener('click', (event) => {
+                    const tabName = event.currentTarget.dataset.tab;
+                    this.switchUserDashboardTab(tabName);
+                });
+            });
+        }
+
+        const userDashboardList = document.getElementById('user-dashboard-list');
+        if (userDashboardList) {
+            userDashboardList.addEventListener('click', async (event) => {
+                const actionBtn = event.target.closest('[data-dashboard-action]');
+                if (!actionBtn) return;
+                const regionId = actionBtn.dataset.regionId;
+                if (!regionId) return;
+
+                if (actionBtn.dataset.dashboardAction === 'open-auction') {
+                    await this.openAuctionFromDashboard(regionId);
+                }
+            });
+        }
         
         // 관리자 로그인 버튼
         const adminLoginBtn = document.getElementById('admin-login-btn');
@@ -16231,6 +16310,8 @@ class BillionaireMap {
         const sideLoginBtn = document.getElementById('side-user-login-btn');
         const sideLogoutBtn = document.getElementById('side-user-logout-btn');
         const sideUserEmail = document.getElementById('side-user-email');
+        const myPageBtn = document.getElementById('my-page-btn');
+        const sideMyPageBtn = document.getElementById('side-my-page-btn');
         
         if (this.currentUser) {
             // 로그인 상태
@@ -16248,6 +16329,8 @@ class BillionaireMap {
                 sideUserEmail.textContent = this.currentUser.email;
                 sideUserEmail.classList.remove('hidden');
             }
+            if (myPageBtn) myPageBtn.classList.remove('hidden');
+            if (sideMyPageBtn) sideMyPageBtn.classList.remove('hidden');
         } else {
             // 로그아웃 상태
             if (loginBtn) loginBtn.classList.remove('hidden');
@@ -16264,6 +16347,9 @@ class BillionaireMap {
                 sideUserEmail.textContent = '';
                 sideUserEmail.classList.add('hidden');
             }
+            if (myPageBtn) myPageBtn.classList.add('hidden');
+            if (sideMyPageBtn) sideMyPageBtn.classList.add('hidden');
+            this.closeUserDashboard({ silent: true });
         }
     }
     
@@ -18485,6 +18571,375 @@ class BillionaireMap {
         });
     }
     
+    // ==================== 사용자 대시보드 ====================
+    openUserDashboard() {
+        if (!this.currentUser) {
+            this.showNotification('로그인이 필요합니다.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        
+        const modal = document.getElementById('user-dashboard-modal');
+        if (!modal) return;
+        
+        modal.classList.remove('hidden');
+        const shouldRefresh = !this.userDashboardState.lastLoadedAt 
+            || (Date.now() - this.userDashboardState.lastLoadedAt > 60 * 1000);
+        
+        if (shouldRefresh) {
+            this.loadUserDashboardData(true);
+        } else {
+            this.renderUserDashboardState();
+        }
+    }
+    
+    closeUserDashboard(options = {}) {
+        const modal = document.getElementById('user-dashboard-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        
+        if (!options.silent && this.userDashboardState.entries.length === 0) {
+            const emptyEl = document.getElementById('user-dashboard-empty');
+            if (emptyEl) {
+                emptyEl.classList.add('hidden');
+            }
+        }
+    }
+    
+    isUserDashboardOpen() {
+        const modal = document.getElementById('user-dashboard-modal');
+        return modal ? !modal.classList.contains('hidden') : false;
+    }
+    
+    switchUserDashboardTab(tabName = 'active') {
+        if (!tabName) return;
+        this.userDashboardState.activeTab = tabName;
+        const tabs = document.querySelectorAll('.user-dashboard-tabs .tab-btn');
+        tabs.forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+        this.renderUserDashboardList(this.userDashboardState.entries || []);
+    }
+    
+    setUserDashboardLoading(isLoading) {
+        this.userDashboardState.loading = isLoading;
+        const loadingEl = document.getElementById('user-dashboard-loading');
+        const contentEl = document.getElementById('user-dashboard-content');
+        if (loadingEl) {
+            loadingEl.classList.toggle('hidden', !isLoading);
+        }
+        if (contentEl) {
+            contentEl.classList.toggle('hidden', isLoading);
+        }
+    }
+    
+    showUserDashboardError(message) {
+        const errorEl = document.getElementById('user-dashboard-error');
+        const contentEl = document.getElementById('user-dashboard-content');
+        if (errorEl) {
+            const textEl = errorEl.querySelector('p');
+            if (textEl) {
+                textEl.textContent = message || '데이터를 불러오지 못했습니다.';
+            }
+            errorEl.classList.remove('hidden');
+        }
+        if (contentEl) {
+            contentEl.classList.add('hidden');
+        }
+    }
+    
+    clearUserDashboardError() {
+        const errorEl = document.getElementById('user-dashboard-error');
+        if (errorEl) {
+            errorEl.classList.add('hidden');
+        }
+    }
+    
+    async loadUserDashboardData(force = false) {
+        if (!this.currentUser) {
+            return;
+        }
+        
+        if (this.userDashboardState.loading && !force) {
+            return;
+        }
+        
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            await this.initializeFirebase();
+            if (!this.firestore) {
+                this.showUserDashboardError('Firebase 설정 후 다시 시도해주세요.');
+                return;
+            }
+        }
+        
+        this.clearUserDashboardError();
+        this.setUserDashboardLoading(true);
+        
+        try {
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const bidsQuery = query(auctionsRef, where('participantIds', 'array-contains', this.currentUser.uid));
+            const snapshot = await getDocs(bidsQuery);
+            
+            const entries = [];
+            snapshot.forEach(doc => {
+                const entry = this.buildUserDashboardEntry(doc.id, doc.data());
+                if (entry) {
+                    entries.push(entry);
+                }
+            });
+            
+            entries.sort((a, b) => (b.lastBidAt || 0) - (a.lastBidAt || 0));
+            this.userDashboardState.entries = entries;
+            this.userDashboardState.timeline = this.buildUserDashboardTimeline(entries);
+            this.userDashboardState.lastLoadedAt = Date.now();
+            this.renderUserDashboardState();
+        } catch (error) {
+            console.error('[사용자 대시보드 로드 실패]:', error);
+            this.showUserDashboardError('데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
+        } finally {
+            this.setUserDashboardLoading(false);
+        }
+    }
+    
+    buildUserDashboardEntry(auctionId, auctionData) {
+        if (!auctionData || !this.currentUser) {
+            return null;
+        }
+        const userId = this.currentUser.uid;
+        const userEmail = this.currentUser.email;
+        const regionId = auctionData.regionId || auctionId;
+        const regionMeta = this.regionData.get(regionId);
+        const toMillis = (value) => {
+            if (!value) return null;
+            if (typeof value.toMillis === 'function') return value.toMillis();
+            if (typeof value.toDate === 'function') return value.toDate().getTime();
+            if (value instanceof Date) return value.getTime();
+            if (typeof value === 'number') return value;
+            return null;
+        };
+        
+        const myBids = (auctionData.bidHistory || []).filter(bid => {
+            return (bid.bidderId && bid.bidderId === userId) || (bid.bidderEmail && bid.bidderEmail === userEmail);
+        });
+        if (myBids.length === 0) {
+            return null;
+        }
+        const lastBid = myBids[myBids.length - 1];
+        const lastBidAt = toMillis(lastBid.timestamp) || Date.now();
+        const status = auctionData.status || 'active';
+        const isHighest = auctionData.highestBidderId === userId;
+        const category = this.resolveUserAuctionCategory(status, isHighest);
+        
+        return {
+            regionId,
+            regionName: auctionData.regionName || auctionData.regionNameEn || regionMeta?.name_ko || regionMeta?.name || regionId,
+            country: auctionData.country || regionMeta?.country || '-',
+            lastBidAmount: lastBid.amount,
+            lastBidAt,
+            currentBid: auctionData.currentBid || auctionData.startPrice || lastBid.amount || 0,
+            myBidCount: myBids.length,
+            myIsHighest: isHighest,
+            status,
+            category,
+            endTime: toMillis(auctionData.endTime),
+            timeline: myBids.map(bid => ({
+                amount: bid.amount,
+                timestamp: toMillis(bid.timestamp) || lastBidAt
+            }))
+        };
+    }
+    
+    resolveUserAuctionCategory(status, isHighest) {
+        switch (status) {
+            case 'sold':
+            case 'ended':
+                return isHighest ? 'won' : 'lost';
+            case 'pending_payment':
+                return isHighest ? 'active' : 'lost';
+            default:
+                return 'active';
+        }
+    }
+    
+    buildUserDashboardSummary(entries = []) {
+        return entries.reduce((acc, entry) => {
+            if (entry.category === 'active') acc.active += 1;
+            if (entry.category === 'won') acc.won += 1;
+            if (entry.category === 'lost') acc.lost += 1;
+            acc.totalAmount += entry.lastBidAmount || 0;
+            return acc;
+        }, { active: 0, won: 0, lost: 0, totalAmount: 0 });
+    }
+    
+    renderUserDashboardSummaryUI() {
+        const summary = this.buildUserDashboardSummary(this.userDashboardState.entries || []);
+        const activeEl = document.getElementById('user-bids-active-count');
+        const wonEl = document.getElementById('user-bids-won-count');
+        const lostEl = document.getElementById('user-bids-lost-count');
+        const totalEl = document.getElementById('user-bids-total-amount');
+        
+        if (activeEl) activeEl.textContent = summary.active.toLocaleString();
+        if (wonEl) wonEl.textContent = summary.won.toLocaleString();
+        if (lostEl) lostEl.textContent = summary.lost.toLocaleString();
+        if (totalEl) totalEl.textContent = this.formatCurrency(summary.totalAmount || 0);
+    }
+    
+    renderUserDashboardState() {
+        this.renderUserDashboardSummaryUI();
+        this.renderUserDashboardList(this.userDashboardState.entries || []);
+        this.renderUserDashboardTimeline(this.userDashboardState.timeline || []);
+    }
+    
+    renderUserDashboardList(entries = []) {
+        const listEl = document.getElementById('user-dashboard-list');
+        const emptyEl = document.getElementById('user-dashboard-empty');
+        if (!listEl || !emptyEl) return;
+        
+        listEl.innerHTML = '';
+        const targetTab = this.userDashboardState.activeTab || 'active';
+        const filtered = entries.filter(entry => entry.category === targetTab);
+        
+        if (filtered.length === 0) {
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+        emptyEl.classList.add('hidden');
+        
+        filtered.forEach(entry => {
+            const card = document.createElement('div');
+            card.className = 'user-dashboard-card';
+            const statusClass = this.getUserDashboardStatusClass(entry);
+            const statusLabel = this.getUserDashboardStatusLabel(entry);
+            const lastBidDate = entry.lastBidAt ? new Date(entry.lastBidAt).toLocaleString('ko-KR', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '-';
+            
+            card.innerHTML = `
+                <div class="user-card-header">
+                    <div class="user-card-title">${this.sanitizeHTML(entry.regionName || entry.regionId)}</div>
+                    <div class="user-card-meta">${this.sanitizeHTML(entry.country || '-')}</div>
+                    <span class="status-chip ${statusClass}">${statusLabel}</span>
+                </div>
+                <div class="user-card-stat">
+                    <label>내 최근 입찰</label>
+                    <span>${this.formatCurrency(entry.lastBidAmount || 0)}</span>
+                    <small style="color: rgba(255,255,255,0.6);">${lastBidDate}</small>
+                </div>
+                <div class="user-card-stat">
+                    <label>현재 최고가</label>
+                    <span>${this.formatCurrency(entry.currentBid || 0)}</span>
+                </div>
+                <div class="user-card-actions">
+                    <button data-dashboard-action="open-auction" data-region-id="${this.sanitizeHTML(entry.regionId)}">옥션 열기</button>
+                </div>
+            `;
+            listEl.appendChild(card);
+        });
+    }
+    
+    getUserDashboardStatusLabel(entry) {
+        if (entry.category === 'won') return '낙찰';
+        if (entry.category === 'lost') return '유찰';
+        if (entry.status === 'pending_payment' && entry.myIsHighest) return '결제 대기';
+        return '진행 중';
+    }
+    
+    getUserDashboardStatusClass(entry) {
+        if (entry.category === 'won') return 'status-won';
+        if (entry.category === 'lost') return 'status-lost';
+        if (entry.status === 'pending_payment' && entry.myIsHighest) return 'status-pending';
+        return 'status-active';
+    }
+    
+    buildUserDashboardTimeline(entries = []) {
+        const events = [];
+        entries.forEach(entry => {
+            (entry.timeline || []).forEach(bid => {
+                events.push({
+                    regionId: entry.regionId,
+                    regionName: entry.regionName,
+                    amount: bid.amount,
+                    timestamp: bid.timestamp,
+                    category: entry.category
+                });
+            });
+        });
+        events.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        return events.slice(0, 10);
+    }
+    
+    renderUserDashboardTimeline(events = []) {
+        const container = document.getElementById('user-dashboard-activity');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        if (events.length === 0) {
+            const empty = document.createElement('p');
+            empty.style.color = 'rgba(255,255,255,0.6)';
+            empty.style.textAlign = 'center';
+            empty.textContent = '최근 활동이 없습니다.';
+            container.appendChild(empty);
+            return;
+        }
+        
+        events.forEach(event => {
+            const item = document.createElement('div');
+            item.className = 'timeline-event';
+            
+            const icon = document.createElement('div');
+            icon.className = 'timeline-icon';
+            icon.textContent = event.category === 'won' ? '🏆' : event.category === 'lost' ? '❌' : '💰';
+            
+            const content = document.createElement('div');
+            content.className = 'timeline-content';
+            
+            const title = document.createElement('div');
+            title.className = 'timeline-title';
+            title.textContent = `${event.regionName} - ${this.formatCurrency(event.amount || 0)}`;
+            
+            const meta = document.createElement('div');
+            meta.className = 'timeline-meta';
+            const dateLabel = event.timestamp ? new Date(event.timestamp).toLocaleString('ko-KR', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '-';
+            meta.textContent = dateLabel;
+            
+            content.appendChild(title);
+            content.appendChild(meta);
+            item.appendChild(icon);
+            item.appendChild(content);
+            container.appendChild(item);
+        });
+    }
+    
+    async openAuctionFromDashboard(regionId) {
+        if (!regionId) {
+            this.showNotification('지역 정보를 확인할 수 없습니다.', 'warning');
+            return;
+        }
+        
+        let region = this.regionData.get(regionId);
+        if (!region) {
+            region = await this.getRegionById(regionId);
+        }
+        
+        if (!region) {
+            this.showNotification('지역 정보를 불러오지 못했습니다.', 'error');
+            return;
+        }
+        
+        this.currentRegion = region;
+        await this.openAuctionModal(region);
+    }
+    
     // 기업 정보 모달 숨기기
     hideCompanyInfoModal() {
         const modal = document.getElementById('company-info-modal');
@@ -18904,7 +19359,9 @@ class BillionaireMap {
                     originalEndTime: endTime, // 원래 종료 시간 (연장 계산용)
                     extended: false, // 연장 여부
                     createdAt: serverTimestamp(),
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    participantIds: [],
+                    participantEmails: []
                 };
                 
                 await setDoc(auctionRef, newAuction);
@@ -19014,6 +19471,16 @@ class BillionaireMap {
                 };
                 
                 const updatedBidHistory = [...(auctionData.bidHistory || []), bidEntry];
+
+                const participantIds = new Set(Array.isArray(auctionData.participantIds) ? auctionData.participantIds : []);
+                if (bidderId) {
+                    participantIds.add(bidderId);
+                }
+
+                const participantEmails = new Set(Array.isArray(auctionData.participantEmails) ? auctionData.participantEmails : []);
+                if (bidderEmail) {
+                    participantEmails.add(bidderEmail);
+                }
                 
                 // 마지막 5분 내 입찰 시 자동 연장
                 const timeRemaining = endTime - now.toMillis();
@@ -19037,7 +19504,9 @@ class BillionaireMap {
                     bidHistory: updatedBidHistory,
                     endTime: newEndTime,
                     extended: extended,
-                    updatedAt: serverTimestamp()
+                    updatedAt: serverTimestamp(),
+                    participantIds: Array.from(participantIds),
+                    participantEmails: Array.from(participantEmails)
                 });
                 
                 return { success: true, extended: timeRemaining <= fiveMinutes };
@@ -19058,6 +19527,10 @@ class BillionaireMap {
                 this.showNotification('입찰이 완료되었습니다. 옥션이 5분 연장되었습니다.', 'success');
             } else {
                 this.showNotification('입찰이 완료되었습니다.', 'success');
+            }
+
+            if (this.isUserDashboardOpen()) {
+                this.loadUserDashboardData(true);
             }
             
             return { success: true, message: '입찰이 완료되었습니다.' };
