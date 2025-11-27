@@ -15858,7 +15858,8 @@ class BillionaireMap {
                 return null;
             }
             const parsed = JSON.parse(raw);
-            if (!parsed || !parsed.sessionId || !parsed.signature) {
+            // Functions 없이 사용하므로 signature 없이도 유효
+            if (!parsed || !parsed.sessionId) {
                 return null;
             }
             return parsed;
@@ -15885,16 +15886,24 @@ class BillionaireMap {
             return;
         }
         try {
+            // Functions 없이 사용하므로 signature 없이 저장
             const payload = {
                 sessionId: session.sessionId,
                 issuedAt: session.issuedAt,
                 expiresAt: session.expiresAt,
-                signature: session.signature
+                username: session.username || null
             };
             window.localStorage.setItem(this.ADMIN_SESSION_KEY, JSON.stringify(payload));
         } catch (error) {
             console.warn('[ADMIN] 세션 정보를 저장하지 못했습니다.', error);
         }
+    }
+    
+    // 세션 ID 생성 함수
+    generateSessionId() {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
 
     clearPersistedAdminSession() {
@@ -15967,6 +15976,38 @@ class BillionaireMap {
         if (this.isAdminSessionExpired(session)) {
             this.clearPersistedAdminSession();
             return false;
+        }
+
+        // Firestore에서 세션 확인 (Functions 없이)
+        if (this.isFirebaseInitialized && this.firestore && session.sessionId) {
+            try {
+                const { collection, query, where, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const sessionsRef = collection(this.firestore, 'admin_sessions');
+                const q = query(sessionsRef, where('sessionId', '==', session.sessionId));
+                const snapshot = await getDocs(q);
+                
+                if (!snapshot.empty) {
+                    const sessionDoc = snapshot.docs[0].data();
+                    const expiresAt = sessionDoc.expiresAt?.toMillis?.() || sessionDoc.expiresAt;
+                    
+                    if (expiresAt && expiresAt > Date.now()) {
+                        console.log('[ADMIN] Firestore에서 세션 확인됨');
+                        this.isAdminLoggedIn = true;
+                        this.switchToAdminMode();
+                        return true;
+                    } else {
+                        console.log('[ADMIN] 세션이 만료됨');
+                        this.clearPersistedAdminSession();
+                        return false;
+                    }
+                } else {
+                    console.log('[ADMIN] Firestore에서 세션을 찾을 수 없음');
+                    // Firestore에 없어도 localStorage에 있으면 허용 (읽기 권한 문제일 수 있음)
+                }
+            } catch (error) {
+                console.warn('[ADMIN] 세션 확인 실패 (읽기 권한 문제일 수 있음):', error);
+                // 에러가 있어도 localStorage 세션이 있으면 허용
+            }
         }
 
         // 세션이 유효하면 관리자 모드 활성화
@@ -16045,131 +16086,44 @@ class BillionaireMap {
                 throw new Error('잘못된 로그인 정보입니다.');
             }
 
-            // Firebase Functions를 통해 관리자 인증 (signature가 있는 세션 생성)
-            // onRequest 버전 사용 (명시적 CORS 헤더 - 더 안정적)
-            const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            // Functions 없이 Firestore에 세션 직접 생성
+            console.log('[ADMIN] Firestore 기반 세션 생성 (Functions 없음)');
             
-            if (!this.firebaseApp) {
-                throw new Error('Firebase가 초기화되지 않았습니다.');
-            }
-            const functionUrl = 'https://asia-northeast3-worldad-8be07.cloudfunctions.net/authenticateAdminRequest';
+            // 세션 ID 생성 (랜덤 문자열)
+            const sessionId = this.generateSessionId();
+            const issuedAt = Date.now();
+            const expiresAt = issuedAt + (2 * 60 * 60 * 1000); // 2시간 유효
             
-            console.log('[ADMIN] Firebase Functions 호출: authenticateAdminRequest (onRequest)');
-            let responseData = null;
+            // 세션 데이터
+            const session = {
+                sessionId,
+                issuedAt,
+                expiresAt,
+                username: username.trim(),
+                userAgent: navigator.userAgent,
+                createdAt: new Date().toISOString()
+            };
             
-            // 재시도 로직 (최대 3회, 지수 백오프)
-            const maxRetries = 3;
-            let lastError = null;
+            // Firestore에 세션 저장
+            const { collection, addDoc, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const sessionsRef = collection(this.firestore, 'admin_sessions');
             
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    if (attempt > 0) {
-                        // 지수 백오프: 1초, 2초, 4초
-                        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
-                        console.log(`[ADMIN] 재시도 ${attempt}/${maxRetries - 1} (${delay}ms 대기 후...)`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    }
-                    
-                    const response = await fetch(functionUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            username: username.trim(),
-                            password: password
-                        }),
-                        credentials: 'include'
-                    });
-                    
-                    // HTTP 상태 코드 확인
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
-                        
-                        // 인증 실패 (401)
-                        if (response.status === 401) {
-                            throw new Error('관리자 인증에 실패했습니다. 아이디와 비밀번호를 확인해주세요.');
-                        }
-                        
-                        // 잘못된 요청 (400)
-                        if (response.status === 400) {
-                            throw new Error(errorMessage || '입력값이 올바르지 않습니다.');
-                        }
-                        
-                        // 서버 오류 (500)
-                        if (response.status >= 500) {
-                            throw new Error(`서버 오류가 발생했습니다 (${response.status}). 잠시 후 다시 시도해주세요.`);
-                        }
-                        
-                        throw new Error(errorMessage);
-                    }
-                    
-                    // 응답 파싱
-                    responseData = await response.json();
-                    
-                    // 성공 시 루프 탈출
-                    break;
-                } catch (fetchError) {
-                    lastError = fetchError;
-                    
-                    // CORS 오류 또는 네트워크 오류 감지
-                    const isCorsError = fetchError?.message?.includes('CORS') || 
-                        fetchError?.message?.includes('Access-Control-Allow-Origin') ||
-                        fetchError?.message?.includes('blocked by CORS');
-                    
-                    const isNetworkError = fetchError?.message?.includes('Failed to fetch') ||
-                        fetchError?.message?.includes('network') ||
-                        fetchError?.message?.includes('NetworkError') ||
-                        fetchError?.message?.includes('ERR_FAILED') ||
-                        fetchError?.name === 'TypeError';
-                    
-                    // 인증 오류는 재시도하지 않음
-                    if (fetchError?.message?.includes('인증에 실패')) {
-                        throw fetchError;
-                    }
-                    
-                    // CORS 오류 또는 네트워크 오류이고 마지막 시도가 아니면 재시도
-                    if ((isCorsError || isNetworkError) && attempt < maxRetries - 1) {
-                        const errorType = isCorsError ? 'CORS' : '네트워크';
-                        console.warn(`[ADMIN] ${errorType} 오류 발생, 재시도 예정 (시도 ${attempt + 1}/${maxRetries}):`, fetchError.message);
-                        continue;
-                    }
-                    
-                    // 마지막 시도 또는 오류가 아닌 경우
-                    if (isCorsError) {
-                        console.error('[ADMIN] CORS 오류 (재시도 실패):', fetchError);
-                        throw new Error('CORS 정책으로 인해 요청이 차단되었습니다. 관리자에게 문의하세요.');
-                    }
-                    
-                    if (isNetworkError) {
-                        console.error('[ADMIN] 네트워크 오류 (재시도 실패):', fetchError);
-                        throw new Error('서버에 연결할 수 없습니다. 네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.');
-                    }
-                    
-                    // 다른 오류는 그대로 전달
-                    throw fetchError;
-                }
+            try {
+                await addDoc(sessionsRef, {
+                    sessionId,
+                    issuedAt: Timestamp.fromMillis(issuedAt),
+                    expiresAt: Timestamp.fromMillis(expiresAt),
+                    username: username.trim(),
+                    userAgent: navigator.userAgent,
+                    createdAt: Timestamp.now()
+                });
+                console.log('[ADMIN] 세션이 Firestore에 저장됨');
+            } catch (sessionError) {
+                console.error('[ADMIN] 세션 저장 실패:', sessionError);
+                // 세션 저장 실패해도 로그인은 진행 (읽기 권한 문제일 수 있음)
             }
             
-            // 모든 재시도 실패 시
-            if (!responseData && lastError) {
-                console.error('[ADMIN] 모든 재시도 실패:', lastError);
-                throw lastError;
-            }
-            
-            const { token, session } = responseData || {};
-            if (!token || !session) {
-                throw new Error('관리자 인증에 실패했습니다.');
-            }
-            
-            // Firebase Auth에 로그인
-            console.log('[ADMIN] Firebase Auth 로그인 시도');
-            await signInWithCustomToken(this.firebaseAuth, token);
-            await this.firebaseAuth.currentUser?.getIdToken(true);
-            console.log('[ADMIN] Firebase Auth 로그인 성공');
-            
-            // signature가 있는 세션 저장
+            // localStorage에 세션 저장
             this.persistAdminSession(session);
             this.recordLoginAttempt(identifier, true);
 

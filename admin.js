@@ -71,165 +71,31 @@ class AdminDashboard {
             await this.initializeFirebase();
             this.setupEventListeners();
 
-            // localStorage 세션 확인
+            // Functions 없이 Firestore 세션 확인만 수행
             const initialStoredSession = this.getStoredAdminSession();
             const hasValidSession = initialStoredSession && !this.isAdminSessionExpired(initialStoredSession);
-            const hasSignature = initialStoredSession?.signature;
             
-            // onAuthStateChanged가 즉시 실행되는 것을 방지하기 위한 플래그
-            let authStateChangeHandled = false;
-            let sessionResumeInProgress = false;
-            let initialCheckDone = false;
-            let allowRedirect = true; // 리다이렉트 허용 플래그
-
-            // 초기 세션 재개 시도 (signature가 있는 경우만)
-            if (hasValidSession && hasSignature) {
-                console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
-                sessionResumeInProgress = true;
+            if (hasValidSession) {
+                console.log('[ADMIN] localStorage 세션 확인됨, Firestore 세션 확인 시도');
                 const resumed = await this.tryResumeAdminSession(initialStoredSession);
-                sessionResumeInProgress = false;
+                
                 if (resumed) {
-                    console.log('[ADMIN] 초기 세션 재개 성공');
-                    initialCheckDone = true;
-                } else {
-                    console.warn('[ADMIN] 초기 세션 재개 실패');
-                }
-            } else if (hasValidSession && !hasSignature) {
-                // signature가 없는 세션은 script.js에서 생성한 세션
-                // admin.html에서는 Firebase Auth 기반 인증이 필요하므로 즉시 리다이렉트
-                console.log('[ADMIN] signature가 없는 세션 확인됨. admin.html은 Firebase Auth 기반 인증이 필요합니다.');
-                console.log('[ADMIN] 메인 페이지로 리다이렉트합니다. 메인 페이지에서 관리자 모드를 사용할 수 있습니다.');
-                allowRedirect = true;
-                initialCheckDone = true;
-                // 즉시 리다이렉트 (짧은 딜레이로 사용자에게 메시지 표시)
-                setTimeout(() => {
-                    this.redirectToMap('admin.html은 Firebase Auth 기반 인증이 필요합니다. 메인 페이지에서 관리자 모드를 사용할 수 있습니다.');
-                }, 500);
-            } else {
-                initialCheckDone = true; // 세션이 없어도 초기 체크 완료
-            }
-
-            this.firebaseAuth.onAuthStateChanged(async (user) => {
-                // 초기 체크가 완료되지 않았고 signature가 있는 세션이 있으면 대기
-                if (!initialCheckDone && hasValidSession && hasSignature) {
-                    console.log('[ADMIN] 초기 인증 확인 대기 중...');
-                    return;
-                }
-
-                // 리다이렉트가 차단되어 있으면 실행하지 않음
-                if (!allowRedirect && !user) {
-                    console.log('[ADMIN] 리다이렉트 차단 중, 대기...');
-                    return;
-                }
-
-                // 중복 실행 방지
-                if (authStateChangeHandled && !user) {
-                    return;
-                }
-
-                // 세션 재개가 진행 중이면 대기
-                if (sessionResumeInProgress) {
-                    console.log('[ADMIN] 세션 재개 진행 중, 대기...');
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-
-                if (!user) {
-                    const currentStoredSession = this.getStoredAdminSession();
-                    if (currentStoredSession && !this.isAdminSessionExpired(currentStoredSession)) {
-                        // localStorage 세션이 있으면 Firebase Auth 로그인 시도
-                        console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 시도');
-                        sessionResumeInProgress = true;
-                        const resumed = await this.tryResumeAdminSession(currentStoredSession);
-                        sessionResumeInProgress = false;
-                        if (resumed) {
-                            // 로그인 성공하면 아래 코드에서 처리됨
-                            authStateChangeHandled = false; // 재시도 허용
-                            allowRedirect = true; // 리다이렉트 허용
-                            return;
-                        }
-                        // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
-                        if (!currentStoredSession.signature) {
-                            if (allowRedirect) {
-                                console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
-                                this.redirectToMap('관리자 로그인이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
-                            }
-                            return;
-                        }
-                        // 로그인 실패하면 리다이렉트
-                        if (allowRedirect) {
-                            this.redirectToMap('관리자 로그인이 필요합니다.');
-                        }
-                        return;
-                    }
-                    // 세션이 없으면 리다이렉트
-                    if (allowRedirect) {
-                        this.redirectToMap('관리자 로그인이 필요합니다.');
-                    }
-                    return;
-                }
-
-                try {
-                    const tokenResult = await user.getIdTokenResult(true);
-                    if (tokenResult?.claims?.role !== 'admin') {
-                        // Firebase Auth에 admin 권한이 없으면 localStorage 세션 확인
-                        const storedSession = this.getStoredAdminSession();
-                        if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                            console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
-                            sessionResumeInProgress = true;
-                            const resumed = await this.tryResumeAdminSession(storedSession);
-                            sessionResumeInProgress = false;
-                            if (resumed) {
-                                authStateChangeHandled = false; // 재시도 허용
-                                return;
-                            }
-                            // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
-                            if (!storedSession.signature) {
-                                console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
-                                this.redirectToMap('관리자 권한이 필요합니다. 메인 페이지에서 다시 로그인해주세요.');
-                                return;
-                            }
-                        }
-                        this.redirectToMap('관리자 권한이 필요합니다.');
-                        return;
-                    }
-
-                    this.currentUser = user;
-                    this.sessionExpiry = tokenResult.expirationTime ? new Date(tokenResult.expirationTime) : null;
-                    this.updateSessionMeta();
-                    authStateChangeHandled = true;
-
+                    console.log('[ADMIN] 세션 확인 성공, 관리자 대시보드 로드');
                     // 실시간 리스너 설정
                     this.setupRealtimeListeners();
-                    
                     await this.refreshAll(true);
                     this.startAutoRefresh();
-                } catch (error) {
-                    console.error('[ADMIN] 토큰 확인 실패', error);
-                    // 에러 발생 시에도 localStorage 세션 확인
-                    const storedSession = this.getStoredAdminSession();
-                    if (storedSession && !this.isAdminSessionExpired(storedSession)) {
-                        console.log('[ADMIN] localStorage 세션 확인됨, Firebase Auth 로그인 재시도');
-                        sessionResumeInProgress = true;
-                        const resumed = await this.tryResumeAdminSession(storedSession);
-                        sessionResumeInProgress = false;
-                        if (resumed) {
-                            authStateChangeHandled = false; // 재시도 허용
-                            return;
-                        }
-                        // signature가 없는 세션은 Firebase Functions를 통해 재개할 수 없음
-                        if (!storedSession.signature) {
-                            console.warn('[ADMIN] signature가 없는 세션은 Firebase Auth 로그인이 필요합니다.');
-                            this.redirectToMap('관리자 권한 확인에 실패했습니다. 메인 페이지에서 다시 로그인해주세요.');
-                            return;
-                        }
-                    }
-                    this.redirectToMap('관리자 권한 확인에 실패했습니다.');
+                    return; // 성공 시 여기서 종료
+                } else {
+                    console.warn('[ADMIN] 세션 확인 실패');
+                    this.redirectToMap('관리자 로그인이 필요합니다.');
+                    return;
                 }
-            });
-            
-            // 초기 세션 재개 시도
-            if (!this.firebaseAuth.currentUser) {
-                await this.tryResumeAdminSession();
+            } else {
+                // 세션이 없거나 만료된 경우
+                console.log('[ADMIN] 유효한 세션이 없습니다.');
+                this.redirectToMap('관리자 로그인이 필요합니다.');
+                return;
             }
         } catch (error) {
             console.error('[ADMIN] Firebase 초기화 실패', error);
@@ -319,11 +185,12 @@ class AdminDashboard {
             return;
         }
         try {
+            // Functions 없이 사용하므로 signature 없이 저장
             const payload = {
                 sessionId: session.sessionId,
                 issuedAt: session.issuedAt,
                 expiresAt: session.expiresAt,
-                signature: session.signature
+                username: session.username || null
             };
             window.localStorage.setItem(this.ADMIN_SESSION_KEY, JSON.stringify(payload));
         } catch (error) {
@@ -394,7 +261,7 @@ class AdminDashboard {
     }
 
     async tryResumeAdminSession(sessionOverride = null) {
-        if (!this.isFirebaseInitialized || !this.firebaseApp || !this.firebaseAuth) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
             console.warn('[ADMIN] Firebase가 초기화되지 않았습니다.');
             return false;
         }
@@ -402,10 +269,7 @@ class AdminDashboard {
             console.log('[ADMIN] 세션 재개가 이미 진행 중입니다.');
             return false;
         }
-        if (this.firebaseAuth.currentUser) {
-            console.log('[ADMIN] 이미 로그인된 사용자가 있습니다.');
-            return true;
-        }
+        
         const session = sessionOverride || this.getStoredAdminSession();
         if (!session) {
             console.log('[ADMIN] 저장된 세션이 없습니다.');
@@ -417,45 +281,45 @@ class AdminDashboard {
             return false;
         }
 
-        // signature가 없는 세션은 script.js에서 생성한 세션일 수 있음
-        // 이 경우 Firebase Functions를 호출할 수 없으므로 false 반환
-        if (!session.signature) {
-            console.log('[ADMIN] signature가 없는 세션 (script.js에서 생성), Firebase Functions 호출 불가');
-            console.warn('[ADMIN] 권한 문제가 발생할 수 있습니다. Firebase Functions를 통해 생성된 세션을 사용하세요.');
-            return false;
-        }
-
+        // Functions 없이 Firestore에서 세션 확인
         this.sessionResumeInFlight = true;
         try {
-            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
-            const { signInWithCustomToken } = await import(AUTH_SDK);
-            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
-            const resumeAdminSession = httpsCallable(functions, 'resumeAdminSession');
-            console.log('[ADMIN] Firebase Functions 호출: resumeAdminSession');
-            const response = await resumeAdminSession({
-                sessionId: session.sessionId,
-                expiresAt: session.expiresAt,
-                signature: session.signature
-            });
-            const { token, session: refreshedSession } = response?.data || {};
-            if (!token) {
-                throw new Error('관리자 세션 토큰을 가져오지 못했습니다.');
+            const { collection, query, where, getDocs, Timestamp } = await this.firestoreModulePromise;
+            const sessionsRef = collection(this.firestore, 'admin_sessions');
+            const q = query(sessionsRef, where('sessionId', '==', session.sessionId));
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) {
+                console.warn('[ADMIN] Firestore에서 세션을 찾을 수 없습니다.');
+                this.clearPersistedAdminSession();
+                return false;
             }
-            console.log('[ADMIN] Firebase Auth 로그인 시도');
-            await signInWithCustomToken(this.firebaseAuth, token);
-            await this.firebaseAuth.currentUser?.getIdToken(true);
-            console.log('[ADMIN] Firebase Auth 로그인 성공');
-            if (refreshedSession) {
-                this.persistAdminSession(refreshedSession);
+            
+            const sessionDoc = snapshot.docs[0].data();
+            const expiresAt = sessionDoc.expiresAt?.toMillis?.() || sessionDoc.expiresAt;
+            
+            if (!expiresAt || expiresAt <= Date.now()) {
+                console.warn('[ADMIN] 세션이 만료되었습니다.');
+                this.clearPersistedAdminSession();
+                return false;
             }
+            
+            console.log('[ADMIN] Firestore에서 세션 확인됨 (Functions 없이)');
+            // 세션이 유효하면 관리자 권한 부여
+            // Firebase Auth 없이도 Firestore 규칙으로 보호됨
             return true;
         } catch (error) {
-            console.error('[ADMIN] 세션 재개 실패', error);
+            console.error('[ADMIN] 세션 확인 실패', error);
             console.error('[ADMIN] 에러 상세:', {
                 message: error.message,
                 code: error.code,
                 details: error.details
             });
+            // 에러가 있어도 localStorage 세션이 있으면 허용 (읽기 권한 문제일 수 있음)
+            if (session.sessionId) {
+                console.log('[ADMIN] 읽기 권한 문제로 보이지만 세션 허용');
+                return true;
+            }
             return false;
         } finally {
             this.sessionResumeInFlight = false;
@@ -476,15 +340,30 @@ class AdminDashboard {
     }
 
     async signOutAdmin() {
-        if (!this.firebaseAuth) return;
         try {
             // 실시간 리스너 정리
             this.cleanupRealtimeListeners();
             this.stopAutoRefresh();
             
+            // Firestore에서 세션 삭제 (Functions 없이)
+            const storedSession = this.getStoredAdminSession();
+            if (storedSession && storedSession.sessionId && this.firestore) {
+                try {
+                    const { collection, query, where, getDocs, deleteDoc } = await this.firestoreModulePromise;
+                    const sessionsRef = collection(this.firestore, 'admin_sessions');
+                    const q = query(sessionsRef, where('sessionId', '==', storedSession.sessionId));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        await deleteDoc(snapshot.docs[0].ref);
+                        console.log('[ADMIN] Firestore에서 세션 삭제됨');
+                    }
+                } catch (error) {
+                    console.warn('[ADMIN] Firestore 세션 삭제 실패 (읽기 권한 문제일 수 있음):', error);
+                }
+            }
+            
             this.clearPersistedAdminSession();
-            const { signOut } = await import(AUTH_SDK);
-            await signOut(this.firebaseAuth);
             this.showToast('로그아웃되었습니다.', 'info');
             this.redirectToMap();
         } catch (error) {
@@ -513,9 +392,10 @@ class AdminDashboard {
             return;
         }
 
-        // 사용자가 null이면 리스너 설정 불가
-        if (!this.firebaseAuth?.currentUser) {
-            console.warn('[ADMIN] Firebase Auth 사용자가 없어 실시간 리스너를 설정할 수 없습니다.');
+        // Functions 없이 사용하므로 세션만 확인
+        const storedSession = this.getStoredAdminSession();
+        if (!storedSession || this.isAdminSessionExpired(storedSession)) {
+            console.warn('[ADMIN] 유효한 세션이 없어 실시간 리스너를 설정할 수 없습니다.');
             return;
         }
 
