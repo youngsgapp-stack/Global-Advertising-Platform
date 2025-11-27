@@ -3098,11 +3098,69 @@ class BillionaireMap {
         let attempt = 0;
         const tried = new Set();
         
+        const parseResponseBody = async (response, targetUrl, allowLfsRedirect = true) => {
+            const contentType = response.headers.get('content-type') || '';
+            const normalizedContentType = contentType.toLowerCase();
+            const isJsonContent = normalizedContentType.includes('application/json') ||
+                                  normalizedContentType.includes('application/geo+json') ||
+                                  normalizedContentType.includes('application/vnd.geo+json');
+            
+            if (isJsonContent) {
+                return response.json();
+            }
+            
+            const textBody = await response.text();
+            const trimmed = textBody.trim();
+            if (!trimmed) {
+                throw new Error('Empty response');
+            }
+            
+            const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+            if (looksLikeJson) {
+                try {
+                    return JSON.parse(trimmed);
+                } catch (parseError) {
+                    throw new Error('Invalid JSON payload');
+                }
+            }
+            
+            const looksLikeHtml = trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html');
+            if (looksLikeHtml) {
+                throw new Error('HTML response received');
+            }
+            
+            const looksLikeGitLfsPointer = trimmed.startsWith('version https://git-lfs.github.com/spec/v1');
+            const isRawGithubUrl = targetUrl.includes('raw.githubusercontent.com');
+            if (looksLikeGitLfsPointer && allowLfsRedirect && isRawGithubUrl) {
+                const rawPrefix = 'https://raw.githubusercontent.com/';
+                const mediaPrefix = 'https://media.githubusercontent.com/media/';
+                const mediaUrl = targetUrl.startsWith(rawPrefix)
+                    ? targetUrl.replace(rawPrefix, mediaPrefix)
+                    : targetUrl.replace('raw.githubusercontent.com', 'media.githubusercontent.com/media');
+                console.info(`[${countryKey}] Git LFS pointer detected. Retrying via media CDN: ${mediaUrl}`);
+                const mediaResponse = await fetch(mediaUrl, { cache: 'no-store' });
+                if (!mediaResponse.ok) {
+                    throw new Error(`Git LFS media fetch failed (HTTP ${mediaResponse.status})`);
+                }
+                return parseResponseBody(mediaResponse, mediaUrl, false);
+            }
+            
+            if (looksLikeGitLfsPointer) {
+                throw new Error('Git LFS pointer received (media redirect unavailable)');
+            }
+            
+            if (trimmed.toLowerCase().startsWith('version ht')) {
+                throw new Error('Non-JSON response (likely Git LFS pointer)');
+            }
+            
+            throw new Error(`Non-JSON response (${trimmed.slice(0, 60)}...)`);
+        };
+        
         const tryFetch = async (targetUrl) => {
             try {
                 const response = await fetch(targetUrl, { cache: 'no-store' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const json = await response.json();
+                const json = await parseResponseBody(response, targetUrl);
                 const normalized = this.normalizeGeoJsonPayload(json);
                 if (normalized && Array.isArray(normalized.features) && normalized.features.length >= minFeatures) {
                     console.log(`[${countryKey}] Loaded from ${targetUrl} (features: ${normalized.features.length})`);
@@ -3112,13 +3170,14 @@ class BillionaireMap {
             } catch (error) {
                 lastError = error;
                 // CORS나 404 같은 예상 가능한 오류는 조용히 처리 (마지막 후보만 경고)
-                const isExpectedError = error.message.includes('CORS') || 
-                                       error.message.includes('403') || 
-                                       error.message.includes('404') ||
-                                       error.message.includes('Failed to fetch');
+                const message = error.message || '';
+                const isExpectedError = message.includes('CORS') || 
+                                       message.includes('403') || 
+                                       message.includes('404') ||
+                                       message.includes('Failed to fetch');
                 if (!isExpectedError || urls.indexOf(targetUrl) === urls.length - 1) {
                     // 마지막 시도거나 예상치 못한 오류만 경고 로그
-                    console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, error.message);
+                    console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, message);
                 }
                 attempt += 1;
                 await this.waitForGeoRetry(attempt);
@@ -5408,11 +5467,7 @@ class BillionaireMap {
                 const data = await this.fetchGeoJsonWithFallback('china', {
                     urls: [
                         this.getAssetUrl('data/china-provinces.geojson'),
-                        'https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=100000_full',
-                        'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json',
-                        'https://echarts.apache.org/examples/data/asset/geo/CHN.json',
-                        'https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/master/dist/geojson/areas/provinces.geojson',
-                        'https://raw.githubusercontent.com/hesongshy/China_Province_Line_GeoJSON/master/china_province.geojson',
+                        'https://raw.githubusercontent.com/apache/echarts-website/master/examples/data/asset/geo/CHN.json',
                         'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
                     ],
                     localPath: 'data/china-provinces.geojson',
@@ -9838,7 +9893,6 @@ class BillionaireMap {
     async loadEuropeanUnionData() {
         try {
             const geoJsonData = await this.loadGeoJsonWithCache('european-union', async () => {
-                let data = null;
                 // EU 회원국 목록 (주요 27개 회원국)
                 const euCountries = [
                     { code: 'DEU', name: 'Germany', name_ko: '독일' },
@@ -10001,12 +10055,12 @@ class BillionaireMap {
                     return countryData; // 성공적으로 로드된 데이터 반환
                 });
                 
-                const loadedCountries = await Promise.all(loadPromises);
+                await Promise.all(loadPromises);
                 
                 // null 값 필터링 (로드 실패한 국가 제외)
                 const validFeatures = allFeatures.filter(f => f !== null && f !== undefined);
                 
-                geoJsonData = {
+                const finalGeoJson = {
                     type: 'FeatureCollection',
                     features: validFeatures
                 };
@@ -10024,7 +10078,7 @@ class BillionaireMap {
                     }
                 });
                 
-                return geoJsonData;
+                return finalGeoJson;
             });
             
             // 소스 업데이트 또는 생성
