@@ -6068,66 +6068,70 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Canada dataset available');
-                return data;
-                    const p = feature.properties || {};
-                    const rawName = p.name || p.NAME_1 || p.province || p.shapeName || `Province_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || p.shapeISO || rawName || `CAN_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `can_province_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
-                    idSet.add(finalId);
-                    
-                    // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
-                    const searchKeys = [
-                        rawName,
-                        p.name,
-                        p.NAME_1,
-                        p.province,
-                        p.shapeName,
-                        rawName.trim(),
-                        rawName.replace(/\s+/g, ' ')
-                    ].filter(key => key && typeof key === 'string');
-                    
-                    let regionData = null;
-                    for (const key of searchKeys) {
-                        if (canadaRegionData[key]) {
-                            regionData = canadaRegionData[key];
-                            break;
+                
+                const idSet = new Set();
+                if (data.features && Array.isArray(data.features)) {
+                    data.features.forEach((feature, index) => {
+                        const p = feature.properties || {};
+                        const rawName = p.name || p.NAME_1 || p.province || p.shapeName || `Province_${index}`;
+                        const baseIdSrc = p.hasc || p.shapeID || p.shapeISO || rawName || `CAN_${index}`;
+                        let baseId = baseIdSrc.toString().toLowerCase()
+                            .replace(/[^\w\uAC00-\uD7A3]/g, '_')
+                            .replace(/__+/g, '_')
+                            .replace(/^_|_$/g, '');
+                        if (!baseId) baseId = `can_province_${index}`;
+                        let finalId = baseId; let c = 1;
+                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        idSet.add(finalId);
+                        
+                        // 실제 데이터에서 값 찾기 (여러 이름 변형 시도)
+                        const searchKeys = [
+                            rawName,
+                            p.name,
+                            p.NAME_1,
+                            p.province,
+                            p.shapeName,
+                            rawName.trim(),
+                            rawName.replace(/\s+/g, ' ')
+                        ].filter(key => key && typeof key === 'string');
+                        
+                        let regionData = null;
+                        for (const key of searchKeys) {
+                            if (canadaRegionData[key]) {
+                                regionData = canadaRegionData[key];
+                                break;
+                            }
                         }
-                    }
-                    
-                    // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
-                    const provinceData = regionData || { 
-                        population: Math.floor(Math.random() * 5000000) + 50000, 
-                        area: Math.floor(Math.random() * 1500000) + 50000 
-                    };
-                    
-                    feature.properties = {
-                        ...p,
-                        id: finalId,
-                        name: rawName,
-                        name_ko: rawName, // 추후 한국어 표기 매핑 가능
-                        name_en: p.NAME_1 || p.name || rawName,
-                        country: 'Canada',
-                        country_code: 'CA',
-                        admin_level: 'Province/Territory',
-                        population: provinceData.population,
-                        area: provinceData.area,
-                        ad_status: 'available',
-                        ad_price: 50000 + (index * 5000),
-                        revenue: 0,
-                        company: null,
-                        logo: null,
-                        color: '#e74c3c',
-                        border_color: '#ffffff',
-                        border_width: 1
-                    };
-                    this.regionData.set(finalId, feature.properties);
-                });
+                        
+                        // 실제 데이터에서 값 가져오기 (없으면 기본값 사용)
+                        const provinceData = regionData || { 
+                            population: Math.floor(Math.random() * 5000000) + 50000, 
+                            area: Math.floor(Math.random() * 1500000) + 50000 
+                        };
+                        
+                        feature.properties = {
+                            ...p,
+                            id: finalId,
+                            name: rawName,
+                            name_ko: rawName, // 추후 한국어 표기 매핑 가능
+                            name_en: p.NAME_1 || p.name || rawName,
+                            country: 'Canada',
+                            country_code: 'CA',
+                            admin_level: 'Province/Territory',
+                            population: provinceData.population,
+                            area: provinceData.area,
+                            ad_status: 'available',
+                            ad_price: 50000 + (index * 5000),
+                            revenue: 0,
+                            company: null,
+                            logo: null,
+                            color: '#e74c3c',
+                            border_color: '#ffffff',
+                            border_width: 1
+                        };
+                        this.regionData.set(finalId, feature.properties);
+                    });
+                }
                 
                 return data;
             });
