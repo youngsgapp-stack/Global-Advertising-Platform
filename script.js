@@ -98,6 +98,13 @@ class BillionaireMap {
         this.countryConfigByKey = {};
         this.countryLookup = new Map();
         this.regionDataLoadState = new Map(); // Firestore 로드 상태 캐시
+        
+        // IndexedDB 캐시 시스템 초기화
+        this.cacheDB = null;
+        this.cacheDBName = 'worldMapCache';
+        this.cacheDBVersion = 1;
+        this.cacheExpiryDays = 7; // 캐시 유효기간 (7일)
+        
         this.pixelBrandGuides = this.buildPixelBrandGuides();
         this.pixelTemplates = this.buildPixelTemplates();
         this.pixelStickers = this.buildPixelStickers();
@@ -1394,10 +1401,134 @@ class BillionaireMap {
         });
     }
     
+    // IndexedDB 캐시 시스템 초기화
+    async initCacheDB() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) {
+                console.warn('IndexedDB를 지원하지 않는 브라우저입니다. 캐싱을 사용할 수 없습니다.');
+                resolve(null);
+                return;
+            }
+            
+            const request = indexedDB.open(this.cacheDBName, this.cacheDBVersion);
+            
+            request.onerror = () => {
+                console.warn('IndexedDB 초기화 실패:', request.error);
+                resolve(null);
+            };
+            
+            request.onsuccess = () => {
+                this.cacheDB = request.result;
+                console.log('[캐시] IndexedDB 초기화 완료');
+                resolve(this.cacheDB);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('geojson')) {
+                    const objectStore = db.createObjectStore('geojson', { keyPath: 'key' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+            };
+        });
+    }
+    
+    // IndexedDB에서 캐시된 데이터 가져오기
+    async getCachedGeoJson(countryKey) {
+        if (!this.cacheDB) {
+            return null;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['geojson'], 'readonly');
+            const objectStore = transaction.objectStore('geojson');
+            const request = objectStore.get(countryKey);
+            
+            request.onsuccess = () => {
+                const cached = request.result;
+                if (!cached) {
+                    resolve(null);
+                    return;
+                }
+                
+                // 캐시 만료 확인 (7일)
+                const now = Date.now();
+                const expiryTime = this.cacheExpiryDays * 24 * 60 * 60 * 1000;
+                if (now - cached.timestamp > expiryTime) {
+                    console.log(`[캐시] ${countryKey} 데이터 만료됨, 삭제`);
+                    this.deleteCachedGeoJson(countryKey);
+                    resolve(null);
+                    return;
+                }
+                
+                console.log(`[캐시] ${countryKey} 데이터 로드 완료 (IndexedDB 캐시 사용)`);
+                resolve(cached.data);
+            };
+            
+            request.onerror = () => {
+                console.warn(`[캐시] ${countryKey} 데이터 로드 실패:`, request.error);
+                resolve(null);
+            };
+        });
+    }
+    
+    // IndexedDB에 데이터 캐시 저장
+    async setCachedGeoJson(countryKey, geoJsonData) {
+        if (!this.cacheDB || !geoJsonData) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['geojson'], 'readwrite');
+            const objectStore = transaction.objectStore('geojson');
+            const data = {
+                key: countryKey,
+                data: geoJsonData,
+                timestamp: Date.now()
+            };
+            
+            const request = objectStore.put(data);
+            
+            request.onsuccess = () => {
+                console.log(`[캐시] ${countryKey} 데이터 저장 완료 (IndexedDB)`);
+                resolve();
+            };
+            
+            request.onerror = () => {
+                console.warn(`[캐시] ${countryKey} 데이터 저장 실패:`, request.error);
+                resolve();
+            };
+        });
+    }
+    
+    // 캐시된 데이터 삭제
+    async deleteCachedGeoJson(countryKey) {
+        if (!this.cacheDB) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['geojson'], 'readwrite');
+            const objectStore = transaction.objectStore('geojson');
+            const request = objectStore.delete(countryKey);
+            
+            request.onsuccess = () => {
+                resolve();
+            };
+            
+            request.onerror = () => {
+                resolve();
+            };
+        });
+    }
+    
     async init() {
         try {
             // 별 배경 초기화
             this.initStarsBackground();
+            
+            // IndexedDB 캐시 시스템 초기화
+            await this.initCacheDB();
             
             // Firebase 초기화 (비동기로 실행, 실패해도 지도는 로드됨)
             await this.initializeFirebase().catch(err => {
@@ -2800,22 +2931,49 @@ class BillionaireMap {
         });
     }
     
+    // 공통 캐시 로드 헬퍼 함수
+    async loadGeoJsonWithCache(countryKey, loadFunction) {
+        // 1. 메모리 캐시 확인
+        if (this.cachedGeoJsonData[countryKey]) {
+            console.log(`[${countryKey}] 메모리 캐시 사용`);
+            return this.cachedGeoJsonData[countryKey];
+        }
+        
+        // 2. IndexedDB 캐시 확인
+        const cachedData = await this.getCachedGeoJson(countryKey);
+        if (cachedData) {
+            this.cachedGeoJsonData[countryKey] = cachedData;
+            console.log(`[${countryKey}] IndexedDB 캐시 사용`);
+            return cachedData;
+        }
+        
+        // 3. 네트워크에서 로드
+        console.log(`[${countryKey}] 네트워크에서 로드`);
+        const geoJsonData = await loadFunction();
+        
+        // 메모리 캐시에 저장
+        this.cachedGeoJsonData[countryKey] = geoJsonData;
+        
+        // IndexedDB에 캐시 저장 (비동기, 실패해도 계속 진행)
+        this.setCachedGeoJson(countryKey, geoJsonData).catch(err => {
+            console.warn(`[${countryKey}] IndexedDB 캐시 저장 실패:`, err);
+        });
+        
+        return geoJsonData;
+    }
+    
     async loadWorldData() {
         try {
-            let geoJsonData;
-            
-            // 캐시된 데이터가 있으면 사용
-            if (this.cachedGeoJsonData['usa']) {
-                geoJsonData = this.cachedGeoJsonData['usa'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('usa', async () => {
                 // 실제 미국 주 경계선 데이터를 공개 API에서 로드
+                let data;
                 try {
                     const response = await fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json');
-                    geoJsonData = await response.json();
+                    data = await response.json();
                 } catch (error) {
                     console.error('API 데이터 로드 실패:', error);
                     const localResponse = await fetch('data/us-states.geojson');
-                    geoJsonData = await localResponse.json();
+                    data = await localResponse.json();
                 }
                 
                 // 미국 주별 실제 인구 및 면적 데이터
@@ -2908,9 +3066,8 @@ class BillionaireMap {
                     this.regionData.set(stateId, feature.properties);
                 });
                 
-                // 캐시에 저장
-                this.cachedGeoJsonData['usa'] = geoJsonData;
-            }
+                return data;
+            });
             
             // 소스 업데이트 또는 생성
             if (this.map.getSource('world-regions')) {
@@ -4676,12 +4833,7 @@ class BillionaireMap {
     // 일본 데이터 로드
     async loadJapanData() {
         try {
-            let geoJsonData;
-            
-            // 캐시된 데이터가 있으면 사용
-            if (this.cachedGeoJsonData['japan']) {
-                geoJsonData = this.cachedGeoJsonData['japan'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('japan', async () => {
                 // 일본 데이터 로드 (도도부현 단위) - 정확한 경계 데이터 사용
                 const japanUrl = this.getAssetUrl('data/japan-prefectures-accurate.geojson');
                 console.log('[loadJapanData] 요청 URL:', japanUrl);
@@ -4694,10 +4846,10 @@ class BillionaireMap {
                     throw new Error(`일본 데이터 로드 실패: HTTP ${response.status} ${response.statusText}`);
                 }
                 
-                geoJsonData = await response.json();
+                const data = await response.json();
                 
                 // 각 지역에 광고 정보 추가 (도도부현 단위)
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                 const props = feature.properties;
                 
                 // 새로운 데이터 구조에 맞게 속성 매핑
@@ -4781,9 +4933,8 @@ class BillionaireMap {
                 this.regionData.set(prefectureId, feature.properties);
             });
             
-            // 캐시에 저장
-            this.cachedGeoJsonData['japan'] = geoJsonData;
-            }
+            return data;
+            });
             
             // 소스 업데이트 또는 생성
             if (this.map.getSource('world-regions')) {
@@ -4936,11 +5087,7 @@ class BillionaireMap {
     // 중국 데이터 로드 (성 단위)
     async loadChinaData() {
         try {
-            let geoJsonData;
-            
-            if (this.cachedGeoJsonData['china']) {
-                geoJsonData = this.cachedGeoJsonData['china'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('china', async () => {
                 // 중국 성급 경계 데이터 다중 소스 시도
                 const candidateUrls = [
                     // DataV GeoJSON API (권장) - 일부 환경에서 403 발생 가능
@@ -4958,33 +5105,34 @@ class BillionaireMap {
                 ];
                 
                 let lastError = null;
+                let data = null;
                 for (const url of candidateUrls) {
                     try {
                         const response = await fetch(url, { cache: 'no-store' });
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
+                        const fetchedData = await response.json();
                         // 형식 단순 정규화 (FeatureCollection 보장)
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[China] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = fetchedData;
+                            console.log('[China] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
                         // 일부 소스는 {features: [...]} 형태만 제공
-                        if (!data.type && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[China] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (!fetchedData.type && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[China] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
                         // ECharts 일부 데이터는 객체에 geoJson 키를 가짐
-                        if (data && data.geoJson && data.geoJson.type === 'FeatureCollection' && Array.isArray(data.geoJson.features)) {
-                            geoJsonData = data.geoJson;
-                            console.log('[China] Loaded (geoJson key) from', url, 'features:', geoJsonData.features.length);
+                        if (fetchedData && fetchedData.geoJson && fetchedData.geoJson.type === 'FeatureCollection' && Array.isArray(fetchedData.geoJson.features)) {
+                            data = fetchedData.geoJson;
+                            console.log('[China] Loaded (geoJson key) from', url, 'features:', fetchedData.geoJson.features.length);
                             break;
                         }
                         // 일부 저장소는 { geometry: {...}, properties: {...} }의 배열만 제공
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[China] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 10 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[China] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -4994,20 +5142,20 @@ class BillionaireMap {
                     }
                 }
                 // 로컬 폴백
-                if (!geoJsonData) {
+                if (!data) {
                     try {
                         const localResp = await fetch('data/china-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
                         if (localData && Array.isArray(localData.features) && localData.features.length > 10) {
-                            geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                            data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
                             console.log('[China] Loaded from local fallback data/china-provinces.geojson');
                         }
                     } catch (e) {
                         console.warn('[China] Local fallback missing or invalid', e);
                     }
                 }
-                if (!geoJsonData) {
+                if (!data) {
                     throw lastError || new Error('No China dataset available');
                 }
                 
@@ -5087,7 +5235,7 @@ class BillionaireMap {
                 
                 const idSet = new Set();
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const props = feature.properties || {};
                     const rawName = props.name || props.NL_NAME_1 || `Province_${index}`; // 중국어명
                     const adcode = props.adcode || props.adcode99 || props.ID || `CN_${index}`;
@@ -5148,8 +5296,8 @@ class BillionaireMap {
                     this.regionData.set(finalId, feature.properties);
                 });
                 
-                this.cachedGeoJsonData['china'] = geoJsonData;
-            }
+                return data;
+            });
             
             // 소스 업데이트 또는 생성
             if (this.map.getSource('world-regions')) {
@@ -5215,11 +5363,7 @@ class BillionaireMap {
     // 러시아 데이터 로드 (연방주체 단위: Oblast, Krai, Republic, Federal city 등)
     async loadRussiaData() {
         try {
-            let geoJsonData;
-            
-            if (this.cachedGeoJsonData['russia']) {
-                geoJsonData = this.cachedGeoJsonData['russia'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('russia', async () => {
                 const candidateUrls = [
                     // geoBoundaries RUS ADM1 (신뢰도 높음)
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/RUS/ADM1/geoBoundaries-RUS-ADM1.geojson',
@@ -5234,20 +5378,20 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = data;
-                            console.log('[Russia] Loaded from', url, 'features:', data.features.length);
+                        const fetchedData = await resp.json();
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 50) {
+                            data = fetchedData;
+                            console.log('[Russia] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Russia] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 50) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Russia] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[Russia] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 50 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Russia] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -5257,22 +5401,22 @@ class BillionaireMap {
                     }
                 }
                 // 로컬 폴백
-                if (!geoJsonData) {
+                if (!data) {
                     try {
                         const localResp = await fetch('data/russia-regions.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
-                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
                         console.log('[Russia] Loaded from local fallback data/russia-regions.geojson');
                     } catch (e) {
                         console.warn('[Russia] Local fallback missing or invalid', e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Russia dataset available');
+                if (!data) throw lastError || new Error('No Russia dataset available');
                 
                 // 필요 시 러시아만 필터링 (일부 소스는 전세계 admin-1을 반환)
-                if (geoJsonData && Array.isArray(geoJsonData.features) && geoJsonData.features.length > 300) {
-                    const filtered = geoJsonData.features.filter((feature) => {
+                if (data && Array.isArray(data.features) && data.features.length > 300) {
+                    const filtered = data.features.filter((feature) => {
                         const p = feature.properties || {};
                         const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                         const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -5281,7 +5425,7 @@ class BillionaireMap {
                     });
                     if (filtered.length > 0) {
                         console.log(`[Russia] Filtered Natural Earth/global dataset to Russia only: ${filtered.length} features`);
-                        geoJsonData = { type: 'FeatureCollection', features: filtered };
+                        data = { type: 'FeatureCollection', features: filtered };
                     }
                 }
 
@@ -5522,8 +5666,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['russia'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -5570,10 +5715,9 @@ class BillionaireMap {
     // 인도 데이터 로드 (주/연방령 단위)
     async loadIndiaData() {
         try {
-            let geoJsonData;
-            
-            // 인도 주/연방령별 실제 인구 및 면적 데이터
-            const indiaRegionData = {
+            const geoJsonData = await this.loadGeoJsonWithCache('india', async () => {
+                // 인도 주/연방령별 실제 인구 및 면적 데이터
+                const indiaRegionData = {
                 // 주 (28개)
                 'Andhra Pradesh': { population: 52000000, area: 162970 },
                 'Arunachal Pradesh': { population: 1700000, area: 83743 },
@@ -5652,9 +5796,6 @@ class BillionaireMap {
                 'पुदुचेरी': { population: 1700000, area: 490 }
             };
             
-            if (this.cachedGeoJsonData['india']) {
-                geoJsonData = this.cachedGeoJsonData['india'];
-            } else {
                 const candidateUrls = [
                     // geoBoundaries IND ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IND/ADM1/geoBoundaries-IND-ADM1.geojson',
@@ -5668,20 +5809,20 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 25) {
-                            geoJsonData = data;
-                            console.log('[India] Loaded from', url, 'features:', data.features.length);
+                        const fetchedData = await resp.json();
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 25) {
+                            data = fetchedData;
+                            console.log('[India] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 25) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[India] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 25) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[India] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 25 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[India] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 25 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[India] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -5691,22 +5832,22 @@ class BillionaireMap {
                     }
                 }
                 // 로컬 폴백
-                if (!geoJsonData) {
+                if (!data) {
                     try {
                         const localResp = await fetch('data/india-states.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
-                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
                         console.log('[India] Loaded from local fallback data/india-states.geojson');
                     } catch (e) {
                         console.warn('[India] Local fallback missing or invalid', e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No India dataset available');
+                if (!data) throw lastError || new Error('No India dataset available');
                 
                 // 속성 정규화
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.st_nm || p.state || p.NAME_1 || p.name || `State_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `IND_${index}`;
@@ -5769,8 +5910,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['india'] = geoJsonData;
-            }
+                
+                return data;
+            });
             
             // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
             if (geoJsonData && geoJsonData.features) {
@@ -5841,8 +5983,6 @@ class BillionaireMap {
     // 캐나다 데이터 로드 (주/영토 단위)
     async loadCanadaData() {
         try {
-            let geoJsonData;
-            
             // 캐나다 주/영토별 실제 인구 및 면적 데이터
             const canadaRegionData = {
                 // 주 (10개)
@@ -5862,9 +6002,8 @@ class BillionaireMap {
                 'Yukon': { population: 45000, area: 482443 }
             };
             
-            if (this.cachedGeoJsonData['canada']) {
-                geoJsonData = this.cachedGeoJsonData['canada'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('canada', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries CAN ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/CAN/ADM1/geoBoundaries-CAN-ADM1.geojson',
@@ -5890,7 +6029,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Canada] Filtered Natural Earth/global dataset to Canada only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -5900,12 +6039,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Canada] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Canada] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -5991,8 +6130,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['canada'] = geoJsonData;
-            }
+                
+                return data;
+            });
             
             // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
             if (geoJsonData && geoJsonData.features) {
@@ -6060,8 +6200,6 @@ class BillionaireMap {
     // 독일 데이터 로드 (주/Bundesland 단위)
     async loadGermanyData() {
         try {
-            let geoJsonData;
-            
             // 독일 주별 실제 인구 및 면적 데이터
             const germanyRegionData = {
                 'Baden-Württemberg': { population: 11350000, area: 35751 },
@@ -6090,9 +6228,8 @@ class BillionaireMap {
                 'Thuringia': { population: 2070000, area: 16172 }
             };
             
-            if (this.cachedGeoJsonData['germany']) {
-                geoJsonData = this.cachedGeoJsonData['germany'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('germany', async () => {
+                let geoJsonData = null;
                 const candidateUrls = [
                     // geoBoundaries DEU ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/DEU/ADM1/geoBoundaries-DEU-ADM1.geojson',
@@ -6188,8 +6325,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['germany'] = geoJsonData;
-            }
+                
+                return geoJsonData;
+            });
             
             // 캐시에서 로드한 경우에도 인구/면적 업데이트 (데이터 객체는 이미 위에서 정의됨)
             if (geoJsonData && geoJsonData.features) {
@@ -6256,10 +6394,8 @@ class BillionaireMap {
     // 영국 데이터 로드 (지역/카운티 단위)
     async loadUKData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['uk']) {
-                geoJsonData = this.cachedGeoJsonData['uk'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('uk', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries GBR ADM1 (상위 레벨 행정구역)
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/GBR/ADM1/geoBoundaries-GBR-ADM1.geojson',
@@ -6275,7 +6411,6 @@ class BillionaireMap {
                         
                         // geoBoundaries ADM1 데이터는 이미 큰 단위로 나뉘어 있음
                         if (url.includes('geoBoundaries') && data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2 && data.features.length < 50) {
-                            geoJsonData = data;
                             console.log('[UK] Loaded from geoBoundaries ADM1:', url, 'features:', data.features.length);
                             break;
                         }
@@ -6292,29 +6427,28 @@ class BillionaireMap {
                             if (filtered.length > 0 && filtered.length < 50) {
                                 // 이미 큰 단위로 나뉘어 있으면 그대로 사용
                                 console.log(`[UK] Filtered Natural Earth/global dataset to UK only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             } else if (filtered.length > 50) {
                                 // 작은 단위로 나뉘어 있으면 그룹화 필요
                                 console.log(`[UK] Filtered Natural Earth/global dataset to UK: ${filtered.length} features - will group`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 // 아래 그룹화 로직으로 진행
                                 break;
                             }
                         }
                         
                         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2) {
-                            geoJsonData = data;
                             console.log('[UK] Loaded from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 2) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[UK] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 2 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[UK] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -6324,15 +6458,15 @@ class BillionaireMap {
                         console.warn('[UK] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No UK dataset available');
+                if (!data) throw lastError || new Error('No UK dataset available');
                 
                 // 50개 이상의 feature가 있으면 그룹화 필요
-                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                const needsGrouping = data.features && data.features.length > 50;
                 
                 if (needsGrouping) {
-                // 영국 지역을 더 큰 단위로 그룹화하는 매핑
-                // 잉글랜드 지역들을 9개 지역으로, 스코틀랜드/웨일스/북아일랜드는 각각 하나로 통합
-                const ukRegionMapping = {
+                    // 영국 지역을 더 큰 단위로 그룹화하는 매핑
+                    // 잉글랜드 지역들을 9개 지역으로, 스코틀랜드/웨일스/북아일랜드는 각각 하나로 통합
+                    const ukRegionMapping = {
                     // England Regions (9개)
                     'North East': ['Northumberland', 'County Durham', 'Tyne and Wear', 'Tees Valley', 'North East England'],
                     'North West': ['Greater Manchester', 'Merseyside', 'Lancashire', 'Cumbria', 'Cheshire', 'North West England'],
@@ -6366,7 +6500,7 @@ class BillionaireMap {
                 const groupedFeatures = new Map();
                 const idSet = new Set();
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.country || `Region_${index}`;
                     const nameLower = rawName.toLowerCase().trim();
@@ -6534,16 +6668,16 @@ class BillionaireMap {
                     });
                 }
                 
-                console.log(`[UK] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                console.log(`[UK] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${data.features.length}개)`);
                 
-                geoJsonData = {
+                data = {
                     type: 'FeatureCollection',
                     features: mergedFeatures
                 };
                 } else {
                     // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
                     const idSet = new Set();
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.country || `Region_${index}`;
                         const baseIdSrc = p.hasc || p.shapeID || rawName || `GBR_${index}`;
@@ -6580,8 +6714,8 @@ class BillionaireMap {
                     });
                 }
                 
-                this.cachedGeoJsonData['uk'] = geoJsonData;
-            }
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -6624,10 +6758,8 @@ class BillionaireMap {
     // 프랑스 데이터 로드 (레지옹 단위)
     async loadFranceData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['france']) {
-                geoJsonData = this.cachedGeoJsonData['france'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('france', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries FRA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/FRA/ADM1/geoBoundaries-FRA-ADM1.geojson',
@@ -6654,23 +6786,23 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[France] Filtered Natural Earth/global dataset to France only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
                         
                         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = data;
+                            data = data;
                             console.log('[France] Loaded from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[France] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[France] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -6680,10 +6812,10 @@ class BillionaireMap {
                         console.warn('[France] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No France dataset available');
+                if (!data) throw lastError || new Error('No France dataset available');
                 
                 // 50개 이상의 feature가 있으면 그룹화 필요 (데파르트망 -> 레지옹)
-                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                const needsGrouping = data.features && data.features.length > 50;
                 
                 if (needsGrouping) {
                     // 프랑스 레지옹 인구 및 면적 데이터 (2024 기준)
@@ -6736,7 +6868,7 @@ class BillionaireMap {
                     const groupedFeatures = new Map();
                     const idSet = new Set();
                     
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
                         const nameLower = rawName.toLowerCase().trim();
@@ -6927,16 +7059,16 @@ class BillionaireMap {
                         this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
-                    console.log(`[France] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    console.log(`[France] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${data.features.length}개)`);
                     
-                    geoJsonData = {
+                    data = {
                         type: 'FeatureCollection',
                         features: mergedFeatures
                     };
                 } else {
                     // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
                     const idSet = new Set();
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.region || `Region_${index}`;
                         const baseIdSrc = p.hasc || p.shapeID || rawName || `FRA_${index}`;
@@ -6972,8 +7104,9 @@ class BillionaireMap {
                         this.regionData.set(finalId, feature.properties);
                     });
                 }
-                this.cachedGeoJsonData['france'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -7013,10 +7146,8 @@ class BillionaireMap {
     // 이탈리아 데이터 로드 (레지오네 단위)
     async loadItalyData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['italy']) {
-                geoJsonData = this.cachedGeoJsonData['italy'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('italy', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries ITA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ITA/ADM1/geoBoundaries-ITA-ADM1.geojson',
@@ -7043,23 +7174,23 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Italy] Filtered Natural Earth/global dataset to Italy only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
                         
                         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = data;
+                            data = data;
                             console.log('[Italy] Loaded from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Italy] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Italy] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -7069,10 +7200,10 @@ class BillionaireMap {
                         console.warn('[Italy] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Italy dataset available');
+                if (!data) throw lastError || new Error('No Italy dataset available');
                 
                 // 50개 이상의 feature가 있으면 그룹화 필요 (프로빈치아 -> 레지오네)
-                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                const needsGrouping = data.features && data.features.length > 50;
                 
                 if (needsGrouping) {
                     // 이탈리아 프로빈치아를 20개 레지오네로 그룹화하는 매핑
@@ -7431,8 +7562,9 @@ class BillionaireMap {
                         this.regionData.set(finalId, feature.properties);
                     });
                 }
-                this.cachedGeoJsonData['italy'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -7457,10 +7589,8 @@ class BillionaireMap {
     // 브라질 데이터 로드 (주/Estado 단위)
     async loadBrazilData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['brazil']) {
-                geoJsonData = this.cachedGeoJsonData['brazil'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('brazil', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries BRA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/BRA/ADM1/geoBoundaries-BRA-ADM1.geojson',
@@ -7487,23 +7617,23 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Brazil] Filtered Natural Earth/global dataset to Brazil only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
                         
                         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 15) {
-                            geoJsonData = data;
+                            data = data;
                             console.log('[Brazil] Loaded from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 15) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Brazil] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Brazil] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -7513,7 +7643,7 @@ class BillionaireMap {
                         console.warn('[Brazil] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Brazil dataset available');
+                if (!data) throw lastError || new Error('No Brazil dataset available');
                 
                 // 브라질 주별 인구 및 면적 데이터 (2024 기준)
                 const brazilStateData = {
@@ -7547,7 +7677,7 @@ class BillionaireMap {
                 };
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `BRA_${index}`;
@@ -7598,8 +7728,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['brazil'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -7624,10 +7755,8 @@ class BillionaireMap {
     // 호주 데이터 로드 (주/State 단위)
     async loadAustraliaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['australia']) {
-                geoJsonData = this.cachedGeoJsonData['australia'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('australia', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries AUS ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/AUS/ADM1/geoBoundaries-AUS-ADM1.geojson',
@@ -7654,23 +7783,23 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Australia] Filtered Natural Earth/global dataset to Australia only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
                         
                         if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = data;
+                            data = data;
                             console.log('[Australia] Loaded from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Australia] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Australia] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -7680,7 +7809,7 @@ class BillionaireMap {
                         console.warn('[Australia] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Australia dataset available');
+                if (!data) throw lastError || new Error('No Australia dataset available');
                 
                 // 호주 주·준주별 인구 및 면적 데이터 (2024 기준)
                 const australiaStateData = {
@@ -7695,7 +7824,7 @@ class BillionaireMap {
                 };
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `AUS_${index}`;
@@ -7746,8 +7875,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['australia'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -7772,10 +7902,8 @@ class BillionaireMap {
     // 멕시코 데이터 로드 (주/Estado 단위)
     async loadMexicoData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['mexico']) {
-                geoJsonData = this.cachedGeoJsonData['mexico'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('mexico', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries MEX ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/MEX/ADM1/geoBoundaries-MEX-ADM1.geojson',
@@ -7802,7 +7930,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Mexico] Filtered Natural Earth/global dataset to Mexico only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -7813,12 +7941,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 20) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Mexico] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 20 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Mexico] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -7926,8 +8054,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['mexico'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -7952,10 +8081,8 @@ class BillionaireMap {
     // 인도네시아 데이터 로드 (주/Provinsi 단위)
     async loadIndonesiaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['indonesia']) {
-                geoJsonData = this.cachedGeoJsonData['indonesia'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('indonesia', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries IDN ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IDN/ADM1/geoBoundaries-IDN-ADM1.geojson',
@@ -7982,7 +8109,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Indonesia] Filtered Natural Earth/global dataset to Indonesia only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -7993,12 +8120,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Indonesia] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Indonesia] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -8103,8 +8230,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['indonesia'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8129,10 +8257,8 @@ class BillionaireMap {
     // 사우디아라비아 데이터 로드 (주/Province 단위)
     async loadSaudiArabiaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['saudi-arabia']) {
-                geoJsonData = this.cachedGeoJsonData['saudi-arabia'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('saudi-arabia', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries SAU ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/SAU/ADM1/geoBoundaries-SAU-ADM1.geojson',
@@ -8159,7 +8285,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Saudi Arabia] Filtered Natural Earth/global dataset to Saudi Arabia only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -8170,12 +8296,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Saudi Arabia] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Saudi Arabia] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -8257,8 +8383,9 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['saudi-arabia'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8283,10 +8410,8 @@ class BillionaireMap {
     // 터키 데이터 로드 (주/Province 단위)
     async loadTurkeyData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['turkey']) {
-                geoJsonData = this.cachedGeoJsonData['turkey'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('turkey', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries TUR ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/TUR/ADM1/geoBoundaries-TUR-ADM1.geojson',
@@ -8313,7 +8438,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Turkey] Filtered Natural Earth/global dataset to Turkey only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -8324,12 +8449,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Turkey] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Turkey] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -8634,8 +8759,9 @@ class BillionaireMap {
                         this.regionData.set(finalId, feature.properties);
                     });
                 }
-                this.cachedGeoJsonData['turkey'] = geoJsonData;
-            }
+                
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8660,10 +8786,8 @@ class BillionaireMap {
     // 남아프리카공화국 데이터 로드 (지구/District 단위 - 52개 행정구역)
     async loadSouthAfricaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['south-africa']) {
-                geoJsonData = this.cachedGeoJsonData['south-africa'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('south-africa', async () => {
+                let data = null;
                 // 남아프리카공화국 9개 주와 52개 지구 매핑 (2024 추정 인구 및 면적)
                 const southAfricaProvinceMapping = {
                     'Eastern Cape': {
@@ -8774,7 +8898,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[South Africa] Filtered Natural Earth/global dataset to South Africa only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -8785,12 +8909,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[South Africa] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[South Africa] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -8915,8 +9039,8 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displaySouthAfricaGroupedRegions();
                 
-                this.cachedGeoJsonData['south-africa'] = geoJsonData;
-            }
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -9094,10 +9218,8 @@ class BillionaireMap {
     // 아르헨티나 데이터 로드 (주/Provincia 단위 - 23개 주)
     async loadArgentinaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['argentina']) {
-                geoJsonData = this.cachedGeoJsonData['argentina'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('argentina', async () => {
+                let data = null;
                 // 아르헨티나 23개 주 매핑 (2024 추정 인구 및 면적)
                 const argentinaProvinceMapping = {
                     'Buenos Aires': {
@@ -9243,7 +9365,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Argentina] Filtered Natural Earth/global dataset to Argentina only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -9254,12 +9376,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 15) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Argentina] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Argentina] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -9339,8 +9461,8 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayArgentinaGroupedRegions();
                 
-                this.cachedGeoJsonData['argentina'] = geoJsonData;
-            }
+                return data;
+            });
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -9447,10 +9569,8 @@ class BillionaireMap {
 
     async loadEuropeanUnionData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['european-union']) {
-                geoJsonData = this.cachedGeoJsonData['european-union'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('european-union', async () => {
+                let data = null;
                 // EU 회원국 목록 (주요 27개 회원국)
                 const euCountries = [
                     { code: 'DEU', name: 'Germany', name_ko: '독일' },
@@ -9618,7 +9738,6 @@ class BillionaireMap {
                 };
                 
                 console.log(`[EU] Loaded ${validFeatures.length} features from ${euCountries.length} countries`);
-                this.cachedGeoJsonData['european-union'] = geoJsonData;
                 
                 // regionData에 저장 (유효한 features만)
                 validFeatures.forEach(feature => {
@@ -9626,7 +9745,9 @@ class BillionaireMap {
                         this.regionData.set(feature.properties.id, feature.properties);
                     }
                 });
-            }
+                
+                return data;
+            });
             
             // 소스 업데이트 또는 생성
             if (this.map.getSource('world-regions')) {
@@ -9722,7 +9843,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[${countryName}] Filtered Natural Earth/global dataset to ${countryName} only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -9738,12 +9859,12 @@ class BillionaireMap {
                         }
                         
                         if (Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log(`[${countryName}] Loaded (normalized) from`, url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log(`[${countryName}] Loaded (array -> FC) from`, url, 'features:', data.length);
                             break;
                         }
@@ -9910,11 +10031,8 @@ class BillionaireMap {
         } = options;
 
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData[countryKey]) {
-                geoJsonData = this.cachedGeoJsonData[countryKey];
-            } else {
-                geoJsonData = await this.fetchCountryGeoJson(countryKey, countryName, countryCodeIso, candidateUrls);
+            const geoJsonData = await this.loadGeoJsonWithCache(countryKey, async () => {
+                const data = await this.fetchCountryGeoJson(countryKey, countryName, countryCodeIso, candidateUrls);
 
                 const aliasMap = new Map();
                 Object.entries(mapping).forEach(([key, meta]) => {
@@ -9937,7 +10055,7 @@ class BillionaireMap {
                 const idSet = new Set();
                 const iso2 = countryCodeIso.substring(0, 2).toUpperCase();
 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = (p.name || p.NAME_1 || p.NAME || p.NAME_2 || p.admin || `Region_${index}`).toString();
                     const normalizedRaw = this.normalizeRegionKey(rawName);
@@ -10002,12 +10120,12 @@ class BillionaireMap {
                     this.regionData.set(finalId, feature.properties);
                 });
 
-                this.cachedGeoJsonData[countryKey] = geoJsonData;
-
                 if (typeof onAfterProcess === 'function') {
-                    onAfterProcess(geoJsonData, mapping);
+                    onAfterProcess(data, mapping);
                 }
-            }
+                
+                return data;
+            });
 
             const fillColorExpression = ['case', ['==', ['get', 'ad_status'], 'occupied'], '#ff6b6b', ['coalesce', ['get', 'color'], defaultColor]];
 
@@ -10067,10 +10185,8 @@ class BillionaireMap {
     // 스페인 데이터 로드 (17개 자치지역으로 그룹화)
     async loadSpainData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['spain']) {
-                geoJsonData = this.cachedGeoJsonData['spain'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('spain', async () => {
+                let data = null;
                 // 스페인 17개 자치지역과 52개 주 매핑 (2024 기준 인구 및 면적)
                 const spainAutonomousCommunityMapping = {
                     'Andalucía': {
@@ -10254,7 +10370,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Spain] Filtered Natural Earth/global dataset to Spain only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -10265,12 +10381,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Spain] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Spain] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -10397,9 +10513,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displaySpainGroupedRegions();
                 
-                this.cachedGeoJsonData['spain'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -10545,10 +10661,8 @@ class BillionaireMap {
     // 네덜란드 데이터 로드 (12개 주)
     async loadNetherlandsData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['netherlands']) {
-                geoJsonData = this.cachedGeoJsonData['netherlands'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('netherlands', async () => {
+                let data = null;
                 // 네덜란드 12개 주 매핑 (2024 기준 인구 및 면적)
                 const netherlandsProvinceMapping = {
                     'Drenthe': {
@@ -10649,7 +10763,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Netherlands] Filtered Natural Earth/global dataset to Netherlands only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -10660,12 +10774,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Netherlands] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Netherlands] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -10758,9 +10872,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayNetherlandsGroupedRegions(netherlandsProvinceMapping);
                 
-                this.cachedGeoJsonData['netherlands'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -10857,10 +10971,8 @@ class BillionaireMap {
     // 폴란드 데이터 로드 (16개 주)
     async loadPolandData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['poland']) {
-                geoJsonData = this.cachedGeoJsonData['poland'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('poland', async () => {
+                let data = null;
                 // 폴란드 16개 주 매핑 (2024 기준 인구 및 면적)
                 const polandVoivodeshipMapping = {
                     'Wielkopolskie': {
@@ -11001,7 +11113,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Poland] Filtered Natural Earth/global dataset to Poland only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -11012,12 +11124,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Poland] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Poland] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -11113,9 +11225,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayPolandGroupedRegions(polandVoivodeshipMapping);
                 
-                this.cachedGeoJsonData['poland'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -11212,10 +11324,8 @@ class BillionaireMap {
     // 벨기에 데이터 로드 (10개 주 + 브뤼셀 수도지역)
     async loadBelgiumData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['belgium']) {
-                geoJsonData = this.cachedGeoJsonData['belgium'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('belgium', async () => {
+                let data = null;
                 // 벨기에 10개 주 + 브뤼셀 수도지역 매핑 (2024 기준 인구 및 면적)
                 const belgiumProvinceMapping = {
                     // 플랑드르 지역
@@ -11335,7 +11445,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Belgium] Filtered Natural Earth/global dataset to Belgium only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -11346,12 +11456,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Belgium] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Belgium] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -11447,9 +11557,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayBelgiumGroupedRegions(belgiumProvinceMapping);
                 
-                this.cachedGeoJsonData['belgium'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -11549,10 +11659,8 @@ class BillionaireMap {
     // 스웨덴 데이터 로드 (21개 주로 그룹화)
     async loadSwedenData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['sweden']) {
-                geoJsonData = this.cachedGeoJsonData['sweden'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('sweden', async () => {
+                let data = null;
                 // 스웨덴 21개 주(Län) 매핑 (인구 및 면적 포함, 2024 추정)
                 const swedenCountyMapping = {
                     'Stockholm': { name_ko: '스톡홀름 주', name_en: 'Stockholm', name_sv: 'Stockholms län', population: 2460000, area: 6519 },
@@ -11599,7 +11707,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Sweden] Filtered Natural Earth/global dataset to Sweden only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -11610,12 +11718,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Sweden] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Sweden] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -11694,9 +11802,10 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['sweden'] = geoJsonData;
-            }
-            
+                
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -11720,10 +11829,8 @@ class BillionaireMap {
     // 오스트리아 데이터 로드 (9개 주로 그룹화)
     async loadAustriaData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['austria']) {
-                geoJsonData = this.cachedGeoJsonData['austria'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('austria', async () => {
+                let data = null;
                 // 오스트리아 9개 연방주 매핑 (인구 및 면적 포함, 2024 추정)
                 const austriaStateMapping = {
                     'Wien': {
@@ -11826,7 +11933,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Austria] Filtered Natural Earth/global dataset to Austria only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -11837,12 +11944,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Austria] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Austria] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -12000,9 +12107,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayAustriaGroupedRegions(austriaStateMapping);
                 
-                this.cachedGeoJsonData['austria'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -12121,10 +12228,8 @@ class BillionaireMap {
     // 덴마크 데이터 로드 (5개 지역으로 그룹화)
     async loadDenmarkData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['denmark']) {
-                geoJsonData = this.cachedGeoJsonData['denmark'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('denmark', async () => {
+                let data = null;
                 // 덴마크 5개 지역(Regioner) 매핑 (인구 및 면적 포함, 2024 추정)
                 const denmarkRegionMapping = {
                     'Hovedstaden': { name_ko: '수도 지역', name_en: 'Capital Region', name_da: 'Region Hovedstaden', population: 1900000, area: 2560 },
@@ -12155,7 +12260,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Denmark] Filtered Natural Earth/global dataset to Denmark only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -12166,12 +12271,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Denmark] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Denmark] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -12250,9 +12355,10 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['denmark'] = geoJsonData;
-            }
-            
+                
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -12276,10 +12382,8 @@ class BillionaireMap {
     // 핀란드 데이터 로드 (19개 지역으로 그룹화)
     async loadFinlandData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['finland']) {
-                geoJsonData = this.cachedGeoJsonData['finland'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('finland', async () => {
+                let data = null;
                 // 핀란드 19개 지역(Maakunta) 매핑 (인구 및 면적 포함, 2024 추정)
                 const finlandRegionMapping = {
                     'Uusimaa': { name_ko: '우시마', name_en: 'Uusimaa', name_fi: 'Uusimaa', population: 1750000, area: 9100 },
@@ -12324,7 +12428,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Finland] Filtered Natural Earth/global dataset to Finland only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -12335,12 +12439,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Finland] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Finland] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -12419,9 +12523,10 @@ class BillionaireMap {
                     };
                     this.regionData.set(finalId, feature.properties);
                 });
-                this.cachedGeoJsonData['finland'] = geoJsonData;
-            }
-            
+                
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -12445,10 +12550,8 @@ class BillionaireMap {
     // 아일랜드 데이터 로드 (4개 프로빈스로 그룹화)
     async loadIrelandData() {
         try {
-            let geoJsonData;
-            if (this.cachedGeoJsonData['ireland']) {
-                geoJsonData = this.cachedGeoJsonData['ireland'];
-            } else {
+            const geoJsonData = await this.loadGeoJsonWithCache('ireland', async () => {
+                let data = null;
                 // 아일랜드 4개 프로빈스와 26개 카운티 매핑 (인구 및 면적 포함, 2024 추정)
                 const irelandProvinceMapping = {
                     'Leinster': {
@@ -12545,7 +12648,7 @@ class BillionaireMap {
                             });
                             if (filtered.length > 0) {
                                 console.log(`[Ireland] Filtered Natural Earth/global dataset to Ireland only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
+                                data = { type: 'FeatureCollection', features: filtered };
                                 break;
                             }
                         }
@@ -12556,12 +12659,12 @@ class BillionaireMap {
                             break;
                         }
                         if (Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
+                            data = { type: 'FeatureCollection', features: data.features };
                             console.log('[Ireland] Loaded (normalized) from', url, 'features:', data.features.length);
                             break;
                         }
                         if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
+                            data = { type: 'FeatureCollection', features: data };
                             console.log('[Ireland] Loaded (array -> FC) from', url, 'features:', data.length);
                             break;
                         }
@@ -12743,9 +12846,9 @@ class BillionaireMap {
                 // 그룹화된 지역 목록 출력
                 this.displayIrelandGroupedRegions(irelandProvinceMapping);
                 
-                this.cachedGeoJsonData['ireland'] = geoJsonData;
-            }
-            
+                return data;
+            });
+
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
             } else {
@@ -13120,16 +13223,10 @@ class BillionaireMap {
 
     async loadKoreaData() {
         try {
-            let geoJsonData;
-            
-            // 캐시된 데이터 무시하고 항상 새로 로드 (디버깅용)
-            // TODO: 나중에 다시 캐싱 활성화
-            // if (this.cachedGeoJsonData['korea']) {
-            //     geoJsonData = this.cachedGeoJsonData['korea'];
-            // } else {
-                // 한국 데이터 로드 (시 단위 공식 경계 데이터 사용)
+            const geoJsonData = await this.loadGeoJsonWithCache('korea', async () => {
+                // 네트워크에서 로드
                 const koreaUrl = this.getAssetUrl('data/korea-cities-official.geojson');
-                console.log('[loadKoreaData] 요청 URL:', koreaUrl);
+                console.log('[loadKoreaData] 네트워크에서 로드:', koreaUrl);
                 const response = await fetch(koreaUrl, { cache: 'no-store' });
                 
                 if (!response.ok) {
@@ -13139,7 +13236,7 @@ class BillionaireMap {
                     throw new Error(`한국 데이터 로드 실패: HTTP ${response.status} ${response.statusText}`);
                 }
                 
-                geoJsonData = await response.json();
+                const geoJsonData = await response.json();
                 
                 // 한국 행정구역별 실제 인구 및 면적 데이터
                 const koreaRegionData = {
@@ -13658,9 +13755,8 @@ class BillionaireMap {
                 })));
                 console.log('독도가 별도로 추가되었습니다.');
                 
-                // 캐시에 저장
-                this.cachedGeoJsonData['korea'] = geoJsonData;
-            // }
+                return geoJsonData;
+            });
         
         // 소스 업데이트 또는 생성
         if (this.map.getSource('world-regions')) {
