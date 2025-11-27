@@ -12,6 +12,16 @@ class AdminDashboard {
         this.ADMIN_SESSION_KEY = 'worldad.adminSession';
         this.sessionSyncInitialized = false;
         this.sessionResumeInFlight = false;
+        // 캐싱 시스템 초기화
+        this.cache = window.firestoreCache || null;
+        this.cacheTTL = 5 * 60 * 1000; // 5분 캐시 TTL
+        // 마지막 업데이트 시간 추적 (타임스탬프 기반 변경 감지용)
+        this.lastUpdateTimes = {
+            regions: null,
+            auctions: null,
+            purchases: null,
+            reports: null
+        };
         this.state = {
             summary: {
                 totalRegions: 0,
@@ -515,24 +525,37 @@ class AdminDashboard {
         try {
             const { collection, onSnapshot, query, where, orderBy, limit, doc } = await this.firestoreModulePromise;
 
-            // Regions 실시간 리스너 - 변경 사항만 감지하도록 최적화
-            // 전체 컬렉션 리스너는 읽기 비용이 높으므로, 변경 감지만 하고 
-            // 실제 데이터는 필요할 때만 fetchRegionMetrics()로 가져옴
-            // 주의: 전체 컬렉션 리스너는 초기 로드 시 모든 문서를 읽으므로 비용이 높음
-            // TODO: 향후 변경 사항만 감지하는 방식으로 개선 (예: 타임스탬프 기반 쿼리)
-            const regionsRef = collection(this.firestore, 'regions');
-            this.regionUnsubscribe = onSnapshot(regionsRef, 
+            // Regions 실시간 리스너 최적화 - 집계 데이터만 감시
+            // 전체 컬렉션 리스너 대신 집계 통계만 감시하여 읽기 최소화
+            const statsRef = doc(this.firestore, 'stats', 'regions_summary');
+            this.regionUnsubscribe = onSnapshot(statsRef, 
                 (snapshot) => {
-                    console.log('[ADMIN] Regions 업데이트됨 (변경:', snapshot.docChanges().length, '건)');
-                    // 변경 사항이 있을 때만 메트릭 갱신
-                    if (snapshot.docChanges().length > 0) {
-                        this.fetchRegionMetrics().then(() => this.render());
+                    if (snapshot.exists()) {
+                        const statsData = snapshot.data();
+                        console.log('[ADMIN] Regions 집계 데이터 업데이트됨');
+                        // 집계 데이터만 업데이트 (전체 읽기 없음)
+                        this.state.summary.totalRegions = statsData.totalRegions || 0;
+                        this.state.summary.occupiedRegions = statsData.occupiedRegions || 0;
+                        this.state.summary.availableRegions = statsData.availableRegions || 0;
+                        this.state.summary.occupancyRate = statsData.occupancyRate || 0;
+                        this.state.summary.totalRevenue = statsData.totalRevenue || this.state.summary.totalRevenue;
+                        this.render();
                     }
                 },
                 (error) => {
-                    console.error('[ADMIN] Regions 리스너 오류', error);
-                    if (error.code !== 'permission-denied') {
-                        this.showToast('지역 데이터 실시간 업데이트 실패', 'error');
+                    console.error('[ADMIN] Regions 집계 리스너 오류', error);
+                    // 폴백: 전체 regions 리스너 (집계 데이터가 없을 경우)
+                    if (error.code === 'permission-denied' || error.code === 'not-found') {
+                        console.log('[ADMIN] 집계 데이터 없음, 전체 리스너로 폴백');
+                        const regionsRef = collection(this.firestore, 'regions');
+                        this.regionUnsubscribe = onSnapshot(regionsRef, 
+                            (snapshot) => {
+                                if (snapshot.docChanges().length > 0) {
+                                    this.fetchRegionMetrics().then(() => this.render());
+                                }
+                            },
+                            (err) => console.error('[ADMIN] Regions 리스너 오류', err)
+                        );
                     }
                 }
             );
@@ -749,46 +772,143 @@ class AdminDashboard {
 
     async fetchRegionMetrics() {
         try {
-            const { collection, getDocs } = await this.firestoreModulePromise;
+            const cacheKey = 'regions_metrics';
+            
+            // 캐시 확인 (5분 TTL)
+            if (this.cache) {
+                const cached = await this.cache.get(cacheKey, this.cacheTTL);
+                if (cached) {
+                    console.log('[ADMIN] Regions 메트릭 캐시 사용');
+                    this.state.summary.totalRegions = cached.totalRegions;
+                    this.state.summary.occupiedRegions = cached.occupiedRegions;
+                    this.state.summary.availableRegions = cached.availableRegions;
+                    this.state.summary.occupancyRate = cached.occupancyRate;
+                    this.state.topRegions = cached.topRegions;
+                    this.state.regionsForExport = cached.regionsForExport;
+                    return;
+                }
+            }
+
+            // 집계 데이터 먼저 확인 (더 적은 읽기)
+            const { doc, getDoc } = await this.firestoreModulePromise;
+            const statsRef = doc(this.firestore, 'stats', 'regions_summary');
+            const statsSnapshot = await getDoc(statsRef);
+            
+            if (statsSnapshot.exists()) {
+                const statsData = statsSnapshot.data();
+                console.log('[ADMIN] Regions 집계 데이터 사용 (읽기 최적화)');
+                
+                // 집계 데이터로 요약 정보 설정
+                this.state.summary.totalRegions = statsData.totalRegions || 0;
+                this.state.summary.occupiedRegions = statsData.occupiedRegions || 0;
+                this.state.summary.availableRegions = statsData.availableRegions || 0;
+                this.state.summary.occupancyRate = statsData.occupancyRate || 0;
+                this.state.summary.totalRevenue = statsData.totalRevenue || this.state.summary.totalRevenue;
+                
+                // top regions는 여전히 전체 읽기가 필요 (하지만 캐시 사용)
+                // TODO: 상위 지역 목록도 집계 데이터에 포함하도록 개선 가능
+            }
+
+            // 전체 regions 읽기 (집계 데이터가 없거나 상세 목록이 필요한 경우)
+            const { collection, getDocs, query, orderBy, limit, where, Timestamp } = await this.firestoreModulePromise;
             const regionsRef = collection(this.firestore, 'regions');
-            // 전체 regions 읽기는 불가피하지만, 캐싱을 통해 중복 읽기 방지
-            // TODO: 향후 집계 쿼리나 별도 통계 컬렉션으로 최적화 가능
-            const snapshot = await getDocs(regionsRef);
+            
+            // 타임스탬프 기반 변경 감지 쿼리 (최적화)
+            let regionsQuery;
+            if (this.lastUpdateTimes.regions) {
+                try {
+                    const lastUpdate = Timestamp.fromMillis(this.lastUpdateTimes.regions);
+                    regionsQuery = query(
+                        regionsRef,
+                        where('updatedAt', '>', lastUpdate),
+                        limit(100)
+                    );
+                    console.log('[ADMIN] Regions 변경된 문서만 쿼리 (최적화)');
+                } catch (e) {
+                    // updatedAt 필드가 없거나 쿼리 실패 시 전체 읽기
+                    regionsQuery = query(regionsRef, limit(500));
+                }
+            } else {
+                // 첫 로드 또는 전체 읽기
+                regionsQuery = query(regionsRef, limit(500));
+            }
+            
+            const snapshot = await getDocs(regionsQuery);
 
-        const regions = [];
-        let occupied = 0;
-        snapshot.forEach(doc => {
-            const data = doc.data() || {};
-            const status = (data.ad_status || data.status || '').toLowerCase();
-            if (status === 'occupied') occupied += 1;
-            const updatedAt = data.updatedAt?.toDate?.() || (data.updatedAt ? new Date(data.updatedAt) : null);
-            regions.push({
-                id: doc.id,
-                name: data.name_ko || data.name_en || data.regionName || doc.id,
-                country: data.country || '-',
-                price: Number(data.ad_price || data.adPrice || 0),
-                status: status || 'available',
-                updatedAt
+            const regions = [];
+            let occupied = 0;
+            let maxUpdatedAt = this.lastUpdateTimes.regions || 0;
+            
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() || {};
+                const status = (data.ad_status || data.status || '').toLowerCase();
+                if (status === 'occupied') occupied += 1;
+                const updatedAt = data.updatedAt?.toDate?.() || (data.updatedAt ? new Date(data.updatedAt) : null);
+                
+                if (updatedAt) {
+                    const timestamp = updatedAt.getTime();
+                    if (timestamp > maxUpdatedAt) {
+                        maxUpdatedAt = timestamp;
+                    }
+                }
+                
+                regions.push({
+                    id: docSnap.id,
+                    name: data.name_ko || data.name_en || data.regionName || docSnap.id,
+                    country: data.country || '-',
+                    price: Number(data.ad_price || data.adPrice || 0),
+                    status: status || 'available',
+                    updatedAt
+                });
             });
-        });
 
-        regions.sort((a, b) => {
-            const statusScore = (value) => value === 'occupied' ? 0 : 1;
-            const statusDiff = statusScore(a.status) - statusScore(b.status);
-            if (statusDiff !== 0) return statusDiff;
-            return b.price - a.price;
-        });
+            // 기존 지역 목록과 병합 (변경 감지 모드인 경우)
+            if (this.lastUpdateTimes.regions && this.state.topRegions && this.state.topRegions.length > 0) {
+                // 기존 목록에 변경된 항목 업데이트
+                const existingMap = new Map(this.state.topRegions.map(r => [r.id, r]));
+                regions.forEach(region => {
+                    existingMap.set(region.id, region);
+                });
+                this.state.topRegions = Array.from(existingMap.values());
+            } else {
+                // 전체 정렬
+                regions.sort((a, b) => {
+                    const statusScore = (value) => value === 'occupied' ? 0 : 1;
+                    const statusDiff = statusScore(a.status) - statusScore(b.status);
+                    if (statusDiff !== 0) return statusDiff;
+                    return b.price - a.price;
+                });
+                this.state.topRegions = regions.slice(0, 12);
+                this.state.regionsForExport = regions;
+            }
 
-        const totalRegions = regions.length;
-        const availableRegions = Math.max(totalRegions - occupied, 0);
-        const occupancyRate = totalRegions ? Math.round((occupied / totalRegions) * 100) : 0;
-
-            this.state.summary.totalRegions = totalRegions;
-            this.state.summary.occupiedRegions = occupied;
-            this.state.summary.availableRegions = availableRegions;
-            this.state.summary.occupancyRate = occupancyRate;
-            this.state.topRegions = regions.slice(0, 12);
-            this.state.regionsForExport = regions;
+            // 집계 데이터가 없으면 직접 계산
+            if (!statsSnapshot?.exists()) {
+                const totalRegions = regions.length;
+                const availableRegions = Math.max(totalRegions - occupied, 0);
+                const occupancyRate = totalRegions ? Math.round((occupied / totalRegions) * 100) : 0;
+                
+                this.state.summary.totalRegions = totalRegions;
+                this.state.summary.occupiedRegions = occupied;
+                this.state.summary.availableRegions = availableRegions;
+                this.state.summary.occupancyRate = occupancyRate;
+            }
+            
+            // 마지막 업데이트 시간 저장
+            this.lastUpdateTimes.regions = maxUpdatedAt || Date.now();
+            
+            // 캐시 저장
+            if (this.cache) {
+                await this.cache.set(cacheKey, {
+                    totalRegions: this.state.summary.totalRegions,
+                    occupiedRegions: this.state.summary.occupiedRegions,
+                    availableRegions: this.state.summary.availableRegions,
+                    occupancyRate: this.state.summary.occupancyRate,
+                    topRegions: this.state.topRegions,
+                    regionsForExport: this.state.regionsForExport
+                });
+                await this.cache.setLastUpdateTime('regions', Date.now());
+            }
         } catch (error) {
             console.error('[ADMIN] fetchRegionMetrics 실패', error);
             throw error;
@@ -868,6 +988,29 @@ class AdminDashboard {
 
     async fetchPurchases() {
         try {
+            const cacheKey = 'purchases_recent';
+            
+            // 캐시 확인 (5분 TTL)
+            if (this.cache) {
+                const cached = await this.cache.get(cacheKey, this.cacheTTL);
+                if (cached) {
+                    console.log('[ADMIN] Purchases 캐시 사용');
+                    this.state.recentPurchases = cached.recentPurchases;
+                    this.state.summary.totalRevenue = cached.totalRevenue;
+                    return;
+                }
+            }
+
+            // 집계 데이터 확인 (전체 수익 정보)
+            const { doc, getDoc } = await this.firestoreModulePromise;
+            const purchaseStatsRef = doc(this.firestore, 'stats', 'purchases_summary');
+            const statsSnapshot = await getDoc(purchaseStatsRef);
+            
+            if (statsSnapshot.exists()) {
+                const statsData = statsSnapshot.data();
+                this.state.summary.totalRevenue = statsData.totalRevenue || this.state.summary.totalRevenue;
+            }
+
             const { collection, getDocs, query, orderBy, limit } = await this.firestoreModulePromise;
             const purchasesRef = collection(this.firestore, 'purchases');
             
@@ -907,9 +1050,18 @@ class AdminDashboard {
             });
 
             this.state.recentPurchases = purchases.slice(0, 6);
-            // 전체 수익은 별도 집계 쿼리나 캐시에서 가져와야 하지만, 
-            // 현재는 최근 100개만으로 추정치 계산 (정확도는 떨어지지만 읽기 최적화)
-            this.state.summary.totalRevenue = totalRevenue;
+            // 전체 수익은 집계 데이터에서 가져오거나, 집계 데이터가 없으면 계산
+            if (!statsSnapshot?.exists()) {
+                this.state.summary.totalRevenue = totalRevenue;
+            }
+            
+            // 캐시 저장
+            if (this.cache) {
+                await this.cache.set(cacheKey, {
+                    recentPurchases: this.state.recentPurchases,
+                    totalRevenue: this.state.summary.totalRevenue
+                });
+            }
         } catch (error) {
             console.error('[ADMIN] fetchPurchases 실패', error);
             throw error;
