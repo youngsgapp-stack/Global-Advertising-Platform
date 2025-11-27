@@ -2652,6 +2652,87 @@ class BillionaireMap {
         }
     }
 
+    // 병렬로 여러 URL을 시도하고 첫 번째로 성공한 것을 반환하는 헬퍼 함수
+    async fetchFirstAvailableUrl(candidateUrls, options = {}) {
+        const {
+            minFeatures = 0,
+            validateFn = null,
+            normalizeFn = null,
+            countryName = 'Unknown',
+            filterFn = null
+        } = options;
+
+        // 모든 URL을 동시에 시도
+        const fetchPromises = candidateUrls.map(async (url) => {
+            try {
+                const resp = await fetch(url, { cache: 'no-store' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                
+                let geoJsonData = null;
+                
+                // 데이터 정규화 및 검증
+                if (data && data.type === 'FeatureCollection' && Array.isArray(data.features)) {
+                    geoJsonData = data;
+                } else if (data && data.geoJson && data.geoJson.type === 'FeatureCollection') {
+                    geoJsonData = data.geoJson;
+                } else if (Array.isArray(data.features) && data.features.length > 0) {
+                    geoJsonData = { type: 'FeatureCollection', features: data.features };
+                } else if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
+                    geoJsonData = { type: 'FeatureCollection', features: data };
+                }
+                
+                if (!geoJsonData || !geoJsonData.features) {
+                    throw new Error('Invalid data shape');
+                }
+                
+                // 필터링 (Natural Earth 같은 전세계 데이터인 경우)
+                if (filterFn && geoJsonData.features.length > 300) {
+                    const filtered = geoJsonData.features.filter(filterFn);
+                    if (filtered.length > 0) {
+                        geoJsonData = { type: 'FeatureCollection', features: filtered };
+                    }
+                }
+                
+                // 최소 features 수 검증
+                if (geoJsonData.features.length < minFeatures) {
+                    throw new Error(`Insufficient features: ${geoJsonData.features.length} < ${minFeatures}`);
+                }
+                
+                // 커스텀 검증 함수
+                if (validateFn && !validateFn(geoJsonData)) {
+                    throw new Error('Custom validation failed');
+                }
+                
+                // 커스텀 정규화 함수
+                if (normalizeFn) {
+                    geoJsonData = normalizeFn(geoJsonData);
+                }
+                
+                return { success: true, data: geoJsonData, url };
+            } catch (error) {
+                return { success: false, error, url };
+            }
+        });
+        
+        // 모든 요청이 완료될 때까지 대기
+        const results = await Promise.allSettled(fetchPromises);
+        
+        // 첫 번째로 성공한 결과 찾기
+        for (const result of results) {
+            if (result.status === 'fulfilled' && result.value.success) {
+                console.log(`[${countryName}] Loaded from ${result.value.url}, features: ${result.value.data.features.length}`);
+                return result.value.data;
+            }
+        }
+        
+        // 모든 요청 실패
+        const errors = results
+            .filter(r => r.status === 'fulfilled' && !r.value.success)
+            .map(r => r.value.error);
+        throw new Error(`All URLs failed. Last error: ${errors[errors.length - 1]?.message || 'Unknown error'}`);
+    }
+
     async initializeMap() {
         // MapLibre GL JS 초기화 (무료 오픈소스 버전 사용)
         mapboxgl.accessToken = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
@@ -4941,41 +5022,29 @@ class BillionaireMap {
                     'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
                 ];
                 
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const response = await fetch(url, { cache: 'no-store' });
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
-                        // 형식 단순 정규화 (FeatureCollection 보장)
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[China] Loaded from', url, 'features:', data.features.length);
-                            break;
+                // 병렬로 모든 URL 시도
+                try {
+                    geoJsonData = await this.fetchFirstAvailableUrl(candidateUrls, {
+                        minFeatures: 10,
+                        countryName: 'China',
+                        normalizeFn: (data) => {
+                            // ECharts 일부 데이터는 객체에 geoJson 키를 가짐
+                            if (data && data.geoJson && data.geoJson.type === 'FeatureCollection') {
+                                return data.geoJson;
+                            }
+                            // 일부 소스는 {features: [...]} 형태만 제공
+                            if (!data.type && Array.isArray(data.features)) {
+                                return { type: 'FeatureCollection', features: data.features };
+                            }
+                            // 일부 저장소는 배열만 제공
+                            if (Array.isArray(data) && data[0] && data[0].geometry) {
+                                return { type: 'FeatureCollection', features: data };
+                            }
+                            return data;
                         }
-                        // 일부 소스는 {features: [...]} 형태만 제공
-                        if (!data.type && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[China] Loaded (normalized) from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        // ECharts 일부 데이터는 객체에 geoJson 키를 가짐
-                        if (data && data.geoJson && data.geoJson.type === 'FeatureCollection' && Array.isArray(data.geoJson.features)) {
-                            geoJsonData = data.geoJson;
-                            console.log('[China] Loaded (geoJson key) from', url, 'features:', geoJsonData.features.length);
-                            break;
-                        }
-                        // 일부 저장소는 { geometry: {...}, properties: {...} }의 배열만 제공
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[China] Loaded (array -> FC) from', url, 'features:', data.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (err) {
-                        lastError = err;
-                        console.warn('[China] Failed loading from', url, err);
-                    }
+                    });
+                } catch (err) {
+                    console.warn('[China] All parallel URLs failed, trying local fallback:', err);
                 }
                 // 로컬 폴백
                 if (!geoJsonData) {
@@ -5213,32 +5282,30 @@ class BillionaireMap {
                     'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/russia.geojson'
                 ];
                 
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const resp = await fetch(url, { cache: 'no-store' });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = data;
-                            console.log('[Russia] Loaded from', url, 'features:', data.features.length);
-                            break;
+                // 병렬로 모든 URL 시도
+                try {
+                    geoJsonData = await this.fetchFirstAvailableUrl(candidateUrls, {
+                        minFeatures: 50,
+                        countryName: 'Russia',
+                        filterFn: (feature) => {
+                            const p = feature.properties || {};
+                            const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                            const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                            const iso2 = (p.iso_a2 || '').toUpperCase();
+                            return a3 === 'RUS' || admin === 'Russia' || iso2 === 'RU';
+                        },
+                        normalizeFn: (data) => {
+                            if (Array.isArray(data.features)) {
+                                return { type: 'FeatureCollection', features: data.features };
+                            }
+                            if (Array.isArray(data) && data[0] && data[0].geometry) {
+                                return { type: 'FeatureCollection', features: data };
+                            }
+                            return data;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Russia] Loaded (normalized) from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[Russia] Loaded (array -> FC) from', url, 'features:', data.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (e) {
-                        lastError = e;
-                        console.warn('[Russia] Failed loading from', url, e);
-                    }
+                    });
+                } catch (err) {
+                    console.warn('[Russia] All parallel URLs failed, trying local fallback:', err);
                 }
                 // 로컬 폴백
                 if (!geoJsonData) {
@@ -5647,32 +5714,23 @@ class BillionaireMap {
                     // Humanitarian Data Exchange mirror via GitHub
                     'https://raw.githubusercontent.com/datasets/geo-admin1-us/master/data/india_states.geojson'
                 ];
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const resp = await fetch(url, { cache: 'no-store' });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 25) {
-                            geoJsonData = data;
-                            console.log('[India] Loaded from', url, 'features:', data.features.length);
-                            break;
+                // 병렬로 모든 URL 시도
+                try {
+                    geoJsonData = await this.fetchFirstAvailableUrl(candidateUrls, {
+                        minFeatures: 25,
+                        countryName: 'India',
+                        normalizeFn: (data) => {
+                            if (Array.isArray(data.features)) {
+                                return { type: 'FeatureCollection', features: data.features };
+                            }
+                            if (Array.isArray(data) && data[0] && data[0].geometry) {
+                                return { type: 'FeatureCollection', features: data };
+                            }
+                            return data;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 25) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[India] Loaded (normalized) from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        if (Array.isArray(data) && data.length > 25 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[India] Loaded (array -> FC) from', url, 'features:', data.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (e) {
-                        lastError = e;
-                        console.warn('[India] Failed loading from', url, e);
-                    }
+                    });
+                } catch (err) {
+                    console.warn('[India] All parallel URLs failed, trying local fallback:', err);
                 }
                 // 로컬 폴백
                 if (!geoJsonData) {
@@ -5857,47 +5915,30 @@ class BillionaireMap {
                     // Natural Earth Canada provinces
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const resp = await fetch(url, { cache: 'no-store' });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        // Natural Earth 데이터인 경우 캐나다만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
-                                const p = feature.properties || {};
-                                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
-                                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
-                                const iso2 = (p.iso_a2 || '').toUpperCase();
-                                return a3 === 'CAN' || admin === 'Canada' || iso2 === 'CA';
-                            });
-                            if (filtered.length > 0) {
-                                console.log(`[Canada] Filtered Natural Earth/global dataset to Canada only: ${filtered.length} features`);
-                                geoJsonData = { type: 'FeatureCollection', features: filtered };
-                                break;
+                // 병렬로 모든 URL 시도
+                try {
+                    geoJsonData = await this.fetchFirstAvailableUrl(candidateUrls, {
+                        minFeatures: 10,
+                        countryName: 'Canada',
+                        filterFn: (feature) => {
+                            const p = feature.properties || {};
+                            const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                            const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                            const iso2 = (p.iso_a2 || '').toUpperCase();
+                            return a3 === 'CAN' || admin === 'Canada' || iso2 === 'CA';
+                        },
+                        normalizeFn: (data) => {
+                            if (Array.isArray(data.features)) {
+                                return { type: 'FeatureCollection', features: data.features };
                             }
+                            if (Array.isArray(data) && data[0] && data[0].geometry) {
+                                return { type: 'FeatureCollection', features: data };
+                            }
+                            return data;
                         }
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[Canada] Loaded from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        if (Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Canada] Loaded (normalized) from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[Canada] Loaded (array -> FC) from', url, 'features:', data.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (e) {
-                        lastError = e;
-                        console.warn('[Canada] Failed loading from', url, e);
-                    }
+                    });
+                } catch (err) {
+                    console.warn('[Canada] All parallel URLs failed, trying local fallback:', err);
                 }
                 // 로컬 폴백
                 if (!geoJsonData) {
@@ -6083,34 +6124,24 @@ class BillionaireMap {
                     // click_that_hood germany
                     'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/germany.geojson'
                 ];
-                let lastError = null;
-                for (const url of candidateUrls) {
-                    try {
-                        const resp = await fetch(url, { cache: 'no-store' });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[Germany] Loaded from', url, 'features:', data.features.length);
-                            break;
+                // 병렬로 모든 URL 시도
+                try {
+                    geoJsonData = await this.fetchFirstAvailableUrl(candidateUrls, {
+                        minFeatures: 10,
+                        countryName: 'Germany',
+                        normalizeFn: (data) => {
+                            if (Array.isArray(data.features)) {
+                                return { type: 'FeatureCollection', features: data.features };
+                            }
+                            if (Array.isArray(data) && data[0] && data[0].geometry) {
+                                return { type: 'FeatureCollection', features: data };
+                            }
+                            return data;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Germany] Loaded (normalized) from', url, 'features:', data.features.length);
-                            break;
-                        }
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[Germany] Loaded (array -> FC) from', url, 'features:', data.length);
-                            break;
-                        }
-                        lastError = new Error('Invalid data shape');
-                    } catch (e) {
-                        lastError = e;
-                        console.warn('[Germany] Failed loading from', url, e);
-                    }
+                    });
+                } catch (err) {
+                    throw new Error('No Germany dataset available');
                 }
-                if (!geoJsonData) throw lastError || new Error('No Germany dataset available');
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -9826,55 +9857,28 @@ class BillionaireMap {
         ];
         const urls = [...candidateUrls, ...defaultUrls].filter((url, idx, arr) => arr.indexOf(url) === idx);
 
-        let geoJsonData = null;
-        let lastError = null;
-
-        for (const url of urls) {
-            try {
-                const resp = await fetch(url, { cache: 'no-store' });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
-
-                if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
-                    const filtered = data.features.filter((feature) => {
-                        const p = feature.properties || {};
-                        const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
-                        const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
-                        const iso2Code = (p.iso_a2 || '').toUpperCase();
-                        return a3 === iso3 || admin === countryName || iso2Code === iso2;
-                    });
-                    if (filtered.length > 0) {
-                        console.log(`[${countryName}] Filtered Natural Earth/global dataset to ${countryName} only: ${filtered.length} features`);
-                        geoJsonData = { type: 'FeatureCollection', features: filtered };
-                        break;
-                    }
+        // 병렬로 모든 URL 시도
+        geoJsonData = await this.fetchFirstAvailableUrl(urls, {
+            minFeatures: 0,
+            countryName: countryName,
+            filterFn: (feature) => {
+                // Natural Earth 같은 전세계 데이터인 경우 해당 국가만 필터링
+                const p = feature.properties || {};
+                const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
+                const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
+                const iso2Code = (p.iso_a2 || '').toUpperCase();
+                return a3 === iso3 || admin === countryName || iso2Code === iso2;
+            },
+            normalizeFn: (data) => {
+                if (Array.isArray(data.features)) {
+                    return { type: 'FeatureCollection', features: data.features };
                 }
-
-                if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
-                    geoJsonData = data;
-                    console.log(`[${countryName}] Loaded from`, url, 'features:', data.features.length);
-                    break;
+                if (Array.isArray(data) && data[0] && data[0].geometry) {
+                    return { type: 'FeatureCollection', features: data };
                 }
-                if (Array.isArray(data.features) && data.features.length > 0) {
-                    geoJsonData = { type: 'FeatureCollection', features: data.features };
-                    console.log(`[${countryName}] Loaded (normalized) from`, url, 'features:', data.features.length);
-                    break;
-                }
-                if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                    geoJsonData = { type: 'FeatureCollection', features: data };
-                    console.log(`[${countryName}] Loaded (array -> FC) from`, url, 'features:', data.length);
-                    break;
-                }
-                lastError = new Error('Invalid data shape');
-            } catch (error) {
-                lastError = error;
-                console.warn(`[${countryName}] Failed loading from`, url, error);
+                return data;
             }
-        }
-
-        if (!geoJsonData) {
-            throw lastError || new Error(`No ${countryName} dataset available`);
-        }
+        });
 
         this.rawGeoJsonCache[countryKey] = geoJsonData;
         return JSON.parse(JSON.stringify(geoJsonData));
