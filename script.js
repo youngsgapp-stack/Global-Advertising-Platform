@@ -5364,6 +5364,7 @@ class BillionaireMap {
     async loadRussiaData() {
         try {
             const geoJsonData = await this.loadGeoJsonWithCache('russia', async () => {
+                let data = null;
                 const candidateUrls = [
                     // geoBoundaries RUS ADM1 (신뢰도 높음)
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/RUS/ADM1/geoBoundaries-RUS-ADM1.geojson',
@@ -5412,8 +5413,6 @@ class BillionaireMap {
                         console.warn('[Russia] Local fallback missing or invalid', e);
                     }
                 }
-                if (!data) throw lastError || new Error('No Russia dataset available');
-                
                 // 필요 시 러시아만 필터링 (일부 소스는 전세계 admin-1을 반환)
                 if (data && Array.isArray(data.features) && data.features.length > 300) {
                     const filtered = data.features.filter((feature) => {
@@ -5428,6 +5427,8 @@ class BillionaireMap {
                         data = { type: 'FeatureCollection', features: filtered };
                     }
                 }
+                if (!data) throw lastError || new Error('No Russia dataset available');
+                return data;
 
                 // 러시아 연방주체별 실제 인구 및 면적 데이터
                 const russiaRegionData = {
@@ -6017,10 +6018,10 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         // Natural Earth 데이터인 경우 캐나다만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -6033,19 +6034,19 @@ class BillionaireMap {
                                 break;
                             }
                         }
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[Canada] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = fetchedData;
+                            console.log('[Canada] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 10) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Canada] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Canada] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Canada] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 10 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Canada] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -6055,22 +6056,19 @@ class BillionaireMap {
                     }
                 }
                 // 로컬 폴백
-                if (!geoJsonData) {
+                if (!data) {
                     try {
                         const localResp = await fetch('data/canada-provinces.geojson', { cache: 'no-store' });
                         if (!localResp.ok) throw new Error(`Local HTTP ${localResp.status}`);
                         const localData = await localResp.json();
-                        geoJsonData = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
+                        data = localData.type ? localData : { type: 'FeatureCollection', features: localData.features };
                         console.log('[Canada] Loaded from local fallback data/canada-provinces.geojson');
                     } catch (e) {
                         console.warn('[Canada] Local fallback missing or invalid', e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Canada dataset available');
-                
-                // 속성 정규화
-                const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                if (!data) throw lastError || new Error('No Canada dataset available');
+                return data;
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || p.shapeName || `Province_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || p.shapeISO || rawName || `CAN_${index}`;
@@ -6241,20 +6239,20 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[Germany] Loaded from', url, 'features:', data.features.length);
+                        const fetchedData = await resp.json();
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = fetchedData;
+                            console.log('[Germany] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Germany] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Germany] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            geoJsonData = { type: 'FeatureCollection', features: data };
-                            console.log('[Germany] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 10 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Germany] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -6263,7 +6261,8 @@ class BillionaireMap {
                         console.warn('[Germany] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Germany dataset available');
+                if (!data) throw lastError || new Error('No Germany dataset available');
+                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -6407,17 +6406,18 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // geoBoundaries ADM1 데이터는 이미 큰 단위로 나뉘어 있음
-                        if (url.includes('geoBoundaries') && data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2 && data.features.length < 50) {
-                            console.log('[UK] Loaded from geoBoundaries ADM1:', url, 'features:', data.features.length);
+                        if (url.includes('geoBoundaries') && fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 2 && fetchedData.features.length < 50) {
+                            data = fetchedData;
+                            console.log('[UK] Loaded from geoBoundaries ADM1:', url, 'features:', fetchedData.features.length);
                             break;
                         }
                         
                         // Natural Earth 데이터인 경우 영국만 필터링 (큰 단위로 그룹화 필요)
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -6438,18 +6438,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 2) {
-                            console.log('[UK] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 2) {
+                            data = fetchedData;
+                            console.log('[UK] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 2) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[UK] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 2) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[UK] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 2 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[UK] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 2 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[UK] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -6773,11 +6774,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 프랑스만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -6791,19 +6792,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            data = data;
-                            console.log('[France] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = fetchedData;
+                            console.log('[France] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 5) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[France] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[France] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[France] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 5 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[France] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -7161,11 +7162,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 이탈리아만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -7179,19 +7180,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            data = data;
-                            console.log('[Italy] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = fetchedData;
+                            console.log('[Italy] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 5) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Italy] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Italy] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Italy] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 5 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Italy] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -7604,11 +7605,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 브라질만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -7622,19 +7623,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 15) {
-                            data = data;
-                            console.log('[Brazil] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 15) {
+                            data = fetchedData;
+                            console.log('[Brazil] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 15) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Brazil] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 15) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Brazil] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Brazil] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 15 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Brazil] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -7644,6 +7645,7 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Brazil dataset available');
+                return data;
                 
                 // 브라질 주별 인구 및 면적 데이터 (2024 기준)
                 const brazilStateData = {
@@ -7770,11 +7772,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 호주만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -7788,19 +7790,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            data = data;
-                            console.log('[Australia] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = fetchedData;
+                            console.log('[Australia] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 5) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Australia] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Australia] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Australia] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 5 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Australia] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -7810,6 +7812,7 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Australia dataset available');
+                return data;
                 
                 // 호주 주·준주별 인구 및 면적 데이터 (2024 기준)
                 const australiaStateData = {
@@ -7917,11 +7920,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 멕시코만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -7935,19 +7938,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 20) {
-                            geoJsonData = data;
-                            console.log('[Mexico] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 20) {
+                            data = fetchedData;
+                            console.log('[Mexico] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 20) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Mexico] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 20) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Mexico] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 20 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Mexico] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 20 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Mexico] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -7956,7 +7959,8 @@ class BillionaireMap {
                         console.warn('[Mexico] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Mexico dataset available');
+                if (!data) throw lastError || new Error('No Mexico dataset available');
+                return data;
                 
                 // 멕시코 주별 인구 및 면적 데이터 (2024 기준)
                 const mexicoStateData = {
@@ -8096,11 +8100,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 인도네시아만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -8114,19 +8118,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 10) {
-                            geoJsonData = data;
-                            console.log('[Indonesia] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = fetchedData;
+                            console.log('[Indonesia] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 10) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Indonesia] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 10) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Indonesia] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 10 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Indonesia] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 10 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Indonesia] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -8135,7 +8139,8 @@ class BillionaireMap {
                         console.warn('[Indonesia] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Indonesia dataset available');
+                if (!data) throw lastError || new Error('No Indonesia dataset available');
+                return data;
                 
                 // 인도네시아 주별 인구 및 면적 데이터 (mid-2024 기준)
                 const indonesiaProvinceData = {
@@ -8272,11 +8277,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 사우디아라비아만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -8290,19 +8295,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = data;
-                            console.log('[Saudi Arabia] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = fetchedData;
+                            console.log('[Saudi Arabia] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 5) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Saudi Arabia] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Saudi Arabia] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Saudi Arabia] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 5 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Saudi Arabia] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -8311,7 +8316,8 @@ class BillionaireMap {
                         console.warn('[Saudi Arabia] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Saudi Arabia dataset available');
+                if (!data) throw lastError || new Error('No Saudi Arabia dataset available');
+                return data;
                 
                 // 사우디 아라비아 주별 인구 및 면적 데이터 (2022 기준)
                 const saudiArabiaProvinceData = {
@@ -8425,11 +8431,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 터키만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -8443,19 +8449,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 50) {
-                            geoJsonData = data;
-                            console.log('[Turkey] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 50) {
+                            data = fetchedData;
+                            console.log('[Turkey] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 50) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Turkey] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 50) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Turkey] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 50 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Turkey] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 50 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Turkey] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -8464,7 +8470,8 @@ class BillionaireMap {
                         console.warn('[Turkey] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Turkey dataset available');
+                if (!data) throw lastError || new Error('No Turkey dataset available');
+                return data;
                 
                 // 81개 이상의 feature가 있으면 그룹화 필요 (주 -> 지역)
                 const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
@@ -8885,11 +8892,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 남아프리카공화국만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -8903,19 +8910,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 5) {
-                            geoJsonData = data;
-                            console.log('[South Africa] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = fetchedData;
+                            console.log('[South Africa] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 5) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[South Africa] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 5) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[South Africa] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 5 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[South Africa] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 5 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[South Africa] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -8924,7 +8931,8 @@ class BillionaireMap {
                         console.warn('[South Africa] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No South Africa dataset available');
+                if (!data) throw lastError || new Error('No South Africa dataset available');
+                return data;
                 
                 // 주-지구 매핑을 클래스에 저장
                 this.southAfricaProvinceMapping = southAfricaProvinceMapping;
@@ -9352,11 +9360,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 아르헨티나만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -9370,19 +9378,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 15) {
-                            geoJsonData = data;
-                            console.log('[Argentina] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 15) {
+                            data = fetchedData;
+                            console.log('[Argentina] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 15) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Argentina] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 15) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Argentina] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 15 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Argentina] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 15 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Argentina] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -9391,7 +9399,8 @@ class BillionaireMap {
                         console.warn('[Argentina] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Argentina dataset available');
+                if (!data) throw lastError || new Error('No Argentina dataset available');
+                return data;
                 
                 // 주 매핑을 클래스에 저장
                 this.argentinaProvinceMapping = argentinaProvinceMapping;
@@ -10357,11 +10366,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 스페인만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -10375,19 +10384,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Spain] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Spain] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Spain] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Spain] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Spain] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Spain] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -10396,7 +10405,8 @@ class BillionaireMap {
                         console.warn('[Spain] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Spain dataset available');
+                if (!data) throw lastError || new Error('No Spain dataset available');
+                return data;
                 
                 // 자치지역-주 매핑을 클래스에 저장
                 this.spainAutonomousCommunityMapping = spainAutonomousCommunityMapping;
@@ -10750,11 +10760,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 네덜란드만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -10768,19 +10778,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Netherlands] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Netherlands] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Netherlands] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Netherlands] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Netherlands] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Netherlands] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -10789,7 +10799,8 @@ class BillionaireMap {
                         console.warn('[Netherlands] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Netherlands dataset available');
+                if (!data) throw lastError || new Error('No Netherlands dataset available');
+                return data;
                 
                 const idSet = new Set();
                 
@@ -11100,11 +11111,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 폴란드만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -11118,19 +11129,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Poland] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Poland] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Poland] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Poland] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Poland] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Poland] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -11139,7 +11150,8 @@ class BillionaireMap {
                         console.warn('[Poland] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Poland dataset available');
+                if (!data) throw lastError || new Error('No Poland dataset available');
+                return data;
                 
                 const idSet = new Set();
                 
@@ -11432,11 +11444,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 벨기에만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -11450,19 +11462,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Belgium] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Belgium] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Belgium] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Belgium] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Belgium] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Belgium] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -11471,7 +11483,8 @@ class BillionaireMap {
                         console.warn('[Belgium] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Belgium dataset available');
+                if (!data) throw lastError || new Error('No Belgium dataset available');
+                return data;
                 
                 const idSet = new Set();
                 
@@ -11695,10 +11708,10 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
-                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (url.includes('natural-earth') && fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -11712,19 +11725,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = data;
-                            console.log('[Sweden] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = fetchedData;
+                            console.log('[Sweden] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 0) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Sweden] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Sweden] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Sweden] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 0 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Sweden] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -11733,7 +11746,8 @@ class BillionaireMap {
                         console.warn('[Sweden] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Sweden dataset available');
+                if (!data) throw lastError || new Error('No Sweden dataset available');
+                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -11920,11 +11934,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 오스트리아만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -11938,19 +11952,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Austria] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Austria] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Austria] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Austria] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Austria] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Austria] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -11959,7 +11973,8 @@ class BillionaireMap {
                         console.warn('[Austria] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Austria dataset available');
+                if (!data) throw lastError || new Error('No Austria dataset available');
+                return data;
                 
                 // 구 이름을 주 이름으로 매핑하는 역방향 맵 생성
                 const districtToStateMap = {};
@@ -12248,10 +12263,10 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
-                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (url.includes('natural-earth') && fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -12265,19 +12280,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = data;
-                            console.log('[Denmark] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = fetchedData;
+                            console.log('[Denmark] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 0) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Denmark] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Denmark] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Denmark] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 0 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Denmark] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -12286,7 +12301,8 @@ class BillionaireMap {
                         console.warn('[Denmark] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Denmark dataset available');
+                if (!data) throw lastError || new Error('No Denmark dataset available');
+                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -12416,10 +12432,10 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
-                        if (url.includes('natural-earth') && data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (url.includes('natural-earth') && fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -12433,19 +12449,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
-                            geoJsonData = data;
-                            console.log('[Finland] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = fetchedData;
+                            console.log('[Finland] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 0) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Finland] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 0) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Finland] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 0 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Finland] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 0 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Finland] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -12454,7 +12470,8 @@ class BillionaireMap {
                         console.warn('[Finland] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Finland dataset available');
+                if (!data) throw lastError || new Error('No Finland dataset available');
+                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -12635,11 +12652,11 @@ class BillionaireMap {
                     try {
                         const resp = await fetch(url, { cache: 'no-store' });
                         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const data = await resp.json();
+                        const fetchedData = await resp.json();
                         
                         // Natural Earth 데이터인 경우 아일랜드만 필터링
-                        if (data && Array.isArray(data.features) && data.features.length > 300) {
-                            const filtered = data.features.filter((feature) => {
+                        if (fetchedData && Array.isArray(fetchedData.features) && fetchedData.features.length > 300) {
+                            const filtered = fetchedData.features.filter((feature) => {
                                 const p = feature.properties || {};
                                 const a3 = (p.adm0_a3 || p.ADM0_A3 || p.sr_adm0_a3 || p.gu_a3 || '').toUpperCase();
                                 const admin = (p.admin || p.geonunit || p.ADM0_A3 || '').toString();
@@ -12653,19 +12670,19 @@ class BillionaireMap {
                             }
                         }
                         
-                        if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 1) {
-                            geoJsonData = data;
-                            console.log('[Ireland] Loaded from', url, 'features:', data.features.length);
+                        if (fetchedData && fetchedData.type === 'FeatureCollection' && Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = fetchedData;
+                            console.log('[Ireland] Loaded from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data.features) && data.features.length > 1) {
-                            data = { type: 'FeatureCollection', features: data.features };
-                            console.log('[Ireland] Loaded (normalized) from', url, 'features:', data.features.length);
+                        if (Array.isArray(fetchedData.features) && fetchedData.features.length > 1) {
+                            data = { type: 'FeatureCollection', features: fetchedData.features };
+                            console.log('[Ireland] Loaded (normalized) from', url, 'features:', fetchedData.features.length);
                             break;
                         }
-                        if (Array.isArray(data) && data.length > 1 && data[0].geometry) {
-                            data = { type: 'FeatureCollection', features: data };
-                            console.log('[Ireland] Loaded (array -> FC) from', url, 'features:', data.length);
+                        if (Array.isArray(fetchedData) && fetchedData.length > 1 && fetchedData[0].geometry) {
+                            data = { type: 'FeatureCollection', features: fetchedData };
+                            console.log('[Ireland] Loaded (array -> FC) from', url, 'features:', fetchedData.length);
                             break;
                         }
                         lastError = new Error('Invalid data shape');
@@ -12674,7 +12691,8 @@ class BillionaireMap {
                         console.warn('[Ireland] Failed loading from', url, e);
                     }
                 }
-                if (!geoJsonData) throw lastError || new Error('No Ireland dataset available');
+                if (!data) throw lastError || new Error('No Ireland dataset available');
+                return data;
                 
                 // 카운티 이름을 프로빈스 이름으로 매핑하는 역방향 맵 생성
                 const countyToProvinceMap = {};
