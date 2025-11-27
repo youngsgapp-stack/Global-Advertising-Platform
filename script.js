@@ -16046,18 +16046,16 @@ class BillionaireMap {
             }
 
             // Firebase Functions를 통해 관리자 인증 (signature가 있는 세션 생성)
-            const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js');
+            // onRequest 버전 사용 (명시적 CORS 헤더 - 더 안정적)
             const { signInWithCustomToken } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
             
             if (!this.firebaseApp) {
                 throw new Error('Firebase가 초기화되지 않았습니다.');
             }
+            const functionUrl = 'https://asia-northeast3-worldad-8be07.cloudfunctions.net/authenticateAdminRequest';
             
-            const functions = getFunctions(this.firebaseApp, 'asia-northeast3');
-            const authenticateAdmin = httpsCallable(functions, 'authenticateAdmin');
-            
-            console.log('[ADMIN] Firebase Functions 호출: authenticateAdmin');
-            let response;
+            console.log('[ADMIN] Firebase Functions 호출: authenticateAdminRequest (onRequest)');
+            let responseData = null;
             
             // 재시도 로직 (최대 3회, 지수 백오프)
             const maxRetries = 3;
@@ -16072,59 +16070,95 @@ class BillionaireMap {
                         await new Promise(resolve => setTimeout(resolve, delay));
                     }
                     
-                    response = await authenticateAdmin({
-                        username: username.trim(),
-                        password: password
+                    const response = await fetch(functionUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            username: username.trim(),
+                            password: password
+                        }),
+                        credentials: 'include'
                     });
+                    
+                    // HTTP 상태 코드 확인
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+                        
+                        // 인증 실패 (401)
+                        if (response.status === 401) {
+                            throw new Error('관리자 인증에 실패했습니다. 아이디와 비밀번호를 확인해주세요.');
+                        }
+                        
+                        // 잘못된 요청 (400)
+                        if (response.status === 400) {
+                            throw new Error(errorMessage || '입력값이 올바르지 않습니다.');
+                        }
+                        
+                        // 서버 오류 (500)
+                        if (response.status >= 500) {
+                            throw new Error(`서버 오류가 발생했습니다 (${response.status}). 잠시 후 다시 시도해주세요.`);
+                        }
+                        
+                        throw new Error(errorMessage);
+                    }
+                    
+                    // 응답 파싱
+                    responseData = await response.json();
                     
                     // 성공 시 루프 탈출
                     break;
-                } catch (callError) {
-                    lastError = callError;
+                } catch (fetchError) {
+                    lastError = fetchError;
                     
-                    // CORS 오류 또는 네트워크 오류 처리
-                    const isNetworkError = callError?.code === 'functions/unavailable' || 
-                        callError?.code === 'functions/deadline-exceeded' ||
-                        callError?.message?.includes('CORS') ||
-                        callError?.message?.includes('Failed to fetch') ||
-                        callError?.message?.includes('network') ||
-                        callError?.message?.includes('NetworkError') ||
-                        callError?.message?.includes('ERR_FAILED');
+                    // CORS 오류 또는 네트워크 오류 감지
+                    const isCorsError = fetchError?.message?.includes('CORS') || 
+                        fetchError?.message?.includes('Access-Control-Allow-Origin') ||
+                        fetchError?.message?.includes('blocked by CORS');
+                    
+                    const isNetworkError = fetchError?.message?.includes('Failed to fetch') ||
+                        fetchError?.message?.includes('network') ||
+                        fetchError?.message?.includes('NetworkError') ||
+                        fetchError?.message?.includes('ERR_FAILED') ||
+                        fetchError?.name === 'TypeError';
                     
                     // 인증 오류는 재시도하지 않음
-                    if (callError?.code === 'functions/unauthenticated') {
-                        throw new Error('관리자 인증에 실패했습니다. 아이디와 비밀번호를 확인해주세요.');
+                    if (fetchError?.message?.includes('인증에 실패')) {
+                        throw fetchError;
                     }
                     
-                    // 네트워크 오류이고 마지막 시도가 아니면 재시도
-                    if (isNetworkError && attempt < maxRetries - 1) {
-                        console.warn(`[ADMIN] 네트워크 오류 발생, 재시도 예정 (시도 ${attempt + 1}/${maxRetries}):`, callError.message);
+                    // CORS 오류 또는 네트워크 오류이고 마지막 시도가 아니면 재시도
+                    if ((isCorsError || isNetworkError) && attempt < maxRetries - 1) {
+                        const errorType = isCorsError ? 'CORS' : '네트워크';
+                        console.warn(`[ADMIN] ${errorType} 오류 발생, 재시도 예정 (시도 ${attempt + 1}/${maxRetries}):`, fetchError.message);
                         continue;
                     }
                     
-                    // 마지막 시도 또는 네트워크 오류가 아닌 경우
+                    // 마지막 시도 또는 오류가 아닌 경우
+                    if (isCorsError) {
+                        console.error('[ADMIN] CORS 오류 (재시도 실패):', fetchError);
+                        throw new Error('CORS 정책으로 인해 요청이 차단되었습니다. 관리자에게 문의하세요.');
+                    }
+                    
                     if (isNetworkError) {
-                        console.error('[ADMIN] 네트워크 오류 (재시도 실패):', callError);
+                        console.error('[ADMIN] 네트워크 오류 (재시도 실패):', fetchError);
                         throw new Error('서버에 연결할 수 없습니다. 네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.');
                     }
                     
-                    // Firebase Functions 에러 코드 처리
-                    if (callError?.code === 'functions/internal') {
-                        throw new Error('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-                    }
-                    
                     // 다른 오류는 그대로 전달
-                    throw callError;
+                    throw fetchError;
                 }
             }
             
             // 모든 재시도 실패 시
-            if (!response && lastError) {
+            if (!responseData && lastError) {
                 console.error('[ADMIN] 모든 재시도 실패:', lastError);
                 throw lastError;
             }
             
-            const { token, session } = response?.data || {};
+            const { token, session } = responseData || {};
             if (!token || !session) {
                 throw new Error('관리자 인증에 실패했습니다.');
             }
