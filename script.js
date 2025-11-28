@@ -20451,7 +20451,8 @@ class BillionaireMap {
         
         // 성능 메트릭 기록 시작
         const startTime = performance.now();
-        if (!this.isFirebaseInitialized || !this.firestore || !this.currentUser) {
+        // 관리자 모드가 아닐 때만 로그인 체크
+        if (!this.isAdminLoggedIn && (!this.isFirebaseInitialized || !this.firestore || !this.currentUser)) {
             this.showNotification('로그인이 필요합니다.', 'error');
             return { success: false, message: '로그인이 필요합니다.' };
         }
@@ -21974,11 +21975,19 @@ class BillionaireMap {
             }
         }
         
-        // 로그인 체크
-        if (!this.currentUser) {
+        // 로그인 체크 (관리자 모드가 아닐 때만)
+        if (!this.isAdminLoggedIn && !this.currentUser) {
             this.showNotification('옥션에 참여하려면 먼저 로그인이 필요합니다.', 'warning');
             this.showUserLoginModal();
             return;
+        }
+        
+        // 관리자 모드일 때 가짜 사용자 객체 생성 (사용자 경험 테스트용)
+        if (this.isAdminLoggedIn && !this.currentUser) {
+            this.currentUser = {
+                uid: 'admin-test-user',
+                email: 'admin@test.com'
+            };
         }
         
         this.currentRegion = region;
@@ -22053,9 +22062,23 @@ class BillionaireMap {
         const placeBidBtn = document.getElementById('place-bid-btn');
         if (placeBidBtn) {
             placeBidBtn.addEventListener('click', async () => {
-                if (!this.currentRegion || !this.currentUser) {
+                if (!this.currentRegion) {
+                    this.showNotification('지역을 선택해주세요.', 'error');
+                    return;
+                }
+                
+                // 관리자 모드가 아닐 때만 로그인 체크
+                if (!this.isAdminLoggedIn && !this.currentUser) {
                     this.showNotification('로그인이 필요합니다.', 'error');
                     return;
+                }
+                
+                // 관리자 모드일 때 가짜 사용자 객체 생성
+                if (this.isAdminLoggedIn && !this.currentUser) {
+                    this.currentUser = {
+                        uid: 'admin-test-user',
+                        email: 'admin@test.com'
+                    };
                 }
                 
                 const bidAmountInput = document.getElementById('bid-amount-input');
