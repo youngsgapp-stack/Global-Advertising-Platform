@@ -14679,10 +14679,17 @@ class BillionaireMap {
         // 지역 구매 버튼 (모달)
         const regionPurchaseBtn = document.getElementById('region-purchase-btn');
         if (regionPurchaseBtn) {
-            regionPurchaseBtn.addEventListener('click', () => {
+            regionPurchaseBtn.addEventListener('click', async () => {
                 // 우선순위: 버튼 data-state-id → this.selectedStateId → this.currentRegion?.id
                 const btnStateId = regionPurchaseBtn.dataset.stateId;
                 const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
+                
+                console.log('구매 버튼 클릭:', {
+                    btnStateId,
+                    selectedStateId: this.selectedStateId,
+                    currentRegionId: this.currentRegion?.id,
+                    targetStateId
+                });
                 
                 // regionData에서 가져오기 시도
                 let region = targetStateId ? this.regionData.get(targetStateId) : null;
@@ -14690,6 +14697,10 @@ class BillionaireMap {
                 // regionData에서 찾지 못했으면 currentRegion 사용
                 if (!region && this.currentRegion) {
                     region = this.currentRegion;
+                    // currentRegion에 id가 없으면 targetStateId 추가
+                    if (!region.id && targetStateId) {
+                        region.id = targetStateId;
+                    }
                 }
                 
                 // 여전히 없으면 selectedStateId로 재시도
@@ -14697,19 +14708,70 @@ class BillionaireMap {
                     region = this.regionData.get(this.selectedStateId);
                     if (region) {
                         this.currentRegion = { ...region, id: this.selectedStateId };
+                    } else if (this.currentRegion) {
+                        // regionData에서 찾지 못했지만 currentRegion이 있으면 사용
+                        region = { ...this.currentRegion, id: this.selectedStateId };
                     }
                 }
                 
-                if (!region) {
-                    this.showNotification('구매할 지역을 선택해주세요.', 'warning');
+                // 여전히 없으면 Firestore에서 조회 시도 (관리자 모드)
+                if (!region && targetStateId && this.isAdminLoggedIn) {
+                    try {
+                        console.log('Firestore에서 지역 정보 조회 시도:', targetStateId);
+                        const regionDoc = await this.getRegionById(targetStateId);
+                        if (regionDoc) {
+                            region = { ...regionDoc, id: targetStateId };
+                            this.currentRegion = region;
+                            this.selectedStateId = targetStateId;
+                            // regionData에도 추가
+                            this.regionData.set(targetStateId, region);
+                            console.log('Firestore에서 지역 정보 조회 성공:', region);
+                        }
+                    } catch (error) {
+                        console.error('Firestore 조회 실패:', error);
+                    }
+                }
+                
+                // 최종적으로 region이 없어도 targetStateId가 있으면 최소한의 region 객체 생성
+                if (!region && targetStateId) {
+                    console.warn('구매 버튼: region이 없지만 targetStateId로 최소 정보 생성:', targetStateId);
+                    const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                           this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+                    region = {
+                        id: targetStateId,
+                        name: targetStateId,
+                        name_ko: targetStateId,
+                        name_en: targetStateId,
+                        country: defaultCountry,
+                        ad_status: 'available',
+                        ad_price: 0
+                    };
+                    // currentRegion과 regionData에도 설정
+                    this.currentRegion = region;
+                    this.selectedStateId = targetStateId;
+                    this.regionData.set(targetStateId, region);
+                }
+                
+                // targetStateId도 없으면 에러
+                if (!region || !region.id) {
+                    console.error('구매 버튼: 지역 정보를 찾을 수 없습니다.', {
+                        targetStateId,
+                        currentRegion: this.currentRegion,
+                        selectedStateId: this.selectedStateId,
+                        regionDataKeys: Array.from(this.regionData.keys()).slice(0, 10)
+                    });
+                    this.showNotification('지역을 선택해주세요.', 'warning');
                     return;
                 }
+                
                 if (region.ad_status === 'occupied' || region.occupied) {
                     this.showNotification('이미 광고가 진행 중인 지역입니다.', 'info');
                     return;
                 }
+                
                 // 옥션 모달 열기
                 this.currentRegion = region;
+                this.selectedStateId = region.id;
                 this.openAuctionModal(region);
             });
         }
@@ -14842,6 +14904,13 @@ class BillionaireMap {
                     targetStateId = this.selectedStateId || (this.currentRegion && this.currentRegion.id);
                 }
                 
+                console.log('픽셀 아트 편집 버튼 클릭 (company):', {
+                    btnStateId,
+                    selectedStateId: this.selectedStateId,
+                    currentRegionId: this.currentRegion?.id,
+                    targetStateId
+                });
+                
                 // regionData에서 가져오기 시도
                 let region = targetStateId ? this.regionData.get(targetStateId) : null;
                 let regionId = targetStateId;
@@ -14849,7 +14918,12 @@ class BillionaireMap {
                 // regionData에서 찾지 못했으면 currentRegion 사용
                 if (!region && this.currentRegion) {
                     region = this.currentRegion;
-                    regionId = region.id;
+                    regionId = region.id || targetStateId;
+                    // currentRegion에 id가 없으면 targetStateId 추가
+                    if (!region.id && targetStateId) {
+                        region.id = targetStateId;
+                        regionId = targetStateId;
+                    }
                 }
                 
                 // 여전히 없으면 selectedStateId로 재시도
@@ -14858,12 +14932,62 @@ class BillionaireMap {
                     regionId = this.selectedStateId;
                     if (region) {
                         this.currentRegion = { ...region, id: this.selectedStateId };
+                    } else if (this.currentRegion) {
+                        // regionData에서 찾지 못했지만 currentRegion이 있으면 사용
+                        region = { ...this.currentRegion, id: this.selectedStateId };
+                        regionId = this.selectedStateId;
                     }
                 }
                 
+                // 여전히 없으면 Firestore에서 조회 시도 (관리자 모드)
+                if (!region && targetStateId && this.isAdminLoggedIn) {
+                    try {
+                        console.log('Firestore에서 지역 정보 조회 시도:', targetStateId);
+                        const regionDoc = await this.getRegionById(targetStateId);
+                        if (regionDoc) {
+                            region = { ...regionDoc, id: targetStateId };
+                            regionId = targetStateId;
+                            this.currentRegion = region;
+                            this.selectedStateId = targetStateId;
+                            // regionData에도 추가
+                            this.regionData.set(targetStateId, region);
+                            console.log('Firestore에서 지역 정보 조회 성공:', region);
+                        }
+                    } catch (error) {
+                        console.error('Firestore 조회 실패:', error);
+                    }
+                }
+                
+                // 최종적으로 region이 없어도 targetStateId가 있으면 최소한의 region 객체 생성
+                if (!region && targetStateId) {
+                    console.warn('픽셀 아트 편집 (company): region이 없지만 targetStateId로 최소 정보 생성:', targetStateId);
+                    const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                           this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+                    region = {
+                        id: targetStateId,
+                        name: targetStateId,
+                        name_ko: targetStateId,
+                        name_en: targetStateId,
+                        country: defaultCountry,
+                        ad_status: 'available',
+                        ad_price: 0
+                    };
+                    regionId = targetStateId;
+                    // currentRegion과 regionData에도 설정
+                    this.currentRegion = region;
+                    this.selectedStateId = targetStateId;
+                    this.regionData.set(targetStateId, region);
+                }
+                
+                // targetStateId도 없으면 에러
                 if (!region || !regionId) {
-                    console.error('픽셀 아트 편집: 지역 정보를 찾을 수 없습니다.');
-                    this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
+                    console.error('픽셀 아트 편집 (company): 지역 정보를 찾을 수 없습니다.', {
+                        targetStateId,
+                        currentRegion: this.currentRegion,
+                        selectedStateId: this.selectedStateId,
+                        regionDataKeys: Array.from(this.regionData.keys()).slice(0, 10)
+                    });
+                    this.showNotification('지역을 선택해주세요.', 'warning');
                     return;
                 }
                 
@@ -14878,6 +15002,13 @@ class BillionaireMap {
                 const btnStateId = regionEditPixelBtn.dataset.stateId;
                 const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
                 
+                console.log('픽셀 아트 편집 버튼 클릭 (region):', {
+                    btnStateId,
+                    selectedStateId: this.selectedStateId,
+                    currentRegionId: this.currentRegion?.id,
+                    targetStateId
+                });
+                
                 // regionData에서 가져오기 시도
                 let region = targetStateId ? this.regionData.get(targetStateId) : null;
                 let regionId = targetStateId;
@@ -14885,7 +15016,12 @@ class BillionaireMap {
                 // regionData에서 찾지 못했으면 currentRegion 사용
                 if (!region && this.currentRegion) {
                     region = this.currentRegion;
-                    regionId = region.id;
+                    regionId = region.id || targetStateId;
+                    // currentRegion에 id가 없으면 targetStateId 추가
+                    if (!region.id && targetStateId) {
+                        region.id = targetStateId;
+                        regionId = targetStateId;
+                    }
                 }
                 
                 // 여전히 없으면 selectedStateId로 재시도
@@ -14894,12 +15030,62 @@ class BillionaireMap {
                     regionId = this.selectedStateId;
                     if (region) {
                         this.currentRegion = { ...region, id: this.selectedStateId };
+                    } else if (this.currentRegion) {
+                        // regionData에서 찾지 못했지만 currentRegion이 있으면 사용
+                        region = { ...this.currentRegion, id: this.selectedStateId };
+                        regionId = this.selectedStateId;
                     }
                 }
                 
+                // 여전히 없으면 Firestore에서 조회 시도 (관리자 모드)
+                if (!region && targetStateId && this.isAdminLoggedIn) {
+                    try {
+                        console.log('Firestore에서 지역 정보 조회 시도:', targetStateId);
+                        const regionDoc = await this.getRegionById(targetStateId);
+                        if (regionDoc) {
+                            region = { ...regionDoc, id: targetStateId };
+                            regionId = targetStateId;
+                            this.currentRegion = region;
+                            this.selectedStateId = targetStateId;
+                            // regionData에도 추가
+                            this.regionData.set(targetStateId, region);
+                            console.log('Firestore에서 지역 정보 조회 성공:', region);
+                        }
+                    } catch (error) {
+                        console.error('Firestore 조회 실패:', error);
+                    }
+                }
+                
+                // 최종적으로 region이 없어도 targetStateId가 있으면 최소한의 region 객체 생성
+                if (!region && targetStateId) {
+                    console.warn('픽셀 아트 편집 (region): region이 없지만 targetStateId로 최소 정보 생성:', targetStateId);
+                    const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                           this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+                    region = {
+                        id: targetStateId,
+                        name: targetStateId,
+                        name_ko: targetStateId,
+                        name_en: targetStateId,
+                        country: defaultCountry,
+                        ad_status: 'available',
+                        ad_price: 0
+                    };
+                    regionId = targetStateId;
+                    // currentRegion과 regionData에도 설정
+                    this.currentRegion = region;
+                    this.selectedStateId = targetStateId;
+                    this.regionData.set(targetStateId, region);
+                }
+                
+                // targetStateId도 없으면 에러
                 if (!region || !regionId) {
-                    console.error('픽셀 아트 편집: 지역 정보를 찾을 수 없습니다.');
-                    this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
+                    console.error('픽셀 아트 편집 (region): 지역 정보를 찾을 수 없습니다.', {
+                        targetStateId,
+                        currentRegion: this.currentRegion,
+                        selectedStateId: this.selectedStateId,
+                        regionDataKeys: Array.from(this.regionData.keys()).slice(0, 10)
+                    });
+                    this.showNotification('지역을 선택해주세요.', 'warning');
                     return;
                 }
                 
@@ -15122,24 +15308,40 @@ class BillionaireMap {
     
     async selectRegion(feature) {
         const properties = feature.properties;
-        this.currentRegion = properties;
-        this.selectedStateId = properties.id; // 새로운 변수에 저장
+        
+        // properties.id가 없으면 다른 속성에서 ID 추출 시도
+        let regionId = properties.id;
+        if (!regionId) {
+            regionId = properties.state_id || properties.name || properties.name_ko;
+            console.warn('properties.id가 없어 대체 ID 사용:', regionId);
+        }
+        
+        // currentRegion 설정 (최소한의 정보라도 보장)
+        this.currentRegion = {
+            ...properties,
+            id: regionId
+        };
+        this.selectedStateId = regionId;
         
         console.log('지역 선택됨:', {
             region: properties,
+            regionId: regionId,
             selectedStateId: this.selectedStateId,
             isAdminLoggedIn: this.isAdminLoggedIn,
             adminMode: this.adminMode,
-            currentMapMode: this.currentMapMode
+            currentMapMode: this.currentMapMode,
+            hasRegionData: this.regionData.has(regionId)
         });
         
-        // selectedStateId가 제대로 설정되었는지 확인
-        if (!this.selectedStateId) {
-            console.error('selectedStateId가 설정되지 않았습니다!', {
-                properties: properties,
-                id: properties.id,
-                name: properties.name,
-                name_ko: properties.name_ko
+        // regionData에 없으면 properties로 기본 데이터 생성
+        if (!this.regionData.has(regionId)) {
+            console.log('regionData에 없어서 properties로 기본 데이터 생성:', regionId);
+            const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                   this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+            this.regionData.set(regionId, {
+                ...properties,
+                id: regionId,
+                country: properties.country || defaultCountry
             });
         }
         
@@ -15147,21 +15349,23 @@ class BillionaireMap {
         this.map.setFilter('regions-hover', ['==', 'id', '']);
         
         // 현재 지역 하이라이트
-        this.map.setFilter('regions-hover', ['==', 'id', properties.id]);
-        this.map.setPaintProperty('regions-hover', 'fill-opacity', 0.3);
+        if (regionId) {
+            this.map.setFilter('regions-hover', ['==', 'id', regionId]);
+            this.map.setPaintProperty('regions-hover', 'fill-opacity', 0.3);
+        }
         
         // 관리자 모드일 때는 관리자 기능과 지역 정보 모달 표시
         if (this.isAdminLoggedIn && this.adminMode) {
             console.log('관리자 모드: 관리자 패널 업데이트 및 지역 정보 모달 표시');
-            this.updateAdminPanelForRegion(properties);
+            this.updateAdminPanelForRegion(this.currentRegion);
             // 관리자 모드에서도 지역 정보 모달 표시 (버튼들이 작동하도록)
-            await this.showRegionInfoModal(properties.id);
+            await this.showRegionInfoModal(regionId);
             return; // 여기서 함수 종료하여 일반 사용자 기능 차단
         }
         
         // 일반 사용자 모드일 때만 기업 정보 표시
         console.log('일반 사용자 모드: 기업 정보 모달 표시');
-        await this.showCompanyInfoModal(properties.id);
+        await this.showCompanyInfoModal(regionId);
     }
     
     // 관리자 패널을 선택된 주에 맞게 업데이트
@@ -18924,25 +19128,63 @@ class BillionaireMap {
     async showRegionInfoModal(stateId) {
         console.log('지역 정보 모달 표시:', stateId, '모드:', this.currentMapMode);
         
+        // stateId가 없으면 currentRegion에서 가져오기
+        if (!stateId && this.currentRegion) {
+            stateId = this.currentRegion.id || this.selectedStateId;
+            console.log('stateId가 없어서 currentRegion에서 가져옴:', stateId);
+        }
+        
+        if (!stateId) {
+            console.error('stateId가 없습니다.');
+            this.showNotification('지역을 선택해주세요.', 'warning');
+            return;
+        }
+        
         // 현재 지역 정보 가져오기
         let regionData = this.regionData.get(stateId);
+        
+        // regionData가 없으면 currentRegion 사용
         if (!regionData) {
-            console.error('지역 데이터를 찾을 수 없습니다:', stateId);
-            // currentRegion을 사용하여 regionData 생성 시도
-            if (this.currentRegion && this.currentRegion.id === stateId) {
-                console.log('currentRegion을 사용하여 지역 정보 재시도');
-                regionData = { ...this.currentRegion };
+            console.warn('regionData에서 찾지 못함, currentRegion 사용:', stateId);
+            if (this.currentRegion && (this.currentRegion.id === stateId || !this.currentRegion.id)) {
+                regionData = { ...this.currentRegion, id: stateId };
             } else {
-                // regionData가 없고 currentRegion도 없으면 에러
-                this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
-                return;
+                // currentRegion도 없으면 최소한의 정보로 생성
+                console.warn('currentRegion도 없어서 최소 정보로 생성:', stateId);
+                const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                       this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+                regionData = {
+                    id: stateId,
+                    name: stateId,
+                    name_ko: stateId,
+                    name_en: stateId,
+                    country: defaultCountry,
+                    population: 0,
+                    area: 0,
+                    ad_price: 0,
+                    ad_status: 'available'
+                };
             }
         }
         
         // 현재 지역 설정 (버튼 클릭 이벤트에서 사용) - 강제로 설정
         this.currentRegion = { ...regionData, id: stateId };
         this.selectedStateId = stateId; // selectedStateId도 함께 설정
-        console.log('currentRegion 설정 완료:', this.currentRegion);
+        
+        // regionData에도 확실하게 저장 (동기화 보장)
+        if (!this.regionData.has(stateId)) {
+            this.regionData.set(stateId, this.currentRegion);
+        } else {
+            // 이미 있으면 업데이트
+            this.regionData.set(stateId, this.currentRegion);
+        }
+        
+        console.log('currentRegion 설정 완료:', {
+            currentRegion: this.currentRegion,
+            selectedStateId: this.selectedStateId,
+            stateId: stateId,
+            hasRegionData: this.regionData.has(stateId)
+        });
         
         // 국가별 플래그 설정
         const getCountryFlag = (country) => {
@@ -19106,9 +19348,18 @@ class BillionaireMap {
         const purchaseBtn = document.getElementById('region-purchase-btn');
         if (purchaseBtn) {
             purchaseBtn.textContent = purchaseText.primary;
-            // data-state-id 설정 (버튼 클릭 이벤트에서 활용)
-            if (stateId) {
-                purchaseBtn.dataset.stateId = stateId;
+            // data-state-id 설정 (버튼 클릭 이벤트에서 활용) - 강화
+            // stateId가 없으면 currentRegion.id 또는 selectedStateId 사용
+            const btnStateId = stateId || this.currentRegion?.id || this.selectedStateId;
+            if (btnStateId) {
+                purchaseBtn.dataset.stateId = btnStateId;
+                console.log('구매 버튼에 data-state-id 설정:', btnStateId, {
+                    stateId: stateId,
+                    currentRegionId: this.currentRegion?.id,
+                    selectedStateId: this.selectedStateId
+                });
+            } else {
+                console.warn('구매 버튼에 data-state-id를 설정할 수 없습니다. stateId가 없습니다.');
             }
             // 관리자는 항상 구매 버튼 표시 (실제 사용자 경험 테스트용)
             if (this.isAdminLoggedIn) {
@@ -19137,9 +19388,18 @@ class BillionaireMap {
         // 픽셀 에디터 버튼 표시/숨김 (소유자만, 관리자는 항상 표시)
         const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
         if (regionEditPixelBtn) {
-            // data-state-id 설정 (버튼 클릭 이벤트에서 활용)
-            if (stateId) {
-                regionEditPixelBtn.dataset.stateId = stateId;
+            // data-state-id 설정 (버튼 클릭 이벤트에서 활용) - 강화
+            // stateId가 없으면 currentRegion.id 또는 selectedStateId 사용
+            const btnStateId = stateId || this.currentRegion?.id || this.selectedStateId;
+            if (btnStateId) {
+                regionEditPixelBtn.dataset.stateId = btnStateId;
+                console.log('픽셀 아트 편집 버튼에 data-state-id 설정:', btnStateId, {
+                    stateId: stateId,
+                    currentRegionId: this.currentRegion?.id,
+                    selectedStateId: this.selectedStateId
+                });
+            } else {
+                console.warn('픽셀 아트 편집 버튼에 data-state-id를 설정할 수 없습니다. stateId가 없습니다.');
             }
             this.updatePixelEditorButtonVisibility(regionEditPixelBtn, stateId);
         }
@@ -21686,9 +21946,32 @@ class BillionaireMap {
      * 옥션 모달 열기
      */
     async openAuctionModal(region) {
-        if (!region) {
-            this.showNotification('지역을 선택해주세요.', 'warning');
-            return;
+        // region이 없거나 region.id가 없으면 currentRegion 또는 selectedStateId 사용
+        if (!region || !region.id) {
+            if (this.currentRegion && this.currentRegion.id) {
+                region = this.currentRegion;
+            } else if (this.selectedStateId) {
+                // selectedStateId로 regionData에서 조회 시도
+                region = this.regionData.get(this.selectedStateId);
+                if (!region) {
+                    // regionData에도 없으면 최소한의 region 객체 생성
+                    const defaultCountry = this.currentMapMode === 'korea' ? 'South Korea' : 
+                                           this.currentMapMode === 'japan' ? 'Japan' : 'USA';
+                    region = {
+                        id: this.selectedStateId,
+                        name: this.selectedStateId,
+                        name_ko: this.selectedStateId,
+                        name_en: this.selectedStateId,
+                        country: defaultCountry,
+                        ad_status: 'available',
+                        ad_price: 0
+                    };
+                    this.regionData.set(this.selectedStateId, region);
+                }
+            } else {
+                this.showNotification('지역을 선택해주세요.', 'warning');
+                return;
+            }
         }
         
         // 로그인 체크
@@ -21699,6 +21982,7 @@ class BillionaireMap {
         }
         
         this.currentRegion = region;
+        this.selectedStateId = region.id;
 
         // 이미 점유된 지역인지 확인
         if (region.ad_status === 'occupied' || region.occupied) {
