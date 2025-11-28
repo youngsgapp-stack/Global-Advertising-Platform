@@ -22859,10 +22859,23 @@ class BillionaireMap {
             pixelGridControls.classList.remove('hidden');
         }
         
-        // 모달 표시
+        // 사이드바 표시
         const modal = document.getElementById('pixel-studio-modal');
         if (modal) {
             modal.classList.remove('hidden');
+            
+            // 지도 컨테이너에 사이드바 클래스 추가
+            const mapContainer = document.getElementById('map-container');
+            if (mapContainer) {
+                mapContainer.classList.add('has-pixel-sidebar');
+            }
+            
+            // 지도 리사이즈 (사이드바 열림에 맞춰)
+            if (this.map) {
+                setTimeout(() => {
+                    this.map.resize();
+                }, 350);
+            }
             
             // 지역 정보 표시
             const regionNameEl = document.getElementById('pixel-studio-region-name');
@@ -22892,12 +22905,14 @@ class BillionaireMap {
                     guideMessage = document.createElement('div');
                     guideMessage.className = 'pixel-edit-guide';
                     guideMessage.style.cssText = `
-                        background: #e3f2fd;
-                        border: 1px solid #2196f3;
+                        background: rgba(78, 205, 196, 0.15);
+                        border: 1px solid rgba(78, 205, 196, 0.4);
                         border-radius: 8px;
                         padding: 12px;
                         margin-bottom: 16px;
-                        color: #1976d2;
+                        color: #4ecdc4;
+                        font-size: 0.9rem;
+                        line-height: 1.5;
                     `;
                     guideMessage.innerHTML = `
                         <strong>💡 편집 방법:</strong><br>
@@ -23804,6 +23819,19 @@ class BillionaireMap {
         const modal = document.getElementById('pixel-studio-modal');
         if (modal) {
             modal.classList.add('hidden');
+        }
+        
+        // 지도 컨테이너에서 사이드바 클래스 제거
+        const mapContainer = document.getElementById('map-container');
+        if (mapContainer) {
+            mapContainer.classList.remove('has-pixel-sidebar');
+        }
+        
+        // 지도 리사이즈 (사이드바가 닫힐 때 지도가 다시 전체 너비를 차지하도록)
+        if (this.map) {
+            setTimeout(() => {
+                this.map.resize();
+            }, 300);
         }
     }
     
