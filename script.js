@@ -16528,7 +16528,8 @@ class BillionaireMap {
         const sideWalletBtn = document.getElementById('side-wallet-btn');
         const sideWalletChip = document.getElementById('side-wallet-chip');
         const hasUser = !!this.currentUser;
-        const available = this.getWalletAvailablePoints();
+        // 관리자는 포인트 제한 없이 사용 가능 (실제 사용자 경험 테스트용)
+        const available = this.isAdminLoggedIn ? Infinity : this.getWalletAvailablePoints();
 
         if (walletBtn) {
             walletBtn.classList.toggle('hidden', !hasUser);
@@ -16537,12 +16538,12 @@ class BillionaireMap {
             sideWalletBtn.classList.toggle('hidden', !hasUser);
         }
         if (walletChip) {
-            walletChip.textContent = this.formatPoints(available);
+            walletChip.textContent = this.isAdminLoggedIn ? '무제한' : this.formatPoints(available);
         }
         if (sideWalletChip) {
             if (hasUser) {
                 sideWalletChip.classList.remove('hidden');
-                sideWalletChip.textContent = `잔액 ${this.formatPoints(available)}`;
+                sideWalletChip.textContent = this.isAdminLoggedIn ? '잔액 무제한' : `잔액 ${this.formatPoints(available)}`;
             } else {
                 sideWalletChip.classList.add('hidden');
                 sideWalletChip.textContent = '잔액 0P';
@@ -16565,9 +16566,10 @@ class BillionaireMap {
         const lastUpdatedEl = document.getElementById('wallet-last-updated');
         const errorInline = document.getElementById('wallet-error-inline');
 
-        if (balanceEl) balanceEl.textContent = this.formatPoints(state.balance);
-        if (holdEl) holdEl.textContent = this.formatPoints(state.holdBalance);
-        if (availableEl) availableEl.textContent = this.formatPoints(this.getWalletAvailablePoints());
+        // 관리자는 포인트 제한 없이 사용 가능 (실제 사용자 경험 테스트용)
+        if (balanceEl) balanceEl.textContent = this.isAdminLoggedIn ? '무제한' : this.formatPoints(state.balance);
+        if (holdEl) holdEl.textContent = this.isAdminLoggedIn ? '무제한' : this.formatPoints(state.holdBalance);
+        if (availableEl) availableEl.textContent = this.isAdminLoggedIn ? '무제한' : this.formatPoints(this.getWalletAvailablePoints());
         if (lastUpdatedEl) lastUpdatedEl.textContent = state.lastUpdated ? this.formatDateTime(state.lastUpdated) : '-';
 
         if (errorInline) {
@@ -16668,15 +16670,23 @@ class BillionaireMap {
     }
 
     updateAuctionWalletSummary(minBidOverride = null) {
-        const available = this.getWalletAvailablePoints();
+        // 관리자는 포인트 제한 없이 사용 가능 (실제 사용자 경험 테스트용)
+        const available = this.isAdminLoggedIn ? Infinity : this.getWalletAvailablePoints();
         const availableEl = document.getElementById('auction-wallet-available');
         if (availableEl) {
-            availableEl.textContent = this.formatPoints(available);
+            if (this.isAdminLoggedIn) {
+                availableEl.textContent = '무제한';
+            } else {
+                availableEl.textContent = this.formatPoints(available);
+            }
         }
         const warningEl = document.getElementById('auction-wallet-warning');
         const minBid = typeof minBidOverride === 'number' ? minBidOverride : this.extractMinBidFromModal();
         if (warningEl) {
-            if (minBid > 0 && available < minBid) {
+            // 관리자는 경고 표시 안 함
+            if (this.isAdminLoggedIn) {
+                warningEl.classList.add('hidden');
+            } else if (minBid > 0 && available < minBid) {
                 warningEl.classList.remove('hidden');
             } else {
                 warningEl.classList.add('hidden');
@@ -20062,7 +20072,8 @@ class BillionaireMap {
                 const walletHoldBalance = Number(walletData.holdBalance || 0);
                 const availablePoints = walletBalance - walletHoldBalance + currentHoldForRegion;
 
-                if (availablePoints < numericBidAmount) {
+                // 관리자는 포인트 제한 없이 입찰 가능 (실제 사용자 경험 테스트용)
+                if (!this.isAdminLoggedIn && availablePoints < numericBidAmount) {
                     throw new Error('포인트 잔액이 부족합니다. 지갑을 충전해주세요.');
                 }
 
@@ -20391,11 +20402,15 @@ class BillionaireMap {
                 const holdBalance = Number(walletData.holdBalance || 0);
                 const numericAmount = Number(amount);
                 
-                if (!holdAmount || holdAmount < numericAmount) {
-                    return { success: false, reason: 'insufficient_hold' };
-                }
-                if (balance < numericAmount) {
-                    return { success: false, reason: 'insufficient_balance' };
+                // 관리자는 포인트 제한 없이 결제 가능 (실제 사용자 경험 테스트용)
+                const isAdmin = this.isAdminLoggedIn;
+                if (!isAdmin) {
+                    if (!holdAmount || holdAmount < numericAmount) {
+                        return { success: false, reason: 'insufficient_hold' };
+                    }
+                    if (balance < numericAmount) {
+                        return { success: false, reason: 'insufficient_balance' };
+                    }
                 }
                 
                 // 홀드 해제 및 잔액 차감
