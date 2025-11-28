@@ -18790,6 +18790,9 @@ class BillionaireMap {
             return;
         }
         
+        // 현재 지역 설정 (버튼 클릭 이벤트에서 사용)
+        this.currentRegion = { ...regionData, id: stateId };
+        
         // 국가별 플래그 설정
         const getCountryFlag = (country) => {
             switch(country) {
@@ -18947,11 +18950,23 @@ class BillionaireMap {
             }
         }
         
-        // 구매 버튼 텍스트 설정
+        // 구매 버튼 텍스트 설정 및 표시/숨김 제어
         const purchaseText = this.getLanguageText('Purchase This Region');
         const purchaseBtn = document.getElementById('region-purchase-btn');
         if (purchaseBtn) {
-        purchaseBtn.textContent = purchaseText.primary;
+            purchaseBtn.textContent = purchaseText.primary;
+            // 관리자는 항상 구매 버튼 표시 (실제 사용자 경험 테스트용)
+            if (this.isAdminLoggedIn) {
+                purchaseBtn.classList.remove('hidden');
+            } else {
+                // 일반 사용자는 occupied 상태일 때만 숨김
+                const isOccupied = regionData.ad_status === 'occupied' || regionData.occupied;
+                if (isOccupied) {
+                    purchaseBtn.classList.add('hidden');
+                } else {
+                    purchaseBtn.classList.remove('hidden');
+                }
+            }
         }
         
         // 관리자 모드일 때 편집 버튼 표시
@@ -18964,7 +18979,7 @@ class BillionaireMap {
             }
         }
         
-        // 픽셀 에디터 버튼 표시/숨김 (소유자만)
+        // 픽셀 에디터 버튼 표시/숨김 (소유자만, 관리자는 항상 표시)
         const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
         if (regionEditPixelBtn) {
             this.updatePixelEditorButtonVisibility(regionEditPixelBtn, stateId);
