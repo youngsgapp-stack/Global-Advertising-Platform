@@ -14825,31 +14825,39 @@ class BillionaireMap {
         const companyEditPixelBtn = document.getElementById('company-edit-pixel-btn');
         if (companyEditPixelBtn) {
             companyEditPixelBtn.addEventListener('click', async () => {
-                // currentRegion이 없으면 regionData에서 가져오기 시도
-                let region = this.currentRegion;
-                let regionId = region?.id;
+                // 우선순위: 버튼 자신의 data-state-id → company-purchase-btn의 data-state-id → this.selectedStateId → this.currentRegion?.id
+                const btnStateId = companyEditPixelBtn.dataset.stateId;
+                let targetStateId = btnStateId;
                 
-                // selectedStateId나 버튼의 data-state-id 사용
+                // 버튼 자신의 data-state-id가 없으면 company-purchase-btn의 data-state-id 확인
+                if (!targetStateId) {
+                    const companyPurchaseBtnEl = document.getElementById('company-purchase-btn');
+                    if (companyPurchaseBtnEl) {
+                        targetStateId = companyPurchaseBtnEl.dataset.stateId;
+                    }
+                }
+                
+                // 여전히 없으면 selectedStateId 또는 currentRegion 사용
+                if (!targetStateId) {
+                    targetStateId = this.selectedStateId || (this.currentRegion && this.currentRegion.id);
+                }
+                
+                // regionData에서 가져오기 시도
+                let region = targetStateId ? this.regionData.get(targetStateId) : null;
+                let regionId = targetStateId;
+                
+                // regionData에서 찾지 못했으면 currentRegion 사용
+                if (!region && this.currentRegion) {
+                    region = this.currentRegion;
+                    regionId = region.id;
+                }
+                
+                // 여전히 없으면 selectedStateId로 재시도
                 if (!region && this.selectedStateId) {
                     region = this.regionData.get(this.selectedStateId);
                     regionId = this.selectedStateId;
                     if (region) {
                         this.currentRegion = { ...region, id: this.selectedStateId };
-                    }
-                }
-                
-                // company-purchase-btn의 data-state-id도 확인
-                if (!region) {
-                    const companyPurchaseBtnEl = document.getElementById('company-purchase-btn');
-                    if (companyPurchaseBtnEl) {
-                        const btnStateId = companyPurchaseBtnEl.dataset.stateId;
-                        if (btnStateId) {
-                            region = this.regionData.get(btnStateId);
-                            regionId = btnStateId;
-                            if (region) {
-                                this.currentRegion = { ...region, id: btnStateId };
-                            }
-                        }
                     }
                 }
                 
@@ -15181,6 +15189,22 @@ class BillionaireMap {
         console.log('기업 정보 모달 표시 시도:', stateId);
         console.log('현재 지도 모드:', this.currentMapMode);
         
+        // currentRegion이 없으면 regionData에서 가져오기
+        if (!this.currentRegion && stateId) {
+            const regionFromData = this.regionData.get(stateId);
+            if (regionFromData) {
+                this.currentRegion = { ...regionFromData, id: stateId };
+                this.selectedStateId = stateId;
+            }
+        }
+        
+        // currentRegion이 여전히 없으면 properties에서 생성
+        if (!this.currentRegion && stateId) {
+            // selectRegion에서 설정된 properties를 사용할 수 없으므로 regionData에서 최소 정보 생성
+            this.currentRegion = { id: stateId };
+            this.selectedStateId = stateId;
+        }
+        
         // 현재 지도 모드에 따라 적절한 데이터 사용
         const companyData = this.currentMapMode === 'korea' 
             ? this.koreaCompanyData[stateId] 
@@ -15360,16 +15384,31 @@ class BillionaireMap {
         }
         
         // 지역 정보 표시 (모든 경우)
-        const regionData = this.currentRegion;
-        if (regionData) {
+        // regionData가 없으면 regionData Map에서 가져오기
+        let regionData = this.currentRegion;
+        if (!regionData && stateId) {
+            regionData = this.regionData.get(stateId);
+            if (regionData) {
+                this.currentRegion = { ...regionData, id: stateId };
+                this.selectedStateId = stateId;
+            }
+        }
+        
+        if (regionData || stateId) {
             // 구매 버튼에 현재 stateId 저장 (onclick에서 활용)
             const companyPurchaseBtnEl = document.getElementById('company-purchase-btn');
             if (companyPurchaseBtnEl && stateId) {
                 companyPurchaseBtnEl.dataset.stateId = stateId;
             }
             
+            // 픽셀 에디터 버튼에 현재 stateId 저장 (onclick에서 활용)
+            const companyEditPixelBtnEl = document.getElementById('company-edit-pixel-btn');
+            if (companyEditPixelBtnEl && stateId) {
+                companyEditPixelBtnEl.dataset.stateId = stateId;
+            }
+            
             // 인구, 면적, 행정구역 레벨, 광고 가격 등 지역 정보 표시 (regionData에서 정확한 값 가져오기)
-            const regionDataFromMap = this.regionData.get(stateId) || regionData;
+            const regionDataFromMap = this.regionData.get(stateId) || regionData || { id: stateId };
             const populationEl = document.getElementById('company-region-population');
             const areaEl = document.getElementById('company-region-area');
             const adminLevelEl = document.getElementById('company-region-admin-level');
