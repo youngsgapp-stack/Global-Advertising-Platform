@@ -440,13 +440,14 @@ class AdminDashboard {
                 }
             );
 
-            // Auctions 실시간 리스너
+            // Auctions 실시간 리스너 (active, pending_payment, pending_runner_up 포함)
             const auctionsRef = collection(this.firestore, 'auctions');
             let auctionsQuery;
             try {
-                auctionsQuery = query(auctionsRef, where('status', '==', 'active'), orderBy('endTime', 'asc'));
+                auctionsQuery = query(auctionsRef, where('status', 'in', ['active', 'live', 'pending_payment', 'pending_runner_up']), orderBy('endTime', 'asc'));
             } catch {
-                auctionsQuery = query(auctionsRef, where('status', '==', 'active'));
+                // 인덱스가 없으면 status 필터 없이 조회
+                auctionsQuery = query(auctionsRef, orderBy('endTime', 'asc'));
             }
             this.auctionUnsubscribe = onSnapshot(auctionsQuery,
                 (snapshot) => {
@@ -819,18 +820,17 @@ class AdminDashboard {
         try {
             const { collection, query, where, getDocs, orderBy } = await this.firestoreModulePromise;
             const auctionsRef = collection(this.firestore, 'auctions');
+            // active, pending_payment, pending_runner_up 상태 옥션 모두 조회
             let auctionsQuery;
             try {
                 auctionsQuery = query(
                     auctionsRef,
-                    where('status', '==', 'active'),
+                    where('status', 'in', ['active', 'live', 'pending_payment', 'pending_runner_up']),
                     orderBy('endTime', 'asc')
                 );
             } catch {
-                auctionsQuery = query(
-                    auctionsRef,
-                    where('status', '==', 'active')
-                );
+                // 인덱스가 없으면 status 필터 없이 조회 후 클라이언트에서 필터링
+                auctionsQuery = query(auctionsRef, orderBy('endTime', 'asc'));
             }
 
             const snapshot = await getDocs(auctionsQuery);
@@ -839,16 +839,27 @@ class AdminDashboard {
 
         snapshot.forEach(doc => {
             const data = doc.data();
+            const status = data.status || 'active';
+            // active, live, pending_payment, pending_runner_up 상태만 포함
+            if (!['active', 'live', 'pending_payment', 'pending_runner_up'].includes(status)) {
+                return;
+            }
             bidCount += (data.bidHistory?.length || 0);
             const endTime = data.endTime?.toDate?.() || null;
             auctions.push({
                 id: doc.id,
                 regionName: data.regionName || data.regionNameEn || doc.id,
                 country: data.country || '-',
-                currentBid: Number(data.currentBid || data.startPrice || 1),
+                currentBid: Number(data.currentBid || data.highestBid || data.startPrice || 1),
                 highestBidder: data.highestBidderEmail || data.highestBidder || '-',
+                highestBidderId: data.highestBidderId || null,
+                secondBidderId: data.secondBidderId || null,
+                secondBid: Number(data.secondBid || 0),
                 endTime,
-                status: data.status || 'active'
+                status: status,
+                paymentStatus: data.paymentStatus || 'not_started',
+                pendingPaymentDeadline: data.pendingPaymentDeadline?.toDate?.() || null,
+                runnerUpDeadline: data.runnerUpDeadline?.toDate?.() || null
             });
         });
 
@@ -1144,17 +1155,64 @@ class AdminDashboard {
         this.state.activeAuctions.forEach(auction => {
             const li = document.createElement('li');
             const remaining = auction.endTime ? this.formatRelativeTime(auction.endTime) : '종료 시간 없음';
+            
+            // 상태별 뱃지 및 메시지
+            let statusBadge = '';
+            let statusMessage = '';
+            let actionButtons = '';
+            
+            if (auction.status === 'pending_payment') {
+                statusBadge = '<span class="status-badge status-pending">결제 대기</span>';
+                statusMessage = `<small style="color: #ffc107;">최고 입찰자: ${this.escape(auction.highestBidder)}</small>`;
+                if (auction.pendingPaymentDeadline) {
+                    const deadline = this.formatRelativeTime(auction.pendingPaymentDeadline);
+                    statusMessage += `<small style="color: #ffc107; display: block; margin-top: 4px;">결제 마감: ${deadline}</small>`;
+                }
+                actionButtons = `<button class="admin-action-btn" data-action="force-payment" data-auction-id="${auction.id}" data-bidder-id="${auction.highestBidderId || ''}" title="강제 결제 처리">💳 강제 결제</button>`;
+            } else if (auction.status === 'pending_runner_up') {
+                statusBadge = '<span class="status-badge status-warning">차순위 승계</span>';
+                statusMessage = `<small style="color: #ff9800;">차순위자: ${auction.secondBidderId ? 'ID 확인됨' : '없음'}</small>`;
+                if (auction.runnerUpDeadline) {
+                    const deadline = this.formatRelativeTime(auction.runnerUpDeadline);
+                    statusMessage += `<small style="color: #ff9800; display: block; margin-top: 4px;">승계 마감: ${deadline}</small>`;
+                }
+                actionButtons = `<button class="admin-action-btn" data-action="force-runner-up" data-auction-id="${auction.id}" data-bidder-id="${auction.secondBidderId || ''}" title="차순위자 강제 승계">🔄 강제 승계</button>`;
+            } else {
+                statusBadge = '<span class="status-badge status-active">진행 중</span>';
+            }
+            
             li.innerHTML = `
                 <div class="auction-title">
                     <span>${this.escape(auction.regionName)}</span>
                     <strong>${this.formatCurrency(auction.currentBid)}</strong>
+                    ${statusBadge}
                 </div>
                 <div class="auction-meta">
                     <span>${this.escape(auction.country)}</span>
                     <span>${remaining}</span>
                 </div>
+                ${statusMessage ? `<div class="auction-status-info">${statusMessage}</div>` : ''}
+                ${actionButtons ? `<div class="auction-actions">${actionButtons}</div>` : ''}
             `;
             list.appendChild(li);
+            
+            // 버튼 이벤트 바인딩
+            if (actionButtons) {
+                const forcePaymentBtn = li.querySelector('[data-action="force-payment"]');
+                const forceRunnerUpBtn = li.querySelector('[data-action="force-runner-up"]');
+                
+                if (forcePaymentBtn) {
+                    forcePaymentBtn.addEventListener('click', () => {
+                        this.handleForcePayment(auction);
+                    });
+                }
+                
+                if (forceRunnerUpBtn) {
+                    forceRunnerUpBtn.addEventListener('click', () => {
+                        this.handleForceRunnerUp(auction);
+                    });
+                }
+            }
         });
     }
 
@@ -1406,6 +1464,151 @@ class AdminDashboard {
         this.toastTimer = setTimeout(() => {
             toast.classList.remove('show');
         }, 3000);
+    }
+
+    async handleForcePayment(auction) {
+        if (!confirm(`[${this.escape(auction.regionName)}] 최고 입찰자(${this.escape(auction.highestBidder)})의 결제를 강제 처리하시겠습니까?`)) {
+            return;
+        }
+
+        try {
+            const { doc, runTransaction, serverTimestamp } = await this.firestoreModulePromise;
+            const auctionRef = doc(this.firestore, 'auctions', auction.id);
+            const walletRef = doc(this.firestore, 'wallets', auction.highestBidderId);
+
+            await runTransaction(this.firestore, async (transaction) => {
+                const auctionSnap = await transaction.get(auctionRef);
+                const walletSnap = await transaction.get(walletRef);
+
+                if (!auctionSnap.exists()) {
+                    throw new Error('옥션을 찾을 수 없습니다.');
+                }
+
+                const auctionData = auctionSnap.data();
+                if (auctionData.status !== 'pending_payment') {
+                    throw new Error('옥션 상태가 결제 대기 상태가 아닙니다.');
+                }
+
+                const amount = Number(auctionData.highestBid || auctionData.currentBid || 0);
+                
+                // 지갑에서 차감
+                if (walletSnap.exists()) {
+                    const walletData = walletSnap.data();
+                    const balance = Number(walletData.balance || 0);
+                    const holdBalance = Number(walletData.holdBalance || 0);
+                    const holds = { ...(walletData.holds || {}) };
+                    
+                    // 홀드 해제 및 잔액 차감
+                    delete holds[auction.id];
+                    const newHoldBalance = Math.max(0, holdBalance - amount);
+                    const newBalance = Math.max(0, balance - amount);
+
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        holdBalance: newHoldBalance,
+                        holds: holds,
+                        history: [...(walletData.history || []), {
+                            type: 'auction_payment',
+                            amount: -amount,
+                            regionId: auction.id,
+                            regionName: auction.regionName,
+                            timestamp: serverTimestamp()
+                        }]
+                    });
+                }
+
+                // 옥션 상태 업데이트
+                transaction.update(auctionRef, {
+                    status: 'sold',
+                    paymentStatus: 'paid',
+                    paidAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            });
+
+            this.showToast('강제 결제 처리가 완료되었습니다.', 'success');
+            await this.fetchAuctions();
+            this.render();
+        } catch (error) {
+            console.error('[ADMIN] 강제 결제 실패', error);
+            this.showToast(`강제 결제 실패: ${error.message}`, 'error');
+        }
+    }
+
+    async handleForceRunnerUp(auction) {
+        if (!auction.secondBidderId) {
+            this.showToast('차순위 입찰자가 없습니다.', 'error');
+            return;
+        }
+
+        if (!confirm(`[${this.escape(auction.regionName)}] 차순위자(ID: ${auction.secondBidderId.substring(0, 8)}...)의 승계를 강제 처리하시겠습니까?`)) {
+            return;
+        }
+
+        try {
+            const { doc, runTransaction, serverTimestamp } = await this.firestoreModulePromise;
+            const auctionRef = doc(this.firestore, 'auctions', auction.id);
+            const walletRef = doc(this.firestore, 'wallets', auction.secondBidderId);
+
+            await runTransaction(this.firestore, async (transaction) => {
+                const auctionSnap = await transaction.get(auctionRef);
+                const walletSnap = await transaction.get(walletRef);
+
+                if (!auctionSnap.exists()) {
+                    throw new Error('옥션을 찾을 수 없습니다.');
+                }
+
+                const auctionData = auctionSnap.data();
+                if (auctionData.status !== 'pending_runner_up') {
+                    throw new Error('옥션 상태가 차순위 승계 상태가 아닙니다.');
+                }
+
+                const amount = Number(auctionData.secondBid || auctionData.currentBid || 0);
+                
+                // 지갑에서 차감
+                if (walletSnap.exists()) {
+                    const walletData = walletSnap.data();
+                    const balance = Number(walletData.balance || 0);
+                    const holdBalance = Number(walletData.holdBalance || 0);
+                    const holds = { ...(walletData.holds || {}) };
+                    
+                    // 홀드 해제 및 잔액 차감
+                    delete holds[auction.id];
+                    const newHoldBalance = Math.max(0, holdBalance - amount);
+                    const newBalance = Math.max(0, balance - amount);
+
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        holdBalance: newHoldBalance,
+                        holds: holds,
+                        history: [...(walletData.history || []), {
+                            type: 'auction_payment',
+                            amount: -amount,
+                            regionId: auction.id,
+                            regionName: auction.regionName,
+                            timestamp: serverTimestamp()
+                        }]
+                    });
+                }
+
+                // 옥션 상태 업데이트 (차순위자를 최고 입찰자로 승격)
+                transaction.update(auctionRef, {
+                    status: 'sold',
+                    paymentStatus: 'runner_up_paid',
+                    highestBidderId: auction.secondBidderId,
+                    highestBid: amount,
+                    paidAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            });
+
+            this.showToast('차순위 승계 처리가 완료되었습니다.', 'success');
+            await this.fetchAuctions();
+            this.render();
+        } catch (error) {
+            console.error('[ADMIN] 차순위 승계 실패', error);
+            this.showToast(`차순위 승계 실패: ${error.message}`, 'error');
+        }
     }
 }
 

@@ -263,6 +263,66 @@ tbody tr:last-child td {
     border-bottom: none;
 }
 
+.status-badge.status-pending {
+    background: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+    border-color: rgba(255, 193, 7, 0.3);
+}
+
+.status-badge.status-warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.3);
+}
+
+.status-badge.status-active {
+    background: rgba(90, 109, 255, 0.15);
+    color: #5a6dff;
+    border-color: rgba(90, 109, 255, 0.3);
+}
+
+.auction-status-info {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.auction-actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.admin-action-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.admin-action-btn:hover {
+    background: rgba(255, 193, 7, 0.25);
+    transform: translateY(-1px);
+}
+
+.admin-action-btn[data-action="force-runner-up"] {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.3);
+}
+
+.admin-action-btn[data-action="force-runner-up"]:hover {
+    background: rgba(255, 152, 0, 0.25);
+}
+
 .status-badge {
     display: inline-flex;
     align-items: center;

@@ -15,6 +15,344 @@
     transform: translateY(-1px);
 }
 
+/* === Wallet === */
+.wallet-btn,
+.wallet-link-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.wallet-btn:hover,
+.wallet-link-btn:hover {
+    border-color: rgba(78, 205, 196, 0.6);
+    color: #4ecdc4;
+}
+
+.wallet-balance-chip {
+    background: rgba(78, 205, 196, 0.15);
+    color: #4ecdc4;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.side-wallet-chip {
+    margin-top: 8px;
+    display: inline-block;
+    background: rgba(78, 205, 196, 0.12);
+    color: #4ecdc4;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.wallet-modal {
+    max-width: 760px;
+    width: 90%;
+}
+
+.wallet-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.wallet-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.wallet-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wallet-card.accent {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15), rgba(255, 255, 255, 0.04));
+    border-color: rgba(78, 205, 196, 0.4);
+}
+
+.wallet-card-label {
+    font-size: 0.9rem;
+    color: #9ca5b4;
+}
+
+.wallet-card strong {
+    font-size: 1.75rem;
+    letter-spacing: 0.02em;
+}
+
+.wallet-card small {
+    color: #b7c1d1;
+    font-size: 0.85rem;
+}
+
+.wallet-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.wallet-primary-btn,
+.wallet-secondary-btn {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.wallet-primary-btn {
+    background: linear-gradient(135deg, #4ecdc4, #5fe0d7);
+    color: #0b1e26;
+    box-shadow: 0 10px 30px rgba(78, 205, 196, 0.25);
+}
+
+.wallet-primary-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 15px 35px rgba(78, 205, 196, 0.35);
+}
+
+.wallet-secondary-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+}
+
+.wallet-secondary-btn:hover {
+    border-color: rgba(78, 205, 196, 0.6);
+    color: #4ecdc4;
+}
+
+.wallet-history {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.wallet-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.wallet-last-updated {
+    font-size: 0.85rem;
+    color: #a0abbc;
+}
+
+.wallet-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.wallet-history-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.wallet-history-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wallet-history-type {
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #9ca5b4;
+}
+
+.wallet-history-desc {
+    font-size: 0.95rem;
+}
+
+.wallet-history-time {
+    font-size: 0.8rem;
+    color: #9ca5b4;
+}
+
+.wallet-history-amount {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.wallet-history-amount.positive {
+    color: #4ecdc4;
+}
+
+.wallet-history-amount.negative {
+    color: #ff6b6b;
+}
+
+.wallet-empty {
+    text-align: center;
+    color: #9ca5b4;
+    margin: 0;
+}
+
+.wallet-helper {
+    font-size: 0.9rem;
+    color: #c7d0df;
+    line-height: 1.6;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+
+.wallet-error-message {
+    color: #ff6b6b;
+    font-size: 0.9rem;
+}
+
+.auction-wallet-status {
+    margin-top: 12px;
+}
+
+.wallet-inline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px 14px;
+}
+
+.wallet-inline-label {
+    font-size: 0.85rem;
+    color: #9ca5b4;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.wallet-inline-btn {
+    background: none;
+    border: none;
+    color: #4ecdc4;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+}
+
+.wallet-inline-btn:hover {
+    text-decoration: underline;
+}
+
+.wallet-inline-warning {
+    color: #ffb347;
+    font-size: 0.9rem;
+    margin: 8px 0 0;
+}
+
+.auction-status-panel {
+    margin-top: 18px;
+    padding: 18px 20px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.auction-status-chip {
+    align-self: flex-start;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.auction-status-chip.status-live {
+    background: rgba(78, 205, 196, 0.15);
+    color: #4ecdc4;
+}
+
+.auction-status-chip.status-pending {
+    background: rgba(255, 179, 71, 0.15);
+    color: #ffb347;
+}
+
+.auction-status-chip.status-runner {
+    background: rgba(255, 220, 92, 0.15);
+    color: #ffdc5c;
+}
+
+.auction-status-chip.status-sold {
+    background: rgba(126, 214, 223, 0.15);
+    color: #7ed6df;
+}
+
+.auction-status-chip.status-cancelled {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+}
+
+.auction-status-message {
+    font-size: 1rem;
+    line-height: 1.5;
+    color: #f0f3f9;
+}
+
+.auction-status-subtext {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.auction-cta-btn {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 10px 20px;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(135deg, #4ecdc4, #66d1c9);
+    color: #0f1923;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.auction-cta-btn:hover {
+    transform: translateY(-1px);
+    opacity: 0.9;
+}
+
 .user-dashboard-modal {
     max-width: 960px;
     width: 90%;

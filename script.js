@@ -123,7 +123,7 @@ class BillionaireMap {
         this.auctionTimers = new Map(); // 옥션 카운트다운 타이머 (regionId -> timerId)
         this.auctionListeners = new Map(); // Firestore 실시간 리스너 (regionId -> unsubscribe)
         this.minBidIncrement = 0.1; // 최소 입찰 증가액 (USD)
-        this.auctionExtensionMinutes = 5; // 마지막 5분 내 입찰 시 연장 시간
+        this.auctionExtensionMinutes = 2; // 마지막 2분 내 입찰 시 연장 시간 (anti-sniping)
         this.communityRewardRate = 0.1; // 각 낙찰 금액의 10%를 커뮤니티 상금으로 적립
         this.freePixelConversionRate = 20; // $20당 무료 픽셀 1세트 적립
         this.freePixelDropSize = 50; // 무료 픽셀 드랍 시 기본 배포량
@@ -188,6 +188,18 @@ class BillionaireMap {
             reports: new Map(), // 신고 데이터 캐시
             moderators: new Set() // 모더레이터 목록
         };
+        
+        // 포인트 지갑 상태
+        this.walletState = this.createEmptyWalletState();
+        this.walletListener = null;
+        this.walletRefreshInFlight = false;
+        
+        // 클라이언트 사이드 경매 자동화 설정
+        this.auctionPaymentGraceMs = 10 * 60 * 1000; // 10분
+        this.auctionRunnerUpGraceMs = 10 * 60 * 1000; // 10분
+        this.runnerUpMaxAttempts = 3;
+        this.auctionCheckInterval = null; // 주기적 체크 인터벌
+        this.auctionCheckIntervalMs = 60 * 1000; // 1분마다 체크
         
         // G20 국가 설정
         this.g20Countries = {
@@ -1760,12 +1772,21 @@ class BillionaireMap {
                     }
 
                     console.log('사용자 로그인:', user.email);
+                    try {
+                        await this.ensureUserWallet(user);
+                        await this.subscribeToUserWallet(user.uid);
+                    } catch (walletError) {
+                        console.warn('[지갑] 사용자 지갑 준비 실패:', walletError);
+                    }
                     if (wasLoggedOut && this.currentRegion) {
                         this.autoRenderPayPalButtons();
                     }
                 } else {
                     console.log('사용자 로그아웃');
                     this.isAdminLoggedIn = false;
+                    this.teardownWalletSubscription();
+                    this.walletState = this.createEmptyWalletState();
+                    this.closeWalletModal();
                     if (this.adminMode) {
                         this.switchToUserMode();
                     }
@@ -1782,6 +1803,8 @@ class BillionaireMap {
             console.log('Firebase 초기화 완료');
             // 커뮤니티 풀 구독은 유지 (옥션 시스템에 필요)
             this.subscribeToCommunityPool();
+            // 클라이언트 사이드 경매 자동화 잡 시작
+            this.startAuctionAutomationJob();
         } catch (error) {
             console.error('Firebase 초기화 오류:', error);
             this.showNotification('Firebase 초기화에 실패했습니다. 일부 기능이 제한될 수 있습니다.', 'warning');
@@ -14487,6 +14510,21 @@ class BillionaireMap {
                 this.showUserLoginModal();
             });
         }
+
+        const walletBtn = document.getElementById('wallet-btn');
+        if (walletBtn) {
+            walletBtn.addEventListener('click', () => {
+                this.openWalletModal();
+            });
+        }
+
+        const sideWalletBtn = document.getElementById('side-wallet-btn');
+        if (sideWalletBtn) {
+            sideWalletBtn.addEventListener('click', () => {
+                this.openWalletModal();
+                this.hideSideMenu();
+            });
+        }
         
         // 사용자 로그아웃 버튼
         const userLogoutBtn = document.getElementById('user-logout-btn');
@@ -16351,6 +16389,377 @@ class BillionaireMap {
             if (sideMyPageBtn) sideMyPageBtn.classList.add('hidden');
             this.closeUserDashboard({ silent: true });
         }
+
+        this.updateWalletUIElements();
+    }
+
+    createEmptyWalletState() {
+        return {
+            loading: false,
+            balance: 0,
+            holdBalance: 0,
+            holds: {},
+            history: [],
+            currency: 'POINT',
+            error: null,
+            lastUpdated: null
+        };
+    }
+
+    formatPoints(value) {
+        const numeric = Number(value) || 0;
+        const isInteger = Number.isInteger(numeric);
+        const options = {
+            minimumFractionDigits: isInteger ? 0 : 2,
+            maximumFractionDigits: isInteger ? 0 : 2
+        };
+        return `${numeric.toLocaleString(undefined, options)}P`;
+    }
+
+    formatDateTime(value) {
+        if (!value) {
+            return '-';
+        }
+        const date = typeof value.toDate === 'function' ? value.toDate() : value;
+        try {
+            return new Intl.DateTimeFormat('ko-KR', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(date);
+        } catch (error) {
+            return new Date(date).toLocaleString();
+        }
+    }
+
+    getWalletAvailablePoints(stateOverride = null) {
+        const state = stateOverride || this.walletState;
+        const balance = Number(state.balance || 0);
+        const holdBalance = Number(state.holdBalance || 0);
+        return Math.max(0, balance - holdBalance);
+    }
+
+    async ensureUserWallet(user) {
+        if (!user || !this.firestore) {
+            return;
+        }
+        try {
+            const { doc, getDoc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', user.uid);
+            const walletSnap = await getDoc(walletRef);
+            if (!walletSnap.exists()) {
+                await setDoc(walletRef, {
+                    userId: user.uid,
+                    userEmail: user.email || null,
+                    balance: 0,
+                    holdBalance: 0,
+                    holds: {},
+                    history: [],
+                    currency: 'POINT',
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            }
+        } catch (error) {
+            console.warn('[지갑] 초기화 실패:', error);
+        }
+    }
+
+    async subscribeToUserWallet(userId) {
+        if (!userId || !this.firestore) {
+            return;
+        }
+        this.teardownWalletSubscription();
+        try {
+            const { doc, onSnapshot } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', userId);
+            this.walletState = { ...this.walletState, loading: true, error: null };
+            this.updateWalletUIElements();
+            this.walletListener = onSnapshot(walletRef, (snapshot) => {
+                this.handleWalletSnapshot(snapshot);
+            }, (error) => {
+                console.error('[지갑] 실시간 구독 오류:', error);
+                this.walletState = { ...this.createEmptyWalletState(), error: error.message };
+                this.updateWalletUIElements();
+            });
+        } catch (error) {
+            console.error('[지갑] 구독 실패:', error);
+        }
+    }
+
+    teardownWalletSubscription() {
+        if (this.walletListener) {
+            this.walletListener();
+            this.walletListener = null;
+        }
+    }
+
+    handleWalletSnapshot(snapshot) {
+        if (!snapshot || !snapshot.exists?.()) {
+            this.walletState = { ...this.createEmptyWalletState(), loading: false };
+            this.updateWalletUIElements();
+            this.populateWalletModal();
+            this.syncAuctionWalletSummary();
+            return;
+        }
+
+        const data = snapshot.data() || {};
+        const history = Array.isArray(data.history) ? data.history : [];
+        this.walletState = {
+            ...this.walletState,
+            loading: false,
+            balance: Number(data.balance || 0),
+            holdBalance: Number(data.holdBalance || 0),
+            holds: data.holds || {},
+            history,
+            currency: data.currency || 'POINT',
+            error: null,
+            lastUpdated: data.updatedAt ? (typeof data.updatedAt.toDate === 'function' ? data.updatedAt.toDate() : data.updatedAt) : new Date()
+        };
+        this.updateWalletUIElements();
+        this.populateWalletModal();
+        this.syncAuctionWalletSummary();
+    }
+
+    updateWalletUIElements() {
+        const walletBtn = document.getElementById('wallet-btn');
+        const walletChip = document.getElementById('wallet-balance-chip');
+        const sideWalletBtn = document.getElementById('side-wallet-btn');
+        const sideWalletChip = document.getElementById('side-wallet-chip');
+        const hasUser = !!this.currentUser;
+        const available = this.getWalletAvailablePoints();
+
+        if (walletBtn) {
+            walletBtn.classList.toggle('hidden', !hasUser);
+        }
+        if (sideWalletBtn) {
+            sideWalletBtn.classList.toggle('hidden', !hasUser);
+        }
+        if (walletChip) {
+            walletChip.textContent = this.formatPoints(available);
+        }
+        if (sideWalletChip) {
+            if (hasUser) {
+                sideWalletChip.classList.remove('hidden');
+                sideWalletChip.textContent = `잔액 ${this.formatPoints(available)}`;
+            } else {
+                sideWalletChip.classList.add('hidden');
+                sideWalletChip.textContent = '잔액 0P';
+            }
+        }
+
+        this.populateWalletModal();
+        this.syncAuctionWalletSummary();
+    }
+
+    populateWalletModal() {
+        const modal = document.getElementById('wallet-modal');
+        if (!modal) {
+            return;
+        }
+        const state = this.walletState;
+        const balanceEl = document.getElementById('wallet-balance-value');
+        const holdEl = document.getElementById('wallet-hold-value');
+        const availableEl = document.getElementById('wallet-available-value');
+        const lastUpdatedEl = document.getElementById('wallet-last-updated');
+        const errorInline = document.getElementById('wallet-error-inline');
+
+        if (balanceEl) balanceEl.textContent = this.formatPoints(state.balance);
+        if (holdEl) holdEl.textContent = this.formatPoints(state.holdBalance);
+        if (availableEl) availableEl.textContent = this.formatPoints(this.getWalletAvailablePoints());
+        if (lastUpdatedEl) lastUpdatedEl.textContent = state.lastUpdated ? this.formatDateTime(state.lastUpdated) : '-';
+
+        if (errorInline) {
+            if (state.error) {
+                errorInline.textContent = state.error;
+                errorInline.classList.remove('hidden');
+            } else if (state.loading) {
+                errorInline.textContent = '지갑 정보를 불러오는 중입니다...';
+                errorInline.classList.remove('hidden');
+            } else {
+                errorInline.textContent = '';
+                errorInline.classList.add('hidden');
+            }
+        }
+
+        this.renderWalletHistory(state.history);
+    }
+
+    renderWalletHistory(history = []) {
+        const container = document.getElementById('wallet-history-list');
+        if (!container) {
+            return;
+        }
+
+        container.innerHTML = '';
+        if (!Array.isArray(history) || history.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'wallet-empty';
+            empty.textContent = '거래 내역이 없습니다.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const recentEntries = history.slice(-10).reverse();
+        recentEntries.forEach((entry) => {
+            const item = document.createElement('div');
+            item.className = 'wallet-history-item';
+
+            const meta = document.createElement('div');
+            meta.className = 'wallet-history-meta';
+
+            const typeLabel = document.createElement('span');
+            typeLabel.className = 'wallet-history-type';
+            typeLabel.textContent = this.getWalletHistoryLabel(entry?.type);
+            meta.appendChild(typeLabel);
+
+            const desc = document.createElement('div');
+            desc.className = 'wallet-history-desc';
+            desc.textContent = entry?.description || entry?.note || entry?.meta?.regionName || '-';
+            meta.appendChild(desc);
+
+            const time = document.createElement('span');
+            time.className = 'wallet-history-time';
+            time.textContent = this.formatDateTime(entry?.createdAt || entry?.timestamp);
+            meta.appendChild(time);
+
+            const amount = document.createElement('span');
+            amount.className = 'wallet-history-amount';
+            const value = Number(entry?.amount);
+            if (Number.isFinite(value) && value !== 0) {
+                amount.classList.add(value >= 0 ? 'positive' : 'negative');
+                amount.textContent = `${value >= 0 ? '+' : '-'}${this.formatPoints(Math.abs(value))}`;
+            } else {
+                amount.textContent = this.formatPoints(value || 0);
+            }
+
+            item.appendChild(meta);
+            item.appendChild(amount);
+            container.appendChild(item);
+        });
+    }
+
+    getWalletHistoryLabel(type) {
+        const map = {
+            topup: '충전',
+            hold: '홀드',
+            release: '해제',
+            spend: '차감',
+            refund: '환불'
+        };
+        return map[type] || '활동';
+    }
+
+    syncAuctionWalletSummary() {
+        const modal = document.getElementById('auction-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            this.updateAuctionWalletSummary();
+        }
+    }
+
+    extractMinBidFromModal() {
+        const minBidLabel = document.getElementById('min-bid-amount');
+        if (!minBidLabel) {
+            return 0;
+        }
+        const numeric = parseFloat(minBidLabel.textContent.replace(/[^0-9.]/g, ''));
+        return Number.isFinite(numeric) ? numeric : 0;
+    }
+
+    updateAuctionWalletSummary(minBidOverride = null) {
+        const available = this.getWalletAvailablePoints();
+        const availableEl = document.getElementById('auction-wallet-available');
+        if (availableEl) {
+            availableEl.textContent = this.formatPoints(available);
+        }
+        const warningEl = document.getElementById('auction-wallet-warning');
+        const minBid = typeof minBidOverride === 'number' ? minBidOverride : this.extractMinBidFromModal();
+        if (warningEl) {
+            if (minBid > 0 && available < minBid) {
+                warningEl.classList.remove('hidden');
+            } else {
+                warningEl.classList.add('hidden');
+            }
+        }
+    }
+
+    openWalletModal() {
+        if (!this.currentUser) {
+            this.showNotification('포인트 지갑을 확인하려면 로그인하세요.', 'warning');
+            this.showUserLoginModal();
+            return;
+        }
+        const modal = document.getElementById('wallet-modal');
+        if (!modal) {
+            return;
+        }
+        this.populateWalletModal();
+        modal.classList.remove('hidden');
+    }
+
+    closeWalletModal() {
+        const modal = document.getElementById('wallet-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+
+    bindWalletModalEvents() {
+        const closeBtn = document.getElementById('close-wallet-modal');
+        if (closeBtn && !closeBtn.dataset.bound) {
+            closeBtn.dataset.bound = 'true';
+            closeBtn.addEventListener('click', () => this.closeWalletModal());
+        }
+
+        const modal = document.getElementById('wallet-modal');
+        if (modal && !modal.dataset.bound) {
+            modal.dataset.bound = 'true';
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.closeWalletModal();
+                }
+            });
+        }
+
+        const topUpBtn = document.getElementById('wallet-topup-btn');
+        if (topUpBtn && !topUpBtn.dataset.bound) {
+            topUpBtn.dataset.bound = 'true';
+            topUpBtn.addEventListener('click', () => this.handleWalletTopUpRequest());
+        }
+
+        const refreshBtn = document.getElementById('wallet-refresh-btn');
+        if (refreshBtn && !refreshBtn.dataset.bound) {
+            refreshBtn.dataset.bound = 'true';
+            refreshBtn.addEventListener('click', () => this.refreshWalletSnapshot());
+        }
+    }
+
+    async refreshWalletSnapshot(showToast = true) {
+        if (!this.currentUser || !this.firestore || this.walletRefreshInFlight) {
+            return;
+        }
+        this.walletRefreshInFlight = true;
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', this.currentUser.uid);
+            const walletSnap = await getDoc(walletRef);
+            this.handleWalletSnapshot(walletSnap);
+            if (showToast) {
+                this.showNotification('지갑 잔액을 새로고침했습니다.', 'success');
+            }
+        } catch (error) {
+            console.error('[지갑] 새로고침 실패:', error);
+            if (showToast) {
+                this.showNotification('지갑 정보를 불러오지 못했습니다.', 'error');
+            }
+        } finally {
+            this.walletRefreshInFlight = false;
+        }
+    }
+
+    handleWalletTopUpRequest() {
+        this.showNotification('포인트 충전 기능은 Stripe Checkout 연동과 함께 제공될 예정입니다. 임시로 운영팀에 문의해주세요.', 'info');
     }
     
     // 사이드 메뉴 토글
@@ -19415,10 +19824,16 @@ class BillionaireMap {
      * 규칙: 마지막 5분 내 입찰 시 자동 연장
      */
     async placeBid(regionId, bidAmount, bidderId, bidderEmail) {
+        const numericBidAmount = Number(bidAmount);
+        if (!Number.isFinite(numericBidAmount) || numericBidAmount <= 0) {
+            this.showNotification('유효한 입찰 금액을 입력해주세요.', 'error');
+            return { success: false, message: '유효한 입찰 금액을 입력해주세요.' };
+        }
+
         // 입찰 이벤트 로깅
         this.logEvent('bid_placed', {
             regionId,
-            amount: bidAmount,
+            amount: numericBidAmount,
             bidderId,
             bidderEmail
         });
@@ -19433,6 +19848,7 @@ class BillionaireMap {
         try {
             const { doc, getDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             const auctionRef = doc(this.firestore, 'auctions', regionId);
+            const walletRef = doc(this.firestore, 'wallets', bidderId);
             
             // 트랜잭션으로 동시 입찰 처리
             const result = await runTransaction(this.firestore, async (transaction) => {
@@ -19458,15 +19874,64 @@ class BillionaireMap {
                 
                 // 입찰 금액 검증
                 const minBid = auctionData.currentBid + this.minBidIncrement;
-                if (bidAmount < minBid) {
+                if (numericBidAmount < minBid) {
                     throw new Error(`최소 입찰 금액은 $${minBid.toFixed(2)}입니다.`);
+                }
+
+                const walletSnap = await transaction.get(walletRef);
+                let walletData = walletSnap.exists() ? walletSnap.data() : null;
+                if (!walletData) {
+                    walletData = {
+                        balance: 0,
+                        holdBalance: 0,
+                        holds: {}
+                    };
+                    transaction.set(walletRef, walletData, { merge: true });
+                }
+
+                const rawHolds = walletData.holds && typeof walletData.holds === 'object' ? walletData.holds : {};
+                const currentHoldForRegion = Number(rawHolds[regionId] || 0);
+                const walletBalance = Number(walletData.balance || 0);
+                const walletHoldBalance = Number(walletData.holdBalance || 0);
+                const availablePoints = walletBalance - walletHoldBalance + currentHoldForRegion;
+
+                if (availablePoints < numericBidAmount) {
+                    throw new Error('포인트 잔액이 부족합니다. 지갑을 충전해주세요.');
+                }
+
+                const updatedHolds = { ...rawHolds, [regionId]: numericBidAmount };
+                const updatedHoldBalance = Math.max(0, walletHoldBalance - currentHoldForRegion + numericBidAmount);
+
+                transaction.set(walletRef, {
+                    holds: updatedHolds,
+                    holdBalance: updatedHoldBalance,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+
+                if (auctionData.highestBidderId && auctionData.highestBidderId !== bidderId) {
+                    const previousWalletRef = doc(this.firestore, 'wallets', auctionData.highestBidderId);
+                    const previousWalletSnap = await transaction.get(previousWalletRef);
+                    if (previousWalletSnap.exists()) {
+                        const previousWalletData = previousWalletSnap.data() || {};
+                        const previousHolds = { ...(previousWalletData.holds || {}) };
+                        const previousHoldAmount = Number(previousHolds[regionId] || 0);
+                        if (previousHoldAmount > 0) {
+                            delete previousHolds[regionId];
+                            const newHoldBalance = Math.max(0, Number(previousWalletData.holdBalance || 0) - previousHoldAmount);
+                            transaction.set(previousWalletRef, {
+                                holds: previousHolds,
+                                holdBalance: newHoldBalance,
+                                updatedAt: serverTimestamp()
+                            }, { merge: true });
+                        }
+                    }
                 }
                 
                 // 입찰 이력 추가
                 const bidEntry = {
                     bidderId: bidderId,
                     bidderEmail: bidderEmail,
-                    amount: bidAmount,
+                    amount: numericBidAmount,
                     timestamp: now
                 };
                 
@@ -19482,22 +19947,23 @@ class BillionaireMap {
                     participantEmails.add(bidderEmail);
                 }
                 
-                // 마지막 5분 내 입찰 시 자동 연장
+                // 마지막 2분 내 입찰 시 자동 연장 (anti-sniping)
                 const timeRemaining = endTime - now.toMillis();
-                const fiveMinutes = 5 * 60 * 1000;
+                const extensionWindow = 2 * 60 * 1000; // 2분
+                const extensionDuration = 2 * 60 * 1000; // 2분 연장
                 let newEndTime = auctionData.endTime;
                 let extended = auctionData.extended;
                 
-                if (timeRemaining <= fiveMinutes) {
-                    // 5분 연장
-                    newEndTime = Timestamp.fromMillis(endTime + fiveMinutes);
+                if (timeRemaining <= extensionWindow) {
+                    // 2분 연장
+                    newEndTime = Timestamp.fromMillis(endTime + extensionDuration);
                     extended = true;
-                    console.log(`[옥션 연장] ${regionId}: 5분 연장, 새로운 종료 시간 ${newEndTime.toDate()}`);
+                    console.log(`[옥션 연장] ${regionId}: 2분 연장 (anti-sniping), 새로운 종료 시간 ${newEndTime.toDate()}`);
                 }
                 
                 // 옥션 업데이트
                 transaction.update(auctionRef, {
-                    currentBid: bidAmount,
+                    currentBid: numericBidAmount,
                     highestBidder: bidderEmail,
                     highestBidderId: bidderId,
                     highestBidderEmail: bidderEmail,
@@ -19509,7 +19975,7 @@ class BillionaireMap {
                     participantEmails: Array.from(participantEmails)
                 });
                 
-                return { success: true, extended: timeRemaining <= fiveMinutes };
+                return { success: true, extended: timeRemaining <= extensionWindow };
             });
             
             // 캐시 업데이트
@@ -19524,10 +19990,12 @@ class BillionaireMap {
             this.recordPerformanceMetric('bidTime', endTime - startTime);
             
             if (result.extended) {
-                this.showNotification('입찰이 완료되었습니다. 옥션이 5분 연장되었습니다.', 'success');
+                this.showNotification('입찰이 완료되었습니다. 옥션이 2분 연장되었습니다. (anti-sniping)', 'success');
             } else {
                 this.showNotification('입찰이 완료되었습니다.', 'success');
             }
+
+            this.updateAuctionWalletSummary();
 
             if (this.isUserDashboardOpen()) {
                 this.loadUserDashboardData(true);
@@ -19540,7 +20008,7 @@ class BillionaireMap {
             // 실패 이벤트도 로깅
             this.logEvent('bid_failed', {
                 regionId,
-                amount: bidAmount,
+                amount: numericBidAmount,
                 error: error.message
             });
             
@@ -19600,9 +20068,8 @@ class BillionaireMap {
     }
     
     /**
-     * 옥션 최종 낙찰 처리
-     * 규칙: 12시간 종료 시점에 최고가 자동 낙찰
-     * 개선: 낙찰 후 자동 결제 처리 및 결제 실패 시 롤백
+     * 옥션 최종 낙찰 처리 (클라이언트 사이드 - 지갑 홀드 기반)
+     * 규칙: 12시간 종료 시점에 최고가 자동 낙찰 및 지갑 홀드 자동 차감
      */
     async finalizeAuction(regionId) {
         if (!this.isFirebaseInitialized || !this.firestore) {
@@ -19610,7 +20077,7 @@ class BillionaireMap {
         }
         
         try {
-            const { doc, getDoc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, getDoc, updateDoc, serverTimestamp, Timestamp, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             const auctionRef = doc(this.firestore, 'auctions', regionId);
             const auctionSnap = await getDoc(auctionRef);
             
@@ -19620,56 +20087,90 @@ class BillionaireMap {
             
             const auctionData = auctionSnap.data();
             
-            if (auctionData.status !== 'active') {
+            if (auctionData.status !== 'active' && auctionData.status !== 'live') {
                 return; // 이미 처리됨
             }
             
-            // 최고 입찰자가 있는 경우 낙찰 처리
-            if (auctionData.highestBidderId) {
-                // 먼저 옥션 상태를 'pending_payment'로 변경 (결제 대기 중)
-                await updateDoc(auctionRef, {
-                    status: 'pending_payment',
-                    finalizedAt: serverTimestamp(),
-                    paymentDeadline: serverTimestamp() // 24시간 내 결제 필요
-                });
-                
-                // 낙찰자에게 결제 알림 및 자동 결제 프로세스 시작
-                const paymentResult = await this.initiateAuctionPayment(regionId, auctionData);
-                
-                if (paymentResult.success) {
-                    // 결제 성공: 소유권 부여 및 커뮤니티 풀 업데이트
-                    await updateDoc(auctionRef, {
-                        status: 'sold',
-                        paymentCompleted: true,
-                        paypalOrderId: paymentResult.orderId,
-                        paymentCompletedAt: serverTimestamp()
-                    });
-                    
-                    // 지역 소유권 업데이트
-                    await this.updateRegionOwnership(regionId, {
-                        ownerId: auctionData.highestBidderId,
-                        ownerEmail: auctionData.highestBidderEmail,
-                        purchasePrice: auctionData.currentBid,
-                        purchasedAt: serverTimestamp(),
-                        paypalOrderId: paymentResult.orderId
-                    });
-
-                    // 커뮤니티 상금/무료 픽셀 풀 업데이트
-                    await this.updateCommunityPoolContribution(auctionData);
-                    
-                    console.log(`[옥션 낙찰 완료] ${regionId}: ${auctionData.highestBidderEmail} - $${auctionData.currentBid}`);
-                    this.showNotification(`${auctionData.regionName} 옥션이 $${auctionData.currentBid}에 낙찰되었고 결제가 완료되었습니다.`, 'success');
-                } else {
-                    // 결제 실패: 옥션 상태 롤백
-                    await this.rollbackAuction(regionId, auctionData, paymentResult.error);
-                }
-            } else {
+            // 입찰 이력에서 최고가 및 차순위 계산
+            const bidHistory = auctionData.bidHistory || [];
+            if (bidHistory.length === 0) {
                 // 입찰자가 없는 경우 옥션 종료
                 await updateDoc(auctionRef, {
-                    status: 'ended',
-                    finalizedAt: serverTimestamp()
+                    status: 'cancelled',
+                    finalizedAt: serverTimestamp(),
+                    cancellationReason: 'no_bids'
                 });
                 console.log(`[옥션 종료] ${regionId}: 입찰자 없음`);
+                return;
+            }
+            
+            // 입찰 이력을 금액 내림차순으로 정렬
+            const sortedBids = [...bidHistory]
+                .filter(bid => Number(bid?.amount) > 0)
+                .sort((a, b) => {
+                    const amountDiff = Number(b.amount) - Number(a.amount);
+                    if (amountDiff !== 0) return amountDiff;
+                    const timeA = this.toMillis(b.timestamp) || 0;
+                    const timeB = this.toMillis(a.timestamp) || 0;
+                    return timeB - timeA;
+                });
+            
+            const highestBid = sortedBids[0];
+            const runnerUpBid = sortedBids[1] || null;
+            const highestAmount = Number(highestBid.amount || auctionData.currentBid || 0);
+            const highestBidderId = highestBid.bidderId || auctionData.highestBidderId;
+            const highestBidderEmail = highestBid.bidderEmail || auctionData.highestBidderEmail;
+            
+            if (!highestBidderId) {
+                await updateDoc(auctionRef, {
+                    status: 'cancelled',
+                    finalizedAt: serverTimestamp(),
+                    cancellationReason: 'no_valid_bidder'
+                });
+                return;
+            }
+            
+            // 옥션 상태를 'pending_payment'로 변경
+            const now = Timestamp.now();
+            const deadlineMillis = Date.now() + this.auctionPaymentGraceMs;
+            await updateDoc(auctionRef, {
+                status: 'pending_payment',
+                paymentStatus: 'in_progress',
+                finalizedAt: now,
+                updatedAt: now,
+                highestBid: highestAmount,
+                highestBidderId,
+                highestBidderEmail,
+                secondBid: runnerUpBid ? Number(runnerUpBid.amount || 0) : null,
+                secondBidderId: runnerUpBid?.bidderId || null,
+                secondBidderEmail: runnerUpBid?.bidderEmail || null,
+                pendingPaymentDeadline: Timestamp.fromMillis(deadlineMillis)
+            });
+            
+            // 지갑 홀드 기반 자동 결제 시도
+            const chargeResult = await this.chargeWalletForAuction({
+                bidderId: highestBidderId,
+                regionId,
+                amount: highestAmount
+            });
+            
+            if (chargeResult.success) {
+                // 결제 성공: 소유권 부여
+                await this.markAuctionSold(auctionRef, auctionData, {
+                    bidderId: highestBidderId,
+                    bidderEmail: highestBidderEmail,
+                    amount: highestAmount
+                });
+                
+                // 패배자들의 홀드 해제
+                await this.releaseLoserHolds(auctionData, highestBidderId, regionId);
+                
+                console.log(`[옥션 낙찰 완료] ${regionId}: ${highestBidderEmail} - $${highestAmount}`);
+                this.showNotification(`${auctionData.regionName || regionId} 옥션이 $${highestAmount}에 낙찰되었고 결제가 완료되었습니다.`, 'success');
+            } else {
+                // 결제 실패: 차순위로 이동
+                console.warn(`[옥션 낙찰자 결제 실패] ${regionId}:`, chargeResult);
+                await this.moveToRunnerUp(auctionRef, auctionData, runnerUpBid, chargeResult.reason || 'insufficient_balance');
             }
             
             // 캐시 및 리스너 정리
@@ -19680,20 +20181,210 @@ class BillionaireMap {
             }
         } catch (error) {
             console.error(`[옥션 낙찰 처리 실패] ${regionId}:`, error);
-            // 오류 발생 시 옥션 상태 롤백 시도
-            try {
-                const { doc, getDoc, updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                const auctionRef = doc(this.firestore, 'auctions', regionId);
-                const auctionSnap = await getDoc(auctionRef);
-                if (auctionSnap.exists()) {
-                    const auctionData = auctionSnap.data();
-                    if (auctionData.status === 'pending_payment') {
-                        await this.rollbackAuction(regionId, auctionData, error.message);
-                    }
+        }
+    }
+    
+    /**
+     * Timestamp를 밀리초로 변환
+     */
+    toMillis(value) {
+        if (!value) return null;
+        if (typeof value.toMillis === 'function') return value.toMillis();
+        if (typeof value.toDate === 'function') return value.toDate().getTime();
+        if (value instanceof Date) return value.getTime();
+        if (typeof value === 'number') return value;
+        if (typeof value === 'object' && typeof value.seconds === 'number') {
+            return value.seconds * 1000 + (value.nanoseconds || 0) / 1000000;
+        }
+        return null;
+    }
+    
+    /**
+     * 지갑 홀드 기반 옥션 결제
+     */
+    async chargeWalletForAuction({ bidderId, regionId, amount }) {
+        if (!bidderId || !regionId || !Number.isFinite(Number(amount))) {
+            return { success: false, reason: 'invalid_parameters' };
+        }
+        
+        try {
+            const { doc, runTransaction, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', bidderId);
+            
+            const result = await runTransaction(this.firestore, async (transaction) => {
+                const walletSnap = await transaction.get(walletRef);
+                if (!walletSnap.exists()) {
+                    return { success: false, reason: 'wallet_not_found' };
                 }
-            } catch (rollbackError) {
-                console.error(`[롤백 실패] ${regionId}:`, rollbackError);
-            }
+                
+                const walletData = walletSnap.data() || {};
+                const holds = { ...(walletData.holds || {}) };
+                const holdAmount = Number(holds[regionId] || 0);
+                const balance = Number(walletData.balance || 0);
+                const holdBalance = Number(walletData.holdBalance || 0);
+                const numericAmount = Number(amount);
+                
+                if (!holdAmount || holdAmount < numericAmount) {
+                    return { success: false, reason: 'insufficient_hold' };
+                }
+                if (balance < numericAmount) {
+                    return { success: false, reason: 'insufficient_balance' };
+                }
+                
+                // 홀드 해제 및 잔액 차감
+                delete holds[regionId];
+                const newBalance = balance - numericAmount;
+                const newHoldBalance = Math.max(0, holdBalance - holdAmount);
+                
+                transaction.update(walletRef, {
+                    balance: newBalance,
+                    holdBalance: newHoldBalance,
+                    holds,
+                    updatedAt: serverTimestamp(),
+                    lastPaymentAt: serverTimestamp()
+                });
+                
+                return { success: true };
+            });
+            
+            return result;
+        } catch (error) {
+            console.error('[chargeWalletForAuction] 결제 실패', { bidderId, regionId, error });
+            return { success: false, reason: 'transaction_failed', error: error.message };
+        }
+    }
+    
+    /**
+     * 옥션 낙찰 완료 처리
+     */
+    async markAuctionSold(auctionRef, auctionData, winnerInfo) {
+        const { updateDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const now = serverTimestamp();
+        
+        await updateDoc(auctionRef, {
+            status: 'sold',
+            paymentStatus: 'paid',
+            soldAt: now,
+            updatedAt: now,
+            winnerId: winnerInfo.bidderId,
+            winnerEmail: winnerInfo.bidderEmail || auctionData.highestBidderEmail,
+            highestBid: Number(winnerInfo.amount || auctionData.highestBid || 0)
+        });
+        
+        // 지역 소유권 업데이트
+        await this.updateRegionOwnership(auctionRef.id, {
+            ownerId: winnerInfo.bidderId,
+            ownerEmail: winnerInfo.bidderEmail || auctionData.highestBidderEmail,
+            purchasePrice: Number(winnerInfo.amount || auctionData.highestBid || 0),
+            purchasedAt: now
+        });
+        
+        // 커뮤니티 풀 업데이트
+        await this.updateCommunityPoolContribution({
+            ...auctionData,
+            currentBid: Number(winnerInfo.amount || auctionData.highestBid || 0)
+        });
+    }
+    
+    /**
+     * 차순위로 이동
+     */
+    async moveToRunnerUp(auctionRef, auctionData, runnerUpBid, failureReason) {
+        const { updateDoc, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        
+        // 최고 입찰자의 홀드 해제
+        if (auctionData.highestBidderId) {
+            await this.releaseWalletHold(auctionData.highestBidderId, auctionRef.id);
+        }
+        
+        if (!runnerUpBid || !runnerUpBid.bidderId) {
+            // 차순위가 없으면 취소
+            await updateDoc(auctionRef, {
+                status: 'cancelled',
+                paymentStatus: 'failed',
+                cancellationReason: failureReason || 'no_runner_up',
+                updatedAt: serverTimestamp(),
+                finalizedAt: auctionData.finalizedAt || serverTimestamp()
+            });
+            await this.releaseAllHolds(auctionData, auctionRef.id);
+            return;
+        }
+        
+        // 차순위로 이동
+        const nowMillis = Date.now();
+        await updateDoc(auctionRef, {
+            status: 'pending_runner_up',
+            paymentStatus: 'failed',
+            paymentFailureReason: failureReason || 'winner_payment_failed',
+            runnerUpDeadline: Timestamp.fromMillis(nowMillis + this.auctionRunnerUpGraceMs),
+            runnerUpAttemptCount: 0,
+            secondBid: Number(runnerUpBid.amount || auctionData.secondBid || 0),
+            secondBidderId: runnerUpBid.bidderId,
+            secondBidderEmail: runnerUpBid.bidderEmail || null,
+            updatedAt: serverTimestamp()
+        });
+    }
+    
+    /**
+     * 지갑 홀드 해제
+     */
+    async releaseWalletHold(bidderId, regionId) {
+        if (!bidderId || !regionId) return;
+        
+        try {
+            const { doc, runTransaction, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', bidderId);
+            
+            await runTransaction(this.firestore, async (transaction) => {
+                const walletSnap = await transaction.get(walletRef);
+                if (!walletSnap.exists()) return;
+                
+                const walletData = walletSnap.data() || {};
+                const holds = { ...(walletData.holds || {}) };
+                const holdAmount = Number(holds[regionId] || 0);
+                if (!holdAmount) return;
+                
+                delete holds[regionId];
+                const currentHoldBalance = Number(walletData.holdBalance || 0);
+                const newHoldBalance = Math.max(0, currentHoldBalance - holdAmount);
+                
+                transaction.update(walletRef, {
+                    holds,
+                    holdBalance: newHoldBalance,
+                    updatedAt: serverTimestamp()
+                });
+            });
+        } catch (error) {
+            console.error('[releaseWalletHold] 실패', { bidderId, regionId, error });
+        }
+    }
+    
+    /**
+     * 패배자들의 홀드 해제
+     */
+    async releaseLoserHolds(auctionData, winnerId, regionId) {
+        const participantIds = new Set(Array.isArray(auctionData.participantIds) ? auctionData.participantIds : []);
+        (auctionData.bidHistory || []).forEach(bid => {
+            if (bid?.bidderId) participantIds.add(bid.bidderId);
+        });
+        
+        for (const participantId of participantIds) {
+            if (participantId === winnerId) continue;
+            await this.releaseWalletHold(participantId, regionId);
+        }
+    }
+    
+    /**
+     * 모든 홀드 해제
+     */
+    async releaseAllHolds(auctionData, regionId) {
+        const participantIds = new Set(Array.isArray(auctionData.participantIds) ? auctionData.participantIds : []);
+        (auctionData.bidHistory || []).forEach(bid => {
+            if (bid?.bidderId) participantIds.add(bid.bidderId);
+        });
+        
+        for (const participantId of participantIds) {
+            await this.releaseWalletHold(participantId, regionId);
         }
     }
     
@@ -20048,6 +20739,8 @@ class BillionaireMap {
                 if (bidHistoryElement && auctionData.bidHistory) {
                     this.renderBidHistory(bidHistoryElement, auctionData.bidHistory);
                 }
+
+                this.updateAuctionActionState(auctionData);
             }
         }
     }
@@ -20097,6 +20790,197 @@ class BillionaireMap {
         });
     }
 
+    getAuctionStatusMeta(auctionData = {}) {
+        const status = (auctionData.status || 'active').toLowerCase();
+        const currentUserId = this.currentUser?.uid;
+        const isMyHighest = Boolean(currentUserId && auctionData.highestBidderId === currentUserId);
+        const isRunnerUp = Boolean(currentUserId && auctionData.secondBidderId === currentUserId);
+        const formatDeadline = (timestamp) => {
+            if (!timestamp) {
+                return null;
+            }
+            try {
+                if (typeof timestamp.toMillis === 'function') {
+                    return timestamp.toMillis();
+                }
+                if (typeof timestamp === 'number') {
+                    return timestamp;
+                }
+                if (typeof timestamp === 'object') {
+                    if (typeof timestamp.seconds === 'number') {
+                        return timestamp.seconds * 1000;
+                    }
+                    if (typeof timestamp._seconds === 'number') {
+                        return timestamp._seconds * 1000;
+                    }
+                }
+            } catch (error) {
+                console.warn('[옥션 상태 포맷 실패]', error);
+            }
+            return null;
+        };
+        const deadlineToLabel = (label, timestamp) => {
+            const millis = formatDeadline(timestamp);
+            if (!millis) {
+                return null;
+            }
+            const formatted = new Date(millis).toLocaleString('ko-KR', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            return `${label}: ${formatted}`;
+        };
+        const meta = {
+            statusKey: status,
+            statusLabel: '진행 중',
+            statusClass: 'status-live',
+            message: '옥션이 진행 중입니다.',
+            subtext: '',
+            showBidForm: status === 'active' || status === 'live',
+            showPayButton: false,
+            payButtonText: '지금 결제하기'
+        };
+        switch (status) {
+            case 'pending_payment':
+                meta.showBidForm = false;
+                meta.statusLabel = '결제 대기';
+                meta.statusClass = 'status-pending';
+                if (isMyHighest) {
+                    meta.message = '자동 결제가 진행 중입니다. 결제 기한 내 완료되지 않으면 차순위로 넘어갑니다.';
+                    meta.subtext = deadlineToLabel('결제 기한', auctionData.pendingPaymentDeadline || auctionData.paymentDeadline) || '';
+                    meta.showPayButton = true;
+                    meta.payButtonText = '지금 결제하기';
+                } else if (isRunnerUp) {
+                    meta.message = '차순위 대기 중입니다. 선두 결제가 실패하면 자동으로 결제 절차가 진행됩니다.';
+                    meta.subtext = '기다리는 동안 지갑 잔액을 확인해주세요.';
+                } else {
+                    meta.message = '결제 절차가 진행 중입니다. 잠시만 기다려주세요.';
+                }
+                break;
+            case 'pending_runner_up':
+                meta.showBidForm = false;
+                meta.statusLabel = '차순위 결제';
+                meta.statusClass = 'status-runner';
+                if (isRunnerUp) {
+                    meta.message = '차순위 자동 결제가 진행 중입니다. 필요하다면 지금 결제를 완료할 수 있습니다.';
+                    meta.subtext = deadlineToLabel('차순위 결제 기한', auctionData.runnerUpDeadline) || '';
+                    meta.showPayButton = true;
+                    meta.payButtonText = '차순위 결제 진행';
+                } else {
+                    meta.message = '차순위 결제 절차가 진행 중입니다.';
+                }
+                break;
+            case 'sold':
+                meta.showBidForm = false;
+                meta.statusLabel = '낙찰 완료';
+                meta.statusClass = 'status-sold';
+                meta.message = isMyHighest
+                    ? '축하합니다! 결제까지 완료되어 소유권이 부여되었습니다.'
+                    : '이미 낙찰이 완료된 옥션입니다.';
+                break;
+            case 'cancelled':
+                meta.showBidForm = false;
+                meta.statusLabel = '취소됨';
+                meta.statusClass = 'status-cancelled';
+                meta.message = '옥션이 취소되었습니다. 새로운 라운드를 기다려주세요.';
+                break;
+            case 'ended':
+                meta.showBidForm = false;
+                meta.statusLabel = '종료';
+                meta.statusClass = 'status-cancelled';
+                meta.message = '옥션이 종료되었습니다. 추후 공지를 확인해주세요.';
+                break;
+            case 'scheduled':
+            case 'draft':
+                meta.showBidForm = false;
+                meta.statusLabel = '오픈 예정';
+                meta.statusClass = 'status-live';
+                meta.message = '곧 옥션이 시작됩니다. 잠시만 기다려주세요.';
+                break;
+            default:
+                meta.showBidForm = true;
+                meta.statusLabel = '진행 중';
+                meta.statusClass = 'status-live';
+                meta.message = '옥션이 진행 중입니다.';
+                break;
+        }
+        return meta;
+    }
+
+    updateAuctionActionState(auctionData = {}) {
+        const bidSection = document.getElementById('auction-bid-section');
+        const statusPanel = document.getElementById('auction-status-panel');
+        const statusChip = document.getElementById('auction-status-chip');
+        const statusMessage = document.getElementById('auction-status-message');
+        const statusSubtext = document.getElementById('auction-status-subtext');
+        const payNowBtn = document.getElementById('auction-pay-now-btn');
+        if (!bidSection || !statusPanel) {
+            return;
+        }
+        const meta = this.getAuctionStatusMeta(auctionData);
+        if (meta.showBidForm) {
+            bidSection.classList.remove('hidden');
+            statusPanel.classList.add('hidden');
+            if (payNowBtn) {
+                payNowBtn.classList.add('hidden');
+            }
+            return;
+        }
+        bidSection.classList.add('hidden');
+        statusPanel.classList.remove('hidden');
+        if (statusChip) {
+            statusChip.textContent = meta.statusLabel;
+            statusChip.className = `auction-status-chip ${meta.statusClass}`;
+        }
+        if (statusMessage) {
+            statusMessage.textContent = meta.message || '';
+        }
+        if (statusSubtext) {
+            if (meta.subtext) {
+                statusSubtext.textContent = meta.subtext;
+                statusSubtext.classList.remove('hidden');
+            } else {
+                statusSubtext.textContent = '';
+                statusSubtext.classList.add('hidden');
+            }
+        }
+        if (payNowBtn) {
+            if (meta.showPayButton) {
+                payNowBtn.textContent = meta.payButtonText || '지금 결제하기';
+                payNowBtn.classList.remove('hidden');
+                payNowBtn.disabled = false;
+            } else {
+                payNowBtn.classList.add('hidden');
+            }
+        }
+    }
+
+    async handleAuctionPayNowClick() {
+        if (!this.currentRegion) {
+            this.showNotification('지역 정보를 확인할 수 없습니다.', 'warning');
+            return;
+        }
+        const regionId = this.currentRegion.id;
+        let auction = this.activeAuctions.get(regionId);
+        if (!auction) {
+            auction = await this.getAuction(regionId);
+        }
+        if (!auction) {
+            this.showNotification('옥션 정보를 불러오지 못했습니다.', 'error');
+            return;
+        }
+        const isRunnerUp = Boolean(this.currentUser && auction.secondBidderId === this.currentUser.uid);
+        const paymentPayload = { ...auction };
+        if (isRunnerUp && auction.secondBid) {
+            paymentPayload.currentBid = Number(auction.secondBid);
+        } else if (auction.highestBid) {
+            paymentPayload.currentBid = Number(auction.highestBid);
+        }
+        this.showAuctionPaymentModal(this.currentRegion, paymentPayload);
+    }
+
     getDefaultCommunityPoolData() {
         return {
             rewardFund: 0,
@@ -20136,6 +21020,187 @@ class BillionaireMap {
             });
         } catch (error) {
             console.error('커뮤니티 풀 구독 실패:', error);
+        }
+    }
+    
+    /**
+     * 클라이언트 사이드 경매 자동화 잡 시작
+     * pending_payment, pending_runner_up 상태 옥션을 주기적으로 체크
+     */
+    startAuctionAutomationJob() {
+        if (this.auctionCheckInterval) {
+            return; // 이미 실행 중
+        }
+        
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('[경매 자동화] Firebase가 초기화되지 않아 잡을 시작할 수 없습니다.');
+            return;
+        }
+        
+        // 즉시 한 번 실행
+        this.checkPendingAuctions();
+        
+        // 주기적으로 실행
+        this.auctionCheckInterval = setInterval(() => {
+            this.checkPendingAuctions();
+        }, this.auctionCheckIntervalMs);
+        
+        console.log('[경매 자동화] 클라이언트 사이드 잡 시작');
+    }
+    
+    /**
+     * pending 상태 옥션 체크 및 처리
+     */
+    async checkPendingAuctions() {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return;
+        }
+        
+        try {
+            const { collection, query, where, getDocs, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const auctionsRef = collection(this.firestore, 'auctions');
+            
+            // pending_payment 상태 옥션 체크
+            const pendingPaymentQuery = query(
+                auctionsRef,
+                where('status', '==', 'pending_payment')
+            );
+            const pendingPaymentSnap = await getDocs(pendingPaymentQuery);
+            
+            for (const docSnap of pendingPaymentSnap.docs) {
+                try {
+                    await this.processPendingPaymentAuction(docSnap);
+                } catch (error) {
+                    console.error(`[경매 자동화] pending_payment 처리 실패: ${docSnap.id}`, error);
+                }
+            }
+            
+            // pending_runner_up 상태 옥션 체크
+            const runnerUpQuery = query(
+                auctionsRef,
+                where('status', '==', 'pending_runner_up')
+            );
+            const runnerUpSnap = await getDocs(runnerUpQuery);
+            
+            for (const docSnap of runnerUpSnap.docs) {
+                try {
+                    await this.processPendingRunnerUpAuction(docSnap);
+                } catch (error) {
+                    console.error(`[경매 자동화] pending_runner_up 처리 실패: ${docSnap.id}`, error);
+                }
+            }
+        } catch (error) {
+            console.error('[경매 자동화] 체크 실패', error);
+        }
+    }
+    
+    /**
+     * pending_payment 상태 옥션 처리
+     */
+    async processPendingPaymentAuction(auctionSnap) {
+        const { updateDoc, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const auctionData = auctionSnap.data() || {};
+        
+        // 이미 결제 완료된 경우
+        if (auctionData.paymentStatus === 'paid') {
+            await this.markAuctionSold(auctionSnap.ref, auctionData, {
+                bidderId: auctionData.highestBidderId,
+                bidderEmail: auctionData.highestBidderEmail,
+                amount: auctionData.highestBid
+            });
+            return;
+        }
+        
+        // 데드라인 체크
+        const deadline = auctionData.pendingPaymentDeadline || auctionData.paymentDeadline;
+        const deadlineMillis = this.toMillis(deadline);
+        if (!deadlineMillis || deadlineMillis > Date.now()) {
+            return; // 아직 시간 남음
+        }
+        
+        // 데드라인 초과: 차순위로 이동
+        const runnerUpBid = auctionData.secondBidderId ? {
+            bidderId: auctionData.secondBidderId,
+            bidderEmail: auctionData.secondBidderEmail,
+            amount: auctionData.secondBid
+        } : null;
+        
+        await this.moveToRunnerUp(auctionSnap.ref, auctionData, runnerUpBid, 'payment_deadline_expired');
+    }
+    
+    /**
+     * pending_runner_up 상태 옥션 처리
+     */
+    async processPendingRunnerUpAuction(auctionSnap) {
+        const { updateDoc, serverTimestamp, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const auctionData = auctionSnap.data() || {};
+        
+        // 이미 결제 완료된 경우
+        if (auctionData.paymentStatus === 'runner_up_paid') {
+            await this.markAuctionSold(auctionSnap.ref, auctionData, {
+                bidderId: auctionData.secondBidderId,
+                bidderEmail: auctionData.secondBidderEmail,
+                amount: auctionData.secondBid
+            }, 'runner_up');
+            return;
+        }
+        
+        // 데드라인 체크
+        const deadline = auctionData.runnerUpDeadline;
+        const deadlineMillis = this.toMillis(deadline);
+        if (deadlineMillis && deadlineMillis <= Date.now()) {
+            // 데드라인 초과: 취소
+            await this.releaseWalletHold(auctionData.secondBidderId, auctionSnap.id);
+            await updateDoc(auctionSnap.ref, {
+                status: 'cancelled',
+                paymentStatus: 'failed',
+                cancellationReason: 'runner_up_deadline_expired',
+                updatedAt: serverTimestamp()
+            });
+            await this.releaseAllHolds(auctionData, auctionSnap.id);
+            return;
+        }
+        
+        // 최대 시도 횟수 체크
+        const attempts = Number(auctionData.runnerUpAttemptCount || 0);
+        if (attempts >= this.runnerUpMaxAttempts) {
+            await this.releaseWalletHold(auctionData.secondBidderId, auctionSnap.id);
+            await updateDoc(auctionSnap.ref, {
+                status: 'cancelled',
+                paymentStatus: 'failed',
+                cancellationReason: 'runner_up_max_attempt',
+                updatedAt: serverTimestamp()
+            });
+            await this.releaseAllHolds(auctionData, auctionSnap.id);
+            return;
+        }
+        
+        // 차순위 자동 결제 시도
+        const chargeResult = await this.chargeWalletForAuction({
+            bidderId: auctionData.secondBidderId,
+            regionId: auctionSnap.id,
+            amount: Number(auctionData.secondBid || auctionData.highestBid || 0)
+        });
+        
+        if (chargeResult.success) {
+            // 결제 성공
+            await this.markAuctionSold(auctionSnap.ref, auctionData, {
+                bidderId: auctionData.secondBidderId,
+                bidderEmail: auctionData.secondBidderEmail,
+                amount: auctionData.secondBid || auctionData.highestBid
+            }, 'runner_up');
+            
+            await this.releaseLoserHolds(auctionData, auctionData.secondBidderId, auctionSnap.id);
+            console.log(`[경매 자동화] 차순위 결제 성공: ${auctionSnap.id}`);
+        } else {
+            // 결제 실패: 시도 횟수 증가
+            await updateDoc(auctionSnap.ref, {
+                runnerUpAttemptCount: attempts + 1,
+                lastRunnerUpAttemptAt: serverTimestamp(),
+                paymentFailureReason: chargeResult.reason || 'runner_up_charge_failed',
+                updatedAt: serverTimestamp()
+            });
+            console.warn(`[경매 자동화] 차순위 결제 실패: ${auctionSnap.id}`, chargeResult);
         }
     }
 
@@ -20277,6 +21342,8 @@ class BillionaireMap {
             return;
         }
         
+        this.currentRegion = region;
+
         // 이미 점유된 지역인지 확인
         if (region.ad_status === 'occupied' || region.occupied) {
             this.showNotification('이미 광고가 진행 중인 지역입니다.', 'info');
@@ -20305,12 +21372,15 @@ class BillionaireMap {
             document.getElementById('min-bid-amount').textContent = `$${minBid.toFixed(2)}`;
             document.getElementById('bid-amount-input').min = minBid;
             document.getElementById('bid-amount-input').value = minBid.toFixed(2);
+            this.updateAuctionWalletSummary(minBid);
             
             // 입찰 이력 표시
             const bidHistoryContainer = document.getElementById('auction-bid-history');
             if (bidHistoryContainer) {
                 this.renderBidHistory(bidHistoryContainer, auction.bidHistory || []);
             }
+
+            this.updateAuctionActionState(auction);
             
             // 카운트다운 시작
             this.startAuctionCountdown(region.id, auction);
@@ -20375,6 +21445,20 @@ class BillionaireMap {
                 }
             });
         }
+
+        const auctionWalletBtn = document.getElementById('auction-open-wallet');
+        if (auctionWalletBtn) {
+            auctionWalletBtn.addEventListener('click', () => {
+                this.openWalletModal();
+            });
+        }
+
+        const payNowBtn = document.getElementById('auction-pay-now-btn');
+        if (payNowBtn) {
+            payNowBtn.addEventListener('click', () => {
+                this.handleAuctionPayNowClick();
+            });
+        }
         
         // 모달 외부 클릭 시 닫기
         const modal = document.getElementById('auction-modal');
@@ -20385,6 +21469,8 @@ class BillionaireMap {
                 }
             });
         }
+
+        this.bindWalletModalEvents();
     }
     
     // ========== 픽셀 아트 스튜디오 기능 ==========

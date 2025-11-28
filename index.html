@@ -47,6 +47,8 @@
                     <button id="side-user-login-btn" class="side-menu-btn user-login-btn">로그인</button>
                     <button id="side-user-logout-btn" class="side-menu-btn user-logout-btn hidden">로그아웃</button>
                     <button id="side-my-page-btn" class="side-menu-btn my-page-btn hidden">내 활동</button>
+                    <button id="side-wallet-btn" class="side-menu-btn wallet-link-btn hidden">포인트 지갑</button>
+                    <div id="side-wallet-chip" class="side-wallet-chip hidden">잔액 0P</div>
                     <span id="side-user-email" class="side-user-email hidden"></span>
                 </div>
                 <div class="side-menu-section" id="side-admin-section" style="display: none;">
@@ -81,6 +83,10 @@
             <div class="header-actions">
                 <button id="market-stats-btn" class="market-stats-btn">통계</button>
                 <button id="my-page-btn" class="my-page-btn hidden">내 활동</button>
+                <button id="wallet-btn" class="wallet-btn hidden">
+                    <span>포인트 지갑</span>
+                    <span id="wallet-balance-chip" class="wallet-balance-chip">0P</span>
+                </button>
                 <button id="user-login-btn" class="user-login-btn">로그인</button>
                 <button id="user-logout-btn" class="user-logout-btn hidden">로그아웃</button>
                 <span id="user-email" class="user-email hidden"></span>
@@ -819,11 +825,11 @@
                                 <li>초기가: $1.00</li>
                                 <li>최소 입찰 증가액: $0.10</li>
                                 <li>옥션 기간: 최소 12시간 보장</li>
-                                <li>마지막 5분 내 입찰 시 자동 5분 연장</li>
+                                <li>마지막 2분 내 입찰 시 자동 2분 연장 (anti-sniping)</li>
                             </ul>
                         </div>
                         
-                        <div class="auction-bid-section">
+                        <div class="auction-bid-section" id="auction-bid-section">
                             <h4>입찰하기</h4>
                             <div class="bid-input-group">
                                 <label>입찰 금액 (USD)</label>
@@ -831,6 +837,23 @@
                                 <button id="place-bid-btn" class="bid-btn">입찰하기</button>
                             </div>
                             <p class="bid-hint">최소 입찰가: <span id="min-bid-amount">$1.10</span></p>
+                            <div class="auction-wallet-status">
+                                <div class="wallet-inline">
+                                    <span class="wallet-inline-label">사용 가능 포인트</span>
+                                    <strong id="auction-wallet-available">0P</strong>
+                                    <button id="auction-open-wallet" class="wallet-inline-btn">지갑 열기</button>
+                                </div>
+                                <p id="auction-wallet-warning" class="wallet-inline-warning hidden">
+                                    잔액이 부족합니다. 포인트를 충전한 뒤 다시 시도해주세요.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="auction-status-panel hidden" id="auction-status-panel">
+                            <div class="auction-status-chip status-live" id="auction-status-chip">입찰 대기</div>
+                            <p class="auction-status-message" id="auction-status-message">현재 옥션 상태를 불러오는 중입니다.</p>
+                            <p class="auction-status-subtext hidden" id="auction-status-subtext"></p>
+                            <button id="auction-pay-now-btn" class="auction-cta-btn hidden">지금 결제하기</button>
                         </div>
                         
                         <div class="auction-bid-history">
@@ -1063,6 +1086,63 @@
                             </div>
                             <div id="user-dashboard-activity" class="user-dashboard-activity"></div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 포인트 지갑 모달 -->
+        <div id="wallet-modal" class="modal hidden">
+            <div class="modal-content wallet-modal">
+                <div class="modal-header">
+                    <div>
+                        <h2>
+                            <span class="label-primary">포인트 지갑</span>
+                            <span class="label-secondary">Wallet</span>
+                        </h2>
+                        <p class="modal-subtitle">입찰 포인트 잔액과 홀드 현황을 실시간으로 확인하세요.</p>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="wallet-refresh-btn" class="wallet-secondary-btn">새로고침</button>
+                        <button id="close-wallet-modal" class="close-btn">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body wallet-modal-body">
+                    <div class="wallet-summary-grid">
+                        <div class="wallet-card accent">
+                            <span class="wallet-card-label">총 잔액</span>
+                            <strong id="wallet-balance-value">0P</strong>
+                            <small>충전된 전체 포인트</small>
+                        </div>
+                        <div class="wallet-card">
+                            <span class="wallet-card-label">홀드 중</span>
+                            <strong id="wallet-hold-value">0P</strong>
+                            <small>최고 입찰 유지 금액</small>
+                        </div>
+                        <div class="wallet-card">
+                            <span class="wallet-card-label">사용 가능</span>
+                            <strong id="wallet-available-value">0P</strong>
+                            <small>즉시 입찰 가능한 포인트</small>
+                        </div>
+                    </div>
+                    <div class="wallet-actions-row">
+                        <button id="wallet-topup-btn" class="wallet-primary-btn">포인트 충전</button>
+                        <span id="wallet-error-inline" class="wallet-error-message hidden"></span>
+                    </div>
+                    <div class="wallet-history">
+                        <div class="wallet-history-header">
+                            <h4>최근 활동</h4>
+                            <span id="wallet-last-updated" class="wallet-last-updated">-</span>
+                        </div>
+                        <div id="wallet-history-list" class="wallet-history-list">
+                            <p class="wallet-empty">거래 내역이 없습니다.</p>
+                        </div>
+                    </div>
+                    <div class="wallet-helper">
+                        <p>
+                            최고 입찰자가 되면 해당 금액이 자동으로 홀드되며, 다른 사용자가 추월하거나 옥션이 종료되면 즉시 해제됩니다.
+                            충전 기능은 Stripe Checkout 기반으로 곧 제공될 예정입니다.
+                        </p>
                     </div>
                 </div>
             </div>
