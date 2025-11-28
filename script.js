@@ -16759,7 +16759,174 @@ class BillionaireMap {
     }
 
     handleWalletTopUpRequest() {
-        this.showNotification('포인트 충전 기능은 Stripe Checkout 연동과 함께 제공될 예정입니다. 임시로 운영팀에 문의해주세요.', 'info');
+        // 포인트 충전 금액 선택 모달 표시
+        this.showWalletTopUpModal();
+    }
+
+    showWalletTopUpModal() {
+        // 간단한 금액 선택 UI (또는 입력 필드)
+        const amounts = [10, 25, 50, 100, 200, 500];
+        const selectedAmount = prompt(`포인트 충전 금액을 선택하세요:\n${amounts.map(a => `$${a}`).join(', ')}\n또는 직접 입력하세요 (USD):`);
+        
+        if (!selectedAmount) {
+            return; // 취소
+        }
+
+        const amount = parseFloat(selectedAmount);
+        if (isNaN(amount) || amount <= 0) {
+            this.showNotification('올바른 금액을 입력해주세요.', 'error');
+            return;
+        }
+
+        // PayPal 버튼 렌더링
+        this.renderWalletPayPalButtons(amount);
+    }
+
+    renderWalletPayPalButtons(amount) {
+        try {
+            const container = document.getElementById('wallet-paypal-buttons');
+            if (!container) {
+                this.showNotification('결제 버튼을 표시할 수 없습니다.', 'error');
+                return;
+            }
+
+            // 기존 버튼 제거
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+
+            if (!(window.paypal && window.paypal.Buttons)) {
+                this.showNotification('결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
+                return;
+            }
+
+            // 포인트 환산 (1 USD = 100 포인트로 가정, 필요시 조정)
+            const pointsToAdd = Math.floor(amount * 100);
+            const description = `포인트 충전: $${amount.toFixed(2)} (${pointsToAdd.toLocaleString()}P)`;
+
+            window.paypal.Buttons({
+                style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'paypal' },
+                createOrder: (data, actions) => {
+                    return actions.order.create({
+                        purchase_units: [{
+                            description: description,
+                            amount: {
+                                currency_code: 'USD',
+                                value: String(amount.toFixed(2))
+                            }
+                        }]
+                    });
+                },
+                onApprove: async (data, actions) => {
+                    try {
+                        const details = await actions.order.capture();
+                        const orderId = details.id;
+                        const buyerEmail = details.payer?.email_address || details.payer?.payer_info?.email || this.currentUser?.email;
+
+                        // 지갑에 포인트 추가
+                        if (this.isFirebaseInitialized && this.currentUser) {
+                            await this.addPointsToWallet(this.currentUser.uid, pointsToAdd, orderId, amount, buyerEmail);
+                            this.showNotification(`포인트 ${pointsToAdd.toLocaleString()}P가 충전되었습니다!`, 'success');
+                            
+                            // 지갑 UI 새로고침
+                            await this.refreshWalletSnapshot(true);
+                            
+                            // PayPal 버튼 제거하고 성공 메시지 표시
+                            const successDiv = document.createElement('div');
+                            successDiv.style.color = '#2ecc71';
+                            successDiv.style.fontWeight = '600';
+                            successDiv.style.padding = '10px';
+                            successDiv.style.textAlign = 'center';
+                            successDiv.textContent = `✅ 포인트 충전 완료: ${pointsToAdd.toLocaleString()}P`;
+                            container.innerHTML = '';
+                            container.appendChild(successDiv);
+                        } else {
+                            this.showNotification('로그인이 필요합니다.', 'error');
+                        }
+                    } catch (err) {
+                        console.error('PayPal capture error:', err);
+                        this.showNotification('결제 처리 중 오류가 발생했습니다.', 'error');
+                    }
+                },
+                onCancel: () => {
+                    this.showNotification('결제가 취소되었습니다.', 'info');
+                },
+                onError: (err) => {
+                    console.error('PayPal error:', err);
+                    this.showNotification('결제 초기화 중 오류가 발생했습니다.', 'error');
+                }
+            }).render('#wallet-paypal-buttons');
+        } catch (e) {
+            console.error('renderWalletPayPalButtons error:', e);
+            this.showNotification('결제 버튼 렌더링에 실패했습니다.', 'error');
+        }
+    }
+
+    async addPointsToWallet(userId, points, orderId, amount, buyerEmail) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            throw new Error('Firebase가 초기화되지 않았습니다.');
+        }
+
+        try {
+            const { doc, runTransaction, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const walletRef = doc(this.firestore, 'wallets', userId);
+
+            await runTransaction(this.firestore, async (transaction) => {
+                const walletSnap = await transaction.get(walletRef);
+                
+                let walletData;
+                if (walletSnap.exists()) {
+                    walletData = walletSnap.data();
+                } else {
+                    walletData = {
+                        balance: 0,
+                        holdBalance: 0,
+                        holds: {},
+                        history: []
+                    };
+                }
+
+                const currentBalance = Number(walletData.balance || 0);
+                const newBalance = currentBalance + points;
+                const history = walletData.history || [];
+
+                transaction.set(walletRef, {
+                    balance: newBalance,
+                    holdBalance: Number(walletData.holdBalance || 0),
+                    holds: walletData.holds || {},
+                    history: [...history, {
+                        type: 'topup',
+                        amount: points,
+                        usdAmount: amount,
+                        orderId: orderId,
+                        timestamp: serverTimestamp()
+                    }],
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            });
+
+            // 구매 기록도 저장 (선택적)
+            try {
+                const { collection, addDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                await addDoc(collection(this.firestore, 'purchases'), {
+                    type: 'wallet_topup',
+                    buyerId: userId,
+                    buyerEmail: buyerEmail || 'unknown@example.com',
+                    amount: amount,
+                    points: points,
+                    paypalOrderId: orderId,
+                    purchaseDate: serverTimestamp(),
+                    status: 'completed'
+                });
+            } catch (purchaseError) {
+                console.warn('구매 기록 저장 실패 (무시 가능):', purchaseError);
+            }
+
+            console.log(`[지갑] 포인트 충전 완료: ${userId}, ${points}P 추가`);
+        } catch (error) {
+            console.error('[지갑] 포인트 충전 실패:', error);
+            throw error;
+        }
     }
     
     // 사이드 메뉴 토글
