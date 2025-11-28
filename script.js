@@ -22723,13 +22723,10 @@ class BillionaireMap {
             });
         }
         
-        // 픽셀 그리드 컨트롤 패널 표시/숨김
+        // 픽셀 그리드 컨트롤 패널은 기본적으로 숨김 (편집 모드에서만 표시)
         const pixelGridControls = document.getElementById('pixel-grid-controls');
         if (pixelGridControls) {
-            // 지도가 로드되면 표시
-            if (this.map) {
-                pixelGridControls.classList.remove('hidden');
-            }
+            pixelGridControls.classList.add('hidden');
         }
         // 닫기 버튼
         const closeBtn = document.getElementById('close-pixel-studio');
@@ -22853,6 +22850,15 @@ class BillionaireMap {
         
         this.pixelEditor.regionId = regionId;
         
+        // 해당 행정구역의 픽셀 그리드 로드 및 강조 표시
+        await this.highlightRegionPixelGrid(regionId);
+        
+        // 픽셀 그리드 컨트롤 패널 표시
+        const pixelGridControls = document.getElementById('pixel-grid-controls');
+        if (pixelGridControls) {
+            pixelGridControls.classList.remove('hidden');
+        }
+        
         // 모달 표시
         const modal = document.getElementById('pixel-studio-modal');
         if (modal) {
@@ -22878,6 +22884,30 @@ class BillionaireMap {
                 }
             }
             
+            // 안내 메시지 추가
+            const modalBody = modal.querySelector('.modal-body');
+            if (modalBody) {
+                let guideMessage = modalBody.querySelector('.pixel-edit-guide');
+                if (!guideMessage) {
+                    guideMessage = document.createElement('div');
+                    guideMessage.className = 'pixel-edit-guide';
+                    guideMessage.style.cssText = `
+                        background: #e3f2fd;
+                        border: 1px solid #2196f3;
+                        border-radius: 8px;
+                        padding: 12px;
+                        margin-bottom: 16px;
+                        color: #1976d2;
+                    `;
+                    guideMessage.innerHTML = `
+                        <strong>💡 편집 방법:</strong><br>
+                        지도 위의 ${regionData.name_ko || regionData.name_en || '이 지역'} 행정구역을 클릭하면 색상 팔레트가 표시됩니다.<br>
+                        색상을 선택하면 해당 픽셀이 즉시 색칠됩니다. 드래그로 여러 픽셀을 동시에 색칠할 수 있습니다.
+                    `;
+                    modalBody.insertBefore(guideMessage, modalBody.firstChild);
+                }
+            }
+            
             // 캔버스 초기화
             this.initPixelCanvas();
             
@@ -22893,6 +22923,71 @@ class BillionaireMap {
                 versionHistorySection.classList.add('hidden');
             }
         }
+    }
+    
+    /**
+     * 특정 행정구역의 픽셀 그리드 강조 표시
+     */
+    async highlightRegionPixelGrid(regionId) {
+        if (!this.map) return;
+        
+        // 해당 지역의 픽셀 그리드 로드
+        let pixelGrid = this.pixelGrids.get(regionId);
+        if (!pixelGrid) {
+            // GeoJSON에서 해당 지역 찾기
+            const source = this.map.getSource('world-regions');
+            if (source && source._data) {
+                const feature = source._data.features.find(f => 
+                    (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
+                );
+                if (feature) {
+                    pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                    if (pixelGrid) {
+                        await this.savePixelGrid(regionId, pixelGrid);
+                        this.pixelGrids.set(regionId, pixelGrid);
+                    }
+                }
+            }
+        }
+        
+        if (!pixelGrid) return;
+        
+        // 해당 지역의 픽셀만 필터링하여 표시
+        const regionGeoJson = this.pixelGridToGeoJson(pixelGrid);
+        if (regionGeoJson && this.map.getSource('pixel-grids')) {
+            // 기존 소스에 해당 지역 픽셀만 추가/업데이트
+            const currentSource = this.map.getSource('pixel-grids');
+            const currentData = currentSource._data;
+            
+            // 다른 지역의 픽셀은 숨기고, 현재 지역만 표시
+            const filteredFeatures = currentData.features.filter(f => 
+                f.properties.regionId === regionId
+            );
+            
+            // 현재 지역 픽셀 추가
+            if (regionGeoJson.features) {
+                filteredFeatures.push(...regionGeoJson.features);
+            }
+            
+            const filteredGeoJson = {
+                type: 'FeatureCollection',
+                features: filteredFeatures
+            };
+            
+            currentSource.setData(filteredGeoJson);
+            
+            // 해당 지역으로 지도 이동
+            if (pixelGrid.bbox) {
+                const { minX, minY, maxX, maxY } = pixelGrid.bbox;
+                this.map.fitBounds(
+                    [[minX, minY], [maxX, maxY]],
+                    { padding: 50, duration: 1000 }
+                );
+            }
+        }
+        
+        // 실시간 리스너 설정
+        await this.setupPixelRealtimeListener(regionId);
     }
     
     /**
@@ -23679,6 +23774,16 @@ class BillionaireMap {
      * 픽셀 스튜디오 모달 닫기
      */
     closePixelStudio() {
+        // 픽셀 그리드 컨트롤 패널 숨기기
+        const pixelGridControls = document.getElementById('pixel-grid-controls');
+        if (pixelGridControls) {
+            pixelGridControls.classList.add('hidden');
+        }
+        
+        // 모든 픽셀 그리드 다시 표시
+        if (this.map && this.map.getSource('pixel-grids')) {
+            this.updateVisiblePixels();
+        }
         // 실시간 리스너 정리
         if (this.pixelEditor && this.pixelEditor.realtimeListener) {
             this.pixelEditor.realtimeListener();
@@ -23975,6 +24080,13 @@ class BillionaireMap {
     async savePixelGrid(regionId, pixelGrid) {
         if (!this.isFirebaseInitialized || !this.firestore) return;
         
+        // 권한 확인
+        const hasPermission = await this.checkRegionOwnership(regionId);
+        if (!hasPermission && !this.isAdminLoggedIn) {
+            // 권한이 없으면 저장하지 않음 (조용히 무시)
+            return;
+        }
+        
         try {
             const { doc, setDoc, collection, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
@@ -24017,7 +24129,10 @@ class BillionaireMap {
             
             console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelGrid.pixels.length}개 픽셀`);
         } catch (error) {
-            console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
+            // 권한 오류는 조용히 무시
+            if (error.code !== 'permission-denied') {
+                console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
+            }
         }
     }
     
@@ -24077,53 +24192,23 @@ class BillionaireMap {
     
     /**
      * Phase 1: 픽셀 그리드 레이어 추가/업데이트
+     * 초기 로드 시에는 그리드를 생성하지 않고, 편집 모드에서만 생성
      */
     async setupPixelGridLayer(geoJson) {
         if (!this.map || !geoJson) return;
         
-        // 모든 행정구역에 대해 픽셀 그리드 생성 또는 로드
-        const allPixelGrids = [];
-        
-        for (const feature of geoJson.features || []) {
-            const regionId = feature.properties?.id || feature.properties?.regionId;
-            if (!regionId) continue;
-            
-            // 기존 그리드 로드 시도
-            let pixelGrid = await this.loadPixelGrid(regionId);
-            
-            // 없으면 새로 생성
-            if (!pixelGrid) {
-                pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
-                if (pixelGrid) {
-                    await this.savePixelGrid(regionId, pixelGrid);
-                }
-            }
-            
-            if (pixelGrid) {
-                allPixelGrids.push(pixelGrid);
-                this.pixelGrids.set(regionId, pixelGrid);
-            }
-        }
-        
-        // 모든 픽셀 그리드를 하나의 GeoJSON으로 합치기
-        const allFeatures = [];
-        allPixelGrids.forEach(grid => {
-            const gridGeoJson = this.pixelGridToGeoJson(grid);
-            if (gridGeoJson && gridGeoJson.features) {
-                allFeatures.push(...gridGeoJson.features);
-            }
-        });
-        
-        const combinedGeoJson = {
+        // 초기 로드 시에는 빈 GeoJSON으로 레이어만 생성
+        // 실제 그리드는 편집 모드에서 필요할 때 생성
+        const emptyGeoJson = {
             type: 'FeatureCollection',
-            features: allFeatures
+            features: []
         };
         
         // Mapbox 소스 및 레이어 추가
         if (!this.map.getSource('pixel-grids')) {
             this.map.addSource('pixel-grids', {
                 type: 'geojson',
-                data: combinedGeoJson
+                data: emptyGeoJson
             });
             
             this.map.addLayer({
@@ -24146,8 +24231,6 @@ class BillionaireMap {
                     'line-opacity': 0.3
                 }
             });
-        } else {
-            this.map.getSource('pixel-grids').setData(combinedGeoJson);
         }
     }
     
