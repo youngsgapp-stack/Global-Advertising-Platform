@@ -139,6 +139,18 @@ class BillionaireMap {
         // 픽셀 에디터 초기화
         this.initPixelEditor();
         
+        // Wplace 스타일 픽셀 그리드 시스템
+        this.pixelGrids = new Map(); // regionId -> pixelGridData
+        this.pixelGridListeners = new Map(); // regionId -> unsubscribe function
+        this.pixelGridSource = null; // Mapbox source for pixel grids
+        this.currentPixelColor = '#FF0000'; // 현재 선택된 색상
+        this.isPixelDrawing = false; // 드래그로 여러 픽셀 색칠 중인지
+        this.selectedPixels = new Set(); // 드래그 중 선택된 픽셀들
+        this.pixelUpdateBatch = []; // 배치 저장할 픽셀 업데이트
+        this.pixelBatchTimer = null; // 배치 타이머
+        this.pixelGridGridSize = 50; // 기본 그리드 크기 (50x50)
+        this.showPixelGridLines = false; // 그리드 선 표시 여부
+        
         // 기술 인프라 개선: 데이터 파이프라인 및 성능 최적화
         this.geoJsonPipeline = {
             cache: new Map(), // 국가별 GeoJSON 캐시
@@ -2717,6 +2729,13 @@ class BillionaireMap {
         
         // 통계 업데이트
         this.updateStatistics();
+        
+        // Wplace 스타일 픽셀 그리드 시스템 초기화
+        if (this.map && mergedGeoJson) {
+            this.initializePixelGridSystem(mergedGeoJson).catch(error => {
+                console.error('[픽셀 그리드 시스템 초기화 실패]:', error);
+            });
+        }
         
         return mergedGeoJson;
     }
@@ -22688,6 +22707,30 @@ class BillionaireMap {
      * 픽셀 스튜디오 모달 이벤트 리스너 설정
      */
     setupPixelStudioListeners() {
+        // 픽셀 그리드 컨트롤 패널 이벤트 리스너
+        const toggleGridLinesBtn = document.getElementById('toggle-grid-lines-btn');
+        if (toggleGridLinesBtn) {
+            toggleGridLinesBtn.addEventListener('click', () => {
+                this.togglePixelGridLines();
+                toggleGridLinesBtn.textContent = this.showPixelGridLines ? '그리드 선 숨김' : '그리드 선 표시';
+            });
+        }
+        
+        const currentPixelColorInput = document.getElementById('current-pixel-color');
+        if (currentPixelColorInput) {
+            currentPixelColorInput.addEventListener('change', (e) => {
+                this.currentPixelColor = e.target.value;
+            });
+        }
+        
+        // 픽셀 그리드 컨트롤 패널 표시/숨김
+        const pixelGridControls = document.getElementById('pixel-grid-controls');
+        if (pixelGridControls) {
+            // 지도가 로드되면 표시
+            if (this.map) {
+                pixelGridControls.classList.remove('hidden');
+            }
+        }
         // 닫기 버튼
         const closeBtn = document.getElementById('close-pixel-studio');
         if (closeBtn) {
@@ -23673,6 +23716,810 @@ class BillionaireMap {
                 messageEl.classList.add('hidden');
             }, 3000);
         }
+    }
+    
+    // ========== Wplace 스타일 픽셀 그리드 시스템 (Phase 0-4) ==========
+    
+    /**
+     * Phase 0: 픽셀아트 지도 표시 기능
+     * 저장된 픽셀아트를 지도에 표시
+     */
+    async loadPixelArtForMap(regionIds) {
+        if (!this.isFirebaseInitialized || !this.firestore || !this.map) return;
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const pixelArtPromises = regionIds.map(async (regionId) => {
+                try {
+                    const pixelRef = doc(this.firestore, 'pixelArt', regionId);
+                    const pixelDoc = await getDoc(pixelRef);
+                    
+                    if (pixelDoc.exists()) {
+                        const pixelData = pixelDoc.data();
+                        if (pixelData.imageData) {
+                            const img = new Image();
+                            img.crossOrigin = 'anonymous';
+                            
+                            await new Promise((resolve, reject) => {
+                                img.onload = () => {
+                                    try {
+                                        const imageId = `pixel-art-${regionId}`;
+                                        if (this.map.hasImage(imageId)) {
+                                            this.map.removeImage(imageId);
+                                        }
+                                        this.map.addImage(imageId, img);
+                                        resolve({ regionId, imageId });
+                                    } catch (error) {
+                                        console.error(`[픽셀아트 이미지 등록 실패] ${regionId}:`, error);
+                                        reject(error);
+                                    }
+                                };
+                                img.onerror = reject;
+                                img.src = pixelData.imageData;
+                            });
+                            
+                            return { regionId, imageId: `pixel-art-${regionId}` };
+                        }
+                    }
+                } catch (error) {
+                    console.error(`[픽셀아트 로드 실패] ${regionId}:`, error);
+                }
+                return null;
+            });
+            
+            const results = await Promise.all(pixelArtPromises);
+            return results.filter(r => r !== null);
+        } catch (error) {
+            console.error('[픽셀아트 지도 로드 실패]:', error);
+            return [];
+        }
+    }
+    
+    /**
+     * Phase 0: GeoJSON에 픽셀아트 이미지 ID 추가
+     */
+    addPixelArtToGeoJson(geoJson, pixelArtMap) {
+        if (!geoJson || !geoJson.features) return geoJson;
+        
+        geoJson.features.forEach(feature => {
+            const regionId = feature.properties?.id || feature.properties?.regionId;
+            if (regionId && pixelArtMap[regionId]) {
+                feature.properties.pixelArtImageId = pixelArtMap[regionId].imageId;
+            }
+        });
+        return geoJson;
+    }
+    
+    /**
+     * Phase 0: 픽셀아트 레이어 업데이트
+     */
+    async updatePixelArtLayer(geoJson) {
+        if (!this.map || !geoJson) return;
+        
+        // 픽셀아트가 있는 지역 ID 수집
+        const regionIds = [];
+        if (geoJson.features) {
+            geoJson.features.forEach(feature => {
+                const regionId = feature.properties?.id || feature.properties?.regionId;
+                if (regionId) regionIds.push(regionId);
+            });
+        }
+        
+        // 픽셀아트 로드
+        const pixelArtList = await this.loadPixelArtForMap(regionIds);
+        const pixelArtMap = {};
+        pixelArtList.forEach(item => {
+            pixelArtMap[item.regionId] = item;
+        });
+        
+        // GeoJSON에 픽셀아트 이미지 ID 추가
+        this.addPixelArtToGeoJson(geoJson, pixelArtMap);
+        
+        // 레이어에 fill-pattern 적용
+        if (this.map.getLayer('regions-fill')) {
+            this.map.setPaintProperty('regions-fill', 'fill-pattern', [
+                'case',
+                ['has', 'pixelArtImageId'],
+                ['get', 'pixelArtImageId'],
+                null
+            ]);
+        }
+    }
+    
+    /**
+     * Phase 1: 행정구역을 픽셀 그리드로 변환
+     * 간단한 포인트 인 폴리곤 체크 함수 (turf.js 없이)
+     */
+    isPointInPolygon(point, polygon) {
+        const [x, y] = point;
+        const coordinates = polygon.coordinates[0]; // 외곽 경계
+        let inside = false;
+        
+        for (let i = 0, j = coordinates.length - 1; i < coordinates.length; j = i++) {
+            const [xi, yi] = coordinates[i];
+            const [xj, yj] = coordinates[j];
+            
+            const intersect = ((yi > y) !== (yj > y)) && 
+                             (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        
+        return inside;
+    }
+    
+    /**
+     * Phase 1: 바운딩 박스 계산
+     */
+    calculateBoundingBox(feature) {
+        if (!feature || !feature.geometry) return null;
+        
+        const coordinates = feature.geometry.coordinates;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        
+        const processCoordinates = (coords) => {
+            if (Array.isArray(coords[0])) {
+                coords.forEach(processCoordinates);
+            } else {
+                const [x, y] = coords;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        };
+        
+        if (feature.geometry.type === 'Polygon') {
+            processCoordinates(coordinates[0]);
+        } else if (feature.geometry.type === 'MultiPolygon') {
+            coordinates.forEach(polygon => {
+                processCoordinates(polygon[0]);
+            });
+        }
+        
+        return { minX, minY, maxX, maxY };
+    }
+    
+    /**
+     * Phase 1: 행정구역을 픽셀 그리드로 변환
+     */
+    createPixelGrid(feature, gridSize = 50) {
+        if (!feature || !feature.geometry) return null;
+        
+        const bbox = this.calculateBoundingBox(feature);
+        if (!bbox) return null;
+        
+        const { minX, minY, maxX, maxY } = bbox;
+        const cellWidth = (maxX - minX) / gridSize;
+        const cellHeight = (maxY - minY) / gridSize;
+        
+        const pixels = [];
+        
+        for (let row = 0; row < gridSize; row++) {
+            for (let col = 0; col < gridSize; col++) {
+                const cellCenterX = minX + (col + 0.5) * cellWidth;
+                const cellCenterY = minY + (row + 0.5) * cellHeight;
+                
+                // 셀 중심점이 행정구역 내부에 있는지 확인
+                const isInside = this.isPointInPolygon([cellCenterX, cellCenterY], feature.geometry);
+                
+                if (isInside) {
+                    pixels.push({
+                        id: `${row}-${col}`,
+                        row,
+                        col,
+                        x: cellCenterX,
+                        y: cellCenterY,
+                        color: null,
+                        bounds: {
+                            minX: minX + col * cellWidth,
+                            minY: minY + row * cellHeight,
+                            maxX: minX + (col + 1) * cellWidth,
+                            maxY: minY + (row + 1) * cellHeight
+                        }
+                    });
+                }
+            }
+        }
+        
+        const regionId = feature.properties?.id || feature.properties?.regionId;
+        
+        return {
+            regionId,
+            gridSize,
+            bbox,
+            pixels,
+            cellWidth,
+            cellHeight
+        };
+    }
+    
+    /**
+     * Phase 1: 픽셀 그리드를 GeoJSON으로 변환
+     */
+    pixelGridToGeoJson(pixelGrid) {
+        if (!pixelGrid || !pixelGrid.pixels) return null;
+        
+        const features = pixelGrid.pixels.map(pixel => {
+            return {
+                type: 'Feature',
+                properties: {
+                    id: pixel.id,
+                    regionId: pixelGrid.regionId,
+                    color: pixel.color || '#f0f0f0',
+                    row: pixel.row,
+                    col: pixel.col
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [pixel.bounds.minX, pixel.bounds.minY],
+                        [pixel.bounds.maxX, pixel.bounds.minY],
+                        [pixel.bounds.maxX, pixel.bounds.maxY],
+                        [pixel.bounds.minX, pixel.bounds.maxY],
+                        [pixel.bounds.minX, pixel.bounds.minY]
+                    ]]
+                }
+            };
+        });
+        
+        return {
+            type: 'FeatureCollection',
+            features
+        };
+    }
+    
+    /**
+     * Phase 1: 픽셀 그리드 데이터를 Firestore에 저장
+     */
+    async savePixelGrid(regionId, pixelGrid) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { doc, setDoc, collection, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 픽셀 그리드 메타데이터 저장
+            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
+            await setDoc(gridRef, {
+                gridSize: pixelGrid.gridSize,
+                bbox: pixelGrid.bbox,
+                cellWidth: pixelGrid.cellWidth,
+                cellHeight: pixelGrid.cellHeight,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+            
+            // 각 픽셀 데이터 저장 (배치 처리)
+            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+            const batchSize = 500;
+            
+            for (let i = 0; i < pixelGrid.pixels.length; i += batchSize) {
+                const batch = pixelGrid.pixels.slice(i, i + batchSize);
+                const { writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const firestoreBatch = writeBatch(this.firestore);
+                
+                batch.forEach(pixel => {
+                    const pixelRef = doc(pixelsRef, pixel.id);
+                    firestoreBatch.set(pixelRef, {
+                        id: pixel.id,
+                        row: pixel.row,
+                        col: pixel.col,
+                        x: pixel.x,
+                        y: pixel.y,
+                        color: pixel.color || null,
+                        updatedAt: serverTimestamp(),
+                        updatedBy: this.currentUser?.email || 'system'
+                    }, { merge: true });
+                });
+                
+                await firestoreBatch.commit();
+            }
+            
+            console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelGrid.pixels.length}개 픽셀`);
+        } catch (error) {
+            console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * Phase 1: Firestore에서 픽셀 그리드 로드
+     */
+    async loadPixelGrid(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) return null;
+        
+        try {
+            const { doc, getDoc, collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // 메타데이터 로드
+            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
+            const gridDoc = await getDoc(gridRef);
+            
+            if (!gridDoc.exists()) return null;
+            
+            const gridData = gridDoc.data();
+            
+            // 픽셀 데이터 로드
+            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+            const pixelsSnapshot = await getDocs(pixelsRef);
+            
+            const pixels = [];
+            pixelsSnapshot.forEach(doc => {
+                const data = doc.data();
+                pixels.push({
+                    id: data.id,
+                    row: data.row,
+                    col: data.col,
+                    x: data.x,
+                    y: data.y,
+                    color: data.color || null,
+                    bounds: {
+                        minX: data.x - gridData.cellWidth / 2,
+                        minY: data.y - gridData.cellHeight / 2,
+                        maxX: data.x + gridData.cellWidth / 2,
+                        maxY: data.y + gridData.cellHeight / 2
+                    }
+                });
+            });
+            
+            return {
+                regionId,
+                gridSize: gridData.gridSize,
+                bbox: gridData.bbox,
+                pixels,
+                cellWidth: gridData.cellWidth,
+                cellHeight: gridData.cellHeight
+            };
+        } catch (error) {
+            console.error(`[픽셀 그리드 로드 실패] ${regionId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * Phase 1: 픽셀 그리드 레이어 추가/업데이트
+     */
+    async setupPixelGridLayer(geoJson) {
+        if (!this.map || !geoJson) return;
+        
+        // 모든 행정구역에 대해 픽셀 그리드 생성 또는 로드
+        const allPixelGrids = [];
+        
+        for (const feature of geoJson.features || []) {
+            const regionId = feature.properties?.id || feature.properties?.regionId;
+            if (!regionId) continue;
+            
+            // 기존 그리드 로드 시도
+            let pixelGrid = await this.loadPixelGrid(regionId);
+            
+            // 없으면 새로 생성
+            if (!pixelGrid) {
+                pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                if (pixelGrid) {
+                    await this.savePixelGrid(regionId, pixelGrid);
+                }
+            }
+            
+            if (pixelGrid) {
+                allPixelGrids.push(pixelGrid);
+                this.pixelGrids.set(regionId, pixelGrid);
+            }
+        }
+        
+        // 모든 픽셀 그리드를 하나의 GeoJSON으로 합치기
+        const allFeatures = [];
+        allPixelGrids.forEach(grid => {
+            const gridGeoJson = this.pixelGridToGeoJson(grid);
+            if (gridGeoJson && gridGeoJson.features) {
+                allFeatures.push(...gridGeoJson.features);
+            }
+        });
+        
+        const combinedGeoJson = {
+            type: 'FeatureCollection',
+            features: allFeatures
+        };
+        
+        // Mapbox 소스 및 레이어 추가
+        if (!this.map.getSource('pixel-grids')) {
+            this.map.addSource('pixel-grids', {
+                type: 'geojson',
+                data: combinedGeoJson
+            });
+            
+            this.map.addLayer({
+                id: 'pixel-grids-fill',
+                type: 'fill',
+                source: 'pixel-grids',
+                paint: {
+                    'fill-color': ['get', 'color'],
+                    'fill-opacity': 0.9
+                }
+            });
+            
+            this.map.addLayer({
+                id: 'pixel-grids-border',
+                type: 'line',
+                source: 'pixel-grids',
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': this.showPixelGridLines ? 0.5 : 0,
+                    'line-opacity': 0.3
+                }
+            });
+        } else {
+            this.map.getSource('pixel-grids').setData(combinedGeoJson);
+        }
+    }
+    
+    /**
+     * Phase 2: 픽셀 클릭 이벤트 핸들러
+     */
+    setupPixelClickHandlers() {
+        if (!this.map) return;
+        
+        // 픽셀 클릭 시 색상 팔레트 표시
+        this.map.on('click', 'pixel-grids-fill', async (e) => {
+            const pixel = e.features[0];
+            const pixelId = pixel.properties.id;
+            const regionId = pixel.properties.regionId;
+            
+            // 권한 확인
+            const hasPermission = await this.checkRegionOwnership(regionId);
+            if (!hasPermission && !this.isAdminLoggedIn) {
+                this.showNotification('이 지역의 소유자만 편집할 수 있습니다.', 'error');
+                return;
+            }
+            
+            // 색상 팔레트 표시
+            this.showColorPalette(e.lngLat, pixelId, regionId);
+        });
+        
+        // 드래그로 여러 픽셀 색칠
+        this.map.on('mousedown', 'pixel-grids-fill', async (e) => {
+            const pixel = e.features[0];
+            const regionId = pixel.properties.regionId;
+            
+            const hasPermission = await this.checkRegionOwnership(regionId);
+            if (!hasPermission && !this.isAdminLoggedIn) return;
+            
+            this.isPixelDrawing = true;
+            this.selectedPixels.clear();
+            const pixelId = pixel.properties.id;
+            this.selectedPixels.add(pixelId);
+            await this.colorPixel(pixelId, regionId, this.currentPixelColor);
+        });
+        
+        this.map.on('mousemove', 'pixel-grids-fill', async (e) => {
+            if (this.isPixelDrawing) {
+                const pixel = e.features[0];
+                const pixelId = pixel.properties.id;
+                const regionId = pixel.properties.regionId;
+                
+                if (!this.selectedPixels.has(pixelId)) {
+                    this.selectedPixels.add(pixelId);
+                    await this.colorPixel(pixelId, regionId, this.currentPixelColor);
+                }
+            }
+        });
+        
+        this.map.on('mouseup', () => {
+            this.isPixelDrawing = false;
+            this.selectedPixels.clear();
+        });
+        
+        // 픽셀 호버 효과
+        this.map.on('mousemove', 'pixel-grids-fill', (e) => {
+            this.map.getCanvas().style.cursor = 'pointer';
+        });
+        
+        this.map.on('mouseleave', 'pixel-grids-fill', () => {
+            this.map.getCanvas().style.cursor = '';
+        });
+    }
+    
+    /**
+     * Phase 2: 색상 팔레트 표시
+     */
+    showColorPalette(lngLat, pixelId, regionId) {
+        const palette = document.createElement('div');
+        palette.className = 'pixel-color-palette';
+        palette.style.cssText = `
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+        `;
+        
+        const colors = [
+            '#FF0000', '#00FF00', '#0000FF', '#FFFF00',
+            '#FF00FF', '#00FFFF', '#FFFFFF', '#000000',
+            '#FFA500', '#800080', '#FFC0CB', '#A52A2A',
+            '#808080', '#FFD700', '#00CED1', '#FF1493'
+        ];
+        
+        colors.forEach(color => {
+            const colorBtn = document.createElement('button');
+            colorBtn.className = 'color-option';
+            colorBtn.style.cssText = `
+                width: 40px;
+                height: 40px;
+                background: ${color};
+                border: 2px solid ${color === '#FFFFFF' ? '#ccc' : 'transparent'};
+                border-radius: 4px;
+                cursor: pointer;
+                transition: transform 0.2s;
+            `;
+            colorBtn.dataset.color = color;
+            colorBtn.title = color;
+            
+            colorBtn.addEventListener('mouseenter', () => {
+                colorBtn.style.transform = 'scale(1.1)';
+            });
+            colorBtn.addEventListener('mouseleave', () => {
+                colorBtn.style.transform = 'scale(1)';
+            });
+            
+            colorBtn.addEventListener('click', async () => {
+                await this.colorPixel(pixelId, regionId, color);
+                if (popup) popup.remove();
+            });
+            
+            palette.appendChild(colorBtn);
+        });
+        
+        // 커스텀 색상 피커 추가
+        const customColorWrapper = document.createElement('div');
+        customColorWrapper.style.cssText = 'grid-column: 1 / -1; margin-top: 8px;';
+        const colorPicker = document.createElement('input');
+        colorPicker.type = 'color';
+        colorPicker.value = this.currentPixelColor;
+        colorPicker.style.cssText = 'width: 100%; height: 40px; cursor: pointer;';
+        colorPicker.addEventListener('change', async (e) => {
+            await this.colorPixel(pixelId, regionId, e.target.value);
+            if (popup) popup.remove();
+        });
+        customColorWrapper.appendChild(colorPicker);
+        palette.appendChild(customColorWrapper);
+        
+        const popup = new mapboxgl.Popup({
+            closeOnClick: true,
+            closeButton: true,
+            anchor: 'bottom'
+        })
+            .setLngLat(lngLat)
+            .setDOMContent(palette)
+            .addTo(this.map);
+    }
+    
+    /**
+     * Phase 2: 픽셀 색칠
+     */
+    async colorPixel(pixelId, regionId, color) {
+        // 로컬에서 즉시 반영
+        this.updatePixelColorLocally(pixelId, regionId, color);
+        
+        // 배치 저장 큐에 추가
+        this.queuePixelUpdate(pixelId, regionId, color);
+    }
+    
+    /**
+     * Phase 2: 로컬에서 픽셀 색상 업데이트
+     */
+    updatePixelColorLocally(pixelId, regionId, color) {
+        // 픽셀 그리드 데이터 업데이트
+        const pixelGrid = this.pixelGrids.get(regionId);
+        if (pixelGrid) {
+            const pixel = pixelGrid.pixels.find(p => p.id === pixelId);
+            if (pixel) {
+                pixel.color = color;
+            }
+        }
+        
+        // Mapbox 소스 업데이트
+        if (this.map && this.map.getSource('pixel-grids')) {
+            const source = this.map.getSource('pixel-grids');
+            const data = source._data;
+            
+            if (data && data.features) {
+                const feature = data.features.find(f => 
+                    f.properties.id === pixelId && f.properties.regionId === regionId
+                );
+                
+                if (feature) {
+                    feature.properties.color = color;
+                    source.setData(data);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Phase 3: 배치 저장 큐에 픽셀 업데이트 추가
+     */
+    queuePixelUpdate(pixelId, regionId, color) {
+        this.pixelUpdateBatch.push({ pixelId, regionId, color });
+        
+        if (this.pixelBatchTimer) {
+            clearTimeout(this.pixelBatchTimer);
+        }
+        
+        this.pixelBatchTimer = setTimeout(() => {
+            this.savePixelBatch();
+        }, 500);
+    }
+    
+    /**
+     * Phase 3: 배치로 픽셀 업데이트 저장
+     */
+    async savePixelBatch() {
+        if (!this.isFirebaseInitialized || !this.firestore || this.pixelUpdateBatch.length === 0) {
+            return;
+        }
+        
+        try {
+            const { writeBatch, doc, collection, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            // regionId별로 그룹화
+            const updatesByRegion = {};
+            this.pixelUpdateBatch.forEach(update => {
+                if (!updatesByRegion[update.regionId]) {
+                    updatesByRegion[update.regionId] = [];
+                }
+                updatesByRegion[update.regionId].push(update);
+            });
+            
+            // 각 지역별로 배치 저장
+            for (const [regionId, updates] of Object.entries(updatesByRegion)) {
+                const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+                const batch = writeBatch(this.firestore);
+                
+                updates.forEach(update => {
+                    const pixelRef = doc(pixelsRef, update.pixelId);
+                    batch.set(pixelRef, {
+                        color: update.color,
+                        updatedAt: serverTimestamp(),
+                        updatedBy: this.currentUser?.email || 'system'
+                    }, { merge: true });
+                });
+                
+                await batch.commit();
+            }
+            
+            this.pixelUpdateBatch = [];
+            this.pixelBatchTimer = null;
+        } catch (error) {
+            console.error('[픽셀 배치 저장 실패]:', error);
+        }
+    }
+    
+    /**
+     * Phase 3: 실시간 픽셀 업데이트 리스너 설정
+     */
+    async setupPixelRealtimeListener(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        // 기존 리스너 제거
+        if (this.pixelGridListeners.has(regionId)) {
+            this.pixelGridListeners.get(regionId)();
+            this.pixelGridListeners.delete(regionId);
+        }
+        
+        try {
+            const { collection, query, onSnapshot, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            
+            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+            
+            const unsubscribe = onSnapshot(pixelsRef, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'modified' || change.type === 'added') {
+                        const pixelData = change.doc.data();
+                        // 자신이 업데이트한 것은 제외 (이미 로컬에 반영됨)
+                        if (pixelData.updatedBy !== this.currentUser?.email) {
+                            this.updatePixelColorLocally(
+                                pixelData.id,
+                                regionId,
+                                pixelData.color
+                            );
+                        }
+                    }
+                });
+            });
+            
+            this.pixelGridListeners.set(regionId, unsubscribe);
+        } catch (error) {
+            console.error(`[픽셀 실시간 리스너 설정 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * Phase 3: 뷰포트 기반 렌더링 업데이트
+     */
+    updateVisiblePixels() {
+        if (!this.map || !this.map.getSource('pixel-grids')) return;
+        
+        const bounds = this.map.getBounds();
+        const visibleFeatures = [];
+        
+        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링
+        this.pixelGrids.forEach((pixelGrid, regionId) => {
+            pixelGrid.pixels.forEach(pixel => {
+                if (bounds.contains([pixel.x, pixel.y])) {
+                    const feature = {
+                        type: 'Feature',
+                        properties: {
+                            id: pixel.id,
+                            regionId: pixelGrid.regionId,
+                            color: pixel.color || '#f0f0f0',
+                            row: pixel.row,
+                            col: pixel.col
+                        },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                                [pixel.bounds.minX, pixel.bounds.minY],
+                                [pixel.bounds.maxX, pixel.bounds.minY],
+                                [pixel.bounds.maxX, pixel.bounds.maxY],
+                                [pixel.bounds.minX, pixel.bounds.maxY],
+                                [pixel.bounds.minX, pixel.bounds.minY]
+                            ]]
+                        }
+                    };
+                    visibleFeatures.push(feature);
+                }
+            });
+        });
+        
+        const visibleGeoJson = {
+            type: 'FeatureCollection',
+            features: visibleFeatures
+        };
+        
+        this.map.getSource('pixel-grids').setData(visibleGeoJson);
+    }
+    
+    /**
+     * Phase 4: 그리드 선 표시/숨김 토글
+     */
+    togglePixelGridLines() {
+        this.showPixelGridLines = !this.showPixelGridLines;
+        
+        if (this.map && this.map.getLayer('pixel-grids-border')) {
+            this.map.setPaintProperty('pixel-grids-border', 'line-width', 
+                this.showPixelGridLines ? 0.5 : 0
+            );
+        }
+    }
+    
+    /**
+     * Phase 4: 픽셀 그리드 시스템 초기화
+     */
+    async initializePixelGridSystem(geoJson) {
+        // Phase 0: 픽셀아트 지도 표시
+        await this.updatePixelArtLayer(geoJson);
+        
+        // Phase 1: 픽셀 그리드 생성 및 레이어 설정
+        await this.setupPixelGridLayer(geoJson);
+        
+        // Phase 2: 클릭 이벤트 핸들러 설정
+        this.setupPixelClickHandlers();
+        
+        // Phase 3: 뷰포트 업데이트 리스너
+        this.map.on('moveend', () => {
+            this.updateVisiblePixels();
+        });
+        
+        this.map.on('zoomend', () => {
+            this.updateVisiblePixels();
+        });
+        
+        // Phase 3: 모든 지역에 실시간 리스너 설정
+        this.pixelGrids.forEach((grid, regionId) => {
+            this.setupPixelRealtimeListener(regionId);
+        });
     }
     
     // ========== 옥션 대시보드 ==========
