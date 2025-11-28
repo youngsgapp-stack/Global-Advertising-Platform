@@ -14680,12 +14680,21 @@ class BillionaireMap {
         const regionPurchaseBtn = document.getElementById('region-purchase-btn');
         if (regionPurchaseBtn) {
             regionPurchaseBtn.addEventListener('click', () => {
-                if (!this.currentRegion) {
+                // currentRegion이 없으면 regionData에서 가져오기 시도
+                let region = this.currentRegion;
+                if (!region && this.selectedStateId) {
+                    region = this.regionData.get(this.selectedStateId);
+                    if (region) {
+                        this.currentRegion = { ...region, id: this.selectedStateId };
+                    }
+                }
+                
+                if (!region) {
                     this.showNotification('구매할 지역을 선택해주세요.', 'warning');
                     return;
                 }
                 // 옥션 모달 열기
-                this.openAuctionModal(this.currentRegion);
+                this.openAuctionModal(region);
             });
         }
         
@@ -14758,7 +14767,22 @@ class BillionaireMap {
                 // 우선순위: 버튼 data-state-id → this.selectedStateId → this.currentRegion?.id
                 const btnStateId = companyPurchaseBtn.dataset.stateId;
                 const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
-                const region = targetStateId ? (this.regionData.get(targetStateId) || this.currentRegion) : this.currentRegion;
+                
+                // regionData에서 가져오기 시도
+                let region = targetStateId ? this.regionData.get(targetStateId) : null;
+                
+                // regionData에서 찾지 못했으면 currentRegion 사용
+                if (!region && this.currentRegion) {
+                    region = this.currentRegion;
+                }
+                
+                // 여전히 없으면 selectedStateId로 재시도
+                if (!region && this.selectedStateId) {
+                    region = this.regionData.get(this.selectedStateId);
+                    if (region) {
+                        this.currentRegion = { ...region, id: this.selectedStateId };
+                    }
+                }
                 
                 if (!region) {
                     this.showNotification('구매할 지역을 선택해주세요.', 'warning');
@@ -14785,16 +14809,66 @@ class BillionaireMap {
         const companyEditPixelBtn = document.getElementById('company-edit-pixel-btn');
         if (companyEditPixelBtn) {
             companyEditPixelBtn.addEventListener('click', async () => {
-                if (!this.currentRegion) return;
-                await this.openPixelStudio(this.currentRegion.id, this.currentRegion);
+                // currentRegion이 없으면 regionData에서 가져오기 시도
+                let region = this.currentRegion;
+                let regionId = region?.id;
+                
+                // selectedStateId나 버튼의 data-state-id 사용
+                if (!region && this.selectedStateId) {
+                    region = this.regionData.get(this.selectedStateId);
+                    regionId = this.selectedStateId;
+                    if (region) {
+                        this.currentRegion = { ...region, id: this.selectedStateId };
+                    }
+                }
+                
+                // company-purchase-btn의 data-state-id도 확인
+                if (!region) {
+                    const companyPurchaseBtnEl = document.getElementById('company-purchase-btn');
+                    if (companyPurchaseBtnEl) {
+                        const btnStateId = companyPurchaseBtnEl.dataset.stateId;
+                        if (btnStateId) {
+                            region = this.regionData.get(btnStateId);
+                            regionId = btnStateId;
+                            if (region) {
+                                this.currentRegion = { ...region, id: btnStateId };
+                            }
+                        }
+                    }
+                }
+                
+                if (!region || !regionId) {
+                    console.error('픽셀 아트 편집: 지역 정보를 찾을 수 없습니다.');
+                    this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
+                    return;
+                }
+                
+                await this.openPixelStudio(regionId, region);
             });
         }
         
         const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
         if (regionEditPixelBtn) {
             regionEditPixelBtn.addEventListener('click', async () => {
-                if (!this.currentRegion) return;
-                await this.openPixelStudio(this.currentRegion.id, this.currentRegion);
+                // currentRegion이 없으면 regionData에서 가져오기 시도
+                let region = this.currentRegion;
+                let regionId = region?.id;
+                
+                if (!region && this.selectedStateId) {
+                    region = this.regionData.get(this.selectedStateId);
+                    regionId = this.selectedStateId;
+                    if (region) {
+                        this.currentRegion = { ...region, id: this.selectedStateId };
+                    }
+                }
+                
+                if (!region || !regionId) {
+                    console.error('픽셀 아트 편집: 지역 정보를 찾을 수 없습니다.');
+                    this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
+                    return;
+                }
+                
+                await this.openPixelStudio(regionId, region);
             });
         }
         
@@ -15041,11 +15115,12 @@ class BillionaireMap {
         this.map.setFilter('regions-hover', ['==', 'id', properties.id]);
         this.map.setPaintProperty('regions-hover', 'fill-opacity', 0.3);
         
-        // 관리자 모드일 때는 관리자 기능만 실행
+        // 관리자 모드일 때는 관리자 기능과 지역 정보 모달 표시
         if (this.isAdminLoggedIn && this.adminMode) {
-            console.log('관리자 모드: 관리자 패널만 표시 (일반 사용자 모드 비활성화)');
+            console.log('관리자 모드: 관리자 패널 업데이트 및 지역 정보 모달 표시');
             this.updateAdminPanelForRegion(properties);
-            // 관리자 모드에서는 기업 정보 모달을 절대 표시하지 않음
+            // 관리자 모드에서도 지역 정보 모달 표시 (버튼들이 작동하도록)
+            await this.showRegionInfoModal(properties.id);
             return; // 여기서 함수 종료하여 일반 사용자 기능 차단
         }
         
@@ -18787,11 +18862,17 @@ class BillionaireMap {
         const regionData = this.regionData.get(stateId);
         if (!regionData) {
             console.error('지역 데이터를 찾을 수 없습니다:', stateId);
+            // regionData가 없어도 selectedStateId가 있으면 시도
+            if (this.selectedStateId && this.selectedStateId === stateId) {
+                console.log('selectedStateId를 사용하여 지역 정보 재시도');
+            }
             return;
         }
         
-        // 현재 지역 설정 (버튼 클릭 이벤트에서 사용)
+        // 현재 지역 설정 (버튼 클릭 이벤트에서 사용) - 강제로 설정
         this.currentRegion = { ...regionData, id: stateId };
+        this.selectedStateId = stateId; // selectedStateId도 함께 설정
+        console.log('currentRegion 설정 완료:', this.currentRegion);
         
         // 국가별 플래그 설정
         const getCountryFlag = (country) => {
