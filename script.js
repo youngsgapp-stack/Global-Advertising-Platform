@@ -2150,6 +2150,18 @@ class BillionaireMap {
                         const firestorePopulation = existingData.population && existingData.population > 0 ? existingData.population : null;
                         const firestoreArea = existingData.area && existingData.area > 0 ? existingData.area : null;
                         
+                        // 면적 계산 (없으면 실제 polygon 면적 계산)
+                        let calculatedArea = firestoreArea !== null ? firestoreArea : 
+                                            (props.area !== undefined && props.area !== null && props.area > 0 ? props.area : 0);
+                        
+                        // 면적이 없거나 0이면 실제 polygon 면적 계산
+                        if (calculatedArea <= 0 && feature.geometry) {
+                            calculatedArea = this.calculatePolygonArea(feature);
+                            if (calculatedArea > 0) {
+                                console.log(`[면적 계산] ${regionId}: ${calculatedArea.toFixed(2)} km²`);
+                            }
+                        }
+                        
                         // GeoJSON properties에서 지역 데이터 추출
                         const regionData = {
                             id: regionId,
@@ -2158,9 +2170,9 @@ class BillionaireMap {
                             name_en: existingData.name_en || props.name_en || props.name || '',
                             country: existingData.country || props.country || '',
                             admin_level: existingData.admin_level || props.admin_level || '',
-                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용
-                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null ? props.population : 0),
-                            area: firestoreArea !== null ? firestoreArea : (props.area !== undefined && props.area !== null ? props.area : 0),
+                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용, 없으면 계산
+                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null && props.population > 0 ? props.population : 0),
+                            area: calculatedArea, // 계산된 면적 사용
                             // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
                             ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
@@ -8087,6 +8099,15 @@ class BillionaireMap {
                         }
                     }
                     
+                    // 면적 계산: stateInfo에 있으면 사용, 없으면 GeoJSON, 없으면 실제 계산
+                    let calculatedArea = stateInfo ? stateInfo.area : (p.area && p.area > 0 ? p.area : 0);
+                    if (calculatedArea <= 0 && feature.geometry) {
+                        calculatedArea = this.calculatePolygonArea(feature);
+                        if (calculatedArea > 0) {
+                            console.log(`[브라질 면적 계산] ${rawName} (${finalId}): ${calculatedArea.toFixed(2)} km²`);
+                        }
+                    }
+                    
                     feature.properties = {
                         ...p,
                         id: finalId,
@@ -8096,8 +8117,8 @@ class BillionaireMap {
                         country: 'Brazil',
                         country_code: 'BR',
                         admin_level: 'State',
-                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 15000000) + 1000000),
-                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 500000) + 20000),
+                        population: stateInfo ? stateInfo.population : (p.population && p.population > 0 ? p.population : 0),
+                        area: calculatedArea, // 계산된 면적 사용
                         ad_status: 'available',
                         ad_price: Math.floor(Math.random() * 280000) + 180000,
                         revenue: 0,
@@ -8235,6 +8256,15 @@ class BillionaireMap {
                         }
                     }
                     
+                    // 면적 계산: stateInfo에 있으면 사용, 없으면 GeoJSON, 없으면 실제 계산
+                    let calculatedArea = stateInfo ? stateInfo.area : (p.area && p.area > 0 ? p.area : 0);
+                    if (calculatedArea <= 0 && feature.geometry) {
+                        calculatedArea = this.calculatePolygonArea(feature);
+                        if (calculatedArea > 0) {
+                            console.log(`[호주 면적 계산] ${rawName} (${finalId}): ${calculatedArea.toFixed(2)} km²`);
+                        }
+                    }
+                    
                     feature.properties = {
                         ...p,
                         id: finalId,
@@ -8244,8 +8274,8 @@ class BillionaireMap {
                         country: 'Australia',
                         country_code: 'AU',
                         admin_level: 'State/Territory',
-                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 5000000) + 200000),
-                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 1500000) + 50000),
+                        population: stateInfo ? stateInfo.population : (p.population && p.population > 0 ? p.population : 0),
+                        area: calculatedArea, // 계산된 면적 사용
                         ad_status: 'available',
                         ad_price: Math.floor(Math.random() * 240000) + 160000,
                         revenue: 0,
@@ -8415,6 +8445,15 @@ class BillionaireMap {
                         }
                     }
                     
+                    // 면적 계산: stateInfo에 있으면 사용, 없으면 GeoJSON, 없으면 실제 계산
+                    let calculatedArea = stateInfo ? stateInfo.area : (p.area && p.area > 0 ? p.area : 0);
+                    if (calculatedArea <= 0 && feature.geometry) {
+                        calculatedArea = this.calculatePolygonArea(feature);
+                        if (calculatedArea > 0) {
+                            console.log(`[멕시코 면적 계산] ${rawName} (${finalId}): ${calculatedArea.toFixed(2)} km²`);
+                        }
+                    }
+                    
                     feature.properties = {
                         ...p,
                         id: finalId,
@@ -8424,8 +8463,8 @@ class BillionaireMap {
                         country: 'Mexico',
                         country_code: 'MX',
                         admin_level: 'State',
-                        population: stateInfo ? stateInfo.population : (p.population || Math.floor(Math.random() * 8000000) + 500000),
-                        area: stateInfo ? stateInfo.area : (p.area || Math.floor(Math.random() * 200000) + 10000),
+                        population: stateInfo ? stateInfo.population : (p.population && p.population > 0 ? p.population : 0),
+                        area: calculatedArea, // 계산된 면적 사용
                         ad_status: 'available',
                         ad_price: Math.floor(Math.random() * 230000) + 170000,
                         revenue: 0,
@@ -24130,6 +24169,77 @@ class BillionaireMap {
     }
     
     /**
+     * 실제 polygon 면적 계산 (제곱킬로미터 단위)
+     * WGS84 좌표계에서 구면 면적을 계산합니다
+     * 구면 다각형 면적 공식 사용 (Spherical polygon area formula)
+     */
+    calculatePolygonArea(feature) {
+        if (!feature || !feature.geometry) return 0;
+        
+        const geometry = feature.geometry;
+        const EARTH_RADIUS_KM = 6371.0088; // 지구 반지름 (km) - WGS84 기준
+        
+        const calculatePolygonArea = (coordinates) => {
+            if (!coordinates || coordinates.length < 3) return 0;
+            
+            // 첫 번째 점과 마지막 점이 같으면 마지막 점 제거
+            const coords = [...coordinates];
+            if (coords.length > 0 && 
+                coords[0][0] === coords[coords.length - 1][0] && 
+                coords[0][1] === coords[coords.length - 1][1]) {
+                coords.pop();
+            }
+            if (coords.length < 3) return 0;
+            
+            // 구면 다각형 면적 계산 (Spherical polygon area formula)
+            let area = 0;
+            const n = coords.length;
+            
+            for (let i = 0; i < n; i++) {
+                const [lon1, lat1] = coords[i];
+                const [lon2, lat2] = coords[(i + 1) % n];
+                
+                // 라디안으로 변환
+                const lat1Rad = lat1 * Math.PI / 180;
+                const lat2Rad = lat2 * Math.PI / 180;
+                const lonDiffRad = (lon2 - lon1) * Math.PI / 180;
+                
+                // 구면 삼각형 면적 누적
+                // 각 변에 대한 구면 초과 계산
+                area += lonDiffRad * (2 + Math.sin(lat1Rad) + Math.sin(lat2Rad));
+            }
+            
+            // 면적을 제곱킬로미터로 변환
+            // area는 구면 초과 (라디안)이므로, 이를 제곱라디안으로 변환 후 km²로 변환
+            const sphericalArea = Math.abs(area - (n - 2) * Math.PI);
+            return sphericalArea * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+        };
+        
+        let totalArea = 0;
+        
+        // Polygon 처리
+        if (geometry.type === 'Polygon') {
+            // 외곽 경계만 계산 (구멍은 제외)
+            totalArea = calculatePolygonArea(geometry.coordinates[0]);
+        }
+        // MultiPolygon 처리
+        else if (geometry.type === 'MultiPolygon') {
+            geometry.coordinates.forEach(polygon => {
+                // 각 polygon의 외곽 경계만 계산
+                totalArea += calculatePolygonArea(polygon[0]);
+            });
+        }
+        
+        // 면적이 너무 크거나 작으면 0 반환 (계산 오류 가능성)
+        if (totalArea < 0 || totalArea > 200000000) { // 최대 약 2억 km² (지구 표면의 약 절반)
+            console.warn(`[면적 계산] 비정상적인 면적 값: ${totalArea.toFixed(2)} km²`);
+            return 0;
+        }
+        
+        return Math.round(totalArea * 100) / 100; // 소수점 2자리까지 반올림
+    }
+    
+    /**
      * Phase 1: 바운딩 박스 계산
      */
     calculateBoundingBox(feature) {
@@ -24162,7 +24272,8 @@ class BillionaireMap {
     }
     
     /**
-     * Phase 1: 행정구역을 픽셀 그리드로 변환
+     * Phase 1: 행정구역을 픽셀 그리드로 변환 (실제 면적 기반)
+     * 실제 polygon 면적을 기반으로 픽셀 크기를 정확히 계산합니다
      */
     createPixelGrid(feature, gridSize = 128) {
         if (!feature || !feature.geometry) return null;
@@ -24172,14 +24283,63 @@ class BillionaireMap {
         
         const { minX, minY, maxX, maxY } = bbox;
         
-        // Wplace 스타일: 정사각형 픽셀을 보장하기 위해 더 작은 셀 크기 사용
-        const bboxWidth = maxX - minX;
-        const bboxHeight = maxY - minY;
+        // 실제 polygon 면적 계산 (제곱킬로미터)
+        let actualAreaKm2 = 0;
         
-        // 정사각형 픽셀을 위해 더 작은 셀 크기를 기준으로 사용
-        const cellSize = Math.min(bboxWidth / gridSize, bboxHeight / gridSize);
+        // 1. properties에 면적이 있고 유효하면 사용
+        if (feature.properties && feature.properties.area && feature.properties.area > 0) {
+            actualAreaKm2 = feature.properties.area;
+        }
+        // 2. 없으면 실제 polygon 면적 계산
+        else {
+            actualAreaKm2 = this.calculatePolygonArea(feature);
+        }
+        
+        // 3. 면적 계산 실패 시 바운딩 박스 기반 추정
+        if (actualAreaKm2 <= 0) {
+            const bboxWidth = maxX - minX;
+            const bboxHeight = maxY - minY;
+            const EARTH_RADIUS_KM = 6371;
+            
+            // 위도에 따른 보정 계수 (중간 위도 기준)
+            const avgLat = (minY + maxY) / 2;
+            const latRad = avgLat * Math.PI / 180;
+            const latCorrection = Math.cos(latRad);
+            
+            // 경도/위도 차이를 km로 변환
+            const widthKm = (bboxWidth * Math.PI / 180) * EARTH_RADIUS_KM * latCorrection;
+            const heightKm = (bboxHeight * Math.PI / 180) * EARTH_RADIUS_KM;
+            
+            // 바운딩 박스 면적 추정 (실제 면적보다 큼)
+            actualAreaKm2 = widthKm * heightKm * 0.8; // 0.8 보정 계수 적용
+        }
+        
+        // 실제 면적을 기반으로 픽셀 크기 계산
+        // 목표: 각 픽셀이 대략 동일한 면적을 가짐
+        const targetPixelAreaKm2 = actualAreaKm2 / (gridSize * gridSize);
+        const pixelSideLengthKm = Math.sqrt(targetPixelAreaKm2);
+        
+        // 픽셀 크기를 경도/위도 단위로 변환
+        const avgLat = (minY + maxY) / 2;
+        const latRad = avgLat * Math.PI / 180;
+        const EARTH_RADIUS_KM = 6371;
+        const latCorrection = Math.cos(latRad);
+        
+        // 1도 경도 = 약 111km * cos(위도)
+        // 1도 위도 = 약 111km
+        const degreesPerKmLon = 1 / (111 * latCorrection);
+        const degreesPerKmLAT = 1 / 111;
+        
+        // 픽셀 크기를 도 단위로 변환
+        const cellSizeLon = pixelSideLengthKm * degreesPerKmLon;
+        const cellSizeLat = pixelSideLengthKm * degreesPerKmLAT;
+        
+        // 정사각형 픽셀을 위해 더 작은 셀 크기 사용
+        const cellSize = Math.min(cellSizeLon, cellSizeLat);
         
         // 그리드가 바운딩 박스를 완전히 커버하도록 크기 조정
+        const bboxWidth = maxX - minX;
+        const bboxHeight = maxY - minY;
         const adjustedGridWidth = Math.ceil(bboxWidth / cellSize);
         const adjustedGridHeight = Math.ceil(bboxHeight / cellSize);
         
@@ -24222,6 +24382,7 @@ class BillionaireMap {
             bbox,
             pixels,
             pixelCount: pixelCount, // 픽셀 수 추가
+            actualAreaKm2: actualAreaKm2, // 실제 면적 저장
             cellSize, // 정사각형 셀 크기 (cellWidth = cellHeight)
             cellWidth: cellSize, // 호환성을 위해 유지
             cellHeight: cellSize // 호환성을 위해 유지
