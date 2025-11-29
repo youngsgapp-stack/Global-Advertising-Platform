@@ -148,9 +148,14 @@ class BillionaireMap {
         this.selectedPixels = new Set(); // 드래그 중 선택된 픽셀들
         this.pixelUpdateBatch = []; // 배치 저장할 픽셀 업데이트
         this.pixelBatchTimer = null; // 배치 타이머
-        this.pixelGridGridSize = 50; // 기본 그리드 크기 (50x50)
+        this.pixelGridGridSize = 128; // 기본 그리드 크기 (128x128) - Wplace 스타일 작은 정사각형 픽셀
         this.showPixelGridLines = false; // 그리드 선 표시 여부
         this.isPixelEditMode = false; // 픽셀 편집 모드 활성화 여부
+        this.PIXEL_PRICE_PER_UNIT = 0.1; // 픽셀당 가격 (USD) - 경매 시작가격 계산용
+        this.recentColors = JSON.parse(localStorage.getItem('pixelRecentColors') || '[]'); // 최근 사용한 색상
+        this.pixelHistory = []; // 실행 취소 히스토리
+        this.pixelHistoryIndex = -1; // 현재 히스토리 인덱스
+        this.maxHistorySize = 50; // 최대 히스토리 크기
         
         // 기술 인프라 개선: 데이터 파이프라인 및 성능 최적화
         this.geoJsonPipeline = {
@@ -1915,6 +1920,13 @@ class BillionaireMap {
         try {
             const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
+            // 픽셀 수 기반으로 ad_price 계산 (명시적으로 설정되지 않은 경우)
+            let adPrice = regionData.ad_price;
+            if (!adPrice || adPrice === this.uniformAdPrice || adPrice === 0) {
+                // 픽셀 수 기반 가격 계산
+                adPrice = await this.getStartingPriceForRegion(regionId);
+            }
+            
             // 저장할 데이터 (Firestore에 저장할 필드만 추출)
             const firestoreData = {
                 regionId: regionId,
@@ -1924,7 +1936,7 @@ class BillionaireMap {
                 admin_level: regionData.admin_level || '',
                 population: regionData.population || 0,
                 area: regionData.area || 0,
-                ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
+                ad_price: adPrice, // 픽셀 수 기반 계산된 가격
                 ad_status: regionData.ad_status || 'available',
                 updatedAt: serverTimestamp()
             };
@@ -16314,7 +16326,7 @@ class BillionaireMap {
         this.updateStatistics();
     }
     
-    showNotification(message, type = 'info') {
+    showNotification(message, type = 'info', duration = 5000) {
         // 기존 알림 제거
         this.hideNotification();
         
@@ -16337,10 +16349,12 @@ class BillionaireMap {
         
         document.body.appendChild(notification);
         
-        // 자동 제거
-        setTimeout(() => {
-            this.hideNotification();
-        }, 5000);
+        // 자동 제거 (duration 매개변수 지원)
+        if (duration > 0) {
+            setTimeout(() => {
+                this.hideNotification();
+            }, duration);
+        }
         
         // 수동 제거
         const closeButton = notification.querySelector('.notification-close');
@@ -20412,14 +20426,17 @@ class BillionaireMap {
                 const now = Timestamp.now();
                 const endTime = Timestamp.fromMillis(now.toMillis() + (12 * 60 * 60 * 1000)); // 12시간 후
                 
+                // 픽셀 수 기반으로 시작가격 계산
+                const calculatedStartPrice = await this.getStartingPriceForRegion(regionId);
+                
                 const newAuction = {
                     regionId: regionId,
                     regionName: regionData.name_ko || regionData.name || 'Unknown',
                     regionNameEn: regionData.name_en || regionData.name || 'Unknown',
                     country: regionData.country || 'Unknown',
                     status: 'active', // active, ended, sold
-                    startPrice: 1.0, // 초기가 1달러
-                    currentBid: 1.0,
+                    startPrice: calculatedStartPrice, // 픽셀 수 기반 계산된 시작가격
+                    currentBid: calculatedStartPrice,
                     highestBidder: null,
                     highestBidderId: null,
                     highestBidderEmail: null,
@@ -20441,7 +20458,7 @@ class BillionaireMap {
                 // Firestore 실시간 리스너 설정
                 await this.setupAuctionListener(regionId);
                 
-                console.log(`[옥션 생성] ${regionId}: 초기가 $1.00, 종료 시간 ${endTime.toDate()}`);
+                console.log(`[옥션 생성] ${regionId}: 시작가격 $${calculatedStartPrice.toFixed(2)} (픽셀 수 기반), 종료 시간 ${endTime.toDate()}`);
                 return newAuction;
             }
         } catch (error) {
@@ -22750,7 +22767,17 @@ class BillionaireMap {
         const currentPixelColorInput = document.getElementById('current-pixel-color');
         if (currentPixelColorInput) {
             currentPixelColorInput.addEventListener('change', (e) => {
-                this.currentPixelColor = e.target.value;
+                const color = e.target.value;
+                this.currentPixelColor = color;
+                // pixelEditor의 currentColor도 동기화
+                if (this.pixelEditor) {
+                    this.pixelEditor.currentColor = color;
+                }
+                // 색상 피커도 동기화
+                const colorPicker = document.getElementById('pixel-color-picker');
+                if (colorPicker) {
+                    colorPicker.value = color;
+                }
             });
         }
         
@@ -22759,6 +22786,36 @@ class BillionaireMap {
         if (pixelGridControls) {
             pixelGridControls.classList.add('hidden');
         }
+        // 섹션 접기/펼치기
+        const collapsibleSections = document.querySelectorAll('.pixel-control-section.collapsible');
+        collapsibleSections.forEach(section => {
+            const header = section.querySelector('.section-header');
+            const toggle = section.querySelector('.collapse-toggle');
+            if (header && toggle) {
+                header.addEventListener('click', () => {
+                    section.classList.toggle('collapsed');
+                });
+            }
+        });
+        
+        // 단축키 가이드 모달
+        const shortcutsBtn = document.getElementById('pixel-shortcuts-btn');
+        const shortcutsModal = document.getElementById('pixel-shortcuts-modal');
+        const closeShortcutsBtn = document.getElementById('close-shortcuts-modal');
+        if (shortcutsBtn && shortcutsModal) {
+            shortcutsBtn.addEventListener('click', () => {
+                shortcutsModal.classList.remove('hidden');
+            });
+        }
+        if (closeShortcutsBtn && shortcutsModal) {
+            closeShortcutsBtn.addEventListener('click', () => {
+                shortcutsModal.classList.add('hidden');
+            });
+        }
+        
+        // 키보드 단축키
+        this.setupPixelKeyboardShortcuts();
+        
         // 닫기 버튼
         const closeBtn = document.getElementById('close-pixel-studio');
         if (closeBtn) {
@@ -22780,7 +22837,25 @@ class BillionaireMap {
         const colorPicker = document.getElementById('pixel-color-picker');
         if (colorPicker) {
             colorPicker.addEventListener('change', (e) => {
-                this.pixelEditor.currentColor = e.target.value;
+                const color = e.target.value;
+                this.setPixelColor(color);
+            });
+        }
+        
+        // HEX 색상 입력
+        const colorHexInput = document.getElementById('color-hex-input');
+        if (colorHexInput) {
+            colorHexInput.addEventListener('input', (e) => {
+                let hex = e.target.value.replace('#', '');
+                if (hex.length === 6 && /^[0-9A-Fa-f]{6}$/.test(hex)) {
+                    const color = '#' + hex.toUpperCase();
+                    this.setPixelColor(color);
+                }
+            });
+            colorHexInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.target.blur();
+                }
             });
         }
         
@@ -22788,17 +22863,52 @@ class BillionaireMap {
         const colorPresets = document.querySelectorAll('.color-preset');
         colorPresets.forEach(preset => {
             preset.addEventListener('click', (e) => {
-                const color = e.target.closest('.color-preset').dataset.color;
-                this.pixelEditor.currentColor = color;
-                if (colorPicker) colorPicker.value = color;
+                const colorPreset = e.target.closest('.color-preset');
+                if (!colorPreset || colorPreset.classList.contains('empty-slot')) return;
+                const color = colorPreset.dataset.color;
+                this.setPixelColor(color);
+                // 프리셋 선택 시각적 피드백
+                colorPresets.forEach(p => p.classList.remove('selected'));
+                colorPreset.classList.add('selected');
             });
         });
         
-        // 캔버스 크기 변경
+        // 최근 사용 색상 업데이트
+        this.updateRecentColors();
+        
+        // 캔버스 크기 슬라이더
+        const canvasSizeSlider = document.getElementById('pixel-canvas-size-slider');
+        const canvasSizeValue = document.getElementById('canvas-size-value');
+        if (canvasSizeSlider && canvasSizeValue) {
+            canvasSizeSlider.addEventListener('input', (e) => {
+                const size = parseInt(e.target.value);
+                canvasSizeValue.textContent = `${size}x${size}`;
+                this.resizePixelCanvas(size);
+            });
+        }
+        
+        // 캔버스 크기 선택 (숨김 처리됨)
         const canvasSizeSelect = document.getElementById('pixel-canvas-size');
         if (canvasSizeSelect) {
             canvasSizeSelect.addEventListener('change', (e) => {
-                this.resizePixelCanvas(parseInt(e.target.value));
+                const size = parseInt(e.target.value);
+                if (canvasSizeSlider) canvasSizeSlider.value = size;
+                if (canvasSizeValue) canvasSizeValue.textContent = `${size}x${size}`;
+                this.resizePixelCanvas(size);
+            });
+        }
+        
+        // 실행 취소/다시 실행 버튼
+        const undoBtn = document.getElementById('pixel-undo-btn');
+        const redoBtn = document.getElementById('pixel-redo-btn');
+        if (undoBtn) {
+            undoBtn.addEventListener('click', () => {
+                this.undoPixelEdit();
+            });
+        }
+        if (redoBtn) {
+            redoBtn.addEventListener('click', () => {
+                this.redoPixelEdit();
             });
         }
         
@@ -22806,6 +22916,7 @@ class BillionaireMap {
         const clearBtn = document.getElementById('pixel-clear-btn');
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
+                this.savePixelHistory();
                 this.clearPixelCanvas();
             });
         }
@@ -24053,22 +24164,31 @@ class BillionaireMap {
     /**
      * Phase 1: 행정구역을 픽셀 그리드로 변환
      */
-    createPixelGrid(feature, gridSize = 50) {
+    createPixelGrid(feature, gridSize = 128) {
         if (!feature || !feature.geometry) return null;
         
         const bbox = this.calculateBoundingBox(feature);
         if (!bbox) return null;
         
         const { minX, minY, maxX, maxY } = bbox;
-        const cellWidth = (maxX - minX) / gridSize;
-        const cellHeight = (maxY - minY) / gridSize;
+        
+        // Wplace 스타일: 정사각형 픽셀을 보장하기 위해 더 작은 셀 크기 사용
+        const bboxWidth = maxX - minX;
+        const bboxHeight = maxY - minY;
+        
+        // 정사각형 픽셀을 위해 더 작은 셀 크기를 기준으로 사용
+        const cellSize = Math.min(bboxWidth / gridSize, bboxHeight / gridSize);
+        
+        // 그리드가 바운딩 박스를 완전히 커버하도록 크기 조정
+        const adjustedGridWidth = Math.ceil(bboxWidth / cellSize);
+        const adjustedGridHeight = Math.ceil(bboxHeight / cellSize);
         
         const pixels = [];
         
-        for (let row = 0; row < gridSize; row++) {
-            for (let col = 0; col < gridSize; col++) {
-                const cellCenterX = minX + (col + 0.5) * cellWidth;
-                const cellCenterY = minY + (row + 0.5) * cellHeight;
+        for (let row = 0; row < adjustedGridHeight; row++) {
+            for (let col = 0; col < adjustedGridWidth; col++) {
+                const cellCenterX = minX + (col + 0.5) * cellSize;
+                const cellCenterY = minY + (row + 0.5) * cellSize;
                 
                 // 셀 중심점이 행정구역 내부에 있는지 확인
                 const isInside = this.isPointInPolygon([cellCenterX, cellCenterY], feature.geometry);
@@ -24082,10 +24202,10 @@ class BillionaireMap {
                         y: cellCenterY,
                         color: null,
                         bounds: {
-                            minX: minX + col * cellWidth,
-                            minY: minY + row * cellHeight,
-                            maxX: minX + (col + 1) * cellWidth,
-                            maxY: minY + (row + 1) * cellHeight
+                            minX: minX + col * cellSize,
+                            minY: minY + row * cellSize,
+                            maxX: minX + (col + 1) * cellSize,
+                            maxY: minY + (row + 1) * cellSize
                         }
                     });
                 }
@@ -24093,14 +24213,18 @@ class BillionaireMap {
         }
         
         const regionId = feature.properties?.id || feature.properties?.regionId;
+        const pixelCount = pixels.length;
         
         return {
             regionId,
-            gridSize,
+            gridSize: adjustedGridWidth, // 조정된 그리드 크기
+            gridHeight: adjustedGridHeight,
             bbox,
             pixels,
-            cellWidth,
-            cellHeight
+            pixelCount: pixelCount, // 픽셀 수 추가
+            cellSize, // 정사각형 셀 크기 (cellWidth = cellHeight)
+            cellWidth: cellSize, // 호환성을 위해 유지
+            cellHeight: cellSize // 호환성을 위해 유지
         };
     }
     
@@ -24157,11 +24281,16 @@ class BillionaireMap {
             
             // 픽셀 그리드 메타데이터 저장
             const gridRef = doc(this.firestore, 'pixelGrids', regionId);
+            const pixelCount = pixelGrid.pixels ? pixelGrid.pixels.length : 0;
+            const calculatedPrice = this.calculateStartingPriceFromPixels(pixelCount);
+            
             await setDoc(gridRef, {
                 gridSize: pixelGrid.gridSize,
                 bbox: pixelGrid.bbox,
                 cellWidth: pixelGrid.cellWidth,
                 cellHeight: pixelGrid.cellHeight,
+                pixelCount: pixelCount, // 픽셀 수 저장
+                calculatedPrice: calculatedPrice, // 계산된 시작가격 저장
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             }, { merge: true });
@@ -24198,6 +24327,66 @@ class BillionaireMap {
             if (error.code !== 'permission-denied') {
                 console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
             }
+        }
+    }
+    
+    /**
+     * 픽셀 수를 기반으로 경매 시작가격 계산
+     * @param {number} pixelCount - 픽셀 수
+     * @returns {number} 계산된 시작가격 (USD)
+     */
+    calculateStartingPriceFromPixels(pixelCount) {
+        if (!pixelCount || pixelCount <= 0) {
+            return 1.0; // 최소 시작가격 1달러
+        }
+        const calculatedPrice = pixelCount * this.PIXEL_PRICE_PER_UNIT;
+        // 최소 시작가격 1달러 보장
+        return Math.max(calculatedPrice, 1.0);
+    }
+    
+    /**
+     * 지역의 픽셀 수를 가져와서 시작가격 계산
+     * @param {string} regionId - 지역 ID
+     * @returns {Promise<number>} 계산된 시작가격 (USD)
+     */
+    async getStartingPriceForRegion(regionId) {
+        try {
+            // 먼저 메모리에서 픽셀 그리드 확인
+            let pixelGrid = this.pixelGrids.get(regionId);
+            
+            if (!pixelGrid) {
+                // Firestore에서 로드 시도
+                pixelGrid = await this.loadPixelGrid(regionId);
+            }
+            
+            if (pixelGrid && pixelGrid.pixelCount) {
+                return this.calculateStartingPriceFromPixels(pixelGrid.pixelCount);
+            }
+            
+            // 픽셀 그리드가 없으면 GeoJSON에서 생성 시도
+            const source = this.map?.getSource('world-regions');
+            if (source && source._data) {
+                const feature = source._data.features.find(f => 
+                    (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
+                );
+                if (feature) {
+                    pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                    if (pixelGrid && pixelGrid.pixels) {
+                        const pixelCount = pixelGrid.pixels.length;
+                        // 픽셀 그리드 저장 (비동기, 결과 기다리지 않음)
+                        this.savePixelGrid(regionId, pixelGrid).catch(err => {
+                            console.warn(`[시작가격 계산] 픽셀 그리드 저장 실패 (무시):`, err);
+                        });
+                        return this.calculateStartingPriceFromPixels(pixelCount);
+                    }
+                }
+            }
+            
+            // 모든 방법이 실패하면 기본값 반환
+            return 1.0;
+        } catch (error) {
+            console.error(`[시작가격 계산 실패] ${regionId}:`, error);
+            return 1.0; // 기본값 반환
         }
     }
     
@@ -24246,6 +24435,8 @@ class BillionaireMap {
                 gridSize: gridData.gridSize,
                 bbox: gridData.bbox,
                 pixels,
+                pixelCount: gridData.pixelCount || pixels.length, // 저장된 픽셀 수 또는 실제 픽셀 수
+                calculatedPrice: gridData.calculatedPrice || null, // 계산된 시작가격
                 cellWidth: gridData.cellWidth,
                 cellHeight: gridData.cellHeight
             };
@@ -24305,7 +24496,7 @@ class BillionaireMap {
     setupPixelClickHandlers() {
         if (!this.map) return;
         
-        // 픽셀 클릭 시 색상 팔레트 표시
+        // 픽셀 클릭 시 색상 팔레트 표시 또는 바로 색칠
         this.map.on('click', 'pixel-grids-fill', async (e) => {
             // 이벤트 전파 중단 (행정구역 클릭 이벤트가 발생하지 않도록)
             e.originalEvent?.stopPropagation();
@@ -24322,8 +24513,17 @@ class BillionaireMap {
                 return;
             }
             
-            // 색상 팔레트 표시
-            this.showColorPalette(e.lngLat, pixelId, regionId);
+            // 픽셀 편집 모달이 열려있으면 선택된 색상으로 바로 색칠
+            if (this.isPixelEditMode) {
+                // 현재 선택된 색상 가져오기 (픽셀 에디터 또는 기본 색상)
+                const selectedColor = this.pixelEditor?.currentColor || this.currentPixelColor || '#FF0000';
+                await this.colorPixel(pixelId, regionId, selectedColor);
+                // 시각적 피드백: 짧은 알림
+                this.showNotification('픽셀 색칠 완료', 'success', 1000);
+            } else {
+                // 모달이 닫혀있을 때만 색상 팔레트 표시
+                this.showColorPalette(e.lngLat, pixelId, regionId);
+            }
         });
         
         // 드래그로 여러 픽셀 색칠
@@ -24455,14 +24655,429 @@ class BillionaireMap {
     }
     
     /**
-     * Phase 2: 픽셀 색칠
+     * 색상 설정 (통합 함수)
+     */
+    setPixelColor(color) {
+        if (!color || !/^#[0-9A-Fa-f]{6}$/.test(color)) return;
+        
+        this.pixelEditor.currentColor = color;
+        this.currentPixelColor = color;
+        
+        // 색상 피커 업데이트
+        const colorPicker = document.getElementById('pixel-color-picker');
+        if (colorPicker) colorPicker.value = color;
+        
+        // 현재 색상 표시 업데이트
+        this.updateCurrentColorDisplay(color);
+        
+        // 최근 사용 색상에 추가
+        this.addRecentColor(color);
+    }
+    
+    /**
+     * 현재 색상 표시 업데이트 (RGB 포함)
+     */
+    updateCurrentColorDisplay(color) {
+        // current-pixel-color 입력 필드 업데이트
+        const currentPixelColorInput = document.getElementById('current-pixel-color');
+        if (currentPixelColorInput) {
+            currentPixelColorInput.value = color;
+        }
+        
+        // HEX 입력 필드 업데이트
+        const colorHexInput = document.getElementById('color-hex-input');
+        if (colorHexInput) {
+            colorHexInput.value = color.toUpperCase();
+        }
+        
+        // RGB 표시 업데이트
+        const colorRgbDisplay = document.getElementById('color-rgb-display');
+        if (colorRgbDisplay) {
+            const rgb = this.hexToRgb(color);
+            if (rgb) {
+                colorRgbDisplay.textContent = `RGB(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+            }
+        }
+        
+        // 색상 미리보기 업데이트
+        const colorPreview = document.getElementById('color-preview');
+        if (colorPreview) {
+            colorPreview.style.background = color;
+        }
+    }
+    
+    /**
+     * HEX를 RGB로 변환
+     */
+    hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+    
+    /**
+     * 최근 사용 색상 추가
+     */
+    addRecentColor(color) {
+        // 이미 있으면 제거
+        this.recentColors = this.recentColors.filter(c => c !== color);
+        // 맨 앞에 추가
+        this.recentColors.unshift(color);
+        // 최대 8개만 유지
+        this.recentColors = this.recentColors.slice(0, 8);
+        // 로컬 스토리지에 저장
+        localStorage.setItem('pixelRecentColors', JSON.stringify(this.recentColors));
+        // UI 업데이트
+        this.updateRecentColors();
+    }
+    
+    /**
+     * 최근 사용 색상 UI 업데이트
+     */
+    updateRecentColors() {
+        const recentColorsContainer = document.getElementById('recent-colors');
+        if (!recentColorsContainer) return;
+        
+        recentColorsContainer.innerHTML = '';
+        
+        if (this.recentColors.length === 0) {
+            const emptySlot = document.createElement('div');
+            emptySlot.className = 'color-preset empty-slot';
+            emptySlot.title = '최근 사용한 색상이 없습니다';
+            emptySlot.textContent = '+';
+            recentColorsContainer.appendChild(emptySlot);
+            return;
+        }
+        
+        this.recentColors.forEach(color => {
+            const preset = document.createElement('div');
+            preset.className = 'color-preset';
+            preset.dataset.color = color;
+            preset.style.background = color;
+            preset.title = color;
+            preset.addEventListener('click', (e) => {
+                this.setPixelColor(color);
+                document.querySelectorAll('.color-preset').forEach(p => p.classList.remove('selected'));
+                preset.classList.add('selected');
+            });
+            recentColorsContainer.appendChild(preset);
+        });
+    }
+    
+    /**
+     * 픽셀 편집 히스토리 저장
+     */
+    savePixelHistory() {
+        if (!this.pixelEditor || !this.pixelEditor.canvas) return;
+        
+        const imageData = this.pixelEditor.canvas.toDataURL('image/png');
+        // 현재 인덱스 이후의 히스토리 제거 (새로운 편집 시작)
+        this.pixelHistory = this.pixelHistory.slice(0, this.pixelHistoryIndex + 1);
+        // 새 히스토리 추가
+        this.pixelHistory.push(imageData);
+        // 최대 크기 제한
+        if (this.pixelHistory.length > this.maxHistorySize) {
+            this.pixelHistory.shift();
+        } else {
+            this.pixelHistoryIndex++;
+        }
+        
+        // 실행 취소/다시 실행 버튼 상태 업데이트
+        this.updateHistoryButtons();
+    }
+    
+    /**
+     * 실행 취소
+     */
+    undoPixelEdit() {
+        if (this.pixelHistoryIndex <= 0) return;
+        
+        this.pixelHistoryIndex--;
+        this.loadPixelHistory(this.pixelHistory[this.pixelHistoryIndex]);
+        this.updateHistoryButtons();
+    }
+    
+    /**
+     * 다시 실행
+     */
+    redoPixelEdit() {
+        if (this.pixelHistoryIndex >= this.pixelHistory.length - 1) return;
+        
+        this.pixelHistoryIndex++;
+        this.loadPixelHistory(this.pixelHistory[this.pixelHistoryIndex]);
+        this.updateHistoryButtons();
+    }
+    
+    /**
+     * 히스토리에서 이미지 로드
+     */
+    loadPixelHistory(imageData) {
+        if (!this.pixelEditor || !this.pixelEditor.canvas || !this.pixelEditor.ctx) return;
+        
+        const img = new Image();
+        img.onload = () => {
+            this.pixelEditor.ctx.clearRect(0, 0, this.pixelEditor.canvasSize, this.pixelEditor.canvasSize);
+            this.pixelEditor.ctx.drawImage(img, 0, 0);
+        };
+        img.src = imageData;
+    }
+    
+    /**
+     * 히스토리 버튼 상태 업데이트
+     */
+    updateHistoryButtons() {
+        const undoBtn = document.getElementById('pixel-undo-btn');
+        const redoBtn = document.getElementById('pixel-redo-btn');
+        
+        if (undoBtn) {
+            undoBtn.disabled = this.pixelHistoryIndex <= 0;
+        }
+        if (redoBtn) {
+            redoBtn.disabled = this.pixelHistoryIndex >= this.pixelHistory.length - 1;
+        }
+    }
+    
+    /**
+     * 키보드 단축키 설정
+     */
+    setupPixelKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // 픽셀 편집 모달이 열려있을 때만 작동
+            const pixelStudioModal = document.getElementById('pixel-studio-modal');
+            if (!pixelStudioModal || pixelStudioModal.classList.contains('hidden')) return;
+            
+            // 단축키 가이드 모달 열기
+            if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+                e.preventDefault();
+                const shortcutsModal = document.getElementById('pixel-shortcuts-modal');
+                if (shortcutsModal) {
+                    shortcutsModal.classList.toggle('hidden');
+                }
+                return;
+            }
+            
+            // Ctrl 키 조합
+            if (e.ctrlKey || e.metaKey) {
+                // 실행 취소
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.undoPixelEdit();
+                    return;
+                }
+                // 다시 실행
+                if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && !e.altKey) {
+                    e.preventDefault();
+                    this.redoPixelEdit();
+                    return;
+                }
+                // 저장
+                if (e.key === 's') {
+                    e.preventDefault();
+                    this.savePixelCanvas();
+                    return;
+                }
+            }
+            
+            // 도구 선택 (P, E, F, S)
+            if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+                if (e.key === 'p' || e.key === 'P') {
+                    e.preventDefault();
+                    this.setPixelTool('pencil');
+                    return;
+                }
+                if (e.key === 'e' || e.key === 'E') {
+                    e.preventDefault();
+                    this.setPixelTool('eraser');
+                    return;
+                }
+                if (e.key === 'f' || e.key === 'F') {
+                    e.preventDefault();
+                    this.setPixelTool('fill');
+                    return;
+                }
+                if (e.key === 's' || e.key === 'S') {
+                    e.preventDefault();
+                    this.setPixelTool('sticker');
+                    return;
+                }
+                // 색상 피커 열기
+                if (e.key === 'c' || e.key === 'C') {
+                    e.preventDefault();
+                    const colorPicker = document.getElementById('pixel-color-picker');
+                    if (colorPicker) {
+                        colorPicker.click();
+                    }
+                    return;
+                }
+                
+                // Phase 8: 숫자 키로 기본 색상 프리셋 선택 (1-8)
+                const numKey = parseInt(e.key);
+                if (numKey >= 1 && numKey <= 8) {
+                    e.preventDefault();
+                    this.selectColorPresetByNumber(numKey);
+                    return;
+                }
+            }
+            
+            // ESC로 모달 닫기
+            if (e.key === 'Escape') {
+                const shortcutsModal = document.getElementById('pixel-shortcuts-modal');
+                if (shortcutsModal && !shortcutsModal.classList.contains('hidden')) {
+                    shortcutsModal.classList.add('hidden');
+                    return;
+                }
+            }
+        });
+    }
+    
+    /**
+     * Phase 8: 숫자 키로 색상 프리셋 선택
+     */
+    selectColorPresetByNumber(num) {
+        // 기본 색상 프리셋 (index.html에 정의된 순서대로)
+        const colorPresets = [
+            '#FF0000', // 1: 빨강
+            '#00FF00', // 2: 초록
+            '#0000FF', // 3: 파랑
+            '#FFFF00', // 4: 노랑
+            '#FF00FF', // 5: 마젠타
+            '#00FFFF', // 6: 시안
+            '#FFFFFF', // 7: 흰색
+            '#000000'  // 8: 검정
+        ];
+        
+        if (num >= 1 && num <= 8) {
+            const color = colorPresets[num - 1];
+            this.currentPixelColor = color;
+            
+            // 픽셀 에디터에도 동기화
+            if (this.pixelEditor) {
+                this.pixelEditor.currentColor = color;
+            }
+            
+            // UI 업데이트
+            const colorPicker = document.getElementById('pixel-color-picker');
+            if (colorPicker) {
+                colorPicker.value = color;
+            }
+            
+            const hexInput = document.getElementById('color-hex-input');
+            if (hexInput) {
+                hexInput.value = color;
+            }
+            
+            const currentPixelColorInput = document.getElementById('current-pixel-color');
+            if (currentPixelColorInput) {
+                currentPixelColorInput.value = color;
+            }
+            
+            // 프리셋 시각적 피드백
+            const presetElements = document.querySelectorAll('.color-preset[data-color]');
+            presetElements.forEach(preset => {
+                preset.classList.remove('selected');
+                if (preset.dataset.color === color) {
+                    preset.classList.add('selected');
+                }
+            });
+            
+            this.showNotification(`색상 선택: ${color}`, 'info', 800);
+        }
+    }
+    
+    /**
+     * Phase 2: 픽셀 색칠 (개선: 시각적 피드백 추가)
      */
     async colorPixel(pixelId, regionId, color) {
-        // 로컬에서 즉시 반영
-        this.updatePixelColorLocally(pixelId, regionId, color);
+        try {
+            // 시각적 피드백: 픽셀 플래시 효과
+            this.addPixelFlashEffect(pixelId, regionId, color);
+            
+            // 로컬에서 즉시 반영
+            this.updatePixelColorLocally(pixelId, regionId, color);
+            
+            // 배치 저장 큐에 추가
+            this.queuePixelUpdate(pixelId, regionId, color);
+        } catch (error) {
+            console.error('[픽셀 색칠 오류]:', error);
+            this.showNotification('픽셀 색칠 중 오류가 발생했습니다.', 'error');
+        }
+    }
+    
+    /**
+     * Phase 8: 픽셀 플래시 효과 (시각적 피드백)
+     */
+    addPixelFlashEffect(pixelId, regionId, color) {
+        if (!this.map || !this.map.getSource('pixel-grids')) return;
         
-        // 배치 저장 큐에 추가
-        this.queuePixelUpdate(pixelId, regionId, color);
+        const source = this.map.getSource('pixel-grids');
+        const data = source._data;
+        
+        if (!data || !data.features) return;
+        
+        const feature = data.features.find(f => 
+            f.properties.id === pixelId && f.properties.regionId === regionId
+        );
+        
+        if (!feature) return;
+        
+        // 플래시 효과를 위한 임시 레이어 생성
+        const flashSourceId = 'pixel-flash';
+        const flashLayerId = 'pixel-flash-layer';
+        
+        // 기존 플래시 레이어 제거
+        if (this.map.getLayer(flashLayerId)) {
+            this.map.removeLayer(flashLayerId);
+        }
+        if (this.map.getSource(flashSourceId)) {
+            this.map.removeSource(flashSourceId);
+        }
+        
+        // 플래시 GeoJSON 생성
+        const flashGeoJson = {
+            type: 'FeatureCollection',
+            features: [{
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    flash: true
+                }
+            }]
+        };
+        
+        // 플래시 소스 및 레이어 추가
+        this.map.addSource(flashSourceId, {
+            type: 'geojson',
+            data: flashGeoJson
+        });
+        
+        this.map.addLayer({
+            id: flashLayerId,
+            type: 'fill',
+            source: flashSourceId,
+            paint: {
+                'fill-color': color,
+                'fill-opacity': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'flash'],
+                    0, 0.8,
+                    1, 1.0
+                ]
+            }
+        });
+        
+        // 150ms 후 플래시 레이어 제거
+        setTimeout(() => {
+            if (this.map.getLayer(flashLayerId)) {
+                this.map.removeLayer(flashLayerId);
+            }
+            if (this.map.getSource(flashSourceId)) {
+                this.map.removeSource(flashSourceId);
+            }
+        }, 150);
     }
     
     /**
@@ -24512,19 +25127,23 @@ class BillionaireMap {
     }
     
     /**
-     * Phase 3: 배치로 픽셀 업데이트 저장
+     * Phase 3: 배치로 픽셀 업데이트 저장 (개선: 에러 핸들링 및 재시도 로직)
      */
-    async savePixelBatch() {
+    async savePixelBatch(retryCount = 0) {
         if (!this.isFirebaseInitialized || !this.firestore || this.pixelUpdateBatch.length === 0) {
             return;
         }
+        
+        const maxRetries = 3;
+        const batchToSave = [...this.pixelUpdateBatch]; // 복사본 생성
+        this.pixelUpdateBatch = []; // 큐 비우기 (재시도 시 중복 방지)
         
         try {
             const { writeBatch, doc, collection, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // regionId별로 그룹화
             const updatesByRegion = {};
-            this.pixelUpdateBatch.forEach(update => {
+            batchToSave.forEach(update => {
                 if (!updatesByRegion[update.regionId]) {
                     updatesByRegion[update.regionId] = [];
                 }
@@ -24548,10 +25167,33 @@ class BillionaireMap {
                 await batch.commit();
             }
             
-            this.pixelUpdateBatch = [];
             this.pixelBatchTimer = null;
+            
+            // 성공적으로 저장된 경우 알림 (선택적)
+            if (batchToSave.length > 10) {
+                console.log(`[픽셀 배치 저장 완료] ${batchToSave.length}개 픽셀 저장됨`);
+            }
         } catch (error) {
             console.error('[픽셀 배치 저장 실패]:', error);
+            
+            // 실패한 업데이트를 다시 큐에 추가
+            this.pixelUpdateBatch = [...this.pixelUpdateBatch, ...batchToSave];
+            
+            // 재시도 로직
+            if (retryCount < maxRetries) {
+                const delay = Math.min(1000 * Math.pow(2, retryCount), 5000); // 지수 백오프
+                console.log(`[픽셀 배치 저장 재시도] ${retryCount + 1}/${maxRetries} (${delay}ms 후)`);
+                
+                setTimeout(() => {
+                    this.savePixelBatch(retryCount + 1);
+                }, delay);
+            } else {
+                // 최대 재시도 횟수 초과
+                this.showNotification(
+                    `픽셀 저장에 실패했습니다. (${batchToSave.length}개 미저장) 연결을 확인하고 다시 시도해주세요.`, 
+                    'error'
+                );
+            }
         }
     }
     
@@ -24654,6 +25296,48 @@ class BillionaireMap {
     }
     
     /**
+     * Phase 8: 픽셀 그리드 크기 동적 조절
+     */
+    setPixelGridSize(gridSize) {
+        // Wplace 스타일: 더 작은 픽셀을 위해 더 큰 그리드 크기 허용
+        if (gridSize < 50 || gridSize > 200) {
+            console.warn('[픽셀 그리드 크기] 허용 범위: 50-200 (값이 클수록 픽셀이 작아집니다)');
+            return;
+        }
+        
+        this.pixelGridGridSize = gridSize;
+        this.showNotification(`그리드 크기: ${gridSize}x${gridSize} (픽셀 크기 조정)`, 'info', 1500);
+        
+        // 현재 편집 중인 지역이 있으면 그리드 재생성
+        if (this.currentRegion) {
+            this.highlightRegionPixelGrid(this.currentRegion.id);
+        }
+    }
+    
+    /**
+     * Phase 8: 성능 최적화 - 뷰포트 기반 렌더링 개선
+     */
+    optimizePixelGridRendering() {
+        if (!this.map || !this.map.getSource('pixel-grids')) return;
+        
+        // 현재 줌 레벨에 따라 그리드 선 표시 여부 자동 조절
+        const zoom = this.map.getZoom();
+        
+        // 줌 레벨이 낮으면 (축소) 그리드 선 숨김, 높으면 (확대) 표시
+        if (zoom < 6 && this.showPixelGridLines) {
+            // 자동으로 그리드 선 숨김 (성능 향상)
+            if (this.map.getLayer('pixel-grids-border')) {
+                this.map.setPaintProperty('pixel-grids-border', 'line-width', 0);
+            }
+        } else if (zoom >= 6 && this.showPixelGridLines) {
+            // 다시 표시
+            if (this.map.getLayer('pixel-grids-border')) {
+                this.map.setPaintProperty('pixel-grids-border', 'line-width', 0.5);
+            }
+        }
+    }
+    
+    /**
      * Phase 4: 픽셀 그리드 시스템 초기화
      */
     async initializePixelGridSystem(geoJson) {
@@ -24669,10 +25353,17 @@ class BillionaireMap {
         // Phase 3: 뷰포트 업데이트 리스너
         this.map.on('moveend', () => {
             this.updateVisiblePixels();
+            this.optimizePixelGridRendering(); // Phase 8: 성능 최적화
         });
         
         this.map.on('zoomend', () => {
             this.updateVisiblePixels();
+            this.optimizePixelGridRendering(); // Phase 8: 성능 최적화
+        });
+        
+        // Phase 8: 줌 변경 시 실시간 최적화
+        this.map.on('zoom', () => {
+            this.optimizePixelGridRendering();
         });
         
         // Phase 3: 모든 지역에 실시간 리스너 설정
