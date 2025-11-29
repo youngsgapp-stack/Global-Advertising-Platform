@@ -150,6 +150,7 @@ class BillionaireMap {
         this.pixelBatchTimer = null; // 배치 타이머
         this.pixelGridGridSize = 50; // 기본 그리드 크기 (50x50)
         this.showPixelGridLines = false; // 그리드 선 표시 여부
+        this.isPixelEditMode = false; // 픽셀 편집 모드 활성화 여부
         
         // 기술 인프라 개선: 데이터 파이프라인 및 성능 최적화
         this.geoJsonPipeline = {
@@ -14354,6 +14355,36 @@ class BillionaireMap {
     setupEventListeners() {
         // 지역 클릭 이벤트
         this.map.on('click', 'regions-fill', async (e) => {
+            // 픽셀 편집 모드가 활성화되어 있으면 행정구역 클릭 무시
+            if (this.isPixelEditMode) {
+                // 클릭한 위치에 픽셀 그리드가 있는지 확인
+                const pixelFeatures = this.map.queryRenderedFeatures(e.point, {
+                    layers: ['pixel-grids-fill']
+                });
+                
+                // 픽셀 그리드가 있으면 행정구역 클릭 무시
+                if (pixelFeatures && pixelFeatures.length > 0) {
+                    return;
+                }
+                
+                // 픽셀 편집 모드 중에는 모든 행정구역 클릭 무시
+                return;
+            }
+            
+            // 픽셀 스튜디오가 열려있는지 확인 (추가 안전장치)
+            const pixelStudioModal = document.getElementById('pixel-studio-modal');
+            if (pixelStudioModal && !pixelStudioModal.classList.contains('hidden')) {
+                // 클릭한 위치에 픽셀 그리드가 있는지 확인
+                const pixelFeatures = this.map.queryRenderedFeatures(e.point, {
+                    layers: ['pixel-grids-fill']
+                });
+                
+                // 픽셀 그리드가 있으면 행정구역 클릭 무시
+                if (pixelFeatures && pixelFeatures.length > 0) {
+                    return;
+                }
+            }
+            
             e.preventDefault();
             const feature = e.features[0];
             await this.selectRegion(feature);
@@ -22859,6 +22890,9 @@ class BillionaireMap {
             pixelGridControls.classList.remove('hidden');
         }
         
+        // 픽셀 편집 모드 활성화
+        this.isPixelEditMode = true;
+        
         // 사이드바 표시
         const modal = document.getElementById('pixel-studio-modal');
         if (modal) {
@@ -23789,6 +23823,9 @@ class BillionaireMap {
      * 픽셀 스튜디오 모달 닫기
      */
     closePixelStudio() {
+        // 픽셀 편집 모드 비활성화
+        this.isPixelEditMode = false;
+        
         // 픽셀 그리드 컨트롤 패널 숨기기
         const pixelGridControls = document.getElementById('pixel-grid-controls');
         if (pixelGridControls) {
@@ -24270,6 +24307,10 @@ class BillionaireMap {
         
         // 픽셀 클릭 시 색상 팔레트 표시
         this.map.on('click', 'pixel-grids-fill', async (e) => {
+            // 이벤트 전파 중단 (행정구역 클릭 이벤트가 발생하지 않도록)
+            e.originalEvent?.stopPropagation();
+            e.preventDefault();
+            
             const pixel = e.features[0];
             const pixelId = pixel.properties.id;
             const regionId = pixel.properties.regionId;
@@ -24287,6 +24328,10 @@ class BillionaireMap {
         
         // 드래그로 여러 픽셀 색칠
         this.map.on('mousedown', 'pixel-grids-fill', async (e) => {
+            // 이벤트 전파 중단
+            e.originalEvent?.stopPropagation();
+            e.preventDefault();
+            
             const pixel = e.features[0];
             const regionId = pixel.properties.regionId;
             
@@ -24302,6 +24347,9 @@ class BillionaireMap {
         
         this.map.on('mousemove', 'pixel-grids-fill', async (e) => {
             if (this.isPixelDrawing) {
+                // 이벤트 전파 중단
+                e.originalEvent?.stopPropagation();
+                
                 const pixel = e.features[0];
                 const pixelId = pixel.properties.id;
                 const regionId = pixel.properties.regionId;
