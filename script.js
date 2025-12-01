@@ -15758,16 +15758,24 @@ class BillionaireMap {
         const regionEditPixelBtn = document.getElementById('region-edit-pixel-btn');
         if (regionEditPixelBtn) {
             regionEditPixelBtn.addEventListener('click', async () => {
-                // 우선순위: 버튼 data-state-id → this.selectedStateId → this.currentRegion?.id
-                const btnStateId = regionEditPixelBtn.dataset.stateId;
-                const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
-                
-                console.log('픽셀 아트 편집 버튼 클릭 (region):', {
-                    btnStateId,
-                    selectedStateId: this.selectedStateId,
-                    currentRegionId: this.currentRegion?.id,
-                    targetStateId
-                });
+                try {
+                    console.log('[픽셀 아트 편집 버튼 클릭] 시작', {
+                        isAdmin: this.isAdminLoggedIn,
+                        buttonElement: regionEditPixelBtn,
+                        hasDataset: !!regionEditPixelBtn.dataset
+                    });
+                    
+                    // 우선순위: 버튼 data-state-id → this.selectedStateId → this.currentRegion?.id
+                    const btnStateId = regionEditPixelBtn.dataset.stateId;
+                    const targetStateId = btnStateId || this.selectedStateId || (this.currentRegion && this.currentRegion.id);
+                    
+                    console.log('픽셀 아트 편집 버튼 클릭 (region):', {
+                        btnStateId,
+                        selectedStateId: this.selectedStateId,
+                        currentRegionId: this.currentRegion?.id,
+                        targetStateId,
+                        isAdmin: this.isAdminLoggedIn
+                    });
                 
                 // regionData에서 가져오기 시도
                 let region = targetStateId ? this.regionData.get(targetStateId) : null;
@@ -15864,8 +15872,28 @@ class BillionaireMap {
                 }
                 
                 console.log('픽셀 아트 편집 시작:', { regionId, region, isAdmin: this.isAdminLoggedIn });
-                await this.openPixelStudio(regionId, region);
-            });
+                
+                // regionId가 없으면 에러 표시
+                if (!regionId) {
+                    console.error('[픽셀 아트 편집 실패] regionId가 없습니다.');
+                    this.showNotification('지역 정보를 찾을 수 없습니다. 다시 시도해주세요.', 'error');
+                    return;
+                }
+                
+                // openPixelStudio 호출
+                try {
+                    await this.openPixelStudio(regionId, region);
+                    console.log('[픽셀 아트 편집] openPixelStudio 호출 완료');
+                } catch (error) {
+                    console.error('[픽셀 아트 편집] openPixelStudio 호출 실패:', error);
+                    this.showNotification('픽셀 스튜디오를 열 수 없습니다: ' + error.message, 'error');
+                }
+            } catch (error) {
+                console.error('[픽셀 아트 편집 버튼] 예외 발생:', error);
+                this.showNotification('픽셀 아트 편집 중 오류가 발생했습니다: ' + error.message, 'error');
+            }
+        } else {
+            console.warn('[픽셀 아트 편집] region-edit-pixel-btn 버튼을 찾을 수 없습니다.');
         }
         
         // 관리자 패널 이벤트 (요소가 존재할 때만)
@@ -25313,6 +25341,7 @@ class BillionaireMap {
     
     /**
      * Phase 1: 픽셀 그리드 데이터를 Firestore에 저장
+     * Firebase 문서 크기 제한(1MB)을 초과하지 않도록 청크로 나누어 저장
      */
     async savePixelGrid(regionId, pixelGrid) {
         if (!this.isFirebaseInitialized || !this.firestore) return;
@@ -25325,16 +25354,24 @@ class BillionaireMap {
         }
         
         try {
-            const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, setDoc, collection, writeBatch, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             const pixelCount = pixelGrid.pixels ? pixelGrid.pixels.length : 0;
             const calculatedPrice = this.calculateStartingPriceFromPixels(pixelCount);
             
-            // 성능 최적화: 모든 픽셀 데이터를 하나의 문서에 압축하여 저장
             // 픽셀 데이터를 압축된 형식으로 변환
             const compressedPixels = this.compressPixelData(pixelGrid.pixels);
             
-            // 픽셀 그리드 메타데이터와 픽셀 데이터를 하나의 문서에 저장
+            // Firebase 문서 크기 제한: 1MB (1,048,576 bytes)
+            // 안전 마진을 고려하여 청크당 최대 8,000개 픽셀 저장 (약 800KB)
+            const CHUNK_SIZE = 8000;
+            const chunks = [];
+            
+            for (let i = 0; i < compressedPixels.length; i += CHUNK_SIZE) {
+                chunks.push(compressedPixels.slice(i, i + CHUNK_SIZE));
+            }
+            
+            // 메타데이터 문서 저장 (픽셀 데이터는 제외)
             const gridRef = doc(this.firestore, 'pixelGrids', regionId);
             await setDoc(gridRef, {
                 gridSize: pixelGrid.gridSize,
@@ -25344,19 +25381,57 @@ class BillionaireMap {
                 cellHeight: pixelGrid.cellHeight,
                 pixelCount: pixelCount,
                 calculatedPrice: calculatedPrice,
-                // 압축된 픽셀 데이터 (모든 픽셀을 하나의 배열로 저장)
-                pixels: compressedPixels,
-                // 데이터 형식 버전 (새로운 압축 형식)
-                dataFormat: 'compressed_v2',
+                // 데이터 형식 버전 (청크 형식)
+                dataFormat: 'chunked_v3',
+                chunkCount: chunks.length,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             }, { merge: true });
             
-            console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelGrid.pixels.length}개 픽셀 (압축 형식)`);
+            // 픽셀 데이터를 청크로 나누어 서브컬렉션에 저장
+            if (chunks.length > 0) {
+                const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'chunks');
+                
+                // 기존 청크 삭제 (전체 재저장)
+                const existingChunksRef = collection(this.firestore, 'pixelGrids', regionId, 'chunks');
+                const { getDocs, deleteDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                const existingChunks = await getDocs(existingChunksRef);
+                const deleteBatch = writeBatch(this.firestore);
+                existingChunks.forEach(chunkDoc => {
+                    deleteBatch.delete(chunkDoc.ref);
+                });
+                await deleteBatch.commit();
+                
+                // 새 청크 저장 (배치로 처리)
+                const batchSize = 500; // Firestore 배치 제한: 500개
+                for (let i = 0; i < chunks.length; i += batchSize) {
+                    const batch = writeBatch(this.firestore);
+                    const batchChunks = chunks.slice(i, i + batchSize);
+                    
+                    batchChunks.forEach((chunk, chunkIndex) => {
+                        const chunkRef = doc(pixelsRef, `chunk_${i + chunkIndex}`);
+                        batch.set(chunkRef, {
+                            index: i + chunkIndex,
+                            pixels: chunk,
+                            createdAt: serverTimestamp()
+                        });
+                    });
+                    
+                    await batch.commit();
+                }
+            }
+            
+            console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelCount}개 픽셀 (${chunks.length}개 청크)`);
         } catch (error) {
             // 권한 오류는 조용히 무시
             if (error.code !== 'permission-denied') {
                 console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
+                
+                // 문서 크기 초과 오류인 경우 특별 처리
+                if (error.message?.includes('exceeds the maximum allowed size') || error.code === 'invalid-argument') {
+                    console.error(`[픽셀 그리드 저장 실패] 문서 크기 제한 초과: ${regionId}`);
+                    this.showNotification('픽셀 그리드가 너무 커서 저장할 수 없습니다. 관리자에게 문의하세요.', 'error');
+                }
             }
         }
     }
@@ -25500,9 +25575,58 @@ class BillionaireMap {
             const gridData = gridDoc.data();
             let pixels = [];
             
-            // 새로운 압축 형식 확인 (성능 최적화)
-            if (gridData.dataFormat === 'compressed_v2' && Array.isArray(gridData.pixels)) {
-                // ✅ 새로운 압축 형식: 하나의 문서에 모든 픽셀 데이터 포함 (매우 빠름!)
+            // 청크 형식 확인 (최신 형식 - 문서 크기 제한 해결)
+            if (gridData.dataFormat === 'chunked_v3' && gridData.chunkCount > 0) {
+                // ✅ 청크 형식: 서브컬렉션에서 청크를 읽어서 합치기
+                console.log(`[픽셀 그리드 로드] ${regionId}: 청크 형식 사용 (${gridData.chunkCount}개 청크)`);
+                const chunksRef = collection(this.firestore, 'pixelGrids', regionId, 'chunks');
+                let chunksSnapshot;
+                
+                try {
+                    chunksSnapshot = await getDocs(chunksRef);
+                } catch (error) {
+                    // 오프라인 또는 리소스 고갈 오류인 경우 캐시에서 읽기 시도
+                    if (error.code === 'unavailable' || error.code === 'resource-exhausted' || error.message?.includes('offline') || error.message?.includes('Too many outstanding requests')) {
+                        try {
+                            chunksSnapshot = await getDocsFromCache(chunksRef);
+                        } catch (cacheError) {
+                            // 캐시에도 없으면 조용히 무시
+                            return null;
+                        }
+                    } else {
+                        // 다른 오류는 조용히 무시
+                        return null;
+                    }
+                }
+                
+                // 청크를 인덱스 순서로 정렬하여 합치기
+                const chunks = [];
+                chunksSnapshot.forEach(chunkDoc => {
+                    const chunkData = chunkDoc.data();
+                    chunks.push({
+                        index: chunkData.index || 0,
+                        pixels: chunkData.pixels || []
+                    });
+                });
+                
+                // 인덱스 순서로 정렬
+                chunks.sort((a, b) => a.index - b.index);
+                
+                // 모든 청크의 픽셀을 합치기
+                const allCompressedPixels = [];
+                chunks.forEach(chunk => {
+                    if (Array.isArray(chunk.pixels)) {
+                        allCompressedPixels.push(...chunk.pixels);
+                    }
+                });
+                
+                // 압축된 픽셀 데이터를 원래 형식으로 복원
+                pixels = this.decompressPixelData(allCompressedPixels, gridData);
+                console.log(`[픽셀 그리드 로드] ${regionId}: ${pixels.length}개 픽셀 로드 완료`);
+            }
+            // 기존 압축 형식 확인 (하위 호환성)
+            else if (gridData.dataFormat === 'compressed_v2' && Array.isArray(gridData.pixels)) {
+                // ✅ 압축 형식: 하나의 문서에 모든 픽셀 데이터 포함 (매우 빠름!)
                 pixels = this.decompressPixelData(gridData.pixels, gridData);
                 console.log(`[픽셀 그리드 로드] ${regionId}: 압축 형식 사용 (${pixels.length}개 픽셀)`);
             } else {
