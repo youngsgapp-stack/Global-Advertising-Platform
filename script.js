@@ -15892,6 +15892,7 @@ class BillionaireMap {
                 console.error('[픽셀 아트 편집 버튼] 예외 발생:', error);
                 this.showNotification('픽셀 아트 편집 중 오류가 발생했습니다: ' + error.message, 'error');
             }
+            });
         } else {
             console.warn('[픽셀 아트 편집] region-edit-pixel-btn 버튼을 찾을 수 없습니다.');
         }
