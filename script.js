@@ -3310,7 +3310,13 @@ class BillionaireMap {
         const tryFetch = async (targetUrl) => {
             try {
                 const response = await fetch(targetUrl, { cache: 'no-store' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    // 404는 조용히 처리 (예상 가능한 오류)
+                    if (response.status === 404) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const json = await parseResponseBody(response, targetUrl);
                 const normalized = this.normalizeGeoJsonPayload(json);
                 if (normalized && Array.isArray(normalized.features) && normalized.features.length >= minFeatures) {
@@ -3320,10 +3326,10 @@ class BillionaireMap {
                 throw new Error('Invalid GeoJSON structure');
             } catch (error) {
                 lastError = error;
-                // 예상 가능한 오류는 조용히 처리 (마지막 후보만 경고)
-                const isLastUrl = urls.indexOf(targetUrl) === urls.length - 1;
-                if (!this.isExpectedError(error) || isLastUrl) {
-                    // 마지막 시도거나 예상치 못한 오류만 경고 로그
+                // 예상 가능한 오류는 조용히 처리 (모든 URL 시도 후에만 경고)
+                const isExpected = this.isExpectedError(error);
+                if (!isExpected) {
+                    // 예상치 못한 오류만 경고 로그
                     const message = error.message || '';
                     console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, message);
                 }
@@ -5615,7 +5621,6 @@ class BillionaireMap {
                 const data = await this.fetchGeoJsonWithFallback('china', {
                     urls: [
                         this.getAssetUrl('data/china-provinces.geojson'),
-                        'https://raw.githubusercontent.com/apache/echarts-website/master/examples/data/asset/geo/CHN.json',
                         'https://raw.githubusercontent.com/longwosion/geojson-map-china/master/china.json'
                     ],
                     localPath: 'data/china-provinces.geojson',
@@ -7239,8 +7244,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries FRA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/FRA/ADM1/geoBoundaries-FRA-ADM1.geojson',
-                    // click_that_hood france
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/france.geojson',
                     // Natural Earth France regions
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -7631,8 +7634,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries ITA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ITA/ADM1/geoBoundaries-ITA-ADM1.geojson',
-                    // click_that_hood italy
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/italy.geojson',
                     // Natural Earth Italy regions
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -8081,8 +8082,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries BRA ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/BRA/ADM1/geoBoundaries-BRA-ADM1.geojson',
-                    // click_that_hood brazil
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/brazil.geojson',
                     // Natural Earth Brazil states
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -8615,8 +8614,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries IDN ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/IDN/ADM1/geoBoundaries-IDN-ADM1.geojson',
-                    // click_that_hood indonesia
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/indonesia.geojson',
                     // Natural Earth Indonesia provinces
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -8796,8 +8793,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries SAU ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/SAU/ADM1/geoBoundaries-SAU-ADM1.geojson',
-                    // click_that_hood saudi-arabia
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/saudi-arabia.geojson',
                     // Natural Earth Saudi Arabia provinces
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -9891,8 +9886,6 @@ class BillionaireMap {
                 const candidateUrls = [
                     // geoBoundaries ARG ADM1
                     'https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/ARG/ADM1/geoBoundaries-ARG-ADM1.geojson',
-                    // click_that_hood argentina
-                    'https://raw.githubusercontent.com/codeforgermany/click_that_hood/master/public/data/argentina.geojson',
                     // Natural Earth Argentina provinces
                     'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
                 ];
@@ -10210,14 +10203,23 @@ class BillionaireMap {
                     // 방법 2: 개별 국가 파일 시도
                     if (!countryData) {
                         const candidateUrls = [
-                            `https://raw.githubusercontent.com/johan/world.geo.json/master/countries/${iso2.toLowerCase()}.geo.json`,
                             `https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/releaseData/gbOpen/${country.code}/ADM1/geoBoundaries-${country.code}-ADM1.geojson`
                         ];
+                        
+                        // 소규모 국가는 johan URL 제외 (404 오류 방지)
+                        const isSmallCountry = ['MLT', 'LUX', 'CYP'].includes(country.code);
+                        if (!isSmallCountry) {
+                            candidateUrls.unshift(`https://raw.githubusercontent.com/johan/world.geo.json/master/countries/${iso2.toLowerCase()}.geo.json`);
+                        }
                         
                         for (const url of candidateUrls) {
                             try {
                                 const resp = await fetch(url, { cache: 'no-store' });
-                                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                                if (!resp.ok) {
+                                    // 404는 조용히 건너뛰기
+                                    if (resp.status === 404) continue;
+                                    throw new Error(`HTTP ${resp.status}`);
+                                }
                                 const data = await resp.json();
                                 
                                 if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
@@ -10230,6 +10232,11 @@ class BillionaireMap {
                                     break;
                                 }
                             } catch (e) {
+                                // 예상 가능한 오류는 조용히 처리
+                                const isExpected = this.isExpectedError(e);
+                                if (!isExpected) {
+                                    // 예상치 못한 오류만 로그 (조용히 처리)
+                                }
                                 continue;
                             }
                         }
