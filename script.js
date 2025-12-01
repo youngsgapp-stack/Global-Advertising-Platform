@@ -5965,7 +5965,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Russia dataset available');
-                return data;
 
                 // 러시아 연방주체별 실제 인구 및 면적 데이터
                 const russiaRegionData = {
@@ -8199,7 +8198,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Brazil dataset available');
-                return data;
                 
                 // 브라질 주별 인구 및 면적 데이터 (2024 기준)
                 const brazilStateData = {
@@ -8384,7 +8382,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Australia dataset available');
-                return data;
                 
                 // 호주 주·준주별 인구 및 면적 데이터 (2024 기준)
                 const australiaStateData = {
@@ -8550,7 +8547,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Mexico dataset available');
-                return data;
                 
                 // 멕시코 주별 인구 및 면적 데이터 (2024 기준)
                 const mexicoStateData = {
@@ -8747,7 +8743,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Indonesia dataset available');
-                return data;
                 
                 // 인도네시아 주별 인구 및 면적 데이터 (mid-2024 기준)
                 const indonesiaProvinceData = {
@@ -8940,7 +8935,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Saudi Arabia dataset available');
-                return data;
                 
                 // 사우디 아라비아 주별 인구 및 면적 데이터 (2022 기준)
                 const saudiArabiaProvinceData = {
@@ -9580,7 +9574,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No South Africa dataset available');
-                return data;
                 
                 // 주-지구 매핑을 클래스에 저장
                 this.southAfricaProvinceMapping = southAfricaProvinceMapping;
@@ -11112,7 +11105,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Spain dataset available');
-                return data;
                 
                 // 자치지역-주 매핑을 클래스에 저장
                 this.spainAutonomousCommunityMapping = spainAutonomousCommunityMapping;
@@ -11884,7 +11876,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Poland dataset available');
-                return data;
                 
                 const idSet = new Set();
                 
@@ -12496,7 +12487,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Sweden dataset available');
-                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
@@ -13232,7 +13222,6 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Finland dataset available');
-                return data;
                 
                 const idSet = new Set();
                 geoJsonData.features.forEach((feature, index) => {
