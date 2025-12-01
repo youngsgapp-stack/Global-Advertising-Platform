@@ -26107,13 +26107,12 @@ class BillionaireMap {
     
     /**
      * Phase 1: 픽셀 그리드 레이어 추가/업데이트
-     * 초기 로드 시에는 그리드를 생성하지 않고, 편집 모드에서만 생성
+     * Wplace 스타일: 모든 행정구역에 픽셀 그리드 생성
      */
     async setupPixelGridLayer(geoJson) {
         if (!this.map || !geoJson) return;
         
         // 초기 로드 시에는 빈 GeoJSON으로 레이어만 생성
-        // 실제 그리드는 편집 모드에서 필요할 때 생성
         const emptyGeoJson = {
             type: 'FeatureCollection',
             features: []
@@ -26146,6 +26145,95 @@ class BillionaireMap {
                     'line-opacity': 0.3
                 }
             });
+        }
+        
+        // Wplace 스타일: 모든 행정구역에 픽셀 그리드 생성
+        if (geoJson && geoJson.features && geoJson.features.length > 0) {
+            console.log(`[픽셀 그리드 초기화] ${geoJson.features.length}개 행정구역에 픽셀 그리드 생성 시작...`);
+            await this.createAllPixelGrids(geoJson);
+        }
+    }
+    
+    /**
+     * 모든 행정구역에 픽셀 그리드 생성 (배치 처리 및 점진적 로딩)
+     */
+    async createAllPixelGrids(geoJson) {
+        if (!geoJson || !geoJson.features || geoJson.features.length === 0) return;
+        
+        const features = geoJson.features;
+        const batchSize = 10; // 한 번에 처리할 행정구역 수 (성능 최적화)
+        let processedCount = 0;
+        let createdCount = 0;
+        let loadedCount = 0;
+        
+        // 진행 상황 표시
+        const showProgress = (current, total) => {
+            if (current % 50 === 0 || current === total) {
+                console.log(`[픽셀 그리드 생성] 진행: ${current}/${total} (${((current/total)*100).toFixed(1)}%)`);
+            }
+        };
+        
+        // 배치 단위로 처리
+        for (let i = 0; i < features.length; i += batchSize) {
+            const batch = features.slice(i, i + batchSize);
+            
+            // 배치 병렬 처리
+            const batchPromises = batch.map(async (feature) => {
+                const regionId = feature.properties?.id || feature.properties?.regionId;
+                if (!regionId) return null;
+                
+                // 이미 생성된 픽셀 그리드가 있으면 스킵
+                if (this.pixelGrids.has(regionId)) {
+                    loadedCount++;
+                    return null;
+                }
+                
+                try {
+                    // Firestore에서 먼저 로드 시도
+                    const loadedGrid = await this.loadPixelGrid(regionId);
+                    if (loadedGrid) {
+                        this.pixelGrids.set(regionId, loadedGrid);
+                        loadedCount++;
+                        return null; // 이미 로드되었으므로 생성 불필요
+                    }
+                    
+                    // Firestore에 없으면 새로 생성
+                    const pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                    if (pixelGrid && pixelGrid.pixels && pixelGrid.pixels.length > 0) {
+                        // 메모리에 저장
+                        this.pixelGrids.set(regionId, pixelGrid);
+                        
+                        // Firestore에 비동기 저장 (결과 기다리지 않음)
+                        this.savePixelGrid(regionId, pixelGrid).catch(err => {
+                            console.warn(`[픽셀 그리드 저장 실패] ${regionId}:`, err);
+                        });
+                        
+                        createdCount++;
+                        return pixelGrid;
+                    }
+                } catch (error) {
+                    console.warn(`[픽셀 그리드 생성 실패] ${regionId}:`, error);
+                }
+                
+                return null;
+            });
+            
+            // 배치 완료 대기
+            await Promise.all(batchPromises);
+            processedCount += batch.length;
+            showProgress(processedCount, features.length);
+            
+            // UI 블로킹 방지를 위해 다음 배치 전 짧은 대기
+            if (i + batchSize < features.length) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+        
+        console.log(`[픽셀 그리드 초기화 완료] 총 ${features.length}개 행정구역 중 ${createdCount}개 생성, ${loadedCount}개 로드`);
+        
+        // 초기 뷰포트에 보이는 픽셀 표시
+        if (this.map) {
+            this.updateVisiblePixels();
         }
     }
     
@@ -26937,6 +27025,7 @@ class BillionaireMap {
     
     /**
      * Phase 3: 뷰포트 기반 렌더링 업데이트
+     * Wplace 스타일: 모든 행정구역의 픽셀을 뷰포트와 줌 레벨에 맞게 표시
      */
     updateVisiblePixels() {
         if (!this.map || !this.map.getSource('pixel-grids')) return;
@@ -26945,72 +27034,50 @@ class BillionaireMap {
         if (!this.pixelGrids || this.pixelGrids.size === 0) return;
         
         const bounds = this.map.getBounds();
-        const visibleFeatures = [];
+        const zoom = this.map.getZoom();
+        const viewport = [
+            bounds.getWest(),
+            bounds.getSouth(),
+            bounds.getEast(),
+            bounds.getNorth()
+        ];
         
-        // 성능 최적화: 바운딩 박스 미리 계산
-        const west = bounds.getWest();
-        const east = bounds.getEast();
-        const south = bounds.getSouth();
-        const north = bounds.getNorth();
+        const allVisibleFeatures = [];
         
-        // 경도 경계 처리 (180도 경계 넘어가는 경우)
-        const crossesMeridian = west > east;
-        
-        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링 (최적화된 bounds 체크)
+        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링
+        // pixelGridToGeoJson 함수를 사용하여 뷰포트 필터링과 줌 레벨 기반 샘플링 적용
         this.pixelGrids.forEach((pixelGrid, regionId) => {
             if (!pixelGrid.pixels || pixelGrid.pixels.length === 0) return;
             
-            // 성능 최적화: 픽셀이 너무 많으면 샘플링 또는 조기 종료
-            let checkedCount = 0;
-            const maxCheck = 10000; // 최대 10,000개만 체크 (성능 제한)
-            
-            pixelGrid.pixels.forEach(pixel => {
-                if (checkedCount >= maxCheck) return; // 조기 종료
-                
-                const x = pixel.x;
-                const y = pixel.y;
-                
-                // 빠른 바운딩 박스 체크 (bounds.contains()보다 빠름)
-                let isVisible = false;
-                
-                if (crossesMeridian) {
-                    // 180도 경계를 넘어가는 경우
-                    isVisible = (x >= west || x <= east) && y >= south && y <= north;
-                } else {
-                    // 일반적인 경우
-                    isVisible = x >= west && x <= east && y >= south && y <= north;
-                }
-                
-                if (isVisible) {
-                    checkedCount++;
-                    const feature = {
-                        type: 'Feature',
-                        properties: {
-                            id: pixel.id,
-                            regionId: pixelGrid.regionId,
-                            color: pixel.color || '#f0f0f0',
-                            row: pixel.row,
-                            col: pixel.col
-                        },
-                        geometry: {
-                            type: 'Polygon',
-                            coordinates: [[
-                                [pixel.bounds.minX, pixel.bounds.minY],
-                                [pixel.bounds.maxX, pixel.bounds.minY],
-                                [pixel.bounds.maxX, pixel.bounds.maxY],
-                                [pixel.bounds.minX, pixel.bounds.maxY],
-                                [pixel.bounds.minX, pixel.bounds.minY]
-                            ]]
-                        }
-                    };
-                    visibleFeatures.push(feature);
-                }
+            // pixelGridToGeoJson을 사용하여 최적화된 픽셀 필터링
+            const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
+                viewport,
+                zoom,
+                useViewportFilter: zoom >= 4, // 줌 레벨 4 이상에서만 뷰포트 필터링
+                maxPixels: zoom >= 8 ? 500000 : (zoom >= 6 ? 100000 : 50000) // 줌 레벨에 따른 최대 픽셀 수
             });
+            
+            if (regionGeoJson && regionGeoJson.features && regionGeoJson.features.length > 0) {
+                // 큰 배열의 경우 concat 사용 (스택 오버플로우 방지)
+                if (regionGeoJson.features.length > 100000) {
+                    allVisibleFeatures.push(...regionGeoJson.features.slice(0, 100000)); // 안전을 위해 최대 10만개로 제한
+                } else {
+                    allVisibleFeatures.push(...regionGeoJson.features);
+                }
+            }
         });
+        
+        // 전체 픽셀 수가 너무 많으면 추가 샘플링 (최대 50만개)
+        let finalFeatures = allVisibleFeatures;
+        if (allVisibleFeatures.length > 500000) {
+            const step = Math.ceil(allVisibleFeatures.length / 500000);
+            finalFeatures = allVisibleFeatures.filter((_, index) => index % step === 0);
+            console.log(`[픽셀 렌더링 최적화] 샘플링: ${allVisibleFeatures.length} → ${finalFeatures.length}개 픽셀`);
+        }
         
         const visibleGeoJson = {
             type: 'FeatureCollection',
-            features: visibleFeatures
+            features: finalFeatures
         };
         
         // GeoJSON 업데이트 (단일 호출로 최적화)
@@ -27079,7 +27146,7 @@ class BillionaireMap {
         // Phase 0: 픽셀아트 지도 표시
         await this.updatePixelArtLayer(geoJson);
         
-        // Phase 1: 픽셀 그리드 생성 및 레이어 설정
+        // Phase 1: 픽셀 그리드 생성 및 레이어 설정 (모든 행정구역에 픽셀 생성)
         await this.setupPixelGridLayer(geoJson);
         
         // Phase 2: 클릭 이벤트 핸들러 설정
@@ -27135,10 +27202,14 @@ class BillionaireMap {
             }
         });
         
-        // Phase 3: 모든 지역에 실시간 리스너 설정
-        this.pixelGrids.forEach((grid, regionId) => {
-            this.setupPixelRealtimeListener(regionId);
-        });
+        // Phase 3: 모든 지역에 실시간 리스너 설정 (픽셀 그리드가 생성된 후)
+        // 비동기로 설정하여 픽셀 그리드 생성이 완료된 후 실행
+        setTimeout(() => {
+            this.pixelGrids.forEach((grid, regionId) => {
+                this.setupPixelRealtimeListener(regionId);
+            });
+            console.log(`[픽셀 그리드 리스너] ${this.pixelGrids.size}개 지역에 실시간 리스너 설정 완료`);
+        }, 1000);
     }
     
     // ========== 옥션 대시보드 ==========
