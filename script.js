@@ -3223,18 +3223,29 @@ class BillionaireMap {
                 throw new Error('Empty response');
             }
             
+            // HTML 응답을 먼저 확인 (JSON 파싱 전에)
+            const looksLikeHtml = trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || 
+                                 (trimmed.startsWith('<') && (trimmed.includes('DOCTYPE') || trimmed.includes('html')));
+            if (looksLikeHtml) {
+                throw new Error('HTML response received');
+            }
+            
             const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
             if (looksLikeJson) {
                 try {
                     return JSON.parse(trimmed);
                 } catch (parseError) {
+                    // JSON 파싱 실패 시 HTML인지 다시 확인
+                    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || trimmed.startsWith('<')) {
+                        throw new Error('HTML response received');
+                    }
+                    // "Unexpected token" 에러는 HTML이나 Git LFS 포인터일 가능성이 높음
+                    const parseMessage = parseError.message || '';
+                    if (parseMessage.includes('Unexpected token') && trimmed.startsWith('<')) {
+                        throw new Error('HTML response received');
+                    }
                     throw new Error('Invalid JSON payload');
                 }
-            }
-            
-            const looksLikeHtml = trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html');
-            if (looksLikeHtml) {
-                throw new Error('HTML response received');
             }
             
             const looksLikeGitLfsPointer = trimmed.startsWith('version https://git-lfs.github.com/spec/v1');
@@ -3246,11 +3257,21 @@ class BillionaireMap {
                     ? targetUrl.replace(rawPrefix, mediaPrefix)
                     : targetUrl.replace('raw.githubusercontent.com', 'media.githubusercontent.com/media');
                 console.info(`[${countryKey}] Git LFS pointer detected. Retrying via media CDN: ${mediaUrl}`);
-                const mediaResponse = await fetch(mediaUrl, { cache: 'no-store' });
-                if (!mediaResponse.ok) {
-                    throw new Error(`Git LFS media fetch failed (HTTP ${mediaResponse.status})`);
+                try {
+                    const mediaResponse = await fetch(mediaUrl, { cache: 'no-store' });
+                    if (!mediaResponse.ok) {
+                        throw new Error(`Git LFS media fetch failed (HTTP ${mediaResponse.status})`);
+                    }
+                    return parseResponseBody(mediaResponse, mediaUrl, false);
+                } catch (mediaError) {
+                    // CSP 위반이나 네트워크 에러인 경우 조용히 처리
+                    const mediaMessage = mediaError.message || '';
+                    if (mediaMessage.includes('CSP') || mediaMessage.includes('Content Security Policy') || 
+                        mediaMessage.includes('refused to connect') || mediaMessage.includes('Failed to fetch')) {
+                        throw new Error('Git LFS pointer received (media redirect unavailable due to CSP or network)');
+                    }
+                    throw mediaError;
                 }
-                return parseResponseBody(mediaResponse, mediaUrl, false);
             }
             
             if (looksLikeGitLfsPointer) {
@@ -3282,7 +3303,13 @@ class BillionaireMap {
                 const isExpectedError = message.includes('CORS') || 
                                        message.includes('403') || 
                                        message.includes('404') ||
-                                       message.includes('Failed to fetch');
+                                       message.includes('Failed to fetch') ||
+                                       message.includes('Git LFS') ||
+                                       message.includes('HTML response') ||
+                                       message.includes('Non-JSON response') ||
+                                       message.includes('Content Security Policy') ||
+                                       message.includes('CSP') ||
+                                       message.includes('refused to connect');
                 if (!isExpectedError || urls.indexOf(targetUrl) === urls.length - 1) {
                     // 마지막 시도거나 예상치 못한 오류만 경고 로그
                     console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, message);
@@ -24308,8 +24335,12 @@ class BillionaireMap {
         }
         
         // 면적이 너무 크거나 작으면 0 반환 (계산 오류 가능성)
+        // 경고는 디버그 모드에서만 출력 (너무 많은 경고 방지)
         if (totalArea < 0 || totalArea > 200000000) { // 최대 약 2억 km² (지구 표면의 약 절반)
-            console.warn(`[면적 계산] 비정상적인 면적 값: ${totalArea.toFixed(2)} km²`);
+            // 디버그 모드가 아니면 경고 생략 (이미 0을 반환하므로 문제 없음)
+            if (window.DEBUG_MODE) {
+                console.warn(`[면적 계산] 비정상적인 면적 값: ${totalArea.toFixed(2)} km²`);
+            }
             return 0;
         }
         
