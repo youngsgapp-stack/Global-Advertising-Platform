@@ -1614,8 +1614,8 @@ class BillionaireMap {
                 })
             ]);
             
-            // 모든 지역 가격을 1000달러로 통일 (로컬 메모리)
-            this.setAllRegionsPriceToUniform();
+            // 모든 지역 가격을 픽셀 수 기반으로 계산 (픽셀당 $0.1)
+            await this.setAllRegionsPriceBasedOnPixels();
             
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
@@ -2043,9 +2043,10 @@ class BillionaireMap {
                             : (existingData.area !== undefined && existingData.area !== null && existingData.area > 0)
                                 ? existingData.area
                                 : 0,
+                        // 가격은 Firestore 데이터 우선, 없으면 null로 설정하여 나중에 픽셀 수 기반으로 계산
                         ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
                             ? existingData.ad_price 
-                            : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
+                            : (data.ad_price !== undefined && data.ad_price !== null && data.ad_price > 0 ? data.ad_price : null),
                         name_ko: data.name_ko || existingData.name_ko || '',
                         name_en: data.name_en || existingData.name_en || existingData.name || '',
                         country: data.country || existingData.country || '',
@@ -2124,21 +2125,53 @@ class BillionaireMap {
     }
 
     // 모든 지역의 광고 가격을 1000달러로 통일
-    setAllRegionsPriceToUniform() {
+    /**
+     * 모든 지역의 가격을 픽셀 수 기반으로 계산하여 설정
+     * 픽셀 1개 = 0.1달러 (PIXEL_PRICE_PER_UNIT)
+     */
+    async setAllRegionsPriceBasedOnPixels() {
         let updatedCount = 0;
-        this.regionData.forEach((regionData, regionId) => {
-            if (regionData.ad_price !== this.uniformAdPrice) {
-                regionData.ad_price = this.uniformAdPrice;
+        const updatePromises = [];
+        
+        for (const [regionId, regionData] of this.regionData.entries()) {
+            // 픽셀 수 기반으로 가격 계산
+            const calculatedPrice = await this.getStartingPriceForRegion(regionId);
+            
+            // 가격이 변경되었거나 설정되지 않은 경우 업데이트
+            if (regionData.ad_price !== calculatedPrice) {
+                regionData.ad_price = calculatedPrice;
                 this.regionData.set(regionId, regionData);
                 updatedCount++;
             }
-        });
+        }
 
         // 지도 소스도 업데이트
         this.updateMapSourcesWithRegionData();
 
-        console.log(`${updatedCount}개 지역의 광고 가격을 ${this.uniformAdPrice}달러로 통일했습니다.`);
+        console.log(`${updatedCount}개 지역의 광고 가격을 픽셀 수 기반으로 계산했습니다. (픽셀당 $${this.PIXEL_PRICE_PER_UNIT})`);
         return updatedCount;
+    }
+    
+    /**
+     * @deprecated - 픽셀 수 기반 가격 계산을 사용하세요 (setAllRegionsPriceBasedOnPixels)
+     * 모든 지역 가격을 통일된 가격으로 설정 (하위 호환성 유지)
+     */
+    setAllRegionsPriceToUniform() {
+        // 픽셀 수 기반 가격 계산으로 대체
+        this.setAllRegionsPriceBasedOnPixels().catch(err => {
+            console.error('[가격 계산 오류]', err);
+            // 오류 발생 시 기본값 사용
+            let updatedCount = 0;
+            this.regionData.forEach((regionData, regionId) => {
+                if (regionData.ad_price !== this.uniformAdPrice) {
+                    regionData.ad_price = this.uniformAdPrice;
+                    this.regionData.set(regionId, regionData);
+                    updatedCount++;
+                }
+            });
+            this.updateMapSourcesWithRegionData();
+            console.log(`${updatedCount}개 지역의 광고 가격을 ${this.uniformAdPrice}달러로 통일했습니다.`);
+        });
     }
 
     // 지도에 로드된 모든 소스에서 지역 데이터 수집
@@ -2242,9 +2275,11 @@ class BillionaireMap {
                             }
                         }
                         
-                        // 여전히 가격이 없으면 기본값 사용
-                        if (regionData.ad_price === null || regionData.ad_price === undefined) {
-                            regionData.ad_price = this.uniformAdPrice || 1000;
+                        // 여전히 가격이 없으면 픽셀 수 기반으로 계산 시도, 실패 시 최소값 사용
+                        if (regionData.ad_price === null || regionData.ad_price === undefined || regionData.ad_price === 0) {
+                            // 픽셀 수 기반 계산은 이미 위에서 시도했으므로, 여기서는 최소값 사용
+                            // (픽셀 그리드가 없는 경우를 대비한 폴백)
+                            regionData.ad_price = 1.0; // 최소 시작가격
                         }
 
                         // Firestore 데이터를 보존했는지 확인
@@ -2313,7 +2348,8 @@ class BillionaireMap {
                             admin_level: regionData.admin_level || '',
                             population: regionData.population || 0,
                             area: regionData.area || 0,
-                            ad_price: regionData.ad_price || this.uniformAdPrice || 1000,
+                            // 픽셀 수 기반 가격 사용 (없으면 최소값)
+                            ad_price: regionData.ad_price && regionData.ad_price > 0 ? regionData.ad_price : 1.0,
                             ad_status: regionData.ad_status || 'available',
                             updatedAt: serverTimestamp()
                         };
@@ -2441,14 +2477,35 @@ class BillionaireMap {
                     mergeCount++;
                 }
                 
-                // 5. 모든 지역 가격을 1000달러로 통일
-                regionData.ad_price = this.uniformAdPrice || 1000;
+                // 5. 모든 지역 가격을 픽셀 수 기반으로 계산
+                // (collectAllRegionsFromMapSources에서 이미 계산되었을 수 있음)
+                if (!regionData.ad_price || regionData.ad_price === 0) {
+                    // 픽셀 수 기반 가격 계산 (비동기이지만 결과를 기다리지 않음)
+                    this.getStartingPriceForRegion(regionId).then(calculatedPrice => {
+                        if (calculatedPrice && calculatedPrice > 0) {
+                            regionData.ad_price = calculatedPrice;
+                            this.regionData.set(regionId, regionData);
+                        }
+                    }).catch(err => {
+                        console.warn(`[가격 계산 실패] ${regionId}:`, err);
+                        // 실패 시 최소값 사용
+                        regionData.ad_price = 1.0;
+                        this.regionData.set(regionId, regionData);
+                    });
+                }
                 this.regionData.set(regionId, regionData);
             });
             
             console.log(`${mergeCount}개 지역의 Firestore 데이터를 병합했습니다. 총 ${this.regionData.size}개 지역이 있습니다.`);
             
-            // 6. 지도 소스 업데이트
+            // 6. 모든 지역 가격을 픽셀 수 기반으로 재계산 (비동기)
+            this.setAllRegionsPriceBasedOnPixels().then(updatedCount => {
+                console.log(`[가격 재계산] ${updatedCount}개 지역의 가격을 픽셀 수 기반으로 업데이트했습니다.`);
+            }).catch(err => {
+                console.error('[가격 재계산 오류]', err);
+            });
+            
+            // 7. 지도 소스 업데이트
             this.updateMapSourcesWithRegionData();
             
             // 7. 모든 지역 데이터를 Firestore에 저장
@@ -16407,7 +16464,7 @@ class BillionaireMap {
     }
     
     // 로그인 성공 시 자동으로 PayPal 버튼 렌더링
-    autoRenderPayPalButtons() {
+    async autoRenderPayPalButtons() {
         if (!this.currentRegion || !this.currentUser) {
             return;
         }
@@ -16419,20 +16476,20 @@ class BillionaireMap {
         
         // 정보 패널이 열려있으면
         if (infoPanel && !infoPanel.classList.contains('hidden')) {
-            this.renderPayPalButtons('paypal-buttons', this.currentRegion);
+            await this.renderPayPalButtons('paypal-buttons', this.currentRegion);
         }
         // 지역 정보 모달이 열려있으면
         else if (regionModal && !regionModal.classList.contains('hidden')) {
-            this.renderPayPalButtons('region-paypal-buttons', this.currentRegion);
+            await this.renderPayPalButtons('region-paypal-buttons', this.currentRegion);
         }
         // 기업 정보 모달이 열려있으면
         else if (companyModal && !companyModal.classList.contains('hidden')) {
-            this.renderPayPalButtons('company-paypal-buttons', this.currentRegion);
+            await this.renderPayPalButtons('company-paypal-buttons', this.currentRegion);
         }
     }
     
     // PayPal 버튼 렌더링
-    renderPayPalButtons(containerId, region) {
+    async renderPayPalButtons(containerId, region) {
         try {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -16446,9 +16503,16 @@ class BillionaireMap {
                 return;
             }
             
-            const amount = (region && typeof region.ad_price === 'number' && region.ad_price > 0)
-                ? region.ad_price
-                : (this.uniformAdPrice || 1000);
+            // 픽셀 수 기반 가격 사용 (없으면 계산)
+            let amount = region?.ad_price;
+            if (!amount || amount <= 0) {
+                const regionId = region.id || region.regionId;
+                if (regionId) {
+                    amount = await this.getStartingPriceForRegion(regionId);
+                } else {
+                    amount = this.uniformAdPrice || 1000; // 폴백
+                }
+            }
             const description = `${region.country} - ${this.getRegionDisplayName(region)} (${region.id})`;
             
             window.paypal.Buttons({
