@@ -25292,57 +25292,82 @@ class BillionaireMap {
         }
         
         try {
-            const { doc, setDoc, collection, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
-            // 픽셀 그리드 메타데이터 저장
-            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
             const pixelCount = pixelGrid.pixels ? pixelGrid.pixels.length : 0;
             const calculatedPrice = this.calculateStartingPriceFromPixels(pixelCount);
             
+            // 성능 최적화: 모든 픽셀 데이터를 하나의 문서에 압축하여 저장
+            // 픽셀 데이터를 압축된 형식으로 변환
+            const compressedPixels = this.compressPixelData(pixelGrid.pixels);
+            
+            // 픽셀 그리드 메타데이터와 픽셀 데이터를 하나의 문서에 저장
+            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
             await setDoc(gridRef, {
                 gridSize: pixelGrid.gridSize,
+                gridHeight: pixelGrid.gridHeight,
                 bbox: pixelGrid.bbox,
                 cellWidth: pixelGrid.cellWidth,
                 cellHeight: pixelGrid.cellHeight,
-                pixelCount: pixelCount, // 픽셀 수 저장
-                calculatedPrice: calculatedPrice, // 계산된 시작가격 저장
+                pixelCount: pixelCount,
+                calculatedPrice: calculatedPrice,
+                // 압축된 픽셀 데이터 (모든 픽셀을 하나의 배열로 저장)
+                pixels: compressedPixels,
+                // 데이터 형식 버전 (새로운 압축 형식)
+                dataFormat: 'compressed_v2',
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             }, { merge: true });
             
-            // 각 픽셀 데이터 저장 (배치 처리)
-            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
-            const batchSize = 500;
-            
-            for (let i = 0; i < pixelGrid.pixels.length; i += batchSize) {
-                const batch = pixelGrid.pixels.slice(i, i + batchSize);
-                const { writeBatch } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                const firestoreBatch = writeBatch(this.firestore);
-                
-                batch.forEach(pixel => {
-                    const pixelRef = doc(pixelsRef, pixel.id);
-                    firestoreBatch.set(pixelRef, {
-                        id: pixel.id,
-                        row: pixel.row,
-                        col: pixel.col,
-                        x: pixel.x,
-                        y: pixel.y,
-                        color: pixel.color || null,
-                        updatedAt: serverTimestamp(),
-                        updatedBy: this.currentUser?.email || 'system'
-                    }, { merge: true });
-                });
-                
-                await firestoreBatch.commit();
-            }
-            
-            console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelGrid.pixels.length}개 픽셀`);
+            console.log(`[픽셀 그리드 저장 완료] ${regionId}: ${pixelGrid.pixels.length}개 픽셀 (압축 형식)`);
         } catch (error) {
             // 권한 오류는 조용히 무시
             if (error.code !== 'permission-denied') {
                 console.error(`[픽셀 그리드 저장 실패] ${regionId}:`, error);
             }
         }
+    }
+    
+    /**
+     * 픽셀 데이터를 압축된 형식으로 변환
+     * 각 픽셀의 필수 정보만 저장하여 데이터 크기 최소화
+     */
+    compressPixelData(pixels) {
+        if (!pixels || pixels.length === 0) return [];
+        
+        return pixels.map(pixel => ({
+            id: pixel.id,
+            r: pixel.row,
+            c: pixel.col,
+            x: pixel.x,
+            y: pixel.y,
+            clr: pixel.color || null // 색상이 null이면 기본값
+        }));
+    }
+    
+    /**
+     * 압축된 픽셀 데이터를 원래 형식으로 복원
+     */
+    decompressPixelData(compressedPixels, gridData) {
+        if (!compressedPixels || compressedPixels.length === 0) return [];
+        
+        const cellWidth = gridData.cellWidth || gridData.cellSize || 0.001;
+        const cellHeight = gridData.cellHeight || gridData.cellSize || 0.001;
+        
+        return compressedPixels.map(p => ({
+            id: p.id,
+            row: p.r,
+            col: p.c,
+            x: p.x,
+            y: p.y,
+            color: p.clr || null,
+            bounds: {
+                minX: p.x - cellWidth / 2,
+                minY: p.y - cellHeight / 2,
+                maxX: p.x + cellWidth / 2,
+                maxY: p.y + cellHeight / 2
+            }
+        }));
     }
     
     /**
@@ -25406,7 +25431,8 @@ class BillionaireMap {
     }
     
     /**
-     * Phase 1: Firestore에서 픽셀 그리드 로드
+     * Phase 1: Firestore에서 픽셀 그리드 로드 (성능 최적화 버전)
+     * 새로운 압축 형식과 기존 개별 문서 형식 모두 지원
      */
     async loadPixelGrid(regionId) {
         if (!this.isFirebaseInitialized || !this.firestore) return null;
@@ -25414,7 +25440,7 @@ class BillionaireMap {
         try {
             const { doc, getDoc, getDocFromCache, collection, getDocs, getDocsFromCache } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
-            // 메타데이터 로드
+            // 메타데이터 로드 (하나의 문서만 읽음 - 매우 빠름!)
             const gridRef = doc(this.firestore, 'pixelGrids', regionId);
             let gridDoc;
             
@@ -25439,54 +25465,63 @@ class BillionaireMap {
             if (!gridDoc.exists()) return null;
             
             const gridData = gridDoc.data();
+            let pixels = [];
             
-            // 픽셀 데이터 로드
-            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
-            let pixelsSnapshot;
-            
-            try {
-                pixelsSnapshot = await getDocs(pixelsRef);
-            } catch (error) {
-                // 오프라인 또는 리소스 고갈 오류인 경우 캐시에서 읽기 시도
-                if (error.code === 'unavailable' || error.code === 'resource-exhausted' || error.message?.includes('offline') || error.message?.includes('Too many outstanding requests')) {
-                    try {
-                        pixelsSnapshot = await getDocsFromCache(pixelsRef);
-                    } catch (cacheError) {
-                        // 캐시에도 없으면 조용히 무시
+            // 새로운 압축 형식 확인 (성능 최적화)
+            if (gridData.dataFormat === 'compressed_v2' && Array.isArray(gridData.pixels)) {
+                // ✅ 새로운 압축 형식: 하나의 문서에 모든 픽셀 데이터 포함 (매우 빠름!)
+                pixels = this.decompressPixelData(gridData.pixels, gridData);
+                console.log(`[픽셀 그리드 로드] ${regionId}: 압축 형식 사용 (${pixels.length}개 픽셀)`);
+            } else {
+                // 기존 형식: 개별 문서에서 로드 (하위 호환성)
+                console.log(`[픽셀 그리드 로드] ${regionId}: 기존 형식 사용 (느릴 수 있음)`);
+                const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+                let pixelsSnapshot;
+                
+                try {
+                    pixelsSnapshot = await getDocs(pixelsRef);
+                } catch (error) {
+                    // 오프라인 또는 리소스 고갈 오류인 경우 캐시에서 읽기 시도
+                    if (error.code === 'unavailable' || error.code === 'resource-exhausted' || error.message?.includes('offline') || error.message?.includes('Too many outstanding requests')) {
+                        try {
+                            pixelsSnapshot = await getDocsFromCache(pixelsRef);
+                        } catch (cacheError) {
+                            // 캐시에도 없으면 조용히 무시
+                            return null;
+                        }
+                    } else {
+                        // 다른 오류는 조용히 무시
                         return null;
                     }
-                } else {
-                    // 다른 오류는 조용히 무시
-                    return null;
                 }
-            }
-            
-            const pixels = [];
-            pixelsSnapshot.forEach(doc => {
-                const data = doc.data();
-                pixels.push({
-                    id: data.id,
-                    row: data.row,
-                    col: data.col,
-                    x: data.x,
-                    y: data.y,
-                    color: data.color || null,
-                    bounds: {
-                        minX: data.x - gridData.cellWidth / 2,
-                        minY: data.y - gridData.cellHeight / 2,
-                        maxX: data.x + gridData.cellWidth / 2,
-                        maxY: data.y + gridData.cellHeight / 2
-                    }
+                
+                pixelsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    pixels.push({
+                        id: data.id,
+                        row: data.row,
+                        col: data.col,
+                        x: data.x,
+                        y: data.y,
+                        color: data.color || null,
+                        bounds: {
+                            minX: data.x - (gridData.cellWidth || 0.001) / 2,
+                            minY: data.y - (gridData.cellHeight || 0.001) / 2,
+                            maxX: data.x + (gridData.cellWidth || 0.001) / 2,
+                            maxY: data.y + (gridData.cellHeight || 0.001) / 2
+                        }
+                    });
                 });
-            });
+            }
             
             return {
                 regionId,
                 gridSize: gridData.gridSize,
+                gridHeight: gridData.gridHeight,
                 bbox: gridData.bbox,
                 pixels,
-                pixelCount: gridData.pixelCount || pixels.length, // 저장된 픽셀 수 또는 실제 픽셀 수
-                calculatedPrice: gridData.calculatedPrice || null, // 계산된 시작가격
+                pixelCount: gridData.pixelCount || pixels.length,
+                calculatedPrice: gridData.calculatedPrice || null,
                 cellWidth: gridData.cellWidth,
                 cellHeight: gridData.cellHeight
             };
