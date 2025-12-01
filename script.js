@@ -1,12 +1,13 @@
 // Mr.Young's Billionaire Homepage - Interactive World Map
-import EventManager from '/utils/EventManager.js';
-import TimerManager from '/utils/TimerManager.js';
-
+// EventManager와 TimerManager는 index.html에서 전역 변수로 로드됨
 class BillionaireMap {
     constructor() {
         // 메모리 관리 유틸리티 초기화
-        this.eventManager = new EventManager();
-        this.timerManager = new TimerManager();
+        // 전역 변수로 로드된 클래스 사용 (ES6 모듈 스코프에서도 접근 가능)
+        const EventManagerClass = window.EventManager || EventManager;
+        const TimerManagerClass = window.TimerManager || TimerManager;
+        this.eventManager = new EventManagerClass();
+        this.timerManager = new TimerManagerClass();
         
         this.map = null;
         this.currentRegion = null;
