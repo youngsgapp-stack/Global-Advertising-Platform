@@ -514,9 +514,14 @@ class AdminDashboard {
                     this.fetchPurchases().then(() => this.render());
                 },
                 (error) => {
-                    console.error('[ADMIN] Purchases 리스너 오류', error);
-                    if (error.code !== 'permission-denied') {
-                        this.showToast('결제 데이터 실시간 업데이트 실패', 'error');
+                    // 권한 오류는 조용히 처리
+                    if (error.code === 'permission-denied') {
+                        console.log('[ADMIN] Purchases 읽기 권한 없음 (정상)');
+                    } else {
+                        console.warn('[ADMIN] Purchases 리스너 오류', error.code || error.message);
+                        if (error.code !== 'permission-denied') {
+                            this.showToast('결제 데이터 실시간 업데이트 실패', 'error');
+                        }
                     }
                 }
             );
@@ -535,9 +540,14 @@ class AdminDashboard {
                     this.fetchReports().then(() => this.render());
                 },
                 (error) => {
-                    console.error('[ADMIN] Reports 리스너 오류', error);
-                    if (error.code !== 'permission-denied') {
-                        this.showToast('신고 데이터 실시간 업데이트 실패', 'error');
+                    // 권한 오류는 조용히 처리
+                    if (error.code === 'permission-denied') {
+                        console.log('[ADMIN] Reports 읽기 권한 없음 (정상)');
+                    } else {
+                        console.warn('[ADMIN] Reports 리스너 오류', error.code || error.message);
+                        if (error.code !== 'permission-denied') {
+                            this.showToast('신고 데이터 실시간 업데이트 실패', 'error');
+                        }
                     }
                 }
             );
@@ -586,7 +596,12 @@ class AdminDashboard {
                     this.fetchAuditLogs().then(() => this.render());
                 },
                 (error) => {
-                    console.error('[ADMIN] Audit Logs 리스너 오류', error);
+                    // 권한 오류는 조용히 처리 (읽기 권한이 없을 수 있음)
+                    if (error.code === 'permission-denied') {
+                        console.log('[ADMIN] Audit Logs 읽기 권한 없음 (정상)');
+                    } else {
+                        console.warn('[ADMIN] Audit Logs 리스너 오류', error.code || error.message);
+                    }
                 }
             );
 
@@ -630,9 +645,11 @@ class AdminDashboard {
     async refreshAll(notify = false) {
         if (!this.isFirebaseInitialized) return;
 
-        // 사용자가 null이면 데이터 갱신 불가
-        if (!this.firebaseAuth?.currentUser) {
-            console.warn('[ADMIN] Firebase Auth 사용자가 없어 데이터를 갱신할 수 없습니다.');
+        // 세션 기반 인증을 사용하므로 Firestore 규칙으로 권한 확인
+        // Firebase Auth currentUser가 없어도 세션이 있으면 진행 가능
+        const storedSession = this.getStoredAdminSession();
+        if (!storedSession || this.isAdminSessionExpired(storedSession)) {
+            console.warn('[ADMIN] 유효한 관리자 세션이 없어 데이터를 갱신할 수 없습니다.');
             return;
         }
 
@@ -1656,34 +1673,60 @@ class AdminDashboard {
             const auctionsRef = collection(this.firestore, 'auctions');
             
             let soldQuery;
-            try {
-                // finalizedAt 필드로 정렬 시도
-                soldQuery = query(
+            let snapshot;
+            
+            // 여러 쿼리 옵션을 순차적으로 시도
+            const queryOptions = [
+                // 옵션 1: finalizedAt으로 정렬 (인덱스 필요)
+                () => query(
                     auctionsRef,
                     where('status', '==', 'sold'),
                     orderBy('finalizedAt', 'desc'),
                     limit(50)
-                );
-            } catch (error) {
-                // finalizedAt 인덱스가 없거나 필드가 없으면 paidAt으로 시도
+                ),
+                // 옵션 2: paidAt으로 정렬
+                () => query(
+                    auctionsRef,
+                    where('status', '==', 'sold'),
+                    orderBy('paidAt', 'desc'),
+                    limit(50)
+                ),
+                // 옵션 3: updatedAt으로 정렬
+                () => query(
+                    auctionsRef,
+                    where('status', '==', 'sold'),
+                    orderBy('updatedAt', 'desc'),
+                    limit(50)
+                ),
+                // 옵션 4: 정렬 없이 필터만
+                () => query(
+                    auctionsRef,
+                    where('status', '==', 'sold'),
+                    limit(50)
+                )
+            ];
+
+            let lastError = null;
+            for (const queryOption of queryOptions) {
                 try {
-                    soldQuery = query(
-                        auctionsRef,
-                        where('status', '==', 'sold'),
-                        orderBy('paidAt', 'desc'),
-                        limit(50)
-                    );
-                } catch (e) {
-                    // 인덱스가 없으면 필터만 적용
-                    soldQuery = query(
-                        auctionsRef,
-                        where('status', '==', 'sold'),
-                        limit(50)
-                    );
+                    soldQuery = queryOption();
+                    snapshot = await getDocs(soldQuery);
+                    break; // 성공하면 루프 종료
+                } catch (error) {
+                    lastError = error;
+                    // 인덱스 오류나 권한 오류인 경우 다음 옵션 시도
+                    if (error.code === 'failed-precondition' || error.code === 'not-found') {
+                        continue;
+                    }
+                    // 다른 오류는 즉시 throw
+                    throw error;
                 }
             }
 
-            const snapshot = await getDocs(soldQuery);
+            // 모든 옵션이 실패한 경우
+            if (!snapshot) {
+                throw lastError || new Error('쿼리 실행 실패');
+            }
             const soldAuctions = [];
 
             snapshot.forEach(doc => {
@@ -1715,7 +1758,18 @@ class AdminDashboard {
 
             return soldAuctions;
         } catch (error) {
+            // 인덱스 오류는 사용자에게 친화적인 메시지로 변환
+            if (error.code === 'failed-precondition' && error.message?.includes('index')) {
+                console.warn('[ADMIN] 완료된 경매 조회를 위한 인덱스가 필요합니다. 인덱스가 생성될 때까지 일부 기능이 제한될 수 있습니다.');
+                // 빈 배열 반환하여 UI가 깨지지 않도록 함
+                return [];
+            }
             console.error('[ADMIN] 완료된 경매 조회 실패', error);
+            // 권한 오류도 빈 배열 반환
+            if (error.code === 'permission-denied') {
+                console.warn('[ADMIN] 완료된 경매 읽기 권한이 없습니다.');
+                return [];
+            }
             throw error;
         }
     }
@@ -1744,7 +1798,7 @@ class AdminDashboard {
             const soldAuctions = await this.fetchSoldAuctions();
 
             if (soldAuctions.length === 0) {
-                listItems.innerHTML = '<li class="empty">완료된 경매가 없습니다.</li>';
+                listItems.innerHTML = '<li class="empty">완료된 경매가 없거나 데이터를 불러올 수 없습니다.<br><small style="color: var(--text-muted);">인덱스가 필요할 수 있습니다.</small></li>';
                 return;
             }
 
