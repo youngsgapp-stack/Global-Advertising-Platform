@@ -8209,14 +8209,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `BRA_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `bra_state_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('brazil', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('brazil', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
@@ -8563,14 +8563,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `MEX_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `mex_state_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('mexico', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('mexico', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
@@ -8751,14 +8751,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `IDN_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `idn_province_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('indonesia', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('indonesia', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
@@ -8909,14 +8909,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `SAU_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `sau_province_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('saudi-arabia', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('saudi-arabia', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
@@ -9172,15 +9172,13 @@ class BillionaireMap {
                                     return;
                                 }
                                 
-                                const baseIdSrc = p.hasc || p.shapeID || rawName || `tur_${idx}`;
-                                let baseId = baseIdSrc.toString().toLowerCase()
-                                    .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                                    .replace(/__+/g, '_')
-                                    .replace(/^_|_$/g, '');
-                                if (!baseId) baseId = `tur_province_${mergedFeatures.length}`;
-                                let finalId = baseId;
+                                // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                                let finalId = this.generateRegionIdentifier('turkey', p, mergedFeatures.length);
                                 let c = 1;
-                                while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                                while (idSet.has(finalId)) {
+                                    finalId = this.generateRegionIdentifier('turkey', { ...p, index: mergedFeatures.length + c }, mergedFeatures.length + c);
+                                    c++;
+                                }
                                 idSet.add(finalId);
                                 
                                 mergedFeatures.push({
@@ -9250,10 +9248,13 @@ class BillionaireMap {
                             return;
                         }
                         
-                        const baseId = groupName.toLowerCase().replace(/[^\w\uAC00-\uD7A3]/g, '_').replace(/__+/g, '_');
-                        let finalId = baseId;
+                        // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                        let finalId = this.generateRegionIdentifier('turkey', { name: groupName }, mergedFeatures.length);
                         let c = 1;
-                        while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                        while (idSet.has(finalId)) {
+                            finalId = this.generateRegionIdentifier('turkey', { name: groupName, index: mergedFeatures.length + c }, mergedFeatures.length + c);
+                            c++;
+                        }
                         idSet.add(finalId);
                         
                         // 지역 데이터 가져오기
@@ -9528,14 +9529,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_2 || p.NAME_1 || p.province || p.district || `Region_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ZAF_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = isDistrictLevel ? `zaf_district_${index}` : `zaf_province_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('south-africa', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('south-africa', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 지구 이름으로 주 찾기
@@ -9984,14 +9985,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ARG_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = `arg_province_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('argentina', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('argentina', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 이름으로 매핑 정보 찾기
@@ -11061,14 +11062,14 @@ class BillionaireMap {
                 data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.NAME_2 || p.province || `Region_${index}`;
-                    const baseIdSrc = p.hasc || p.shapeID || rawName || `ESP_${index}`;
-                    let baseId = baseIdSrc.toString().toLowerCase()
-                        .replace(/[^\w\uAC00-\uD7A3]/g, '_')
-                        .replace(/__+/g, '_')
-                        .replace(/^_|_$/g, '');
-                    if (!baseId) baseId = isProvinceLevel ? `esp_province_${index}` : `esp_community_${index}`;
-                    let finalId = baseId; let c = 1;
-                    while (idSet.has(finalId)) finalId = `${baseId}_${c++}`;
+                    
+                    // generateRegionIdentifier를 사용하여 일관된 ID 형식 생성
+                    let finalId = this.generateRegionIdentifier('spain', p, index);
+                    let c = 1;
+                    while (idSet.has(finalId)) {
+                        finalId = this.generateRegionIdentifier('spain', { ...p, index: index + c }, index + c);
+                        c++;
+                    }
                     idSet.add(finalId);
                     
                     // 주 이름으로 자치지역 찾기
