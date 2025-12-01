@@ -24094,6 +24094,12 @@ class BillionaireMap {
     async highlightRegionPixelGrid(regionId) {
         if (!this.map) return;
         
+        // pixel-grids 소스가 없으면 먼저 생성
+        if (!this.map.getSource('pixel-grids')) {
+            console.log('[픽셀 그리드] 소스가 없어서 초기화합니다.');
+            await this.setupPixelGridLayer({ type: 'FeatureCollection', features: [] });
+        }
+        
         // 해당 지역의 픽셀 그리드 로드
         let pixelGrid = this.pixelGrids.get(regionId);
         if (!pixelGrid) {
@@ -24113,64 +24119,125 @@ class BillionaireMap {
             }
         }
         
-        if (!pixelGrid) return;
+        if (!pixelGrid) {
+            console.error('[픽셀 그리드] pixelGrid를 찾을 수 없습니다:', regionId);
+            return;
+        }
         
-        // 현재 뷰포트와 줌 레벨 가져오기
-        const bounds = this.map.getBounds();
-        const zoom = this.map.getZoom();
-        const viewport = [
-            bounds.getWest(),
-            bounds.getSouth(),
-            bounds.getEast(),
-            bounds.getNorth()
-        ];
-        
-        // 해당 지역의 픽셀만 필터링하여 표시 (뷰포트와 줌 레벨 고려)
-        const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
-            viewport,
-            zoom,
-            useViewportFilter: true,
-            maxPixels: 500000
-        });
-        
-        if (regionGeoJson && this.map.getSource('pixel-grids')) {
-            // 기존 소스에 해당 지역 픽셀만 추가/업데이트
-            const currentSource = this.map.getSource('pixel-grids');
-            const currentData = currentSource._data;
+        // 먼저 해당 지역으로 지도 이동 (이동 후 픽셀 표시)
+        if (pixelGrid.bbox) {
+            const { minX, minY, maxX, maxY } = pixelGrid.bbox;
             
-            // 다른 지역의 픽셀은 숨기고, 현재 지역만 표시
-            let filteredFeatures = (currentData && currentData.features) 
-                ? currentData.features.filter(f => 
-                    f.properties && f.properties.regionId === regionId
-                )
-                : [];
+            // 지도 이동 완료 후 픽셀 표시
+            this.map.fitBounds(
+                [[minX, minY], [maxX, maxY]],
+                { padding: 50, duration: 1000 }
+            );
             
-            // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
-            if (regionGeoJson.features && regionGeoJson.features.length > 0) {
-                // 큰 배열의 경우 concat 사용 (스프레드 연산자는 스택 오버플로우 발생 가능)
-                if (regionGeoJson.features.length > 100000) {
-                    // 매우 큰 배열의 경우 concat 사용
-                    filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
+            // 지도 이동 완료 후 픽셀 렌더링
+            const renderPixelsAfterMove = () => {
+                // 현재 뷰포트와 줌 레벨 가져오기
+                const bounds = this.map.getBounds();
+                const zoom = this.map.getZoom();
+                const viewport = [
+                    bounds.getWest(),
+                    bounds.getSouth(),
+                    bounds.getEast(),
+                    bounds.getNorth()
+                ];
+                
+                // 편집 모드일 때는 뷰포트 필터링을 완화 (최소한의 픽셀은 항상 표시)
+                // 해당 지역의 픽셀만 필터링하여 표시 (뷰포트와 줌 레벨 고려)
+                const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
+                    viewport,
+                    zoom,
+                    useViewportFilter: false, // 편집 모드에서는 뷰포트 필터링 비활성화
+                    maxPixels: 1000000 // 편집 모드에서는 더 많은 픽셀 허용
+                });
+                
+                if (regionGeoJson && this.map.getSource('pixel-grids')) {
+                    // 기존 소스에 해당 지역 픽셀만 추가/업데이트
+                    const currentSource = this.map.getSource('pixel-grids');
+                    const currentData = currentSource._data;
+                    
+                    // 다른 지역의 픽셀은 숨기고, 현재 지역만 표시
+                    let filteredFeatures = (currentData && currentData.features) 
+                        ? currentData.features.filter(f => 
+                            f.properties && f.properties.regionId === regionId
+                        )
+                        : [];
+                    
+                    // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
+                    if (regionGeoJson.features && regionGeoJson.features.length > 0) {
+                        console.log(`[픽셀 그리드] ${regionGeoJson.features.length}개 픽셀 렌더링 시작`);
+                        // 큰 배열의 경우 concat 사용 (스프레드 연산자는 스택 오버플로우 발생 가능)
+                        if (regionGeoJson.features.length > 100000) {
+                            // 매우 큰 배열의 경우 concat 사용
+                            filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
+                        } else {
+                            // 작은 배열은 스프레드 사용 (더 빠름)
+                            filteredFeatures.push(...regionGeoJson.features);
+                        }
+                        console.log(`[픽셀 그리드] 총 ${filteredFeatures.length}개 픽셀 표시`);
+                    } else {
+                        console.warn(`[픽셀 그리드] 렌더링할 픽셀이 없습니다.`);
+                    }
+                    
+                    const filteredGeoJson = {
+                        type: 'FeatureCollection',
+                        features: filteredFeatures
+                    };
+                    
+                    currentSource.setData(filteredGeoJson);
                 } else {
-                    // 작은 배열은 스프레드 사용 (더 빠름)
-                    filteredFeatures.push(...regionGeoJson.features);
+                    console.error('[픽셀 그리드] GeoJSON 생성 실패 또는 소스가 없습니다.');
                 }
-            }
-            
-            const filteredGeoJson = {
-                type: 'FeatureCollection',
-                features: filteredFeatures
             };
             
-            currentSource.setData(filteredGeoJson);
+            // 지도 이동 완료 후 픽셀 렌더링
+            this.map.once('moveend', renderPixelsAfterMove);
+        } else {
+            // bbox가 없으면 즉시 픽셀 표시
+            const bounds = this.map.getBounds();
+            const zoom = this.map.getZoom();
+            const viewport = [
+                bounds.getWest(),
+                bounds.getSouth(),
+                bounds.getEast(),
+                bounds.getNorth()
+            ];
             
-            // 해당 지역으로 지도 이동
-            if (pixelGrid.bbox) {
-                const { minX, minY, maxX, maxY } = pixelGrid.bbox;
-                this.map.fitBounds(
-                    [[minX, minY], [maxX, maxY]],
-                    { padding: 50, duration: 1000 }
-                );
+            const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
+                viewport,
+                zoom,
+                useViewportFilter: false,
+                maxPixels: 1000000
+            });
+            
+            if (regionGeoJson && this.map.getSource('pixel-grids')) {
+                const currentSource = this.map.getSource('pixel-grids');
+                const currentData = currentSource._data;
+                
+                let filteredFeatures = (currentData && currentData.features) 
+                    ? currentData.features.filter(f => 
+                        f.properties && f.properties.regionId === regionId
+                    )
+                    : [];
+                
+                if (regionGeoJson.features && regionGeoJson.features.length > 0) {
+                    if (regionGeoJson.features.length > 100000) {
+                        filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
+                    } else {
+                        filteredFeatures.push(...regionGeoJson.features);
+                    }
+                }
+                
+                const filteredGeoJson = {
+                    type: 'FeatureCollection',
+                    features: filteredFeatures
+                };
+                
+                currentSource.setData(filteredGeoJson);
             }
         }
         
@@ -25551,6 +25618,7 @@ class BillionaireMap {
         // 1단계: 뷰포트 필터링 (줌 레벨이 높을 때만 적용)
         if (useViewportFilter && viewport && zoom && zoom >= 6) {
             const [minX, minY, maxX, maxY] = viewport;
+            const filteredBefore = pixelsToProcess.length;
             pixelsToProcess = pixelsToProcess.filter(pixel => {
                 // 픽셀의 중심점 또는 경계가 뷰포트와 겹치는지 확인
                 const centerX = (pixel.bounds.minX + pixel.bounds.maxX) / 2;
@@ -25558,6 +25626,27 @@ class BillionaireMap {
                 return centerX >= minX && centerX <= maxX && 
                        centerY >= minY && centerY <= maxY;
             });
+            
+            // 필터링 후 픽셀이 너무 적으면 (100개 미만) 필터링을 완화
+            if (pixelsToProcess.length < 100 && filteredBefore > 1000) {
+                console.warn(`[픽셀 그리드 최적화] 뷰포트 필터링 결과가 너무 적음 (${pixelsToProcess.length}). 필터링 완화.`);
+                // 경계를 약간 확장하여 더 많은 픽셀 포함
+                const width = maxX - minX;
+                const height = maxY - minY;
+                const expandedViewport = [
+                    minX - width * 0.1,
+                    minY - height * 0.1,
+                    maxX + width * 0.1,
+                    maxY + height * 0.1
+                ];
+                const [expMinX, expMinY, expMaxX, expMaxY] = expandedViewport;
+                pixelsToProcess = pixelGrid.pixels.filter(pixel => {
+                    const centerX = (pixel.bounds.minX + pixel.bounds.maxX) / 2;
+                    const centerY = (pixel.bounds.minY + pixel.bounds.maxY) / 2;
+                    return centerX >= expMinX && centerX <= expMaxX && 
+                           centerY >= expMinY && centerY <= expMaxY;
+                });
+            }
             console.log(`[픽셀 그리드 최적화] 뷰포트 필터링: ${totalPixels} → ${pixelsToProcess.length} (줌: ${zoom.toFixed(1)})`);
         }
         
@@ -25582,6 +25671,17 @@ class BillionaireMap {
             pixelsToProcess = pixelsToProcess.filter((_, index) => index % step === 0);
             console.warn(`[픽셀 그리드 최적화] 샘플링 적용: ${totalPixels} → ${pixelsToProcess.length} (step: ${step})`);
         }
+        
+        // 최소한의 픽셀은 항상 표시 (편집 모드 고려)
+        if (pixelsToProcess.length === 0 && totalPixels > 0) {
+            console.warn(`[픽셀 그리드 최적화] 모든 픽셀이 필터링되었습니다. 최소 100개 픽셀 표시.`);
+            // 최소 100개 픽셀 표시 (균등하게 샘플링)
+            const minPixels = Math.min(100, totalPixels);
+            const minStep = Math.ceil(totalPixels / minPixels);
+            pixelsToProcess = pixelGrid.pixels.filter((_, index) => index % minStep === 0);
+        }
+        
+        console.log(`[픽셀 그리드 최적화] 최종: ${totalPixels} → ${pixelsToProcess.length}개 픽셀`);
         
         // 성능 최적화: 배열 미리 할당
         const features = new Array(pixelsToProcess.length);
