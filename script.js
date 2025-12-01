@@ -23991,7 +23991,12 @@ class BillionaireMap {
         this.pixelEditor.regionId = regionId;
         
         // 해당 행정구역의 픽셀 그리드 로드 및 강조 표시
-        await this.highlightRegionPixelGrid(regionId);
+        try {
+            await this.highlightRegionPixelGrid(regionId);
+        } catch (error) {
+            console.error('[픽셀 스튜디오] 픽셀 그리드 강조 표시 실패:', error);
+            // 오류가 발생해도 편집 모드는 계속 진행
+        }
         
         // 픽셀 그리드 컨트롤 패널 표시
         const pixelGridControls = document.getElementById('pixel-grid-controls');
@@ -24134,9 +24139,11 @@ class BillionaireMap {
             const currentData = currentSource._data;
             
             // 다른 지역의 픽셀은 숨기고, 현재 지역만 표시
-            const filteredFeatures = currentData.features.filter(f => 
-                f.properties.regionId === regionId
-            );
+            let filteredFeatures = (currentData && currentData.features) 
+                ? currentData.features.filter(f => 
+                    f.properties && f.properties.regionId === regionId
+                )
+                : [];
             
             // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
             if (regionGeoJson.features && regionGeoJson.features.length > 0) {
@@ -24216,9 +24223,11 @@ class BillionaireMap {
         const currentData = currentSource._data;
         
         // 다른 지역의 픽셀은 유지하고, 현재 지역만 업데이트
-        const filteredFeatures = currentData.features.filter(f => 
-            f.properties.regionId !== regionId
-        );
+        let filteredFeatures = (currentData && currentData.features)
+            ? currentData.features.filter(f => 
+                f.properties && f.properties.regionId !== regionId
+            )
+            : [];
         
         // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
         if (regionGeoJson.features && regionGeoJson.features.length > 0) {
