@@ -2173,10 +2173,41 @@ class BillionaireMap {
                             // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용, 없으면 계산
                             population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null && props.population > 0 ? props.population : 0),
                             area: calculatedArea, // 계산된 면적 사용
-                            // 가격은 기존 데이터 우선, 없으면 GeoJSON, 없으면 기본값
-                            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : this.uniformAdPrice || 1000),
+                            // 가격은 기존 데이터 우선, 없으면 픽셀 수 기반으로 계산, 없으면 기본값
+                            ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : null), // null로 설정하여 나중에 픽셀 수 기반으로 계산
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
                         };
+                        
+                        // 가격이 없으면 픽셀 수 기반으로 계산 (비동기, 결과 기다리지 않음)
+                        if (regionData.ad_price === null && calculatedArea > 0) {
+                            // 픽셀 그리드가 없으면 생성 시도
+                            if (!this.pixelGrids.has(regionId)) {
+                                try {
+                                    const pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                                    if (pixelGrid && pixelGrid.pixelCount) {
+                                        const calculatedPrice = this.calculateStartingPriceFromPixels(pixelGrid.pixelCount);
+                                        regionData.ad_price = calculatedPrice;
+                                        // 픽셀 그리드 저장 (비동기, 결과 기다리지 않음)
+                                        this.savePixelGrid(regionId, pixelGrid).catch(err => {
+                                            console.warn(`[가격 계산] 픽셀 그리드 저장 실패 (무시):`, err);
+                                        });
+                                    }
+                                } catch (err) {
+                                    console.warn(`[가격 계산] 픽셀 그리드 생성 실패:`, err);
+                                }
+                            } else {
+                                // 이미 픽셀 그리드가 있으면 가격 계산
+                                const pixelGrid = this.pixelGrids.get(regionId);
+                                if (pixelGrid && pixelGrid.pixelCount) {
+                                    regionData.ad_price = this.calculateStartingPriceFromPixels(pixelGrid.pixelCount);
+                                }
+                            }
+                        }
+                        
+                        // 여전히 가격이 없으면 기본값 사용
+                        if (regionData.ad_price === null || regionData.ad_price === undefined) {
+                            regionData.ad_price = this.uniformAdPrice || 1000;
+                        }
 
                         // Firestore 데이터를 보존했는지 확인
                         if (firestorePopulation !== null || firestoreArea !== null) {
@@ -10534,8 +10565,17 @@ class BillionaireMap {
                     }
                     idSet.add(finalId);
 
-                    const population = meta?.population ?? p.population ?? (Math.floor(Math.random() * 500000) + 200000);
-                    const area = meta?.area ?? p.area ?? (Math.floor(Math.random() * 5000) + 2000);
+                    let population = meta?.population ?? (p.population && p.population > 0 ? p.population : 0);
+                    let area = meta?.area ?? (p.area && p.area > 0 ? p.area : 0);
+                    
+                    // 면적이 없거나 0이면 실제 polygon 면적 계산
+                    if (area <= 0 && feature.geometry) {
+                        area = this.calculatePolygonArea(feature);
+                        if (area > 0) {
+                            console.log(`[${countryNameKo} 면적 계산] ${rawName} (${finalId}): ${area.toFixed(2)} km²`);
+                        }
+                    }
+                    
                     const englishName = meta?.name_en || rawName;
                     const localName = meta?.name_local || rawName;
 
@@ -10922,16 +10962,24 @@ class BillionaireMap {
                     if (isProvinceLevel && communityData) {
                         // 자치지역의 총 인구/면적을 주 수로 나누어 평균 계산
                         const provinceCount = communityData.provinces.length;
-                        population = p.population || Math.floor(communityData.population / provinceCount);
-                        area = p.area || Math.floor(communityData.area / provinceCount);
+                        population = p.population && p.population > 0 ? p.population : Math.floor(communityData.population / provinceCount);
+                        area = p.area && p.area > 0 ? p.area : Math.floor(communityData.area / provinceCount);
                     } else if (!isProvinceLevel && communityData) {
                         // 자치지역 레벨 데이터인 경우
-                        population = p.population || communityData.population;
-                        area = p.area || communityData.area;
+                        population = p.population && p.population > 0 ? p.population : communityData.population;
+                        area = p.area && p.area > 0 ? p.area : communityData.area;
                     } else {
-                        // 기본값
-                        population = p.population || Math.floor(Math.random() * (isProvinceLevel ? 2000000 : 8000000)) + (isProvinceLevel ? 100000 : 500000);
-                        area = p.area || Math.floor(Math.random() * (isProvinceLevel ? 50000 : 200000)) + (isProvinceLevel ? 5000 : 30000);
+                        // 기본값 (랜덤 값 제거, 0으로 설정)
+                        population = p.population && p.population > 0 ? p.population : 0;
+                        area = p.area && p.area > 0 ? p.area : 0;
+                    }
+                    
+                    // 면적이 없거나 0이면 실제 polygon 면적 계산
+                    if (area <= 0 && feature.geometry) {
+                        area = this.calculatePolygonArea(feature);
+                        if (area > 0) {
+                            console.log(`[스페인 면적 계산] ${rawName} (${finalId}): ${area.toFixed(2)} km²`);
+                        }
                     }
                     
                     feature.properties = {
@@ -11291,8 +11339,16 @@ class BillionaireMap {
                     }
                     
                     // 주 정보를 기반으로 인구와 면적 설정
-                    const population = provinceData ? provinceData.population : (p.population || Math.floor(Math.random() * 3000000) + 300000);
-                    const area = provinceData ? provinceData.area : (p.area || Math.floor(Math.random() * 5000) + 1000);
+                    let population = provinceData ? provinceData.population : (p.population && p.population > 0 ? p.population : 0);
+                    let area = provinceData ? provinceData.area : (p.area && p.area > 0 ? p.area : 0);
+                    
+                    // 면적이 없거나 0이면 실제 polygon 면적 계산
+                    if (area <= 0 && feature.geometry) {
+                        area = this.calculatePolygonArea(feature);
+                        if (area > 0) {
+                            console.log(`[네덜란드 면적 계산] ${rawName} (${finalId}): ${area.toFixed(2)} km²`);
+                        }
+                    }
                     
                     feature.properties = {
                         ...p,
@@ -11645,8 +11701,16 @@ class BillionaireMap {
                     }
                     
                     // 주 정보를 기반으로 인구와 면적 설정
-                    const population = voivodeshipData ? voivodeshipData.population : (p.population || Math.floor(Math.random() * 4000000) + 1000000);
-                    const area = voivodeshipData ? voivodeshipData.area : (p.area || Math.floor(Math.random() * 30000) + 10000);
+                    let population = voivodeshipData ? voivodeshipData.population : (p.population && p.population > 0 ? p.population : 0);
+                    let area = voivodeshipData ? voivodeshipData.area : (p.area && p.area > 0 ? p.area : 0);
+                    
+                    // 면적이 없거나 0이면 실제 polygon 면적 계산
+                    if (area <= 0 && feature.geometry) {
+                        area = this.calculatePolygonArea(feature);
+                        if (area > 0) {
+                            console.log(`[폴란드 면적 계산] ${rawName} (${finalId}): ${area.toFixed(2)} km²`);
+                        }
+                    }
                     
                     feature.properties = {
                         ...p,
@@ -24136,14 +24200,27 @@ class BillionaireMap {
         // GeoJSON에 픽셀아트 이미지 ID 추가
         this.addPixelArtToGeoJson(geoJson, pixelArtMap);
         
-        // 레이어에 fill-pattern 적용
+        // 레이어에 fill-pattern 적용 (이미지가 있는 경우에만)
         if (this.map.getLayer('regions-fill')) {
-            this.map.setPaintProperty('regions-fill', 'fill-pattern', [
-                'case',
-                ['has', 'pixelArtImageId'],
-                ['get', 'pixelArtImageId'],
-                null
-            ]);
+            // 픽셀아트 이미지가 있는 지역이 있는지 확인
+            const hasPixelArt = Object.keys(pixelArtMap).length > 0;
+            
+            if (hasPixelArt) {
+                // 이미지가 있는 경우에만 fill-pattern 설정
+                this.map.setPaintProperty('regions-fill', 'fill-pattern', [
+                    'case',
+                    ['has', 'pixelArtImageId'],
+                    ['get', 'pixelArtImageId'],
+                    '' // null 대신 빈 문자열 사용
+                ]);
+            } else {
+                // 이미지가 없으면 fill-pattern 제거
+                try {
+                    this.map.setPaintProperty('regions-fill', 'fill-pattern', null);
+                } catch (e) {
+                    // 이미 null이면 무시
+                }
+            }
         }
     }
     
