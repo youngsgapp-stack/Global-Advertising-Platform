@@ -3197,6 +3197,28 @@ class BillionaireMap {
         return new Promise(resolve => setTimeout(resolve, delay));
     }
     
+    /**
+     * 예상 가능한 에러인지 확인하는 헬퍼 함수
+     * 예상 가능한 에러는 조용히 처리 (마지막 시도에서만 경고)
+     */
+    isExpectedError(error, isLastAttempt = false) {
+        const message = (error?.message || String(error) || '').toString();
+        return message.includes('CORS') || 
+               message.includes('403') || 
+               message.includes('404') ||
+               message.includes('Failed to fetch') ||
+               message.includes('Git LFS') ||
+               message.includes('HTML response') ||
+               message.includes('Non-JSON response') ||
+               message.includes('Content Security Policy') ||
+               message.includes('CSP') ||
+               message.includes('refused to connect') ||
+               message.includes('Unexpected token') ||
+               message.includes('is not valid JSON') ||
+               message.includes('ERR_NAME_NOT_RESOLVED') ||
+               message.includes('ERR_FAILED');
+    }
+
     async fetchGeoJsonWithFallback(countryKey, {
         urls = [],
         localPath = null,
@@ -3298,20 +3320,11 @@ class BillionaireMap {
                 throw new Error('Invalid GeoJSON structure');
             } catch (error) {
                 lastError = error;
-                // CORS나 404 같은 예상 가능한 오류는 조용히 처리 (마지막 후보만 경고)
-                const message = error.message || '';
-                const isExpectedError = message.includes('CORS') || 
-                                       message.includes('403') || 
-                                       message.includes('404') ||
-                                       message.includes('Failed to fetch') ||
-                                       message.includes('Git LFS') ||
-                                       message.includes('HTML response') ||
-                                       message.includes('Non-JSON response') ||
-                                       message.includes('Content Security Policy') ||
-                                       message.includes('CSP') ||
-                                       message.includes('refused to connect');
-                if (!isExpectedError || urls.indexOf(targetUrl) === urls.length - 1) {
+                // 예상 가능한 오류는 조용히 처리 (마지막 후보만 경고)
+                const isLastUrl = urls.indexOf(targetUrl) === urls.length - 1;
+                if (!this.isExpectedError(error) || isLastUrl) {
                     // 마지막 시도거나 예상치 못한 오류만 경고 로그
+                    const message = error.message || '';
                     console.warn(`[${countryKey}] Failed loading from ${targetUrl}`, message);
                 }
                 attempt += 1;
@@ -5848,7 +5861,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Russia] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Russia] Failed loading from', url, e);
+                        }
                     }
                 }
                 // 로컬 폴백
@@ -6465,7 +6482,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Canada] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Canada] Failed loading from', url, e);
+                        }
                     }
                 }
                 // 로컬 폴백
@@ -6675,7 +6696,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Germany] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Germany] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Germany dataset available');
@@ -6873,7 +6898,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[UK] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[UK] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No UK dataset available');
@@ -7256,7 +7285,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[France] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[France] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No France dataset available');
@@ -7644,7 +7677,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Italy] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Italy] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Italy dataset available');
@@ -8090,7 +8127,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Brazil] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Brazil] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Brazil dataset available');
@@ -8266,7 +8307,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Australia] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Australia] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Australia dataset available');
@@ -8423,7 +8468,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Mexico] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Mexico] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Mexico dataset available');
@@ -8612,7 +8661,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Indonesia] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Indonesia] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Indonesia dataset available');
@@ -8789,7 +8842,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Saudi Arabia] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Saudi Arabia] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Saudi Arabia dataset available');
@@ -8943,7 +9000,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Turkey] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Turkey] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Turkey dataset available');
@@ -9404,7 +9465,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[South Africa] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[South Africa] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No South Africa dataset available');
@@ -9872,7 +9937,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Argentina] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Argentina] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Argentina dataset available');
@@ -10377,7 +10446,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn(`[${countryName}] Failed loading from`, url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn(`[${countryName}] Failed loading from`, url, e);
+                        }
                     }
                 }
                 if (!geoJsonData) throw lastError || new Error(`No ${countryName} dataset available`);
@@ -10511,7 +10584,11 @@ class BillionaireMap {
                 lastError = new Error('Invalid data shape');
             } catch (error) {
                 lastError = error;
-                console.warn(`[${countryName}] Failed loading from`, url, error);
+                // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                const isLastUrl = urls.indexOf(url) === urls.length - 1;
+                if (!this.isExpectedError(error) || isLastUrl) {
+                    console.warn(`[${countryName}] Failed loading from`, url, error);
+                }
             }
         }
 
@@ -10908,7 +10985,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Spain] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Spain] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Spain dataset available');
@@ -11310,7 +11391,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Netherlands] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Netherlands] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Netherlands dataset available');
@@ -11669,7 +11754,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Poland] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Poland] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Poland dataset available');
@@ -12010,7 +12099,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Belgium] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Belgium] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Belgium dataset available');
@@ -12273,7 +12366,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Sweden] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Sweden] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Sweden dataset available');
@@ -12500,7 +12597,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Austria] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Austria] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Austria dataset available');
@@ -12828,7 +12929,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Denmark] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Denmark] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Denmark dataset available');
@@ -12997,7 +13102,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Finland] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Finland] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Finland dataset available');
@@ -13218,7 +13327,11 @@ class BillionaireMap {
                         lastError = new Error('Invalid data shape');
                     } catch (e) {
                         lastError = e;
-                        console.warn('[Ireland] Failed loading from', url, e);
+                        // 예상 가능한 에러는 조용히 처리 (마지막 URL에서만 경고)
+                        const isLastUrl = candidateUrls.indexOf(url) === candidateUrls.length - 1;
+                        if (!this.isExpectedError(e) || isLastUrl) {
+                            console.warn('[Ireland] Failed loading from', url, e);
+                        }
                     }
                 }
                 if (!data) throw lastError || new Error('No Ireland dataset available');
