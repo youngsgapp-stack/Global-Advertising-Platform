@@ -3101,6 +3101,33 @@ class BillionaireMap {
         return preparedData;
     }
     
+    // loadGeoJsonWithCache 반환 이후에 regionData에 저장하는 헬퍼 함수
+    saveRegionDataFromGeoJson(geoJsonData) {
+        if (!geoJsonData || !geoJsonData.features) {
+            return;
+        }
+        
+        geoJsonData.features.forEach((feature) => {
+            if (feature && feature.properties && feature.properties.id) {
+                const finalId = feature.properties.id;
+                // 이미 저장된 데이터가 있으면 업데이트, 없으면 새로 저장
+                if (!this.regionData.has(finalId)) {
+                    this.regionData.set(finalId, feature.properties);
+                } else {
+                    // 기존 데이터와 병합 (인구/면적 정보 보존)
+                    const existing = this.regionData.get(finalId);
+                    this.regionData.set(finalId, {
+                        ...existing,
+                        ...feature.properties,
+                        // 인구/면적 정보는 feature.properties에 있으면 우선 사용
+                        population: feature.properties.population || existing.population || 0,
+                        area: feature.properties.area || existing.area || 0
+                    });
+                }
+            }
+        });
+    }
+    
     normalizeGeoJsonPayload(payload) {
         if (!payload) return null;
         if (payload.type === 'FeatureCollection' && Array.isArray(payload.features)) {
@@ -8264,11 +8291,14 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8618,11 +8648,14 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -9288,7 +9321,9 @@ class BillionaireMap {
                             }
                         });
                         
-                        this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
+                        };
+                        
+                        // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                     });
                     
                     console.log(`[Turkey] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${data.features.length}개)`);
@@ -9333,12 +9368,15 @@ class BillionaireMap {
                             border_color: '#ffffff',
                             border_width: 1
                         };
-                        this.regionData.set(finalId, feature.properties);
+                        // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                     });
                 }
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -11158,13 +11196,16 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 // 그룹화된 지역 목록 출력
                 this.displaySpainGroupedRegions();
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
