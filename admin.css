@@ -323,6 +323,58 @@ tbody tr:last-child td {
     background: rgba(255, 152, 0, 0.25);
 }
 
+.admin-action-btn.danger {
+    background: rgba(255, 107, 107, 0.15);
+    border-color: rgba(255, 107, 107, 0.4);
+    color: var(--danger);
+}
+
+.admin-action-btn.danger:hover {
+    background: rgba(255, 107, 107, 0.25);
+    border-color: rgba(255, 107, 107, 0.6);
+}
+
+.admin-action-group {
+    margin-bottom: 24px;
+}
+
+.admin-action-group h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+}
+
+.admin-action-group h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 12px 0;
+}
+
+.admin-description {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0 0 16px 0;
+    line-height: 1.5;
+}
+
+.admin-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.sold-auctions-list {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.sold-auctions-list.hidden {
+    display: none;
+}
+
 .status-badge {
     display: inline-flex;
     align-items: center;

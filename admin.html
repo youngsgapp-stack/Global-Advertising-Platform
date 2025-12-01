@@ -21,8 +21,10 @@
                 <a href="#overview" class="active">📊 운영 현황</a>
                 <a href="#regions-panel">🗺️ 지역 관리</a>
                 <a href="#auctions-panel">🔨 옥션 추적</a>
+                <a href="#auction-management-panel">🔄 경매 관리</a>
                 <a href="#purchases-panel">💸 결제 기록</a>
                 <a href="#reports-panel">🛡️ 모더레이션</a>
+                <a href="#system-management-panel">⚙️ 시스템 관리</a>
                 <a href="#logs-panel">📡 시스템 로그</a>
             </nav>
             <div class="session-summary">
@@ -117,7 +119,10 @@
                             <p class="eyebrow">Auction monitor</p>
                             <h2>진행 중 옥션</h2>
                         </div>
-                        <span class="chip" id="auction-health-chip">-</span>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="ghost-btn small" id="view-sold-auctions-btn">완료된 옥션 보기</button>
+                            <span class="chip" id="auction-health-chip">-</span>
+                        </div>
                     </div>
                     <ul class="item-list" id="auction-list">
                         <li class="empty">옥션 데이터를 불러오는 중입니다...</li>
@@ -170,6 +175,65 @@
                         <ul class="log-list" id="audit-log-list">
                             <li class="empty">감사 로그를 불러오는 중입니다...</li>
                         </ul>
+                    </div>
+                </article>
+            </section>
+
+            <section class="panel-grid">
+                <article class="panel" id="auction-management-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Auction control</p>
+                            <h2>경매 관리</h2>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="admin-action-group">
+                            <h3>경매 리셋</h3>
+                            <p class="admin-description">완료된 경매(sold 상태)를 초기화하여 다시 경매 가능한 상태로 만듭니다.</p>
+                            <div class="admin-actions">
+                                <button class="primary-btn" id="reset-sold-auctions-btn">완료된 경매 일괄 리셋</button>
+                                <button class="secondary-btn" id="view-sold-auctions-detail-btn">완료된 경매 목록 보기</button>
+                            </div>
+                            <div id="sold-auctions-list" class="sold-auctions-list hidden" style="margin-top: 20px;">
+                                <h4>완료된 경매 목록</h4>
+                                <ul class="item-list" id="sold-auctions-list-items">
+                                    <li class="empty">로딩 중...</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="panel" id="system-management-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">System control</p>
+                            <h2>시스템 관리</h2>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="admin-action-group">
+                            <h3>지역 관리</h3>
+                            <div class="admin-actions">
+                                <button class="secondary-btn" id="reset-region-status-btn">특정 지역 상태 리셋</button>
+                                <button class="secondary-btn" id="bulk-update-regions-btn">지역 일괄 업데이트</button>
+                            </div>
+                        </div>
+                        <div class="admin-action-group" style="margin-top: 24px;">
+                            <h3>데이터 관리</h3>
+                            <div class="admin-actions">
+                                <button class="secondary-btn" id="export-all-data-btn">전체 데이터 내보내기</button>
+                                <button class="secondary-btn" id="clear-cache-btn">캐시 초기화</button>
+                            </div>
+                        </div>
+                        <div class="admin-action-group" style="margin-top: 24px;">
+                            <h3>통계 및 분석</h3>
+                            <div class="admin-actions">
+                                <button class="secondary-btn" id="view-detailed-stats-btn">상세 통계 보기</button>
+                                <button class="secondary-btn" id="generate-report-btn">리포트 생성</button>
+                            </div>
+                        </div>
                     </div>
                 </article>
             </section>

@@ -143,6 +143,44 @@ class AdminDashboard {
         document.getElementById('download-region-csv-btn')?.addEventListener('click', () => {
             this.downloadRegionCSV();
         });
+
+        // 경매 리셋 관련 이벤트 리스너
+        document.getElementById('reset-sold-auctions-btn')?.addEventListener('click', () => {
+            this.handleResetSoldAuctions();
+        });
+
+        document.getElementById('view-sold-auctions-detail-btn')?.addEventListener('click', () => {
+            this.toggleSoldAuctionsList();
+        });
+
+        document.getElementById('view-sold-auctions-btn')?.addEventListener('click', () => {
+            this.toggleSoldAuctionsList();
+        });
+
+        // 시스템 관리 관련 이벤트 리스너
+        document.getElementById('reset-region-status-btn')?.addEventListener('click', () => {
+            this.handleResetRegionStatus();
+        });
+
+        document.getElementById('bulk-update-regions-btn')?.addEventListener('click', () => {
+            this.handleBulkUpdateRegions();
+        });
+
+        document.getElementById('export-all-data-btn')?.addEventListener('click', () => {
+            this.handleExportAllData();
+        });
+
+        document.getElementById('clear-cache-btn')?.addEventListener('click', () => {
+            this.handleClearCache();
+        });
+
+        document.getElementById('view-detailed-stats-btn')?.addEventListener('click', () => {
+            this.handleViewDetailedStats();
+        });
+
+        document.getElementById('generate-report-btn')?.addEventListener('click', () => {
+            this.handleGenerateReport();
+        });
     }
 
     getStoredAdminSession() {
@@ -1608,6 +1646,505 @@ class AdminDashboard {
         } catch (error) {
             console.error('[ADMIN] 차순위 승계 실패', error);
             this.showToast(`차순위 승계 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 완료된 경매 목록 조회
+    async fetchSoldAuctions() {
+        try {
+            const { collection, query, where, getDocs, orderBy, limit } = await this.firestoreModulePromise;
+            const auctionsRef = collection(this.firestore, 'auctions');
+            
+            let soldQuery;
+            try {
+                // finalizedAt 필드로 정렬 시도
+                soldQuery = query(
+                    auctionsRef,
+                    where('status', '==', 'sold'),
+                    orderBy('finalizedAt', 'desc'),
+                    limit(50)
+                );
+            } catch (error) {
+                // finalizedAt 인덱스가 없거나 필드가 없으면 paidAt으로 시도
+                try {
+                    soldQuery = query(
+                        auctionsRef,
+                        where('status', '==', 'sold'),
+                        orderBy('paidAt', 'desc'),
+                        limit(50)
+                    );
+                } catch (e) {
+                    // 인덱스가 없으면 필터만 적용
+                    soldQuery = query(
+                        auctionsRef,
+                        where('status', '==', 'sold'),
+                        limit(50)
+                    );
+                }
+            }
+
+            const snapshot = await getDocs(soldQuery);
+            const soldAuctions = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const finalizedAt = data.finalizedAt?.toDate?.() 
+                    || data.paidAt?.toDate?.() 
+                    || data.updatedAt?.toDate?.() 
+                    || null;
+                
+                soldAuctions.push({
+                    id: doc.id,
+                    regionId: data.regionId || doc.id,
+                    regionName: data.regionName || data.regionNameEn || doc.id,
+                    country: data.country || '-',
+                    finalPrice: Number(data.highestBid || data.currentBid || 0),
+                    highestBidder: data.highestBidderEmail || data.highestBidder || '-',
+                    highestBidderId: data.highestBidderId || null,
+                    finalizedAt
+                });
+            });
+
+            // 클라이언트 사이드에서 날짜 기준 정렬 (인덱스가 없는 경우)
+            soldAuctions.sort((a, b) => {
+                if (!a.finalizedAt && !b.finalizedAt) return 0;
+                if (!a.finalizedAt) return 1;
+                if (!b.finalizedAt) return -1;
+                return b.finalizedAt - a.finalizedAt;
+            });
+
+            return soldAuctions;
+        } catch (error) {
+            console.error('[ADMIN] 완료된 경매 조회 실패', error);
+            throw error;
+        }
+    }
+
+    // 완료된 경매 목록 토글
+    async toggleSoldAuctionsList() {
+        const listContainer = document.getElementById('sold-auctions-list');
+        if (!listContainer) return;
+
+        if (listContainer.classList.contains('hidden')) {
+            listContainer.classList.remove('hidden');
+            await this.renderSoldAuctionsList();
+        } else {
+            listContainer.classList.add('hidden');
+        }
+    }
+
+    // 완료된 경매 목록 렌더링
+    async renderSoldAuctionsList() {
+        const listItems = document.getElementById('sold-auctions-list-items');
+        if (!listItems) return;
+
+        listItems.innerHTML = '<li class="empty">로딩 중...</li>';
+
+        try {
+            const soldAuctions = await this.fetchSoldAuctions();
+
+            if (soldAuctions.length === 0) {
+                listItems.innerHTML = '<li class="empty">완료된 경매가 없습니다.</li>';
+                return;
+            }
+
+            listItems.innerHTML = '';
+            soldAuctions.forEach(auction => {
+                const li = document.createElement('li');
+                const finalizedDate = auction.finalizedAt 
+                    ? auction.finalizedAt.toLocaleString('ko-KR')
+                    : '-';
+                
+                li.innerHTML = `
+                    <div class="auction-title">
+                        <span>${this.escape(auction.regionName)}</span>
+                        <strong>${this.formatCurrency(auction.finalPrice)}</strong>
+                        <span class="status-badge status-sold">완료</span>
+                    </div>
+                    <div class="auction-meta">
+                        <span>${this.escape(auction.country)}</span>
+                        <span>${finalizedDate}</span>
+                    </div>
+                    <div class="auction-meta">
+                        <small>구매자: ${this.escape(auction.highestBidder)}</small>
+                    </div>
+                    <div class="auction-actions">
+                        <button class="admin-action-btn danger" data-action="reset-auction" data-auction-id="${auction.id}" data-region-id="${auction.regionId}" title="이 경매 리셋">🔄 리셋</button>
+                    </div>
+                `;
+                listItems.appendChild(li);
+
+                // 리셋 버튼 이벤트 바인딩
+                const resetBtn = li.querySelector('[data-action="reset-auction"]');
+                if (resetBtn) {
+                    resetBtn.addEventListener('click', () => {
+                        this.handleResetSingleAuction(auction);
+                    });
+                }
+            });
+        } catch (error) {
+            console.error('[ADMIN] 완료된 경매 목록 렌더링 실패', error);
+            listItems.innerHTML = '<li class="empty">데이터를 불러오는데 실패했습니다.</li>';
+            this.showToast('완료된 경매 목록을 불러오는데 실패했습니다.', 'error');
+        }
+    }
+
+    // 단일 경매 리셋
+    async handleResetSingleAuction(auction) {
+        if (!confirm(`[${this.escape(auction.regionName)}] 이 경매를 리셋하시겠습니까?\n\n경매 데이터가 삭제되고 지역이 다시 경매 가능한 상태가 됩니다.`)) {
+            return;
+        }
+
+        try {
+            await this.resetAuction(auction.id, auction.regionId);
+            this.showToast('경매가 리셋되었습니다.', 'success');
+            await this.renderSoldAuctionsList();
+            await this.refreshAll();
+        } catch (error) {
+            console.error('[ADMIN] 경매 리셋 실패', error);
+            this.showToast(`경매 리셋 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 완료된 경매 일괄 리셋
+    async handleResetSoldAuctions() {
+        try {
+            const soldAuctions = await this.fetchSoldAuctions();
+            
+            if (soldAuctions.length === 0) {
+                this.showToast('리셋할 완료된 경매가 없습니다.', 'info');
+                return;
+            }
+
+            const count = soldAuctions.length;
+            if (!confirm(`총 ${count}개의 완료된 경매를 리셋하시겠습니까?\n\n모든 경매 데이터가 삭제되고 해당 지역들이 다시 경매 가능한 상태가 됩니다.\n\n이 작업은 되돌릴 수 없습니다.`)) {
+                return;
+            }
+
+            this.showToast(`${count}개의 경매를 리셋하는 중...`, 'info');
+            
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const auction of soldAuctions) {
+                try {
+                    await this.resetAuction(auction.id, auction.regionId);
+                    successCount++;
+                } catch (error) {
+                    console.error(`[ADMIN] 경매 리셋 실패: ${auction.id}`, error);
+                    failCount++;
+                }
+            }
+
+            this.showToast(`리셋 완료: 성공 ${successCount}개, 실패 ${failCount}개`, successCount > 0 ? 'success' : 'error');
+            await this.renderSoldAuctionsList();
+            await this.refreshAll();
+        } catch (error) {
+            console.error('[ADMIN] 일괄 리셋 실패', error);
+            this.showToast(`일괄 리셋 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 경매 리셋 핵심 로직
+    async resetAuction(auctionId, regionId) {
+        const { doc, runTransaction, serverTimestamp } = await this.firestoreModulePromise;
+        const auctionRef = doc(this.firestore, 'auctions', auctionId);
+        const regionRef = doc(this.firestore, 'regions', regionId);
+
+        await runTransaction(this.firestore, async (transaction) => {
+            // 경매 문서 확인
+            const auctionSnap = await transaction.get(auctionRef);
+            if (!auctionSnap.exists()) {
+                throw new Error('경매를 찾을 수 없습니다.');
+            }
+
+            const auctionData = auctionSnap.data();
+            if (auctionData.status !== 'sold') {
+                throw new Error('완료된 경매(sold)만 리셋할 수 있습니다.');
+            }
+
+            // 지역 문서 업데이트 (경매 가능한 상태로)
+            const regionSnap = await transaction.get(regionRef);
+            if (regionSnap.exists()) {
+                transaction.update(regionRef, {
+                    ad_status: 'available',
+                    status: 'available',
+                    ownerId: null,
+                    ownerEmail: null,
+                    purchasedAt: null,
+                    updatedAt: serverTimestamp()
+                });
+            }
+
+            // 경매 문서 삭제 (트랜잭션 내부에서 삭제하면 커밋 시 자동 삭제됨)
+            transaction.delete(auctionRef);
+        });
+
+        // 감사 로그 기록
+        await this.logAdminAction('reset_auction', {
+            auctionId,
+            regionId,
+            previousStatus: 'sold'
+        });
+    }
+
+    // 지역 상태 리셋
+    async handleResetRegionStatus() {
+        const regionId = prompt('리셋할 지역 ID를 입력하세요:');
+        if (!regionId || !regionId.trim()) {
+            return;
+        }
+
+        if (!confirm(`지역 "${regionId}"의 상태를 리셋하시겠습니까?\n\n소유권 정보가 초기화되고 다시 구매 가능한 상태가 됩니다.`)) {
+            return;
+        }
+
+        try {
+            const { doc, runTransaction, serverTimestamp } = await this.firestoreModulePromise;
+            const regionRef = doc(this.firestore, 'regions', regionId.trim());
+
+            await runTransaction(this.firestore, async (transaction) => {
+                const regionSnap = await transaction.get(regionRef);
+                if (!regionSnap.exists()) {
+                    throw new Error('지역을 찾을 수 없습니다.');
+                }
+
+                transaction.update(regionRef, {
+                    ad_status: 'available',
+                    status: 'available',
+                    ownerId: null,
+                    ownerEmail: null,
+                    purchasedAt: null,
+                    updatedAt: serverTimestamp()
+                });
+            });
+
+            this.showToast('지역 상태가 리셋되었습니다.', 'success');
+            await this.refreshAll();
+
+            // 감사 로그 기록
+            await this.logAdminAction('reset_region_status', { regionId: regionId.trim() });
+        } catch (error) {
+            console.error('[ADMIN] 지역 상태 리셋 실패', error);
+            this.showToast(`지역 상태 리셋 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 일괄 지역 업데이트
+    async handleBulkUpdateRegions() {
+        this.showToast('일괄 업데이트 기능은 준비 중입니다.', 'info');
+        // TODO: 일괄 업데이트 UI 구현
+    }
+
+    // 전체 데이터 내보내기
+    async handleExportAllData() {
+        try {
+            this.showToast('데이터를 내보내는 중...', 'info');
+            
+            const { collection, getDocs } = await this.firestoreModulePromise;
+            const data = {
+                regions: [],
+                auctions: [],
+                purchases: [],
+                timestamp: new Date().toISOString()
+            };
+
+            // Regions 내보내기
+            const regionsRef = collection(this.firestore, 'regions');
+            const regionsSnapshot = await getDocs(regionsRef);
+            regionsSnapshot.forEach(doc => {
+                data.regions.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Auctions 내보내기
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const auctionsSnapshot = await getDocs(auctionsRef);
+            auctionsSnapshot.forEach(doc => {
+                data.auctions.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Purchases 내보내기
+            const purchasesRef = collection(this.firestore, 'purchases');
+            const purchasesSnapshot = await getDocs(purchasesRef);
+            purchasesSnapshot.forEach(doc => {
+                data.purchases.push({ id: doc.id, ...doc.data() });
+            });
+
+            // JSON 파일로 다운로드
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `world-ad-export-${Date.now()}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            this.showToast('데이터 내보내기가 완료되었습니다.', 'success');
+        } catch (error) {
+            console.error('[ADMIN] 데이터 내보내기 실패', error);
+            this.showToast(`데이터 내보내기 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 캐시 초기화
+    async handleClearCache() {
+        if (!confirm('모든 캐시를 초기화하시겠습니까?')) {
+            return;
+        }
+
+        try {
+            if (this.cache) {
+                await this.cache.clear();
+            }
+            
+            // localStorage 캐시도 초기화
+            if (typeof window !== 'undefined' && window.localStorage) {
+                const keys = Object.keys(window.localStorage);
+                keys.forEach(key => {
+                    if (key.startsWith('firestore_cache_') || key.startsWith('worldad.cache.')) {
+                        window.localStorage.removeItem(key);
+                    }
+                });
+            }
+
+            this.showToast('캐시가 초기화되었습니다.', 'success');
+            await this.refreshAll(true);
+        } catch (error) {
+            console.error('[ADMIN] 캐시 초기화 실패', error);
+            this.showToast(`캐시 초기화 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 상세 통계 보기
+    async handleViewDetailedStats() {
+        try {
+            const { collection, getDocs, query, orderBy, limit } = await this.firestoreModulePromise;
+            
+            const stats = {
+                totalRegions: 0,
+                occupiedRegions: 0,
+                availableRegions: 0,
+                totalAuctions: 0,
+                activeAuctions: 0,
+                soldAuctions: 0,
+                totalRevenue: 0,
+                totalUsers: 0
+            };
+
+            // Regions 통계
+            const regionsRef = collection(this.firestore, 'regions');
+            const regionsSnapshot = await getDocs(regionsRef);
+            regionsSnapshot.forEach(doc => {
+                const data = doc.data();
+                stats.totalRegions++;
+                const status = (data.ad_status || data.status || '').toLowerCase();
+                if (status === 'occupied') {
+                    stats.occupiedRegions++;
+                } else {
+                    stats.availableRegions++;
+                }
+            });
+
+            // Auctions 통계
+            const auctionsRef = collection(this.firestore, 'auctions');
+            const auctionsSnapshot = await getDocs(auctionsRef);
+            auctionsSnapshot.forEach(doc => {
+                const data = doc.data();
+                stats.totalAuctions++;
+                const status = data.status || '';
+                if (status === 'active' || status === 'live') {
+                    stats.activeAuctions++;
+                } else if (status === 'sold') {
+                    stats.soldAuctions++;
+                }
+            });
+
+            // Purchases 통계
+            const purchasesRef = collection(this.firestore, 'purchases');
+            const purchasesSnapshot = await getDocs(purchasesRef);
+            purchasesSnapshot.forEach(doc => {
+                const data = doc.data();
+                stats.totalRevenue += Number(data.amount || 0);
+            });
+
+            // 통계 표시
+            const statsText = `
+📊 상세 통계
+
+지역:
+- 총 지역: ${stats.totalRegions.toLocaleString()}
+- 점유된 지역: ${stats.occupiedRegions.toLocaleString()}
+- 가용 지역: ${stats.availableRegions.toLocaleString()}
+- 점유율: ${stats.totalRegions > 0 ? ((stats.occupiedRegions / stats.totalRegions) * 100).toFixed(1) : 0}%
+
+경매:
+- 총 경매: ${stats.totalAuctions.toLocaleString()}
+- 진행 중: ${stats.activeAuctions.toLocaleString()}
+- 완료됨: ${stats.soldAuctions.toLocaleString()}
+
+수익:
+- 총 수익: ${this.formatCurrency(stats.totalRevenue)}
+            `.trim();
+
+            alert(statsText);
+        } catch (error) {
+            console.error('[ADMIN] 상세 통계 조회 실패', error);
+            this.showToast(`통계 조회 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 리포트 생성
+    async handleGenerateReport() {
+        try {
+            this.showToast('리포트를 생성하는 중...', 'info');
+            
+            const report = {
+                generatedAt: new Date().toISOString(),
+                summary: this.state.summary,
+                topRegions: this.state.topRegions.slice(0, 10),
+                activeAuctions: this.state.activeAuctions.length,
+                recentPurchases: this.state.recentPurchases.slice(0, 10)
+            };
+
+            const json = JSON.stringify(report, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `world-ad-report-${Date.now()}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            this.showToast('리포트가 생성되었습니다.', 'success');
+        } catch (error) {
+            console.error('[ADMIN] 리포트 생성 실패', error);
+            this.showToast(`리포트 생성 실패: ${error.message}`, 'error');
+        }
+    }
+
+    // 관리자 액션 감사 로그 기록
+    async logAdminAction(action, details = {}) {
+        try {
+            const { collection, addDoc, serverTimestamp } = await this.firestoreModulePromise;
+            const storedSession = this.getStoredAdminSession();
+            
+            await addDoc(collection(this.firestore, 'admin_audit'), {
+                action,
+                actor: {
+                    username: storedSession?.username || 'unknown',
+                    sessionId: storedSession?.sessionId || null
+                },
+                details,
+                context: {
+                    userAgent: navigator.userAgent,
+                    timestamp: Date.now()
+                },
+                createdAt: serverTimestamp()
+            });
+        } catch (error) {
+            console.warn('[ADMIN] 감사 로그 기록 실패', error);
+            // 감사 로그 실패는 치명적이지 않으므로 무시
         }
     }
 }
