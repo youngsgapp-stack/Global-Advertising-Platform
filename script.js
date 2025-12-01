@@ -15181,14 +15181,59 @@ class BillionaireMap {
         }
         
         // 관리자 로그인 모달 닫기
-        document.getElementById('close-admin-login').addEventListener('click', () => {
-            this.hideAdminLoginModal();
-        });
+        const closeAdminLogin = document.getElementById('close-admin-login');
+        if (closeAdminLogin) {
+            closeAdminLogin.addEventListener('click', () => {
+                this.hideAdminLoginModal();
+            });
+        } else {
+            console.error('close-admin-login 요소를 찾을 수 없습니다');
+        }
         
         // 관리자 로그인 제출
-        document.getElementById('admin-login-submit').addEventListener('click', () => {
-            this.handleAdminLogin();
-        });
+        const adminLoginSubmit = document.getElementById('admin-login-submit');
+        if (adminLoginSubmit) {
+            adminLoginSubmit.addEventListener('click', async () => {
+                console.log('[ADMIN] 로그인 버튼 클릭됨');
+                try {
+                    await this.handleAdminLogin();
+                } catch (error) {
+                    console.error('[ADMIN] 로그인 처리 중 예외 발생:', error);
+                    const errorDiv = document.getElementById('login-error');
+                    if (errorDiv) {
+                        errorDiv.classList.remove('hidden');
+                        this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
+                    }
+                    this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
+                }
+            });
+            
+            // Enter 키로도 로그인 가능하도록
+            const adminUsername = document.getElementById('admin-username');
+            const adminPassword = document.getElementById('admin-password');
+            if (adminUsername && adminPassword) {
+                const handleEnterKey = async (e) => {
+                    if (e.key === 'Enter') {
+                        console.log('[ADMIN] Enter 키로 로그인 시도');
+                        try {
+                            await this.handleAdminLogin();
+                        } catch (error) {
+                            console.error('[ADMIN] 로그인 처리 중 예외 발생:', error);
+                            const errorDiv = document.getElementById('login-error');
+                            if (errorDiv) {
+                                errorDiv.classList.remove('hidden');
+                                this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
+                            }
+                            this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
+                        }
+                    }
+                };
+                adminUsername.addEventListener('keypress', handleEnterKey);
+                adminPassword.addEventListener('keypress', handleEnterKey);
+            }
+        } else {
+            console.error('admin-login-submit 요소를 찾을 수 없습니다');
+        }
         
         // 관리자 로그아웃
         const adminLogoutBtn = document.getElementById('admin-logout-btn');
@@ -17881,11 +17926,17 @@ class BillionaireMap {
     // 관리자 로그인 모달 숨기기
     hideAdminLoginModal() {
         const modal = document.getElementById('admin-login-modal');
-        modal.classList.add('hidden');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
         // 입력 필드 초기화
-        document.getElementById('admin-username').value = '';
-        document.getElementById('admin-password').value = '';
-        document.getElementById('login-error').classList.add('hidden');
+        const usernameInput = document.getElementById('admin-username');
+        const passwordInput = document.getElementById('admin-password');
+        const errorDiv = document.getElementById('login-error');
+        
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (errorDiv) errorDiv.classList.add('hidden');
     }
 
     getStoredAdminSession() {
@@ -18067,14 +18118,34 @@ class BillionaireMap {
 
     // 관리자 로그인 처리 (Firestore 기반, Functions 없이)
     async handleAdminLogin() {
-        const username = document.getElementById('admin-username').value;
-        const password = document.getElementById('admin-password').value;
+        console.log('[ADMIN] handleAdminLogin 시작');
+        
+        const usernameInput = document.getElementById('admin-username');
+        const passwordInput = document.getElementById('admin-password');
         const errorDiv = document.getElementById('login-error');
+        
+        if (!usernameInput || !passwordInput) {
+            console.error('[ADMIN] 입력 필드를 찾을 수 없습니다');
+            if (errorDiv) {
+                errorDiv.classList.remove('hidden');
+                this.setSafeHTML(errorDiv, '로그인 폼을 찾을 수 없습니다.');
+            }
+            this.showNotification('로그인 폼을 찾을 수 없습니다.', 'error');
+            return;
+        }
+        
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        
+        console.log('[ADMIN] 입력값 확인:', { username: username ? '입력됨' : '비어있음', password: password ? '입력됨' : '비어있음' });
         
         // 입력값 검증
         if (!username || !password) {
-            errorDiv.classList.remove('hidden');
-            this.setSafeHTML(errorDiv, '사용자명과 비밀번호를 입력해주세요.');
+            console.warn('[ADMIN] 입력값이 비어있습니다');
+            if (errorDiv) {
+                errorDiv.classList.remove('hidden');
+                this.setSafeHTML(errorDiv, '사용자명과 비밀번호를 입력해주세요.');
+            }
             this.showNotification('사용자명과 비밀번호를 입력해주세요.', 'error');
             return;
         }
@@ -18094,16 +18165,23 @@ class BillionaireMap {
         }
         
         try {
+            console.log('[ADMIN] Firebase 초기화 확인 중...');
             if (!this.isFirebaseInitialized || !this.firestore) {
+                console.log('[ADMIN] Firebase 초기화 시작...');
                 await this.initializeFirebase();
+                console.log('[ADMIN] Firebase 초기화 완료');
             }
 
+            console.log('[ADMIN] Firestore 모듈 import 중...');
             // Firestore 모듈식 API import
             const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            console.log('[ADMIN] Firestore 모듈 import 완료');
 
             // Firestore에서 관리자 정보 확인
+            console.log('[ADMIN] Firestore에서 관리자 정보 확인 중...');
             const adminDocRef = doc(this.firestore, 'admin', 'credentials');
             const adminDoc = await getDoc(adminDocRef);
+            console.log('[ADMIN] 관리자 문서 확인 완료:', adminDoc.exists() ? '존재함' : '없음');
             
             const usernameHash = await this.simpleHash(username.trim());
             const passwordHash = await this.simpleHash(password);
@@ -18122,9 +18200,12 @@ class BillionaireMap {
                 storedPasswordHash = adminData.passwordHash || defaultPasswordHash;
             }
 
+            console.log('[ADMIN] 자격증명 검증 중...');
             if (usernameHash !== storedUsernameHash || passwordHash !== storedPasswordHash) {
+                console.warn('[ADMIN] 자격증명 불일치');
                 throw new Error('잘못된 로그인 정보입니다.');
             }
+            console.log('[ADMIN] 자격증명 검증 성공');
 
             // Functions 없이 Firestore에 세션 직접 생성
             console.log('[ADMIN] Firestore 기반 세션 생성 (Functions 없음)');
@@ -18167,21 +18248,35 @@ class BillionaireMap {
             this.persistAdminSession(session);
             this.recordLoginAttempt(identifier, true);
 
+            console.log('[ADMIN] 로그인 성공, 상태 업데이트 중...');
             this.isAdminLoggedIn = true;
+            console.log('[ADMIN] isAdminLoggedIn =', this.isAdminLoggedIn);
+            
             this.hideAdminLoginModal();
+            console.log('[ADMIN] 모달 닫기 완료');
             
             // admin.html로 리다이렉트
+            console.log('[ADMIN] 관리자 페이지로 리다이렉트 준비...');
             this.showNotification('관리자 페이지로 이동합니다...', 'success');
             setTimeout(() => {
+                console.log('[ADMIN] admin.html로 리다이렉트 실행');
                 window.location.href = 'admin.html';
             }, 600);
         } catch (error) {
-            console.error('로그인 처리 중 오류:', error);
+            console.error('[ADMIN] 로그인 처리 중 오류 발생:', error);
+            console.error('[ADMIN] 오류 스택:', error.stack);
             this.recordLoginAttempt(identifier, false);
-            errorDiv.classList.remove('hidden');
-            const message = error?.message || '로그인 처리 중 오류가 발생했습니다.';
-            this.setSafeHTML(errorDiv, message);
-            this.showNotification(message, 'error');
+            if (errorDiv) {
+                errorDiv.classList.remove('hidden');
+                const message = error?.message || '로그인 처리 중 오류가 발생했습니다.';
+                this.setSafeHTML(errorDiv, message);
+                this.showNotification(message, 'error');
+            } else {
+                const message = error?.message || '로그인 처리 중 오류가 발생했습니다.';
+                this.showNotification(message, 'error');
+            }
+            // 에러를 다시 throw하여 호출자가 처리할 수 있도록
+            throw error;
         }
     }
     
