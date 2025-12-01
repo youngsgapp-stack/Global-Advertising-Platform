@@ -9321,8 +9321,6 @@ class BillionaireMap {
                             }
                         });
                         
-                        };
-                        
                         // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                     });
                     
