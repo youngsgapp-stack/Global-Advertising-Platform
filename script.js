@@ -168,8 +168,6 @@ class BillionaireMap {
         this.quadtree = null; // 쿼드트리 인덱스
         this.viewportBounds = null; // 현재 뷰포트 경계
         this.loadedTiles = new Set(); // 로드된 타일 추적
-        this.pendingCountries = []; // 지연 로딩할 국가 목록
-        this.loadedCountries = new Set(); // 로드된 국가 추적
         
         // 모니터링 시스템
         this.monitoring = {
@@ -2818,99 +2816,104 @@ class BillionaireMap {
         
         // 국가별 로드 함수와 캐시 키 매핑
         const countryConfig = [
-            { name: 'USA', key: 'usa', loadFn: () => this.loadWorldData(), priority: 'high' },
-            { name: 'South Korea', key: 'korea', loadFn: () => this.loadKoreaData(), priority: 'low' },
-            { name: 'Japan', key: 'japan', loadFn: () => this.loadJapanData(), priority: 'low' },
-            { name: 'China', key: 'china', loadFn: () => this.loadChinaData(), priority: 'low' },
-            { name: 'Russia', key: 'russia', loadFn: () => this.loadRussiaData(), priority: 'low' },
-            { name: 'India', key: 'india', loadFn: () => this.loadIndiaData(), priority: 'low' },
-            { name: 'Canada', key: 'canada', loadFn: () => this.loadCanadaData(), priority: 'low' },
-            { name: 'Germany', key: 'germany', loadFn: () => this.loadGermanyData(), priority: 'low' },
-            { name: 'United Kingdom', key: 'uk', loadFn: () => this.loadUKData(), priority: 'low' },
-            { name: 'France', key: 'france', loadFn: () => this.loadFranceData(), priority: 'low' },
-            { name: 'Italy', key: 'italy', loadFn: () => this.loadItalyData(), priority: 'low' },
-            { name: 'Brazil', key: 'brazil', loadFn: () => this.loadBrazilData(), priority: 'low' },
-            { name: 'Australia', key: 'australia', loadFn: () => this.loadAustraliaData(), priority: 'low' },
-            { name: 'Mexico', key: 'mexico', loadFn: () => this.loadMexicoData(), priority: 'low' },
-            { name: 'Indonesia', key: 'indonesia', loadFn: () => this.loadIndonesiaData(), priority: 'low' },
-            { name: 'Saudi Arabia', key: 'saudi-arabia', loadFn: () => this.loadSaudiArabiaData(), priority: 'low' },
-            { name: 'Turkey', key: 'turkey', loadFn: () => this.loadTurkeyData(), priority: 'low' },
-            { name: 'South Africa', key: 'south-africa', loadFn: () => this.loadSouthAfricaData(), priority: 'low' },
-            { name: 'Argentina', key: 'argentina', loadFn: () => this.loadArgentinaData(), priority: 'low' },
-            { name: 'European Union', key: 'european-union', loadFn: () => this.loadEuropeanUnionData(), priority: 'low' },
-            { name: 'Spain', key: 'spain', loadFn: () => this.loadSpainData(), priority: 'low' },
-            { name: 'Netherlands', key: 'netherlands', loadFn: () => this.loadNetherlandsData(), priority: 'low' },
-            { name: 'Poland', key: 'poland', loadFn: () => this.loadPolandData(), priority: 'low' },
-            { name: 'Belgium', key: 'belgium', loadFn: () => this.loadBelgiumData(), priority: 'low' },
-            { name: 'Sweden', key: 'sweden', loadFn: () => this.loadSwedenData(), priority: 'low' },
-            { name: 'Austria', key: 'austria', loadFn: () => this.loadAustriaData(), priority: 'low' },
-            { name: 'Denmark', key: 'denmark', loadFn: () => this.loadDenmarkData(), priority: 'low' },
-            { name: 'Finland', key: 'finland', loadFn: () => this.loadFinlandData(), priority: 'low' },
-            { name: 'Ireland', key: 'ireland', loadFn: () => this.loadIrelandData(), priority: 'low' },
-            { name: 'Portugal', key: 'portugal', loadFn: () => this.loadPortugalData(), priority: 'low' },
-            { name: 'Greece', key: 'greece', loadFn: () => this.loadGreeceData(), priority: 'low' },
-            { name: 'Czech Republic', key: 'czech-republic', loadFn: () => this.loadCzechRepublicData(), priority: 'low' },
-            { name: 'Romania', key: 'romania', loadFn: () => this.loadRomaniaData(), priority: 'low' },
-            { name: 'Hungary', key: 'hungary', loadFn: () => this.loadHungaryData(), priority: 'low' },
-            { name: 'Bulgaria', key: 'bulgaria', loadFn: () => this.loadBulgariaData(), priority: 'low' }
+            { name: 'USA', key: 'usa', loadFn: () => this.loadWorldData() },
+            { name: 'South Korea', key: 'korea', loadFn: () => this.loadKoreaData() },
+            { name: 'Japan', key: 'japan', loadFn: () => this.loadJapanData() },
+            { name: 'China', key: 'china', loadFn: () => this.loadChinaData() },
+            { name: 'Russia', key: 'russia', loadFn: () => this.loadRussiaData() },
+            { name: 'India', key: 'india', loadFn: () => this.loadIndiaData() },
+            { name: 'Canada', key: 'canada', loadFn: () => this.loadCanadaData() },
+            { name: 'Germany', key: 'germany', loadFn: () => this.loadGermanyData() },
+            { name: 'United Kingdom', key: 'uk', loadFn: () => this.loadUKData() },
+            { name: 'France', key: 'france', loadFn: () => this.loadFranceData() },
+            { name: 'Italy', key: 'italy', loadFn: () => this.loadItalyData() },
+            { name: 'Brazil', key: 'brazil', loadFn: () => this.loadBrazilData() },
+            { name: 'Australia', key: 'australia', loadFn: () => this.loadAustraliaData() },
+            { name: 'Mexico', key: 'mexico', loadFn: () => this.loadMexicoData() },
+            { name: 'Indonesia', key: 'indonesia', loadFn: () => this.loadIndonesiaData() },
+            { name: 'Saudi Arabia', key: 'saudi-arabia', loadFn: () => this.loadSaudiArabiaData() },
+            { name: 'Turkey', key: 'turkey', loadFn: () => this.loadTurkeyData() },
+            { name: 'South Africa', key: 'south-africa', loadFn: () => this.loadSouthAfricaData() },
+            { name: 'Argentina', key: 'argentina', loadFn: () => this.loadArgentinaData() },
+            { name: 'European Union', key: 'european-union', loadFn: () => this.loadEuropeanUnionData() },
+            { name: 'Spain', key: 'spain', loadFn: () => this.loadSpainData() },
+            { name: 'Netherlands', key: 'netherlands', loadFn: () => this.loadNetherlandsData() },
+            { name: 'Poland', key: 'poland', loadFn: () => this.loadPolandData() },
+            { name: 'Belgium', key: 'belgium', loadFn: () => this.loadBelgiumData() },
+            { name: 'Sweden', key: 'sweden', loadFn: () => this.loadSwedenData() },
+            { name: 'Austria', key: 'austria', loadFn: () => this.loadAustriaData() },
+            { name: 'Denmark', key: 'denmark', loadFn: () => this.loadDenmarkData() },
+            { name: 'Finland', key: 'finland', loadFn: () => this.loadFinlandData() },
+            { name: 'Ireland', key: 'ireland', loadFn: () => this.loadIrelandData() },
+            { name: 'Portugal', key: 'portugal', loadFn: () => this.loadPortugalData() },
+            { name: 'Greece', key: 'greece', loadFn: () => this.loadGreeceData() },
+            { name: 'Czech Republic', key: 'czech-republic', loadFn: () => this.loadCzechRepublicData() },
+            { name: 'Romania', key: 'romania', loadFn: () => this.loadRomaniaData() },
+            { name: 'Hungary', key: 'hungary', loadFn: () => this.loadHungaryData() },
+            { name: 'Bulgaria', key: 'bulgaria', loadFn: () => this.loadBulgariaData() }
         ];
         
-        // 성능 최적화: 우선순위가 높은 국가만 먼저 로드 (USA)
-        const highPriorityCountries = countryConfig.filter(c => c.priority === 'high');
-        const lowPriorityCountries = countryConfig.filter(c => c.priority === 'low');
-        
-        console.log(`[loadAllCountriesForDisplay] 우선순위 높은 국가 ${highPriorityCountries.length}개 먼저 로딩...`);
+        // 모든 국가 데이터를 병렬로 동시에 로드하여 최대한 빠르게 처리
+        console.log(`[loadAllCountriesForDisplay] ${countryConfig.length}개 국가 데이터 동시 로딩 시작...`);
         const startTime = performance.now();
         
-        // 우선순위가 높은 국가만 먼저 로드
-        const loadCountryFeatures = async (config) => {
-            try {
-                await config.loadFn();
+        // Promise.all()을 사용하여 모든 로드 함수를 동시에 시작
+        const loadPromises = countryConfig.map((config) => {
+            // 각 국가 로드 함수를 즉시 시작 (await 없이 Promise 반환)
+            const loadPromise = config.loadFn().catch(error => {
+                console.warn(`[${config.name}] 로드 실패:`, error);
+                return null;
+            });
+            
+            // 로드 완료 후 캐시에서 데이터 가져오기
+            return loadPromise.then(() => {
+                // 캐시에서 GeoJSON 데이터 가져오기
                 const cachedData = this.cachedGeoJsonData[config.key];
                 
                 if (cachedData && cachedData.features && cachedData.features.length > 0) {
+                    // 각 feature에 국가별 색상 적용
                     cachedData.features.forEach(feature => {
                         if (feature.properties) {
+                            // 국가 이름 정규화 (countryColors 키와 일치하도록)
                             const country = feature.properties.country || config.name;
+                            // countryColors에서 정확히 일치하는 색상 찾기
                             let countryColor = this.countryColors[country] || this.countryColors[config.name];
+                            // 여전히 없으면 기본 색상 사용
                             if (!countryColor) {
-                                countryColor = '#4ecdc4';
+                                countryColor = '#4ecdc4'; // 기본 색상
+                                console.warn(`[색상] ${country} 또는 ${config.name}에 대한 색상을 찾을 수 없어 기본 색상 사용`);
                             }
                             feature.properties.country = country;
                             feature.properties.country_color = countryColor;
+                            // 기본 색상도 업데이트
                             feature.properties.color = countryColor;
+                            // 디버깅을 위한 로그 (처음 몇 개만)
+                            if (cachedData.features.indexOf(feature) < 3) {
+                                console.log(`[${config.name}] 색상 설정: ${country} -> ${countryColor}`);
+                            }
                         }
                     });
+                    console.log(`[${config.name}] ${cachedData.features.length}개 행정구역 로드 완료 (색상: ${cachedData.features[0]?.properties?.country_color || 'N/A'})`);
                     return cachedData.features;
                 }
                 return [];
-            } catch (error) {
-                console.warn(`[${config.name}] 로드 실패:`, error);
+            }).catch(error => {
+                console.warn(`[${config.name}] 처리 실패:`, error);
                 return [];
-            }
-        };
-        
-        // 우선순위 높은 국가 먼저 로드
-        const highPriorityPromises = highPriorityCountries.map(config => loadCountryFeatures(config));
-        const highPriorityFeatures = await Promise.all(highPriorityPromises);
-        
-        const initialLoadTime = ((performance.now() - startTime) / 1000).toFixed(2);
-        console.log(`[loadAllCountriesForDisplay] 우선순위 높은 국가 로딩 완료 (${initialLoadTime}초)`);
-        
-        // 우선순위 높은 국가의 features를 먼저 추가
-        highPriorityFeatures.forEach(features => {
-            allFeatures.push(...features);
+            });
         });
         
-        // 나머지 국가는 백그라운드에서 지연 로딩 (사용자가 지도를 이동할 때 필요하면 로드)
-        this.pendingCountries = lowPriorityCountries;
-        // 백그라운드에서 점진적으로 로드 (초기 로딩 후 2초 뒤 시작)
-        setTimeout(() => {
-            this.loadPendingCountriesInBackground();
-        }, 2000);
+        // 모든 국가 데이터 로드가 완료될 때까지 대기 (모든 fetch 요청이 동시에 시작됨)
+        const allLoadedFeatures = await Promise.all(loadPromises);
         
-        // 초기 로딩 완료 후 지도 표시를 위해 우선순위 높은 국가만 먼저 반환
-        const allLoadedFeatures = highPriorityFeatures;
+        const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        const totalFeatures = allLoadedFeatures.reduce((sum, features) => sum + (features?.length || 0), 0);
+        console.log(`[loadAllCountriesForDisplay] 모든 국가 데이터 로딩 완료 (${loadTime}초, ${totalFeatures}개 행정구역)`);
+        
+        // 모든 features를 하나의 배열로 병합
+        allLoadedFeatures.forEach(features => {
+            allFeatures.push(...features);
+        });
         
         // 통합된 GeoJSON 생성
         let mergedGeoJson = {
@@ -2921,7 +2924,7 @@ class BillionaireMap {
         // GeoJSON 최적화 적용 (불필요한 속성 제거)
         mergedGeoJson = this.optimizeGeoJson(mergedGeoJson);
         
-        console.log(`[loadAllCountriesForDisplay] 초기 로딩 완료: ${allFeatures.length}개 행정구역`);
+        console.log(`[loadAllCountriesForDisplay] 총 ${allFeatures.length}개 행정구역 로드 완료`);
         
         // 쿼드트리 인덱스 초기화 (성능 최적화)
         this.initQuadtree(allFeatures);
@@ -2937,10 +2940,11 @@ class BillionaireMap {
         }
         
         // 옥션 상태 정보를 각 feature에 추가 (비동기로 실행, 완료 후 지도 업데이트)
-        // 지도는 먼저 표시하고 옥션 상태는 백그라운드에서 업데이트
+        // 지도는 먼저 표시하고 옥션 상태는 백그라운드에서 업데이트 (성능 최적화)
+        // 초기에는 기본 색상으로 표시하고, 옥션 상태는 나중에 업데이트
         this.enrichFeaturesWithAuctionStatus(allFeatures).then(() => {
             // 옥션 상태 업데이트 후 지도 레이어 색상 업데이트
-            if (this.map.getLayer('regions-fill')) {
+            if (this.map && this.map.getLayer('regions-fill')) {
                 const colorExpression = [
                     'case',
                     ['==', ['get', 'ad_status'], 'occupied'],
@@ -2960,10 +2964,25 @@ class BillionaireMap {
                     ]
                 ];
                 this.map.setPaintProperty('regions-fill', 'fill-color', colorExpression);
-            }
-            // 소스 데이터도 업데이트
-            if (this.map.getSource('world-regions')) {
-                this.map.getSource('world-regions').setData(mergedGeoJson);
+                
+                // 소스 데이터도 업데이트 (배치 업데이트로 성능 최적화)
+                if (this.map.getSource('world-regions')) {
+                    // requestIdleCallback을 사용하여 브라우저가 여유 있을 때 업데이트
+                    if (window.requestIdleCallback) {
+                        window.requestIdleCallback(() => {
+                            if (this.map && this.map.getSource('world-regions')) {
+                                this.map.getSource('world-regions').setData(mergedGeoJson);
+                            }
+                        }, { timeout: 1000 });
+                    } else {
+                        // requestIdleCallback을 지원하지 않는 브라우저는 setTimeout 사용
+                        setTimeout(() => {
+                            if (this.map && this.map.getSource('world-regions')) {
+                                this.map.getSource('world-regions').setData(mergedGeoJson);
+                            }
+                        }, 100);
+                    }
+                }
             }
         }).catch(err => {
             console.warn('[옥션 상태 추가 실패]:', err);
@@ -2992,16 +3011,29 @@ class BillionaireMap {
                 ]
             ];
             
+            // 성능 최적화: 줌 레벨에 따른 동적 렌더링
             this.map.addLayer({
                 id: 'regions-fill',
                 type: 'fill',
                 source: 'world-regions',
                 paint: {
                     'fill-color': colorExpression,
-                    'fill-opacity': 0.7
-                }
+                    'fill-opacity': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 0.5,  // 낮은 줌 레벨에서는 반투명
+                        3, 0.6,
+                        5, 0.7,  // 기본 줌 레벨
+                        10, 0.8  // 높은 줌 레벨에서는 더 불투명
+                    ]
+                },
+                // 성능 최적화: 낮은 줌 레벨에서는 단순화
+                minzoom: 0,
+                maxzoom: 24
             });
             
+            // 경계선 레이어 최적화 (줌 레벨에 따라 표시)
             this.map.addLayer({
                 id: 'regions-border',
                 type: 'line',
@@ -3012,11 +3044,34 @@ class BillionaireMap {
                         'interpolate',
                         ['linear'],
                         ['zoom'],
-                        0, 0.5,
-                        5, 1,
-                        10, 1.5
+                        0, 0.3,  // 낮은 줌 레벨에서는 얇게
+                        3, 0.5,
+                        5, 1,    // 기본 줌 레벨
+                        8, 1.5,
+                        10, 2    // 높은 줌 레벨에서는 두껍게
                     ],
-                    'line-opacity': 0.9
+                    'line-opacity': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 0.3,  // 낮은 줌 레벨에서는 거의 안 보이게
+                        3, 0.5,
+                        5, 0.7,
+                        8, 0.9   // 높은 줌 레벨에서는 선명하게
+                    ]
+                },
+                minzoom: 2,  // 줌 레벨 2 이상에서만 표시 (성능 최적화)
+                maxzoom: 24
+            });
+            
+            // 줌 레벨 변경 시 성능 최적화
+            this.map.on('zoom', () => {
+                const zoom = this.map.getZoom();
+                // 낮은 줌 레벨에서는 경계선 숨김 (성능 향상)
+                if (zoom < 2 && this.map.getLayer('regions-border')) {
+                    this.map.setLayoutProperty('regions-border', 'visibility', 'none');
+                } else if (zoom >= 2 && this.map.getLayer('regions-border')) {
+                    this.map.setLayoutProperty('regions-border', 'visibility', 'visible');
                 }
             });
             
@@ -3069,87 +3124,6 @@ class BillionaireMap {
         }
         
         return mergedGeoJson;
-    }
-    
-    /**
-     * 백그라운드에서 나머지 국가들을 점진적으로 로드
-     */
-    async loadPendingCountriesInBackground() {
-        if (!this.pendingCountries || this.pendingCountries.length === 0) {
-            return;
-        }
-        
-        console.log(`[백그라운드 로딩] ${this.pendingCountries.length}개 국가를 점진적으로 로드 시작...`);
-        
-        // 한 번에 3개씩 로드하여 네트워크 부하 분산
-        const batchSize = 3;
-        for (let i = 0; i < this.pendingCountries.length; i += batchSize) {
-            const batch = this.pendingCountries.slice(i, i + batchSize);
-            
-            const loadCountryFeatures = async (config) => {
-                if (this.loadedCountries.has(config.key)) {
-                    return [];
-                }
-                
-                try {
-                    await config.loadFn();
-                    const cachedData = this.cachedGeoJsonData[config.key];
-                    
-                    if (cachedData && cachedData.features && cachedData.features.length > 0) {
-                        cachedData.features.forEach(feature => {
-                            if (feature.properties) {
-                                const country = feature.properties.country || config.name;
-                                let countryColor = this.countryColors[country] || this.countryColors[config.name];
-                                if (!countryColor) {
-                                    countryColor = '#4ecdc4';
-                                }
-                                feature.properties.country = country;
-                                feature.properties.country_color = countryColor;
-                                feature.properties.color = countryColor;
-                            }
-                        });
-                        this.loadedCountries.add(config.key);
-                        return cachedData.features;
-                    }
-                    return [];
-                } catch (error) {
-                    console.warn(`[${config.name}] 백그라운드 로드 실패:`, error);
-                    return [];
-                }
-            };
-            
-            // 배치 로드
-            const batchPromises = batch.map(config => loadCountryFeatures(config));
-            const batchFeatures = await Promise.all(batchPromises);
-            
-            // 지도에 추가
-            const newFeatures = [];
-            batchFeatures.forEach(features => {
-                newFeatures.push(...features);
-            });
-            
-            if (newFeatures.length > 0 && this.map && this.map.getSource('world-regions')) {
-                const currentSource = this.map.getSource('world-regions');
-                const currentData = currentSource._data;
-                const updatedFeatures = [...currentData.features, ...newFeatures];
-                
-                const updatedGeoJson = {
-                    type: 'FeatureCollection',
-                    features: updatedFeatures
-                };
-                
-                currentSource.setData(updatedGeoJson);
-                console.log(`[백그라운드 로딩] ${newFeatures.length}개 행정구역 추가 완료`);
-            }
-            
-            // 다음 배치 전에 잠시 대기 (네트워크 부하 분산)
-            if (i + batchSize < this.pendingCountries.length) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-        
-        console.log(`[백그라운드 로딩] 모든 국가 로드 완료`);
-        this.pendingCountries = [];
     }
 
     // 사용자 로그인 (이메일/비밀번호)
@@ -23286,7 +23260,7 @@ class BillionaireMap {
     }
     
     setPixelTool(toolName) {
-        const toolButtons = document.querySelectorAll('.tool-btn, .tool-btn-compact');
+        const toolButtons = document.querySelectorAll('.tool-btn');
         toolButtons.forEach(btn => {
             const isActive = btn.dataset.tool === toolName;
             btn.classList.toggle('active', isActive);
@@ -23701,16 +23675,12 @@ class BillionaireMap {
             });
         }
         
-        // 도구 버튼들 (기존 + 간소화된 버튼)
-        const toolButtons = document.querySelectorAll('.tool-btn, .tool-btn-compact');
+        // 도구 버튼들
+        const toolButtons = document.querySelectorAll('.tool-btn');
         toolButtons.forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const toolBtn = e.target.closest('.tool-btn, .tool-btn-compact');
-                if (!toolBtn) return;
-                const tool = toolBtn.dataset.tool;
-                if (tool) {
-                    this.setPixelTool(tool);
-                }
+                const tool = e.target.closest('.tool-btn').dataset.tool;
+                this.setPixelTool(tool);
             });
         });
         
@@ -23739,25 +23709,6 @@ class BillionaireMap {
                 }
             });
         }
-        
-        // 색상 탭 전환
-        const colorTabs = document.querySelectorAll('.color-tab');
-        const colorTabContents = document.querySelectorAll('.color-tab-content');
-        colorTabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                const targetTab = tab.dataset.tab;
-                // 탭 활성화
-                colorTabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                // 콘텐츠 표시
-                colorTabContents.forEach(content => {
-                    content.classList.remove('active');
-                    if (content.dataset.content === targetTab) {
-                        content.classList.add('active');
-                    }
-                });
-            });
-        });
         
         // 색상 프리셋
         const colorPresets = document.querySelectorAll('.color-preset');
@@ -29187,26 +29138,46 @@ class BillionaireMap {
     optimizeGeoJson(geoJson) {
         if (!geoJson || !geoJson.features) return geoJson;
         
-        // 각 feature의 properties 최적화
+        // 각 feature의 properties 최적화 (성능 최적화 강화)
         geoJson.features = geoJson.features.map(feature => {
             if (feature.properties) {
-                // 필수 속성만 유지
+                // 필수 속성만 유지 (메모리 사용량 최소화)
                 const optimizedProps = {
-                    name: feature.properties.name,
-                    id: feature.properties.id,
-                    country: feature.properties.country,
+                    id: feature.properties.id || feature.properties.regionId, // ID는 필수
                 };
                 
-                // 선택적 속성 추가
-                if (feature.properties.adminLevel) optimizedProps.adminLevel = feature.properties.adminLevel;
-                if (feature.properties.population) optimizedProps.population = feature.properties.population;
-                if (feature.properties.area) optimizedProps.area = feature.properties.area;
+                // 이름은 짧게 (최대 50자)
+                if (feature.properties.name) {
+                    optimizedProps.name = String(feature.properties.name).substring(0, 50);
+                }
+                
+                // 국가 정보 (2자 코드로 축약 가능)
+                if (feature.properties.country) {
+                    optimizedProps.country = String(feature.properties.country).substring(0, 30);
+                }
+                
                 // 국가별 색상 정보 유지 (중요!)
                 if (feature.properties.country_color) optimizedProps.country_color = feature.properties.country_color;
                 if (feature.properties.color) optimizedProps.color = feature.properties.color;
-                // 광고 상태 및 옥션 상태 유지
+                
+                // 광고 상태 및 옥션 상태 유지 (짧은 문자열만)
                 if (feature.properties.ad_status) optimizedProps.ad_status = feature.properties.ad_status;
                 if (feature.properties.auction_status) optimizedProps.auction_status = feature.properties.auction_status;
+                
+                // 숫자 데이터는 정수로 변환하여 메모리 절약
+                if (feature.properties.population) {
+                    const pop = parseInt(feature.properties.population);
+                    if (!isNaN(pop) && pop > 0) optimizedProps.population = pop;
+                }
+                if (feature.properties.area) {
+                    const area = parseFloat(feature.properties.area);
+                    if (!isNaN(area) && area > 0) optimizedProps.area = Math.round(area * 100) / 100; // 소수점 2자리
+                }
+                
+                // geometry 좌표 정밀도 감소 (성능 향상)
+                if (feature.geometry && feature.geometry.coordinates) {
+                    feature.geometry = this.simplifyGeometry(feature.geometry);
+                }
                 
                 feature.properties = optimizedProps;
             }
@@ -29214,6 +29185,34 @@ class BillionaireMap {
         });
         
         return geoJson;
+    }
+    
+    /**
+     * Geometry 좌표 정밀도 감소 (성능 최적화)
+     */
+    simplifyGeometry(geometry) {
+        if (!geometry || !geometry.coordinates) return geometry;
+        
+        const precision = 6; // 소수점 6자리로 제한 (약 10cm 정밀도)
+        
+        const simplifyCoords = (coords) => {
+            if (Array.isArray(coords[0])) {
+                return coords.map(coord => simplifyCoords(coord));
+            } else {
+                return coords.map(coord => 
+                    typeof coord === 'number' ? parseFloat(coord.toFixed(precision)) : coord
+                );
+            }
+        };
+        
+        try {
+            const simplified = JSON.parse(JSON.stringify(geometry));
+            simplified.coordinates = simplifyCoords(geometry.coordinates);
+            return simplified;
+        } catch (e) {
+            console.warn('[Geometry 최적화 실패]:', e);
+            return geometry;
+        }
     }
     
     
