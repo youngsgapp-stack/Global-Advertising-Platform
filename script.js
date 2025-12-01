@@ -1,6 +1,6 @@
 // Mr.Young's Billionaire Homepage - Interactive World Map
-import EventManager from './utils/EventManager.js';
-import TimerManager from './utils/TimerManager.js';
+import EventManager from '/utils/EventManager.js';
+import TimerManager from '/utils/TimerManager.js';
 
 class BillionaireMap {
     constructor() {
