@@ -3204,6 +3204,214 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.pixel-studio-sidebar .pixel-control-section.compact {
+    padding: 12px;
+}
+
+/* 간소화된 도구 버튼 */
+.tool-buttons-compact {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tool-btn-compact {
+    flex: 1;
+    min-width: 60px;
+    padding: 10px 8px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.tool-btn-compact .tool-icon {
+    font-size: 1.2rem;
+}
+
+.tool-btn-compact:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+    transform: translateY(-2px);
+}
+
+.tool-btn-compact.active {
+    background: rgba(78, 205, 196, 0.3);
+    border-color: #4ecdc4;
+    box-shadow: 0 0 8px rgba(78, 205, 196, 0.4);
+}
+
+/* 간소화된 색상 선택 */
+.color-picker-compact {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.color-input-main {
+    width: 60px;
+    height: 40px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    background: transparent;
+}
+
+.color-hex-input-compact {
+    flex: 1;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    font-family: monospace;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+}
+
+.color-hex-input-compact:focus {
+    outline: none;
+    border-color: #4ecdc4;
+    box-shadow: 0 0 8px rgba(78, 205, 196, 0.3);
+}
+
+/* 색상 탭 */
+.color-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.color-tab {
+    flex: 1;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.color-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.color-tab.active {
+    background: rgba(78, 205, 196, 0.2);
+    color: #4ecdc4;
+    font-weight: 600;
+}
+
+.color-tab-content {
+    display: none;
+}
+
+.color-tab-content.active {
+    display: block;
+}
+
+.color-presets-compact {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+}
+
+.color-presets-compact .color-preset {
+    width: 28px;
+    height: 28px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.color-presets-compact .color-preset:hover {
+    transform: scale(1.15);
+    border-color: #4ecdc4;
+    box-shadow: 0 0 6px rgba(78, 205, 196, 0.5);
+}
+
+/* 캔버스 크기 간소화 */
+.canvas-size-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.canvas-size-compact label {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.canvas-size-compact input[type="range"] {
+    width: 100%;
+}
+
+/* 액션 버튼 간소화 */
+.action-buttons-compact {
+    display: flex;
+    gap: 8px;
+}
+
+.action-btn-compact {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.action-btn-compact:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+}
+
+.shortcuts-btn-compact {
+    width: 100%;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+}
+
+.shortcuts-btn-compact:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+}
+
+.brand-guide-select-compact {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-top: 8px;
+}
+
 .pixel-control-section h4 {
     color: #4ecdc4;
     margin-bottom: 10px;
@@ -3404,6 +3612,308 @@ body {
     transform: scale(1.2);
     border-color: #4ecdc4;
     box-shadow: 0 0 8px rgba(78, 205, 196, 0.6);
+}
+
+/* 개선된 색상 팔레트 스타일 */
+.color-picker-main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.current-color-display {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.color-preview {
+    width: 50px;
+    height: 50px;
+    border-radius: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.color-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#color-hex-input {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: white;
+    font-family: monospace;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+}
+
+#color-hex-input:focus {
+    outline: none;
+    border-color: #4ecdc4;
+    box-shadow: 0 0 8px rgba(78, 205, 196, 0.3);
+}
+
+#color-rgb-display {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85rem;
+    font-family: monospace;
+}
+
+.color-section {
+    margin-bottom: 16px;
+}
+
+.color-section-label {
+    display: block;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.recent-colors {
+    min-height: 30px;
+}
+
+.color-preset.empty-slot {
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 1.2rem;
+}
+
+.color-preset.empty-slot:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 개선된 도구 버튼 스타일 */
+.tool-btn {
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    width: auto;
+    min-width: 60px;
+    height: auto;
+    min-height: 70px;
+}
+
+.tool-icon {
+    font-size: 1.5rem;
+}
+
+.tool-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.tool-shortcut {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.shortcut-hint {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: normal;
+}
+
+.tool-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.tool-action-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.tool-action-btn:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+}
+
+.tool-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 캔버스 크기 슬라이더 */
+.canvas-size-control {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#pixel-canvas-size-slider {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    -webkit-appearance: none;
+}
+
+#pixel-canvas-size-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #4ecdc4;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+#pixel-canvas-size-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #4ecdc4;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.canvas-size-display {
+    text-align: center;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    font-weight: 600;
+    color: #4ecdc4;
+}
+
+/* 접기/펼치기 섹션 */
+.pixel-control-section.collapsible .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.pixel-control-section.collapsible .section-header h4 {
+    margin: 0;
+}
+
+.collapse-toggle {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+    padding: 4px 8px;
+}
+
+.pixel-control-section.collapsible.collapsed .collapse-toggle {
+    transform: rotate(-90deg);
+}
+
+.pixel-control-section.collapsible.collapsed .section-content {
+    display: none;
+}
+
+.section-content {
+    margin-top: 12px;
+}
+
+/* 단축키 가이드 버튼 */
+.shortcuts-btn {
+    width: 100%;
+    padding: 12px;
+    background: rgba(78, 205, 196, 0.15);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 8px;
+    color: #4ecdc4;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
+.shortcuts-btn:hover {
+    background: rgba(78, 205, 196, 0.25);
+    border-color: #4ecdc4;
+    transform: translateY(-1px);
+}
+
+/* 단축키 가이드 모달 */
+.shortcuts-modal {
+    max-width: 600px;
+}
+
+.shortcuts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+.shortcut-category h3 {
+    margin: 0 0 16px 0;
+    color: #4ecdc4;
+    font-size: 1.1rem;
+}
+
+.shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shortcut-item:last-child {
+    border-bottom: none;
+}
+
+.shortcut-item kbd {
+    display: inline-block;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: #4ecdc4;
+    min-width: 40px;
+    text-align: center;
+}
+
+.shortcut-item span {
+    flex: 1;
+    color: rgba(255, 255, 255, 0.9);
 }
 
 #pixel-canvas-size {

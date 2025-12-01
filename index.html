@@ -889,197 +889,116 @@
                         </div>
                         
                         <div class="pixel-studio-controls">
-                            <div class="pixel-control-section">
-                                <h4>도구 <span class="shortcut-hint">(단축키 표시)</span></h4>
-                                <div class="tool-buttons">
-                                    <button id="pixel-tool-pencil" class="tool-btn active" data-tool="pencil" title="연필 (P)">
+                            <!-- 간소화된 도구 섹션 -->
+                            <div class="pixel-control-section compact">
+                                <div class="tool-buttons-compact">
+                                    <button id="pixel-tool-pencil" class="tool-btn-compact active" data-tool="pencil" title="연필 (P)">
                                         <span class="tool-icon">✏️</span>
                                         <span class="tool-label">연필</span>
-                                        <span class="tool-shortcut">P</span>
                                     </button>
-                                    <button id="pixel-tool-eraser" class="tool-btn" data-tool="eraser" title="지우개 (E)">
+                                    <button id="pixel-tool-eraser" class="tool-btn-compact" data-tool="eraser" title="지우개 (E)">
                                         <span class="tool-icon">🧹</span>
                                         <span class="tool-label">지우개</span>
-                                        <span class="tool-shortcut">E</span>
                                     </button>
-                                    <button id="pixel-tool-fill" class="tool-btn" data-tool="fill" title="채우기 (F)">
+                                    <button id="pixel-tool-fill" class="tool-btn-compact" data-tool="fill" title="채우기 (F)">
                                         <span class="tool-icon">🪣</span>
                                         <span class="tool-label">채우기</span>
-                                        <span class="tool-shortcut">F</span>
                                     </button>
-                                    <button id="pixel-tool-sticker" class="tool-btn" data-tool="sticker" title="스티커 (S)">
-                                        <span class="tool-icon">🌟</span>
-                                        <span class="tool-label">스티커</span>
-                                        <span class="tool-shortcut">S</span>
+                                    <button id="pixel-undo-btn" class="tool-btn-compact" title="실행 취소 (Ctrl+Z)">
+                                        <span>↶</span>
                                     </button>
-                                </div>
-                                <div class="tool-actions">
-                                    <button id="pixel-undo-btn" class="tool-action-btn" title="실행 취소 (Ctrl+Z)">
-                                        <span>↶</span> 실행 취소
-                                    </button>
-                                    <button id="pixel-redo-btn" class="tool-action-btn" title="다시 실행 (Ctrl+Y)">
-                                        <span>↷</span> 다시 실행
+                                    <button id="pixel-redo-btn" class="tool-btn-compact" title="다시 실행 (Ctrl+Y)">
+                                        <span>↷</span>
                                     </button>
                                 </div>
                             </div>
                             
-                            <div class="pixel-control-section">
-                                <h4>색상 선택</h4>
-                                <div class="color-picker-wrapper">
-                                    <div class="color-picker-main">
-                                        <input type="color" id="pixel-color-picker" value="#FF0000">
-                                        <div class="current-color-display">
-                                            <div class="color-preview" id="color-preview" style="background: #FF0000;"></div>
-                                            <div class="color-info">
-                                                <input type="text" id="color-hex-input" value="#FF0000" placeholder="#FF0000" maxlength="7">
-                                                <small id="color-rgb-display">RGB(255, 0, 0)</small>
-                                            </div>
-                                        </div>
+                            <!-- 간소화된 색상 선택 -->
+                            <div class="pixel-control-section compact">
+                                <div class="color-picker-compact">
+                                    <input type="color" id="pixel-color-picker" value="#FF0000" class="color-input-main">
+                                    <input type="text" id="color-hex-input" value="#FF0000" placeholder="#FF0000" maxlength="7" class="color-hex-input-compact">
+                                </div>
+                                <div class="color-tabs">
+                                    <button class="color-tab active" data-tab="basic">기본</button>
+                                    <button class="color-tab" data-tab="recent">최근</button>
+                                    <button class="color-tab" data-tab="more">더보기</button>
+                                </div>
+                                <div class="color-tab-content active" data-content="basic">
+                                    <div class="color-presets-compact">
+                                        <div class="color-preset" data-color="#FF0000" style="background: #FF0000;" title="빨강"></div>
+                                        <div class="color-preset" data-color="#00FF00" style="background: #00FF00;" title="초록"></div>
+                                        <div class="color-preset" data-color="#0000FF" style="background: #0000FF;" title="파랑"></div>
+                                        <div class="color-preset" data-color="#FFFF00" style="background: #FFFF00;" title="노랑"></div>
+                                        <div class="color-preset" data-color="#FF00FF" style="background: #FF00FF;" title="마젠타"></div>
+                                        <div class="color-preset" data-color="#00FFFF" style="background: #00FFFF;" title="시안"></div>
+                                        <div class="color-preset" data-color="#FFFFFF" style="background: #FFFFFF; border: 1px solid #ccc;" title="흰색"></div>
+                                        <div class="color-preset" data-color="#000000" style="background: #000000;" title="검정"></div>
                                     </div>
-                                    
-                                    <!-- 최근 사용한 색상 -->
-                                    <div class="color-section">
-                                        <label class="color-section-label">최근 사용</label>
-                                        <div id="recent-colors" class="color-presets recent-colors">
-                                            <div class="color-preset empty-slot" title="최근 사용한 색상이 없습니다">+</div>
-                                        </div>
+                                </div>
+                                <div class="color-tab-content" data-content="recent">
+                                    <div id="recent-colors" class="color-presets-compact recent-colors">
+                                        <div class="color-preset empty-slot" title="최근 사용한 색상이 없습니다">+</div>
                                     </div>
-                                    
-                                    <!-- 기본 색상 -->
-                                    <div class="color-section">
-                                        <label class="color-section-label">기본 색상</label>
-                                        <div class="color-presets">
-                                            <div class="color-preset" data-color="#FF0000" style="background: #FF0000;" title="빨강">R</div>
-                                            <div class="color-preset" data-color="#00FF00" style="background: #00FF00;" title="초록">G</div>
-                                            <div class="color-preset" data-color="#0000FF" style="background: #0000FF;" title="파랑">B</div>
-                                            <div class="color-preset" data-color="#FFFF00" style="background: #FFFF00;" title="노랑">Y</div>
-                                            <div class="color-preset" data-color="#FF00FF" style="background: #FF00FF;" title="마젠타">M</div>
-                                            <div class="color-preset" data-color="#00FFFF" style="background: #00FFFF;" title="시안">C</div>
-                                            <div class="color-preset" data-color="#FFFFFF" style="background: #FFFFFF; border: 1px solid #ccc;" title="흰색">W</div>
-                                            <div class="color-preset" data-color="#000000" style="background: #000000;" title="검정">K</div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 파스텔 색상 -->
-                                    <div class="color-section">
-                                        <label class="color-section-label">파스텔</label>
-                                        <div class="color-presets">
-                                            <div class="color-preset" data-color="#FFB6C1" style="background: #FFB6C1;" title="연한 핑크"></div>
-                                            <div class="color-preset" data-color="#FFD700" style="background: #FFD700;" title="골드"></div>
-                                            <div class="color-preset" data-color="#98FB98" style="background: #98FB98;" title="연한 초록"></div>
-                                            <div class="color-preset" data-color="#87CEEB" style="background: #87CEEB;" title="하늘색"></div>
-                                            <div class="color-preset" data-color="#DDA0DD" style="background: #DDA0DD;" title="연한 보라"></div>
-                                            <div class="color-preset" data-color="#F0E68C" style="background: #F0E68C;" title="카키"></div>
-                                            <div class="color-preset" data-color="#FFA07A" style="background: #FFA07A;" title="연어색"></div>
-                                            <div class="color-preset" data-color="#20B2AA" style="background: #20B2AA;" title="라이트 시안"></div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 다크 색상 -->
-                                    <div class="color-section">
-                                        <label class="color-section-label">다크</label>
-                                        <div class="color-presets">
-                                            <div class="color-preset" data-color="#8B0000" style="background: #8B0000;" title="다크 레드"></div>
-                                            <div class="color-preset" data-color="#006400" style="background: #006400;" title="다크 그린"></div>
-                                            <div class="color-preset" data-color="#00008B" style="background: #00008B;" title="다크 블루"></div>
-                                            <div class="color-preset" data-color="#4B0082" style="background: #4B0082;" title="인디고"></div>
-                                            <div class="color-preset" data-color="#800080" style="background: #800080;" title="퍼플"></div>
-                                            <div class="color-preset" data-color="#8B4513" style="background: #8B4513;" title="브라운"></div>
-                                            <div class="color-preset" data-color="#2F4F4F" style="background: #2F4F4F;" title="다크 슬레이트"></div>
-                                            <div class="color-preset" data-color="#696969" style="background: #696969;" title="딤 그레이"></div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 브라이트 색상 -->
-                                    <div class="color-section">
-                                        <label class="color-section-label">브라이트</label>
-                                        <div class="color-presets">
-                                            <div class="color-preset" data-color="#FF1493" style="background: #FF1493;" title="딥 핑크"></div>
-                                            <div class="color-preset" data-color="#00FF7F" style="background: #00FF7F;" title="스프링 그린"></div>
-                                            <div class="color-preset" data-color="#00CED1" style="background: #00CED1;" title="다크 터키스"></div>
-                                            <div class="color-preset" data-color="#FF4500" style="background: #FF4500;" title="오렌지 레드"></div>
-                                            <div class="color-preset" data-color="#9370DB" style="background: #9370DB;" title="미디엄 퍼플"></div>
-                                            <div class="color-preset" data-color="#FF69B4" style="background: #FF69B4;" title="핫 핑크"></div>
-                                            <div class="color-preset" data-color="#32CD32" style="background: #32CD32;" title="라임 그린"></div>
-                                            <div class="color-preset" data-color="#1E90FF" style="background: #1E90FF;" title="도저 블루"></div>
-                                        </div>
+                                </div>
+                                <div class="color-tab-content" data-content="more">
+                                    <div class="color-presets-compact">
+                                        <div class="color-preset" data-color="#FFB6C1" style="background: #FFB6C1;" title="연한 핑크"></div>
+                                        <div class="color-preset" data-color="#FFD700" style="background: #FFD700;" title="골드"></div>
+                                        <div class="color-preset" data-color="#98FB98" style="background: #98FB98;" title="연한 초록"></div>
+                                        <div class="color-preset" data-color="#87CEEB" style="background: #87CEEB;" title="하늘색"></div>
+                                        <div class="color-preset" data-color="#DDA0DD" style="background: #DDA0DD;" title="연한 보라"></div>
+                                        <div class="color-preset" data-color="#F0E68C" style="background: #F0E68C;" title="카키"></div>
+                                        <div class="color-preset" data-color="#FFA07A" style="background: #FFA07A;" title="연어색"></div>
+                                        <div class="color-preset" data-color="#20B2AA" style="background: #20B2AA;" title="라이트 시안"></div>
+                                        <div class="color-preset" data-color="#8B0000" style="background: #8B0000;" title="다크 레드"></div>
+                                        <div class="color-preset" data-color="#006400" style="background: #006400;" title="다크 그린"></div>
+                                        <div class="color-preset" data-color="#00008B" style="background: #00008B;" title="다크 블루"></div>
+                                        <div class="color-preset" data-color="#4B0082" style="background: #4B0082;" title="인디고"></div>
+                                        <div class="color-preset" data-color="#FF1493" style="background: #FF1493;" title="딥 핑크"></div>
+                                        <div class="color-preset" data-color="#00FF7F" style="background: #00FF7F;" title="스프링 그린"></div>
+                                        <div class="color-preset" data-color="#00CED1" style="background: #00CED1;" title="다크 터키스"></div>
+                                        <div class="color-preset" data-color="#FF4500" style="background: #FF4500;" title="오렌지 레드"></div>
                                     </div>
                                 </div>
                             </div>
                             
-                            <div class="pixel-control-section">
-                                <h4>캔버스 크기</h4>
-                                <div class="canvas-size-control">
+                            <!-- 캔버스 크기 (간소화) -->
+                            <div class="pixel-control-section compact">
+                                <div class="canvas-size-compact">
+                                    <label>크기: <span id="canvas-size-value">32x32</span></label>
                                     <input type="range" id="pixel-canvas-size-slider" min="16" max="128" step="16" value="32">
-                                    <div class="canvas-size-display">
-                                        <span id="canvas-size-value">32x32</span>
-                                        <select id="pixel-canvas-size" style="display: none;">
-                                            <option value="16">16x16</option>
-                                            <option value="32" selected>32x32</option>
-                                            <option value="64">64x64</option>
-                                            <option value="128">128x128</option>
-                                        </select>
-                                    </div>
                                 </div>
                             </div>
                             
-                            <div class="pixel-control-section collapsible">
-                                <div class="section-header">
-                                    <h4>액션</h4>
-                                    <button class="collapse-toggle">▼</button>
-                                </div>
-                                <div class="section-content">
-                                    <div class="action-buttons">
-                                        <button id="pixel-clear-btn" class="action-btn">전체 지우기</button>
-                                        <button id="pixel-reset-btn" class="action-btn">초기화</button>
-                                    </div>
-                                </div>
-                            </div>
-
+                            <!-- 고급 옵션 (접기/펼치기) -->
                             <div class="pixel-control-section collapsible collapsed">
                                 <div class="section-header">
-                                    <h4>템플릿</h4>
+                                    <h4>고급 옵션</h4>
                                     <button class="collapse-toggle">▼</button>
                                 </div>
                                 <div class="section-content">
-                                    <div id="pixel-template-list" class="template-list empty-state">
-                                        <p>템플릿을 불러오는 중...</p>
+                                    <div class="action-buttons-compact">
+                                        <button id="pixel-clear-btn" class="action-btn-compact">전체 지우기</button>
+                                        <button id="pixel-reset-btn" class="action-btn-compact">초기화</button>
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="pixel-control-section collapsible collapsed">
-                                <div class="section-header">
-                                    <h4>스티커</h4>
-                                    <button class="collapse-toggle">▼</button>
-                                </div>
-                                <div class="section-content">
-                                    <div id="pixel-sticker-list" class="sticker-list empty-state">
-                                        <p>스티커를 불러오는 중...</p>
+                                    <div id="pixel-template-list" class="template-list-compact hidden">
+                                        <label>템플릿:</label>
+                                        <div class="template-list empty-state">
+                                            <p>템플릿을 불러오는 중...</p>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="pixel-control-section collapsible collapsed">
-                                <div class="section-header">
-                                    <h4>브랜딩 가이드</h4>
-                                    <button class="collapse-toggle">▼</button>
-                                </div>
-                                <div class="section-content">
-                                    <select id="pixel-brand-guide-select" class="brand-guide-select">
-                                        <option>로딩 중...</option>
+                                    <div id="pixel-sticker-list" class="sticker-list-compact hidden">
+                                        <label>스티커:</label>
+                                        <div class="sticker-list empty-state">
+                                            <p>스티커를 불러오는 중...</p>
+                                        </div>
+                                    </div>
+                                    <select id="pixel-brand-guide-select" class="brand-guide-select-compact hidden">
+                                        <option>브랜딩 가이드 선택...</option>
                                     </select>
-                                    <p id="pixel-brand-guide-desc" class="brand-guide-desc">
-                                        브랜드 팔레트를 선택하면 컬러 프리셋과 추천 폰트가 자동으로 적용됩니다.
-                                    </p>
-                                    <div id="pixel-brand-swatches" class="brand-swatches empty-state">
-                                        <p>추천 색상을 불러오는 중...</p>
-                                    </div>
+                                    <button id="pixel-shortcuts-btn" class="shortcuts-btn-compact">⌨️ 단축키</button>
                                 </div>
-                            </div>
-                            
-                            <div class="pixel-control-section">
-                                <button id="pixel-shortcuts-btn" class="shortcuts-btn">⌨️ 단축키 가이드</button>
                             </div>
                         </div>
                         
