@@ -1648,10 +1648,17 @@ class BillionaireMap {
             this.initAPIEndpoints();
             this.simplifyMapLayers();
             
-            // 지도 이동 시 뷰포트 기반 로딩 활성화
+            // 지도 이동 시 뷰포트 기반 로딩 활성화 (성능 최적화: 디바운싱 적용)
             if (this.map) {
+                let viewportLoadTimer = null;
                 this.map.on('moveend', () => {
-                    this.loadFeaturesForViewport();
+                    // 디바운싱: 마지막 이벤트 후 300ms 후에만 실행
+                    if (viewportLoadTimer) {
+                        clearTimeout(viewportLoadTimer);
+                    }
+                    viewportLoadTimer = setTimeout(() => {
+                        this.loadFeaturesForViewport();
+                    }, 300);
                 });
             }
             
@@ -15831,8 +15838,8 @@ class BillionaireMap {
                 }
                 
                 // targetStateId도 없으면 에러
-                if (!region || !regionId) {
-                    console.error('픽셀 아트 편집 (region): 지역 정보를 찾을 수 없습니다.', {
+                if (!regionId) {
+                    console.error('픽셀 아트 편집 (region): 지역 ID를 찾을 수 없습니다.', {
                         targetStateId,
                         currentRegion: this.currentRegion,
                         selectedStateId: this.selectedStateId,
@@ -15842,6 +15849,21 @@ class BillionaireMap {
                     return;
                 }
                 
+                // region이 없어도 regionId만 있으면 최소 정보로 생성 (관리자 모드 지원)
+                if (!region) {
+                    console.warn('픽셀 아트 편집: region 객체가 없지만 regionId로 진행:', regionId);
+                    region = {
+                        id: regionId,
+                        name: regionId,
+                        name_ko: regionId,
+                        name_en: regionId,
+                        country: this.currentMapMode || 'Unknown',
+                        ad_status: 'available',
+                        ad_price: 0
+                    };
+                }
+                
+                console.log('픽셀 아트 편집 시작:', { regionId, region, isAdmin: this.isAdminLoggedIn });
                 await this.openPixelStudio(regionId, region);
             });
         }
@@ -23829,11 +23851,22 @@ class BillionaireMap {
      * 픽셀 스튜디오 모달 열기
      */
     async openPixelStudio(regionId, regionData) {
-        // 권한 확인
-        const isOwner = await this.checkRegionOwnership(regionId);
-        if (!isOwner && !this.isAdminLoggedIn) {
-            this.showNotification('이 지역의 소유자만 픽셀 아트를 편집할 수 있습니다.', 'error');
+        if (!regionId) {
+            console.error('[픽셀 스튜디오 열기 실패] regionId가 없습니다.');
+            this.showNotification('지역 정보를 찾을 수 없습니다.', 'error');
             return;
+        }
+        
+        // 관리자는 항상 허용
+        if (this.isAdminLoggedIn) {
+            console.log('[픽셀 스튜디오] 관리자 모드로 열기:', regionId);
+        } else {
+            // 권한 확인 (일반 사용자는 소유자만)
+            const isOwner = await this.checkRegionOwnership(regionId);
+            if (!isOwner) {
+                this.showNotification('이 지역의 소유자만 픽셀 아트를 편집할 수 있습니다.', 'error');
+                return;
+            }
         }
         
         // 픽셀 에디터 초기화
@@ -26343,13 +26376,48 @@ class BillionaireMap {
     updateVisiblePixels() {
         if (!this.map || !this.map.getSource('pixel-grids')) return;
         
+        // 픽셀 그리드가 없으면 즉시 종료
+        if (!this.pixelGrids || this.pixelGrids.size === 0) return;
+        
         const bounds = this.map.getBounds();
         const visibleFeatures = [];
         
-        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링
+        // 성능 최적화: 바운딩 박스 미리 계산
+        const west = bounds.getWest();
+        const east = bounds.getEast();
+        const south = bounds.getSouth();
+        const north = bounds.getNorth();
+        
+        // 경도 경계 처리 (180도 경계 넘어가는 경우)
+        const crossesMeridian = west > east;
+        
+        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링 (최적화된 bounds 체크)
         this.pixelGrids.forEach((pixelGrid, regionId) => {
+            if (!pixelGrid.pixels || pixelGrid.pixels.length === 0) return;
+            
+            // 성능 최적화: 픽셀이 너무 많으면 샘플링 또는 조기 종료
+            let checkedCount = 0;
+            const maxCheck = 10000; // 최대 10,000개만 체크 (성능 제한)
+            
             pixelGrid.pixels.forEach(pixel => {
-                if (bounds.contains([pixel.x, pixel.y])) {
+                if (checkedCount >= maxCheck) return; // 조기 종료
+                
+                const x = pixel.x;
+                const y = pixel.y;
+                
+                // 빠른 바운딩 박스 체크 (bounds.contains()보다 빠름)
+                let isVisible = false;
+                
+                if (crossesMeridian) {
+                    // 180도 경계를 넘어가는 경우
+                    isVisible = (x >= west || x <= east) && y >= south && y <= north;
+                } else {
+                    // 일반적인 경우
+                    isVisible = x >= west && x <= east && y >= south && y <= north;
+                }
+                
+                if (isVisible) {
+                    checkedCount++;
                     const feature = {
                         type: 'Feature',
                         properties: {
@@ -26380,6 +26448,7 @@ class BillionaireMap {
             features: visibleFeatures
         };
         
+        // GeoJSON 업데이트 (단일 호출로 최적화)
         this.map.getSource('pixel-grids').setData(visibleGeoJson);
     }
     
@@ -26451,20 +26520,54 @@ class BillionaireMap {
         // Phase 2: 클릭 이벤트 핸들러 설정
         this.setupPixelClickHandlers();
         
-        // Phase 3: 뷰포트 업데이트 리스너
+        // Phase 3: 뷰포트 업데이트 리스너 (성능 최적화: 디바운싱 및 requestAnimationFrame 적용)
+        let pixelUpdateTimer = null;
+        let pixelUpdateFrame = null;
+        
         this.map.on('moveend', () => {
-            this.updateVisiblePixels();
-            this.optimizePixelGridRendering(); // Phase 8: 성능 최적화
+            // 디바운싱: 마지막 이벤트 후 200ms 후에만 실행
+            if (pixelUpdateTimer) {
+                clearTimeout(pixelUpdateTimer);
+            }
+            pixelUpdateTimer = setTimeout(() => {
+                // requestAnimationFrame으로 렌더링 최적화
+                if (pixelUpdateFrame) {
+                    cancelAnimationFrame(pixelUpdateFrame);
+                }
+                pixelUpdateFrame = requestAnimationFrame(() => {
+                    this.updateVisiblePixels();
+                    this.optimizePixelGridRendering();
+                });
+            }, 200);
         });
         
         this.map.on('zoomend', () => {
-            this.updateVisiblePixels();
-            this.optimizePixelGridRendering(); // Phase 8: 성능 최적화
+            // 디바운싱: 마지막 이벤트 후 200ms 후에만 실행
+            if (pixelUpdateTimer) {
+                clearTimeout(pixelUpdateTimer);
+            }
+            pixelUpdateTimer = setTimeout(() => {
+                // requestAnimationFrame으로 렌더링 최적화
+                if (pixelUpdateFrame) {
+                    cancelAnimationFrame(pixelUpdateFrame);
+                }
+                pixelUpdateFrame = requestAnimationFrame(() => {
+                    this.updateVisiblePixels();
+                    this.optimizePixelGridRendering();
+                });
+            }, 200);
         });
         
-        // Phase 8: 줌 변경 시 실시간 최적화
+        // Phase 8: 줌 변경 시 실시간 최적화 (쓰로틀링 적용)
+        let zoomOptimizeFrame = null;
         this.map.on('zoom', () => {
-            this.optimizePixelGridRendering();
+            // 쓰로틀링: 최대 60fps로 제한
+            if (!zoomOptimizeFrame) {
+                zoomOptimizeFrame = requestAnimationFrame(() => {
+                    this.optimizePixelGridRendering();
+                    zoomOptimizeFrame = null;
+                });
+            }
         });
         
         // Phase 3: 모든 지역에 실시간 리스너 설정
