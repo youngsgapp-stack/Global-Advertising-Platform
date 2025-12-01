@@ -8247,10 +8247,12 @@ class BillionaireMap {
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    // 더 긴 이름을 우선 매칭하기 위해 이름 길이로 정렬
                     let stateInfo = null;
-                    for (const [stateName, stateData] of Object.entries(brazilStateData)) {
+                    const sortedStates = Object.entries(brazilStateData).sort((a, b) => b[0].length - a[0].length);
+                    const rawLower = rawName.toLowerCase();
+                    for (const [stateName, stateData] of sortedStates) {
                         const stateLower = stateName.toLowerCase();
-                        const rawLower = rawName.toLowerCase();
                         // 정확한 매칭, 부분 매칭, 약어 매칭
                         if (rawLower === stateLower || 
                             rawLower.includes(stateLower) || 
@@ -8411,10 +8413,12 @@ class BillionaireMap {
                     idSet.add(finalId);
                     
                     // 주/준주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    // 더 긴 이름을 우선 매칭하기 위해 이름 길이로 정렬
                     let stateInfo = null;
-                    for (const [stateName, stateData] of Object.entries(australiaStateData)) {
+                    const sortedStates = Object.entries(australiaStateData).sort((a, b) => b[0].length - a[0].length);
+                    const rawLower = rawName.toLowerCase();
+                    for (const [stateName, stateData] of sortedStates) {
                         const stateLower = stateName.toLowerCase();
-                        const rawLower = rawName.toLowerCase();
                         // 정확한 매칭, 부분 매칭, 약어 매칭
                         if (rawLower === stateLower || 
                             rawLower.includes(stateLower) || 
@@ -8455,11 +8459,14 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8554,6 +8561,7 @@ class BillionaireMap {
                     'Chiapas': { name_ko: '치아파스', code: 'CHIS', population: 5750000, area: 73311 },
                     'Chihuahua': { name_ko: '치와와', code: 'CHIH', population: 3950000, area: 247460 },
                     'Coahuila': { name_ko: '코아우일라', code: 'COAH', population: 3300000, area: 151563 },
+                    'Coahuila de Zaragoza': { name_ko: '코아우일라 데 사라고사', code: 'COAH', population: 3300000, area: 151563 },
                     'Colima': { name_ko: '콜리마', code: 'COL', population: 760000, area: 5191 },
                     'Durango': { name_ko: '두랑고', code: 'DGO', population: 1800000, area: 123451 },
                     'Guanajuato': { name_ko: '과나후아토', code: 'GTO', population: 6400000, area: 30608 },
@@ -8604,10 +8612,12 @@ class BillionaireMap {
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    // 더 긴 이름을 우선 매칭하기 위해 이름 길이로 정렬
                     let stateInfo = null;
-                    for (const [stateName, stateData] of Object.entries(mexicoStateData)) {
+                    const sortedStates = Object.entries(mexicoStateData).sort((a, b) => b[0].length - a[0].length);
+                    const rawLower = rawName.toLowerCase();
+                    for (const [stateName, stateData] of sortedStates) {
                         const stateLower = stateName.toLowerCase();
-                        const rawLower = rawName.toLowerCase();
                         // 정확한 매칭, 부분 매칭, 약어 매칭
                         if (rawLower === stateLower || 
                             rawLower.includes(stateLower) || 
@@ -8795,10 +8805,12 @@ class BillionaireMap {
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    // 더 긴 이름을 우선 매칭하기 위해 이름 길이로 정렬
                     let provinceInfo = null;
-                    for (const [provinceName, provinceData] of Object.entries(indonesiaProvinceData)) {
+                    const sortedProvinces = Object.entries(indonesiaProvinceData).sort((a, b) => b[0].length - a[0].length);
+                    const rawLower = rawName.toLowerCase();
+                    for (const [provinceName, provinceData] of sortedProvinces) {
                         const provinceLower = provinceName.toLowerCase();
-                        const rawLower = rawName.toLowerCase();
                         // 정확한 매칭, 부분 매칭, 약어 매칭
                         if (rawLower === provinceLower || 
                             rawLower.includes(provinceLower) || 
@@ -8807,6 +8819,15 @@ class BillionaireMap {
                             rawLower.includes(provinceData.code.toLowerCase())) {
                             provinceInfo = provinceData;
                             break;
+                        }
+                    }
+                    
+                    // 면적 계산: provinceInfo에 있으면 사용, 없으면 GeoJSON, 없으면 실제 계산
+                    let calculatedArea = provinceInfo ? provinceInfo.area : (p.area && p.area > 0 ? p.area : 0);
+                    if (calculatedArea <= 0 && feature.geometry) {
+                        calculatedArea = this.calculatePolygonArea(feature);
+                        if (calculatedArea > 0) {
+                            console.log(`[인도네시아 면적 계산] ${rawName} (${finalId}): ${calculatedArea.toFixed(2)} km²`);
                         }
                     }
                     
@@ -8819,8 +8840,8 @@ class BillionaireMap {
                         country: 'Indonesia',
                         country_code: 'ID',
                         admin_level: 'Province',
-                        population: provinceInfo ? provinceInfo.population : (p.population || Math.floor(Math.random() * 8000000) + 500000),
-                        area: provinceInfo ? provinceInfo.area : (p.area || Math.floor(Math.random() * 200000) + 10000),
+                        population: provinceInfo ? provinceInfo.population : (p.population && p.population > 0 ? p.population : 0),
+                        area: calculatedArea,
                         ad_status: 'available',
                         ad_price: Math.floor(Math.random() * 200000) + 120000,
                         revenue: 0,
@@ -8830,11 +8851,14 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
@@ -8953,16 +8977,27 @@ class BillionaireMap {
                     idSet.add(finalId);
                     
                     // 주 데이터 매칭 (대소문자 무시, 다양한 변형 지원)
+                    // 더 긴 이름을 우선 매칭하기 위해 이름 길이로 정렬
                     let provinceInfo = null;
-                    for (const [provinceName, provinceData] of Object.entries(saudiArabiaProvinceData)) {
+                    const sortedProvinces = Object.entries(saudiArabiaProvinceData).sort((a, b) => b[0].length - a[0].length);
+                    const rawLower = rawName.toLowerCase();
+                    for (const [provinceName, provinceData] of sortedProvinces) {
                         const provinceLower = provinceName.toLowerCase();
-                        const rawLower = rawName.toLowerCase();
                         // 정확한 매칭, 부분 매칭
                         if (rawLower === provinceLower || 
                             rawLower.includes(provinceLower) || 
                             provinceLower.includes(rawLower)) {
                             provinceInfo = provinceData;
                             break;
+                        }
+                    }
+                    
+                    // 면적 계산: provinceInfo에 있으면 사용, 없으면 GeoJSON, 없으면 실제 계산
+                    let calculatedArea = provinceInfo ? provinceInfo.area : (p.area && p.area > 0 ? p.area : 0);
+                    if (calculatedArea <= 0 && feature.geometry) {
+                        calculatedArea = this.calculatePolygonArea(feature);
+                        if (calculatedArea > 0) {
+                            console.log(`[사우디아라비아 면적 계산] ${rawName} (${finalId}): ${calculatedArea.toFixed(2)} km²`);
                         }
                     }
                     
@@ -8975,8 +9010,8 @@ class BillionaireMap {
                         country: 'Saudi Arabia',
                         country_code: 'SA',
                         admin_level: 'Province',
-                        population: provinceInfo ? provinceInfo.population : (p.population || Math.floor(Math.random() * 5000000) + 300000),
-                        area: provinceInfo ? provinceInfo.area : (p.area || Math.floor(Math.random() * 500000) + 50000),
+                        population: provinceInfo ? provinceInfo.population : (p.population && p.population > 0 ? p.population : 0),
+                        area: calculatedArea,
                         ad_status: 'available',
                         ad_price: Math.floor(Math.random() * 250000) + 200000,
                         revenue: 0,
@@ -8986,11 +9021,14 @@ class BillionaireMap {
                         border_color: '#ffffff',
                         border_width: 1
                     };
-                    this.regionData.set(finalId, feature.properties);
+                    // regionData 저장은 loadGeoJsonWithCache 반환 이후로 이동 (ensureRegionIdentifiers 이후의 최종 ID 사용)
                 });
                 
                 return data;
             });
+
+            // loadGeoJsonWithCache 반환 이후에 regionData 저장 (ensureRegionIdentifiers 이후의 최종 ID 사용)
+            this.saveRegionDataFromGeoJson(geoJsonData);
 
             if (this.map.getSource('world-regions')) {
                 this.map.getSource('world-regions').setData(geoJsonData);
