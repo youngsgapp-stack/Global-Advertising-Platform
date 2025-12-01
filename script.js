@@ -11879,7 +11879,7 @@ class BillionaireMap {
                 
                 const idSet = new Set();
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.voivodeship || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `POL_${index}`;
@@ -12489,7 +12489,7 @@ class BillionaireMap {
                 if (!data) throw lastError || new Error('No Sweden dataset available');
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `SWE_${index}`;
@@ -13224,7 +13224,7 @@ class BillionaireMap {
                 if (!data) throw lastError || new Error('No Finland dataset available');
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.NAME || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `FIN_${index}`;
