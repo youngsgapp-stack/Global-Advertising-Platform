@@ -28,3 +28,17 @@
     Content-Type = "application/geo+json"
     Cache-Control = "public, max-age=3600"
 
+[[headers]]
+  # JavaScript 파일에 대한 MIME 타입 설정
+  for = "/*.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  # utils 디렉토리의 JavaScript 파일에 대한 MIME 타입 설정
+  for = "/utils/*.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=3600"
+
