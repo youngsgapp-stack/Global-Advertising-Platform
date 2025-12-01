@@ -2064,9 +2064,26 @@ class BillionaireMap {
                                 ? existingData.area
                                 : 0,
                         // 가격은 Firestore 데이터 우선, 없으면 null로 설정하여 나중에 픽셀 수 기반으로 계산
-                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                            ? existingData.ad_price 
-                            : (data.ad_price !== undefined && data.ad_price !== null && data.ad_price > 0 ? data.ad_price : null),
+                        // 타입 안전성: boolean이나 잘못된 타입을 number로 변환
+                        ad_price: (() => {
+                            let price = existingData.ad_price !== undefined && existingData.ad_price !== null 
+                                ? existingData.ad_price 
+                                : (data.ad_price !== undefined && data.ad_price !== null ? data.ad_price : null);
+                            
+                            // 타입 확인 및 변환
+                            if (price !== null && price !== undefined) {
+                                if (typeof price === 'boolean') {
+                                    // boolean인 경우 null로 설정하여 재계산
+                                    return null;
+                                }
+                                if (typeof price === 'number' && !isNaN(price) && price > 0) {
+                                    return price;
+                                }
+                                // 잘못된 타입이면 null로 설정
+                                return null;
+                            }
+                            return null;
+                        })(),
                         name_ko: data.name_ko || existingData.name_ko || '',
                         name_en: data.name_en || existingData.name_en || existingData.name || '',
                         country: data.country || existingData.country || '',
@@ -2159,9 +2176,26 @@ class BillionaireMap {
                                 ? existingData.area
                                 : 0,
                         // 가격은 Firestore 데이터 우선, 없으면 null로 설정하여 나중에 픽셀 수 기반으로 계산
-                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
-                            ? existingData.ad_price 
-                            : (data.ad_price !== undefined && data.ad_price !== null && data.ad_price > 0 ? data.ad_price : null),
+                        // 타입 안전성: boolean이나 잘못된 타입을 number로 변환
+                        ad_price: (() => {
+                            let price = existingData.ad_price !== undefined && existingData.ad_price !== null 
+                                ? existingData.ad_price 
+                                : (data.ad_price !== undefined && data.ad_price !== null ? data.ad_price : null);
+                            
+                            // 타입 확인 및 변환
+                            if (price !== null && price !== undefined) {
+                                if (typeof price === 'boolean') {
+                                    // boolean인 경우 null로 설정하여 재계산
+                                    return null;
+                                }
+                                if (typeof price === 'number' && !isNaN(price) && price > 0) {
+                                    return price;
+                                }
+                                // 잘못된 타입이면 null로 설정
+                                return null;
+                            }
+                            return null;
+                        })(),
                         name_ko: data.name_ko || existingData.name_ko || '',
                         name_en: data.name_en || existingData.name_en || existingData.name || '',
                         country: data.country || existingData.country || '',
@@ -2248,19 +2282,29 @@ class BillionaireMap {
     async setAllRegionsPriceBasedOnPixels() {
         let updatedCount = 0;
         const regionEntries = Array.from(this.regionData.entries());
-        const BATCH_SIZE = 10; // 동시에 처리할 최대 요청 수
-        const DELAY_BETWEEN_BATCHES = 100; // 배치 간 지연 시간 (ms)
+        const BATCH_SIZE = 50; // 동시에 처리할 최대 요청 수 증가 (성능 개선)
+        const DELAY_BETWEEN_BATCHES = 50; // 배치 간 지연 시간 감소 (ms)
         
         // 배치로 나누어 처리
         for (let i = 0; i < regionEntries.length; i += BATCH_SIZE) {
             const batch = regionEntries.slice(i, i + BATCH_SIZE);
             const batchPromises = batch.map(([regionId, regionData]) => {
+                // 이미 유효한 가격이 있고 타입이 올바른 경우 건너뛰기 (성능 최적화)
+                if (typeof regionData.ad_price === 'number' && regionData.ad_price > 0) {
+                    return Promise.resolve(0); // 이미 계산됨
+                }
+                
                 // 각 지역의 가격 계산을 Promise로 만들어 병렬 처리
                 return this.getStartingPriceForRegion(regionId)
                     .then(calculatedPrice => {
+                        // 타입 확인 및 변환 (boolean 등 잘못된 타입 방지)
+                        const finalPrice = typeof calculatedPrice === 'number' && !isNaN(calculatedPrice) 
+                            ? calculatedPrice 
+                            : 1.0;
+                        
                         // 가격이 변경되었거나 설정되지 않은 경우 업데이트
-                        if (regionData.ad_price !== calculatedPrice) {
-                            regionData.ad_price = calculatedPrice;
+                        if (regionData.ad_price !== finalPrice) {
+                            regionData.ad_price = finalPrice;
                             this.regionData.set(regionId, regionData);
                             return 1; // 업데이트됨
                         }
@@ -2272,6 +2316,11 @@ class BillionaireMap {
                             !err.message?.includes('offline') && !err.message?.includes('Too many outstanding requests')) {
                             console.warn(`[가격 계산 실패] ${regionId}:`, err);
                         }
+                        // 오류 발생 시 기본값 설정
+                        if (typeof regionData.ad_price !== 'number' || isNaN(regionData.ad_price)) {
+                            regionData.ad_price = 1.0;
+                            this.regionData.set(regionId, regionData);
+                        }
                         return 0;
                     });
             });
@@ -2279,6 +2328,11 @@ class BillionaireMap {
             // 현재 배치가 완료될 때까지 대기
             const batchResults = await Promise.all(batchPromises);
             updatedCount += batchResults.reduce((sum, count) => sum + count, 0);
+            
+            // 진행 상황 로그 (큰 배치의 경우)
+            if (i % (BATCH_SIZE * 10) === 0 && i > 0) {
+                console.log(`[가격 계산 진행] ${i}/${regionEntries.length} 지역 처리 완료`);
+            }
             
             // 마지막 배치가 아니면 다음 배치 전에 잠시 대기 (Firestore 부하 감소)
             if (i + BATCH_SIZE < regionEntries.length) {
@@ -23615,20 +23669,28 @@ class BillionaireMap {
         if (!this.pixelEditor || !this.pixelEditor.ctx) return;
         const ctx = this.pixelEditor.ctx;
         const size = this.pixelEditor.canvasSize;
+        
+        // 성능 최적화: 그리드 선을 한 번에 그리기 (beginPath/stroke 호출 최소화)
         ctx.save();
         ctx.strokeStyle = `rgba(0, 0, 0, ${opacity})`;
         ctx.lineWidth = 1;
+        
+        // 수직선을 한 번에 그리기
+        ctx.beginPath();
         for (let i = 0; i <= size; i++) {
-            ctx.beginPath();
             ctx.moveTo(i, 0);
             ctx.lineTo(i, size);
-            ctx.stroke();
-            
-            ctx.beginPath();
+        }
+        ctx.stroke();
+        
+        // 수평선을 한 번에 그리기
+        ctx.beginPath();
+        for (let i = 0; i <= size; i++) {
             ctx.moveTo(0, i);
             ctx.lineTo(size, i);
-            ctx.stroke();
         }
+        ctx.stroke();
+        
         ctx.restore();
     }
     
@@ -23886,16 +23948,29 @@ class BillionaireMap {
             return;
         }
         
-        // 관리자는 항상 허용
-        if (this.isAdminLoggedIn) {
-            console.log('[픽셀 스튜디오] 관리자 모드로 열기:', regionId);
-        } else {
-            // 권한 확인 (일반 사용자는 소유자만)
-            const isOwner = await this.checkRegionOwnership(regionId);
-            if (!isOwner) {
-                this.showNotification('이 지역의 소유자만 픽셀 아트를 편집할 수 있습니다.', 'error');
-                return;
+        // 권한 확인 (관리자는 항상 허용, 일반 사용자는 소유자만)
+        let isOwner = false;
+        try {
+            if (this.isAdminLoggedIn) {
+                console.log('[픽셀 스튜디오] 관리자 모드로 열기:', regionId);
+                isOwner = true; // 관리자는 편집 가능하도록 설정
+            } else {
+                // 권한 확인 (일반 사용자는 소유자만)
+                try {
+                    isOwner = await this.checkRegionOwnership(regionId);
+                } catch (ownershipError) {
+                    console.error('[픽셀 스튜디오] 소유권 확인 실패:', ownershipError);
+                    isOwner = false;
+                }
+                if (!isOwner) {
+                    this.showNotification('이 지역의 소유자만 픽셀 아트를 편집할 수 있습니다.', 'error');
+                    return;
+                }
             }
+        } catch (error) {
+            console.error('[픽셀 스튜디오] 권한 확인 중 오류:', error);
+            this.showNotification('권한 확인 중 오류가 발생했습니다.', 'error');
+            return;
         }
         
         // 픽셀 에디터 초기화
@@ -24065,6 +24140,7 @@ class BillionaireMap {
     
     /**
      * 픽셀 캔버스 초기화
+     * 성능 최적화: 이벤트 리스너 중복 등록 방지
      */
     initPixelCanvas() {
         const canvas = document.getElementById('pixel-canvas');
@@ -24077,16 +24153,22 @@ class BillionaireMap {
         this.pixelEditor.canvas = canvas;
         this.pixelEditor.ctx = canvas.getContext('2d');
         
+        // 성능 최적화: 이미지 스무딩 비활성화 (픽셀 아트에 적합)
+        this.pixelEditor.ctx.imageSmoothingEnabled = false;
+        
         // 그리드 배경
         this.pixelEditor.ctx.fillStyle = '#f0f0f0';
         this.pixelEditor.ctx.fillRect(0, 0, size, size);
         this.drawPixelGrid();
         
-        // 이벤트 리스너
-        canvas.addEventListener('mousedown', (e) => this.onPixelCanvasMouseDown(e));
-        canvas.addEventListener('mousemove', (e) => this.onPixelCanvasMouseMove(e));
-        canvas.addEventListener('mouseup', () => this.onPixelCanvasMouseUp());
-        canvas.addEventListener('mouseleave', () => this.onPixelCanvasMouseUp());
+        // 이벤트 리스너 (중복 등록 방지)
+        if (!canvas.dataset.listenersAttached) {
+            canvas.addEventListener('mousedown', (e) => this.onPixelCanvasMouseDown(e));
+            canvas.addEventListener('mousemove', (e) => this.onPixelCanvasMouseMove(e));
+            canvas.addEventListener('mouseup', () => this.onPixelCanvasMouseUp());
+            canvas.addEventListener('mouseleave', () => this.onPixelCanvasMouseUp());
+            canvas.dataset.listenersAttached = 'true';
+        }
     }
     
     /**
@@ -24112,12 +24194,26 @@ class BillionaireMap {
     
     onPixelCanvasMouseMove(e) {
         if (!this.pixelEditor || !this.pixelEditor.isDrawing) return;
-        this.drawPixel(e);
+        
+        // 성능 최적화: 마우스 이동 이벤트 디바운싱 (너무 빠른 연속 호출 방지)
+        if (this.pixelEditor.mouseMoveTimer) {
+            clearTimeout(this.pixelEditor.mouseMoveTimer);
+        }
+        
+        this.pixelEditor.mouseMoveTimer = setTimeout(() => {
+            this.drawPixel(e);
+        }, 16); // 약 60fps로 제한
     }
     
     onPixelCanvasMouseUp() {
         if (!this.pixelEditor) return;
         this.pixelEditor.isDrawing = false;
+        
+        // 마우스 이동 타이머 정리
+        if (this.pixelEditor.mouseMoveTimer) {
+            clearTimeout(this.pixelEditor.mouseMoveTimer);
+            this.pixelEditor.mouseMoveTimer = null;
+        }
     }
     
     /**
@@ -24856,14 +24952,19 @@ class BillionaireMap {
             pixelGridControls.classList.add('hidden');
         }
         
-        // 모든 픽셀 그리드 다시 표시
-        if (this.map && this.map.getSource('pixel-grids')) {
-            this.updateVisiblePixels();
-        }
-        // 실시간 리스너 정리
+        // 실시간 리스너 정리 (메모리 누수 방지)
         if (this.pixelEditor && this.pixelEditor.realtimeListener) {
             this.pixelEditor.realtimeListener();
             this.pixelEditor.realtimeListener = null;
+        }
+        
+        // pixelGridListeners에서도 정리
+        if (this.pixelEditor && this.pixelEditor.regionId) {
+            const regionId = this.pixelEditor.regionId;
+            if (this.pixelGridListeners && this.pixelGridListeners.has(regionId)) {
+                this.pixelGridListeners.get(regionId)();
+                this.pixelGridListeners.delete(regionId);
+            }
         }
         
         // 배치 타이머 정리 및 남은 편집 전송
@@ -24875,6 +24976,20 @@ class BillionaireMap {
         // 남은 편집 이벤트 전송
         if (this.pixelEditor && this.pixelEditor.editBatch.length > 0) {
             this.flushEditBatch();
+        }
+        
+        // 캔버스 정리 (메모리 최적화)
+        if (this.pixelEditor && this.pixelEditor.canvas) {
+            const ctx = this.pixelEditor.ctx;
+            if (ctx) {
+                // 캔버스 초기화
+                ctx.clearRect(0, 0, this.pixelEditor.canvasSize, this.pixelEditor.canvasSize);
+            }
+        }
+        
+        // 모든 픽셀 그리드 다시 표시
+        if (this.map && this.map.getSource('pixel-grids')) {
+            this.updateVisiblePixels();
         }
         
         const modal = document.getElementById('pixel-studio-modal');
@@ -25307,12 +25422,26 @@ class BillionaireMap {
     
     /**
      * Phase 1: 픽셀 그리드를 GeoJSON으로 변환
+     * 성능 최적화: 큰 그리드의 경우 메모리 사용량 제한
      */
-    pixelGridToGeoJson(pixelGrid) {
+    pixelGridToGeoJson(pixelGrid, maxPixels = 50000) {
         if (!pixelGrid || !pixelGrid.pixels) return null;
         
-        const features = pixelGrid.pixels.map(pixel => {
-            return {
+        // 성능 최적화: 픽셀이 너무 많으면 샘플링 또는 제한
+        let pixelsToProcess = pixelGrid.pixels;
+        if (pixelsToProcess.length > maxPixels) {
+            // 샘플링: 일정 간격으로 픽셀 선택
+            const step = Math.ceil(pixelsToProcess.length / maxPixels);
+            pixelsToProcess = pixelsToProcess.filter((_, index) => index % step === 0);
+            console.warn(`[픽셀 그리드 최적화] 픽셀 수가 너무 많아 샘플링 적용: ${pixelGrid.pixels.length} → ${pixelsToProcess.length}`);
+        }
+        
+        // 성능 최적화: 배열 미리 할당
+        const features = new Array(pixelsToProcess.length);
+        
+        for (let i = 0; i < pixelsToProcess.length; i++) {
+            const pixel = pixelsToProcess[i];
+            features[i] = {
                 type: 'Feature',
                 properties: {
                     id: pixel.id,
@@ -25332,7 +25461,7 @@ class BillionaireMap {
                     ]]
                 }
             };
-        });
+        }
         
         return {
             type: 'FeatureCollection',
@@ -25503,31 +25632,58 @@ class BillionaireMap {
             // 먼저 메모리에서 픽셀 그리드 확인
             let pixelGrid = this.pixelGrids.get(regionId);
             
-            if (!pixelGrid) {
-                // Firestore에서 로드 시도
-                pixelGrid = await this.loadPixelGrid(regionId);
-            }
-            
             if (pixelGrid && pixelGrid.pixelCount) {
                 return this.calculateStartingPriceFromPixels(pixelGrid.pixelCount);
             }
             
-            // 픽셀 그리드가 없으면 GeoJSON에서 생성 시도
-            const source = this.map?.getSource('world-regions');
-            if (source && source._data) {
-                const feature = source._data.features.find(f => 
-                    (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
-                );
-                if (feature) {
-                    pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
-                    if (pixelGrid && pixelGrid.pixels) {
-                        const pixelCount = pixelGrid.pixels.length;
-                        // 픽셀 그리드 저장 (비동기, 결과 기다리지 않음)
-                        this.savePixelGrid(regionId, pixelGrid).catch(err => {
-                            console.warn(`[시작가격 계산] 픽셀 그리드 저장 실패 (무시):`, err);
-                        });
-                        return this.calculateStartingPriceFromPixels(pixelCount);
-                    }
+            // 성능 최적화: 먼저 GeoJSON에서 직접 계산 (Firestore 쿼리 최소화)
+            // 모든 소스에서 feature 찾기
+            const allSources = [
+                'world-regions', 'korea-regions', 'japan-regions', 'china-regions',
+                'russia-regions', 'india-regions', 'canada-regions', 'germany-regions',
+                'uk-regions', 'france-regions', 'italy-regions', 'brazil-regions',
+                'australia-regions', 'mexico-regions', 'indonesia-regions',
+                'saudi-arabia-regions', 'turkey-regions', 'south-africa-regions',
+                'argentina-regions', 'european-union-regions', 'spain-regions',
+                'netherlands-regions', 'poland-regions', 'belgium-regions',
+                'sweden-regions', 'austria-regions', 'denmark-regions',
+                'finland-regions', 'ireland-regions', 'portugal-regions',
+                'greece-regions', 'czech-republic-regions', 'romania-regions',
+                'hungary-regions', 'bulgaria-regions'
+            ];
+            
+            let feature = null;
+            for (const sourceId of allSources) {
+                const source = this.map?.getSource(sourceId);
+                if (source && source._data && source._data.features) {
+                    feature = source._data.features.find(f => 
+                        (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
+                    );
+                    if (feature) break;
+                }
+            }
+            
+            if (feature) {
+                pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                if (pixelGrid && pixelGrid.pixels) {
+                    const pixelCount = pixelGrid.pixels.length;
+                    // 메모리에 캐시 저장 (다음 호출 시 빠르게 접근)
+                    this.pixelGrids.set(regionId, { ...pixelGrid, pixelCount });
+                    // 픽셀 그리드 저장 (비동기, 결과 기다리지 않음)
+                    this.savePixelGrid(regionId, pixelGrid).catch(err => {
+                        console.warn(`[시작가격 계산] 픽셀 그리드 저장 실패 (무시):`, err);
+                    });
+                    return this.calculateStartingPriceFromPixels(pixelCount);
+                }
+            }
+            
+            // GeoJSON에서 찾지 못한 경우에만 Firestore에서 로드 시도 (최후의 수단)
+            if (!pixelGrid) {
+                pixelGrid = await this.loadPixelGrid(regionId);
+                if (pixelGrid && pixelGrid.pixelCount) {
+                    // 메모리에 캐시 저장
+                    this.pixelGrids.set(regionId, pixelGrid);
+                    return this.calculateStartingPriceFromPixels(pixelGrid.pixelCount);
                 }
             }
             
@@ -26382,6 +26538,13 @@ class BillionaireMap {
             return;
         }
         
+        // 권한 확인: 로그인하지 않은 사용자는 저장하지 않음
+        if (!this.currentUser && !this.isAdminLoggedIn) {
+            console.warn('[픽셀 배치 저장] 로그인하지 않은 사용자는 저장할 수 없습니다.');
+            this.pixelUpdateBatch = []; // 큐 비우기
+            return;
+        }
+        
         const maxRetries = 3;
         const batchToSave = [...this.pixelUpdateBatch]; // 복사본 생성
         this.pixelUpdateBatch = []; // 큐 비우기 (재시도 시 중복 방지)
@@ -26400,6 +26563,20 @@ class BillionaireMap {
             
             // 각 지역별로 배치 저장
             for (const [regionId, updates] of Object.entries(updatesByRegion)) {
+                // 권한 확인: 해당 지역의 소유자인지 확인
+                if (!this.isAdminLoggedIn) {
+                    try {
+                        const isOwner = await this.checkRegionOwnership(regionId);
+                        if (!isOwner) {
+                            console.warn(`[픽셀 배치 저장] ${regionId} 지역에 대한 권한이 없습니다.`);
+                            continue; // 권한이 없는 지역은 건너뛰기
+                        }
+                    } catch (ownershipError) {
+                        console.warn(`[픽셀 배치 저장] ${regionId} 지역 소유권 확인 실패:`, ownershipError);
+                        continue; // 확인 실패 시 건너뛰기
+                    }
+                }
+                
                 const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
                 const batch = writeBatch(this.firestore);
                 
@@ -26408,7 +26585,7 @@ class BillionaireMap {
                     batch.set(pixelRef, {
                         color: update.color,
                         updatedAt: serverTimestamp(),
-                        updatedBy: this.currentUser?.email || 'system'
+                        updatedBy: this.currentUser?.email || (this.isAdminLoggedIn ? 'admin' : 'system')
                     }, { merge: true });
                 });
                 
@@ -26423,6 +26600,14 @@ class BillionaireMap {
             }
         } catch (error) {
             console.error('[픽셀 배치 저장 실패]:', error);
+            
+            // 권한 오류인 경우 재시도하지 않음
+            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                console.warn('[픽셀 배치 저장] 권한 오류로 인해 저장을 중단합니다.');
+                this.pixelUpdateBatch = []; // 큐 비우기
+                this.showNotification('픽셀 저장 권한이 없습니다. 로그인 상태를 확인해주세요.', 'error');
+                return;
+            }
             
             // 실패한 업데이트를 다시 큐에 추가
             this.pixelUpdateBatch = [...this.pixelUpdateBatch, ...batchToSave];
