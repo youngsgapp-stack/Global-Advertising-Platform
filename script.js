@@ -17918,6 +17918,70 @@ class BillionaireMap {
         if (modal) {
             modal.classList.remove('hidden');
             console.log('관리자 로그인 모달 표시됨');
+            
+            // 모달 표시 후 이벤트 리스너 재확인 및 재등록
+            const adminLoginSubmit = document.getElementById('admin-login-submit');
+            if (adminLoginSubmit) {
+                // 기존 이벤트 리스너 제거 (중복 방지)
+                const newSubmitBtn = adminLoginSubmit.cloneNode(true);
+                adminLoginSubmit.parentNode.replaceChild(newSubmitBtn, adminLoginSubmit);
+                
+                // 새로운 이벤트 리스너 등록
+                newSubmitBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[ADMIN] 로그인 버튼 클릭됨 (모달 표시 후 재등록)');
+                    try {
+                        await this.handleAdminLogin();
+                    } catch (error) {
+                        console.error('[ADMIN] 로그인 처리 중 예외 발생:', error);
+                        const errorDiv = document.getElementById('login-error');
+                        if (errorDiv) {
+                            errorDiv.classList.remove('hidden');
+                            this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
+                        }
+                        this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
+                    }
+                });
+                
+                // Enter 키 이벤트도 재등록
+                const adminUsername = document.getElementById('admin-username');
+                const adminPassword = document.getElementById('admin-password');
+                if (adminUsername && adminPassword) {
+                    // 기존 이벤트 리스너 제거
+                    const newUsername = adminUsername.cloneNode(true);
+                    const newPassword = adminPassword.cloneNode(true);
+                    adminUsername.parentNode.replaceChild(newUsername, adminUsername);
+                    adminPassword.parentNode.replaceChild(newPassword, adminPassword);
+                    
+                    const handleEnterKey = async (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            console.log('[ADMIN] Enter 키로 로그인 시도');
+                            try {
+                                await this.handleAdminLogin();
+                            } catch (error) {
+                                console.error('[ADMIN] 로그인 처리 중 예외 발생:', error);
+                                const errorDiv = document.getElementById('login-error');
+                                if (errorDiv) {
+                                    errorDiv.classList.remove('hidden');
+                                    this.setSafeHTML(errorDiv, '로그인 처리 중 오류가 발생했습니다.');
+                                }
+                                this.showNotification('로그인 처리 중 오류가 발생했습니다.', 'error');
+                            }
+                        }
+                    };
+                    newUsername.addEventListener('keypress', handleEnterKey);
+                    newPassword.addEventListener('keypress', handleEnterKey);
+                    
+                    // 포커스 설정
+                    setTimeout(() => {
+                        newUsername.focus();
+                    }, 100);
+                }
+            } else {
+                console.error('[ADMIN] admin-login-submit 버튼을 찾을 수 없습니다');
+            }
         } else {
             console.error('admin-login-modal 요소를 찾을 수 없습니다');
         }
@@ -24601,12 +24665,30 @@ class BillionaireMap {
         if (!this.isFirebaseInitialized || !this.firestore || !this.map) return;
         
         try {
-            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, getDoc, getDocFromCache } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             const pixelArtPromises = regionIds.map(async (regionId) => {
                 try {
                     const pixelRef = doc(this.firestore, 'pixelArt', regionId);
-                    const pixelDoc = await getDoc(pixelRef);
+                    let pixelDoc;
+                    
+                    // 먼저 서버에서 읽기를 시도하고, 오프라인 오류가 발생하면 캐시에서 읽기 시도
+                    try {
+                        pixelDoc = await getDoc(pixelRef);
+                    } catch (error) {
+                        // 오프라인 오류인 경우 캐시에서 읽기 시도
+                        if (error.code === 'unavailable' || error.message?.includes('offline')) {
+                            try {
+                                pixelDoc = await getDocFromCache(pixelRef);
+                            } catch (cacheError) {
+                                // 캐시에도 없으면 조용히 무시 (오프라인 상태는 정상적인 상황)
+                                return null;
+                            }
+                        } else {
+                            // 다른 오류는 조용히 무시
+                            return null;
+                        }
+                    }
                     
                     if (pixelDoc.exists()) {
                         const pixelData = pixelDoc.data();
@@ -24636,7 +24718,11 @@ class BillionaireMap {
                         }
                     }
                 } catch (error) {
-                    console.error(`[픽셀아트 로드 실패] ${regionId}:`, error);
+                    // 오프라인 오류는 조용히 무시 (정상적인 상황)
+                    // 다른 오류만 콘솔에 출력
+                    if (error.code !== 'unavailable' && !error.message?.includes('offline')) {
+                        console.error(`[픽셀아트 로드 실패] ${regionId}:`, error);
+                    }
                 }
                 return null;
             });
@@ -24644,7 +24730,10 @@ class BillionaireMap {
             const results = await Promise.all(pixelArtPromises);
             return results.filter(r => r !== null);
         } catch (error) {
-            console.error('[픽셀아트 지도 로드 실패]:', error);
+            // 오프라인 오류는 조용히 무시
+            if (error.code !== 'unavailable' && !error.message?.includes('offline')) {
+                console.error('[픽셀아트 지도 로드 실패]:', error);
+            }
             return [];
         }
     }
