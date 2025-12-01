@@ -1,6 +1,10 @@
 // Mr.Young's Billionaire Homepage - Interactive World Map
 class BillionaireMap {
     constructor() {
+        // 메모리 관리 유틸리티 초기화
+        this.eventManager = new EventManager();
+        this.timerManager = new TimerManager();
+        
         this.map = null;
         this.currentRegion = null;
         this.regionData = new Map();
@@ -1651,12 +1655,12 @@ class BillionaireMap {
             // 지도 이동 시 뷰포트 기반 로딩 활성화 (성능 최적화: 디바운싱 적용)
             if (this.map) {
                 let viewportLoadTimer = null;
-                this.map.on('moveend', () => {
+                this.eventManager.addMapListener(this.map, 'moveend', () => {
                     // 디바운싱: 마지막 이벤트 후 300ms 후에만 실행
                     if (viewportLoadTimer) {
-                        clearTimeout(viewportLoadTimer);
+                        this.timerManager.clearTimeout(viewportLoadTimer);
                     }
-                    viewportLoadTimer = setTimeout(() => {
+                    viewportLoadTimer = this.timerManager.setTimeout(() => {
                         this.loadFeaturesForViewport();
                     }, 300);
                 });
@@ -1711,7 +1715,7 @@ class BillionaireMap {
         };
         
         resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        this.eventManager.add(window, 'resize', resizeCanvas);
         
         // 별 생성 (크기와 밝기 다양화)
         for (let i = 0; i < numStars; i++) {
@@ -3126,7 +3130,7 @@ class BillionaireMap {
             });
             
             // 줌 레벨 변경 시 성능 최적화
-            this.map.on('zoom', () => {
+            this.eventManager.addMapListener(this.map, 'zoom', () => {
                 const zoom = this.map.getZoom();
                 // 낮은 줌 레벨에서는 경계선 숨김 (성능 향상)
                 if (zoom < 2 && this.map.getLayer('regions-border')) {
@@ -3381,7 +3385,7 @@ class BillionaireMap {
         
         // 지도 로드 완료 대기
         return new Promise((resolve) => {
-            this.map.on('load', () => {
+            this.eventManager.addMapListener(this.map, 'load', () => {
                 console.log('지도 로드 완료');
                 
                 // 3D 지구본 스타일 설정
@@ -3389,16 +3393,16 @@ class BillionaireMap {
                 this.applyMapLighting();
                 
                 // 줌 이벤트 리스너 추가 (로고 크기 조절용) - 최적화된 버전
-                this.map.on('zoomend', () => {
+                this.eventManager.addMapListener(this.map, 'zoomend', () => {
                     this.updateAllLogoSizes();
                 });
                 
-                this.map.on('moveend', () => {
+                this.eventManager.addMapListener(this.map, 'moveend', () => {
                     this.updateAllLogoSizes();
                 });
                 
                 // 2D 모드에서 최소 줌 제한 (세계지도가 여러 번 보이지 않도록)
-                this.map.on('zoom', () => {
+                this.eventManager.addMapListener(this.map, 'zoom', () => {
                     if (!this.isGlobeMode && this.map.getZoom() < 1.5) {
                         this.map.setZoom(1.5);
                     }
@@ -4009,7 +4013,7 @@ class BillionaireMap {
         this.updateGlobeColorsByZoom();
         
         // 줌 이벤트 리스너 추가 (한 번만)
-        this.map.on('zoom', () => {
+        this.eventManager.addMapListener(this.map, 'zoom', () => {
             this.updateGlobeColorsByZoom();
         });
         
@@ -4216,7 +4220,7 @@ class BillionaireMap {
                 source.setCoordinates(rotatedCoords);
             }
             
-            this.cloudAnimationId = requestAnimationFrame(animate);
+            this.cloudAnimationId = this.timerManager.requestAnimationFrame(animate);
         };
         
         animate();
@@ -4225,7 +4229,7 @@ class BillionaireMap {
     // 구름 애니메이션 중지
     stopCloudAnimation() {
         if (this.cloudAnimationId) {
-            cancelAnimationFrame(this.cloudAnimationId);
+            this.timerManager.cancelAnimationFrame(this.cloudAnimationId);
             this.cloudAnimationId = null;
         }
     }
@@ -4304,7 +4308,7 @@ class BillionaireMap {
     startGlobeRotation() {
         if (!this.isGlobeMode || this.globeRotationInterval) return;
         
-        this.globeRotationInterval = setInterval(() => {
+        this.globeRotationInterval = this.timerManager.setInterval(() => {
             const currentBearing = this.map.getBearing();
             this.map.setBearing(currentBearing + 0.5);
         }, 50);
@@ -4312,7 +4316,7 @@ class BillionaireMap {
     
     stopGlobeRotation() {
         if (this.globeRotationInterval) {
-            clearInterval(this.globeRotationInterval);
+            this.timerManager.clearInterval(this.globeRotationInterval);
             this.globeRotationInterval = null;
         }
     }
@@ -4506,7 +4510,7 @@ class BillionaireMap {
         document.body.appendChild(mapModeToggle);
         
         // 3D/2D 토글 버튼 이벤트 리스너
-        globeBtn.addEventListener('click', () => {
+        this.eventManager.add(globeBtn, 'click', () => {
             this.toggleGlobeMode();
         });
 
@@ -4547,7 +4551,7 @@ class BillionaireMap {
             'bulgaria': () => this.switchToBulgariaMode()
         };
 
-        dropdown.addEventListener('change', async (event) => {
+        this.eventManager.add(dropdown, 'change', async (event) => {
             const selectedMode = event.target.value;
             if (!selectedMode) {
                 if (!this.isGlobeMode) {
@@ -4562,80 +4566,80 @@ class BillionaireMap {
             }
         });
         
-        // 기존 버튼 이벤트 리스너 (하위 호환성)
-        usaBtn.addEventListener('click', () => {
+        // 기존 버튼 이벤트 리스너 (하위 호환성) - EventManager로 관리
+        this.eventManager.add(usaBtn, 'click', () => {
             this.switchToUSAMode();
         });
         
-        koreaBtn.addEventListener('click', () => {
+        this.eventManager.add(koreaBtn, 'click', () => {
             this.switchToKoreaMode();
         });
         
-        japanBtn.addEventListener('click', () => {
+        this.eventManager.add(japanBtn, 'click', () => {
             this.switchToJapanMode();
         });
         
-        chinaBtn.addEventListener('click', () => {
+        this.eventManager.add(chinaBtn, 'click', () => {
             this.switchToChinaMode();
         });
 
-        russiaBtn.addEventListener('click', () => {
+        this.eventManager.add(russiaBtn, 'click', () => {
             this.switchToRussiaMode();
         });
 
-        indiaBtn.addEventListener('click', () => {
+        this.eventManager.add(indiaBtn, 'click', () => {
             this.switchToIndiaMode();
         });
 
-        canadaBtn.addEventListener('click', () => {
+        this.eventManager.add(canadaBtn, 'click', () => {
             this.switchToCanadaMode();
         });
 
-        germanyBtn.addEventListener('click', () => {
+        this.eventManager.add(germanyBtn, 'click', () => {
             this.switchToGermanyMode();
         });
 
-        ukBtn.addEventListener('click', () => {
+        this.eventManager.add(ukBtn, 'click', () => {
             this.switchToUKMode();
         });
 
-        franceBtn.addEventListener('click', () => {
+        this.eventManager.add(franceBtn, 'click', () => {
             this.switchToFranceMode();
         });
 
-        italyBtn.addEventListener('click', () => {
+        this.eventManager.add(italyBtn, 'click', () => {
             this.switchToItalyMode();
         });
 
-        brazilBtn.addEventListener('click', () => {
+        this.eventManager.add(brazilBtn, 'click', () => {
             this.switchToBrazilMode();
         });
 
-        australiaBtn.addEventListener('click', () => {
+        this.eventManager.add(australiaBtn, 'click', () => {
             this.switchToAustraliaMode();
         });
 
-        mexicoBtn.addEventListener('click', () => {
+        this.eventManager.add(mexicoBtn, 'click', () => {
             this.switchToMexicoMode();
         });
 
-        indonesiaBtn.addEventListener('click', () => {
+        this.eventManager.add(indonesiaBtn, 'click', () => {
             this.switchToIndonesiaMode();
         });
 
-        saudiArabiaBtn.addEventListener('click', () => {
+        this.eventManager.add(saudiArabiaBtn, 'click', () => {
             this.switchToSaudiArabiaMode();
         });
 
-        turkeyBtn.addEventListener('click', () => {
+        this.eventManager.add(turkeyBtn, 'click', () => {
             this.switchToTurkeyMode();
         });
 
-        southAfricaBtn.addEventListener('click', () => {
+        this.eventManager.add(southAfricaBtn, 'click', () => {
             this.switchToSouthAfricaMode();
         });
 
-        argentinaBtn.addEventListener('click', () => {
+        this.eventManager.add(argentinaBtn, 'click', () => {
             this.switchToArgentinaMode();
         });
     }
@@ -20857,7 +20861,7 @@ class BillionaireMap {
                 minute: '2-digit'
             }) : '-';
             
-            card.innerHTML = `
+            this.setSafeHTML(card, `
                 <div class="user-card-header">
                     <div class="user-card-title">${this.sanitizeHTML(entry.regionName || entry.regionId)}</div>
                     <div class="user-card-meta">${this.sanitizeHTML(entry.country || '-')}</div>
@@ -20875,7 +20879,7 @@ class BillionaireMap {
                 <div class="user-card-actions">
                     <button data-dashboard-action="open-auction" data-region-id="${this.sanitizeHTML(entry.regionId)}">옥션 열기</button>
                 </div>
-            `;
+            `);
             listEl.appendChild(card);
         });
     }
@@ -22115,7 +22119,7 @@ class BillionaireMap {
         const regionName = this.sanitizeHTML(this.getRegionDisplayName(region) || auctionData.regionName || '');
         const amount = auctionData.currentBid || 0;
         
-        modal.innerHTML = `
+        this.setSafeHTML(modal, `
             <div class="modal-content auction-payment-modal">
                 <div class="modal-header">
                     <h2>
@@ -22135,7 +22139,7 @@ class BillionaireMap {
                     <div id="auction-payment-status" style="margin-top: 15px;"></div>
                 </div>
             </div>
-        `;
+        `);
         
         document.body.appendChild(modal);
         modal.classList.remove('hidden');
@@ -22228,7 +22232,7 @@ class BillionaireMap {
                         // 성공 메시지 표시
                         const statusDiv = document.getElementById('auction-payment-status');
                         if (statusDiv) {
-                            statusDiv.innerHTML = '<div style="color: #2ecc71; font-weight: 600;">✅ 결제가 완료되었습니다! 소유권이 부여되었습니다.</div>';
+                            this.setSafeHTML(statusDiv, '<div style="color: #2ecc71; font-weight: 600;">✅ 결제가 완료되었습니다! 소유권이 부여되었습니다.</div>');
                         }
                         
                         // PayPal 버튼 제거
@@ -22255,7 +22259,7 @@ class BillionaireMap {
                         this.showNotification('결제 처리 중 오류가 발생했습니다.', 'error');
                         const statusDiv = document.getElementById('auction-payment-status');
                         if (statusDiv) {
-                            statusDiv.innerHTML = '<div style="color: #e74c3c; font-weight: 600;">❌ 결제 처리 중 오류가 발생했습니다. 다시 시도해주세요.</div>';
+                            this.setSafeHTML(statusDiv, '<div style="color: #e74c3c; font-weight: 600;">❌ 결제 처리 중 오류가 발생했습니다. 다시 시도해주세요.</div>');
                         }
                     }
                 },
@@ -22691,7 +22695,7 @@ class BillionaireMap {
         this.checkPendingAuctions();
         
         // 주기적으로 실행
-        this.auctionCheckInterval = setInterval(() => {
+        this.auctionCheckInterval = this.timerManager.setInterval(() => {
             this.checkPendingAuctions();
         }, this.auctionCheckIntervalMs);
         
@@ -26769,10 +26773,10 @@ class BillionaireMap {
         this.pixelUpdateBatch.push({ pixelId, regionId, color });
         
         if (this.pixelBatchTimer) {
-            clearTimeout(this.pixelBatchTimer);
+            this.timerManager.clearTimeout(this.pixelBatchTimer);
         }
         
-        this.pixelBatchTimer = setTimeout(() => {
+        this.pixelBatchTimer = this.timerManager.setTimeout(() => {
             this.savePixelBatch();
         }, 500);
     }
@@ -27357,7 +27361,7 @@ class BillionaireMap {
             
             // 인덱스 오류인 경우 더 친절한 메시지 표시
             if (error.code === 'failed-precondition' && error.message && error.message.includes('index')) {
-                errorP.innerHTML = '옥션을 불러오는데 실패했습니다.<br>인덱스가 생성되는 중일 수 있습니다. 잠시 후 다시 시도해주세요.';
+                this.setSafeHTML(errorP, '옥션을 불러오는데 실패했습니다.<br>인덱스가 생성되는 중일 수 있습니다. 잠시 후 다시 시도해주세요.');
             } else {
                 errorP.textContent = '옥션을 불러오는데 실패했습니다.';
             }
@@ -28914,13 +28918,13 @@ class BillionaireMap {
             body.className = 'moderation-item-body';
             
             const reasonP = document.createElement('p');
-            reasonP.innerHTML = `<strong>사유:</strong> ${this.sanitizeHTML(this.getReasonLabel(report.reason))}`;
+            this.setSafeHTML(reasonP, `<strong>사유:</strong> ${this.sanitizeHTML(this.getReasonLabel(report.reason))}`);
             
             const reporterP = document.createElement('p');
-            reporterP.innerHTML = `<strong>신고자:</strong> ${this.sanitizeHTML(report.reporterEmail || '익명')}`;
+            this.setSafeHTML(reporterP, `<strong>신고자:</strong> ${this.sanitizeHTML(report.reporterEmail || '익명')}`);
             
             const detailsP = document.createElement('p');
-            detailsP.innerHTML = `<strong>상세:</strong> ${this.sanitizeHTML(report.details || '없음')}`;
+            this.setSafeHTML(detailsP, `<strong>상세:</strong> ${this.sanitizeHTML(report.details || '없음')}`);
             
             const dateP = document.createElement('p');
             const dateStr = report.createdAt?.toDate?.()?.toLocaleString() || '알 수 없음';
@@ -29908,6 +29912,118 @@ class BillionaireMap {
             console.warn('[Geometry 최적화 실패]:', e);
             return geometry;
         }
+    }
+    
+    /**
+     * 리소스 정리 메서드 - 메모리 누수 방지
+     * 페이지 언로드 시 또는 필요 시 호출
+     */
+    cleanup() {
+        console.log('[BillionaireMap] 리소스 정리 시작...');
+        
+        // 1. 모든 이벤트 리스너 정리
+        if (this.eventManager) {
+            this.eventManager.cleanup();
+        }
+        
+        // 2. 모든 타이머 정리
+        if (this.timerManager) {
+            this.timerManager.cleanup();
+        }
+        
+        // 3. Firestore 리스너 정리
+        if (this.auctionListeners) {
+            for (const [regionId, unsubscribe] of this.auctionListeners) {
+                try {
+                    unsubscribe();
+                } catch (error) {
+                    console.warn(`[BillionaireMap] 옥션 리스너 정리 실패 (${regionId}):`, error);
+                }
+            }
+            this.auctionListeners.clear();
+        }
+        
+        if (this.pixelGridListeners) {
+            for (const [regionId, unsubscribe] of this.pixelGridListeners) {
+                try {
+                    unsubscribe();
+                } catch (error) {
+                    console.warn(`[BillionaireMap] 픽셀 그리드 리스너 정리 실패 (${regionId}):`, error);
+                }
+            }
+            this.pixelGridListeners.clear();
+        }
+        
+        if (this.communityPoolListener) {
+            try {
+                this.communityPoolListener();
+            } catch (error) {
+                console.warn('[BillionaireMap] 커뮤니티 풀 리스너 정리 실패:', error);
+            }
+            this.communityPoolListener = null;
+        }
+        
+        if (this.walletListener) {
+            try {
+                this.walletListener();
+            } catch (error) {
+                console.warn('[BillionaireMap] 지갑 리스너 정리 실패:', error);
+            }
+            this.walletListener = null;
+        }
+        
+        // 4. 옥션 타이머 정리
+        if (this.auctionTimers) {
+            for (const [regionId, timerId] of this.auctionTimers) {
+                try {
+                    if (timerId) {
+                        this.timerManager?.clearInterval(timerId);
+                    }
+                } catch (error) {
+                    console.warn(`[BillionaireMap] 옥션 타이머 정리 실패 (${regionId}):`, error);
+                }
+            }
+            this.auctionTimers.clear();
+        }
+        
+        // 5. 지도 관련 정리
+        if (this.map) {
+            try {
+                // MapLibre GL JS 맵 정리
+                this.map.remove();
+            } catch (error) {
+                console.warn('[BillionaireMap] 지도 정리 실패:', error);
+            }
+            this.map = null;
+        }
+        
+        // 6. 특정 타이머들 명시적 정리
+        if (this.globeRotationInterval) {
+            this.timerManager?.clearInterval(this.globeRotationInterval);
+            this.globeRotationInterval = null;
+        }
+        
+        if (this.cloudAnimationId) {
+            this.timerManager?.cancelAnimationFrame(this.cloudAnimationId);
+            this.cloudAnimationId = null;
+        }
+        
+        if (this.pixelBatchTimer) {
+            this.timerManager?.clearTimeout(this.pixelBatchTimer);
+            this.pixelBatchTimer = null;
+        }
+        
+        if (this.auctionCheckInterval) {
+            this.timerManager?.clearInterval(this.auctionCheckInterval);
+            this.auctionCheckInterval = null;
+        }
+        
+        if (this.pKeyTimer) {
+            this.timerManager?.clearTimeout(this.pKeyTimer);
+            this.pKeyTimer = null;
+        }
+        
+        console.log('[BillionaireMap] 리소스 정리 완료');
     }
     
     
