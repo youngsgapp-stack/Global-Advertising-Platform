@@ -19234,21 +19234,34 @@ class BillionaireMap {
             // 저장된 색상이 있으면 복원
             if (Object.keys(currentColorData).length > 0) {
                 fillColorExpr = ['case'];
+                let hasConditions = false;
+                
                 Object.keys(currentColorData).forEach(regionId => {
                     const regionColor = currentColorData[regionId];
                     if (regionColor && regionColor.fillColor) {
                         fillColorExpr.push(['==', ['get', 'id'], regionId]);
                         fillColorExpr.push(regionColor.fillColor);
+                        hasConditions = true;
                     }
                 });
                 
                 // 기본 색상 (occupied 상태에 따라)
-                fillColorExpr.push([
+                const defaultColorExpr = [
                     'case',
                     ['==', ['get', 'ad_status'], 'occupied'],
                     '#ff6b6b',
                     '#4ecdc4'
-                ]);
+                ];
+                
+                // 조건이 하나도 추가되지 않았으면 기본 색상 표현식만 사용
+                if (!hasConditions) {
+                    fillColorExpr = defaultColorExpr;
+                } else {
+                    // 조건이 있으면 기본 색상 조건들을 개별적으로 추가 (중첩 배열 방지)
+                    fillColorExpr.push(['==', ['get', 'ad_status'], 'occupied']);
+                    fillColorExpr.push('#ff6b6b');
+                    fillColorExpr.push('#4ecdc4');
+                }
             } else {
                 // 저장된 색상이 없으면 원래 GeoJSON의 색상 사용 (country_color 또는 color 속성)
                 if (currentMode === 'japan') {
