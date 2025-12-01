@@ -656,7 +656,8 @@ class AdminDashboard {
         this.setRefreshing(true);
 
         try {
-            await Promise.all([
+            // Promise.allSettled를 사용하여 일부 실패해도 나머지 계속 진행
+            const results = await Promise.allSettled([
                 this.fetchRegionMetrics(),
                 this.fetchCommunityPool(),
                 this.fetchAuctions(),
@@ -666,6 +667,29 @@ class AdminDashboard {
                 this.fetchAuditLogs()
             ]);
 
+            // 실패한 작업이 있는지 확인 (권한 오류는 제외)
+            const failures = results.filter((result, index) => {
+                if (result.status === 'rejected') {
+                    const error = result.reason;
+                    // 권한 오류는 이미 각 메서드에서 조용히 처리되므로 무시
+                    if (error.code === 'permission-denied') {
+                        return false;
+                    }
+                    const methodNames = [
+                        'fetchRegionMetrics',
+                        'fetchCommunityPool',
+                        'fetchAuctions',
+                        'fetchPurchases',
+                        'fetchReports',
+                        'fetchSystemLogs',
+                        'fetchAuditLogs'
+                    ];
+                    console.warn(`[ADMIN] ${methodNames[index]} 실패:`, error.message || error);
+                    return true;
+                }
+                return false;
+            });
+
             this.render();
 
             const lastRefreshEl = document.getElementById('last-refresh-at');
@@ -674,23 +698,16 @@ class AdminDashboard {
             }
 
             if (notify) {
-                this.showToast('대시보드가 업데이트되었습니다.', 'success');
+                if (failures.length > 0) {
+                    this.showToast('일부 데이터를 불러오지 못했습니다.', 'warning');
+                } else {
+                    this.showToast('대시보드가 업데이트되었습니다.', 'success');
+                }
             }
         } catch (error) {
-            console.error('[ADMIN] 데이터 갱신 실패', error);
-            console.error('[ADMIN] 에러 상세:', {
-                message: error.message,
-                code: error.code,
-                details: error.details,
-                stack: error.stack
-            });
-            
-            // 권한 오류인 경우 특별 처리
-            if (error.code === 'permission-denied' || error.message?.includes('permission')) {
-                this.showToast('권한이 없습니다. 관리자 권한을 확인해주세요.', 'error');
-                console.error('[ADMIN] 권한 오류 - 현재 사용자:', this.currentUser);
-                console.error('[ADMIN] Firebase Auth 상태:', this.firebaseAuth?.currentUser);
-            } else {
+            // 예상치 못한 오류만 처리
+            console.error('[ADMIN] 데이터 갱신 중 예상치 못한 오류', error);
+            if (notify) {
                 this.showToast('데이터를 불러오지 못했습니다.', 'error');
             }
         } finally {
@@ -1009,6 +1026,12 @@ class AdminDashboard {
                 });
             }
         } catch (error) {
+            // 권한 오류는 조용히 처리
+            if (error.code === 'permission-denied') {
+                console.log('[ADMIN] Purchases 읽기 권한 없음 (정상)');
+                this.state.recentPurchases = [];
+                return;
+            }
             console.error('[ADMIN] fetchPurchases 실패', error);
             throw error;
         }
@@ -1051,6 +1074,13 @@ class AdminDashboard {
             this.state.pendingReports = reports;
             this.state.summary.pendingReports = reports.length;
         } catch (error) {
+            // 권한 오류는 조용히 처리
+            if (error.code === 'permission-denied') {
+                console.log('[ADMIN] Reports 읽기 권한 없음 (정상)');
+                this.state.pendingReports = [];
+                this.state.summary.pendingReports = 0;
+                return;
+            }
             console.error('[ADMIN] fetchReports 실패', error);
             throw error;
         }
@@ -1114,6 +1144,12 @@ class AdminDashboard {
 
             this.state.auditLogs = audits;
         } catch (error) {
+            // 권한 오류는 조용히 처리
+            if (error.code === 'permission-denied') {
+                console.log('[ADMIN] Audit Logs 읽기 권한 없음 (정상)');
+                this.state.auditLogs = [];
+                return;
+            }
             console.error('[ADMIN] fetchAuditLogs 실패', error);
             throw error;
         }
