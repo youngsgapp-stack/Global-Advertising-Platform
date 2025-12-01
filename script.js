@@ -6080,7 +6080,7 @@ class BillionaireMap {
 
                 // 속성 정규화
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const nameCandidates = [p.shapeName, p.name, p.NAME_1, p.NAME, p.region, p.admin, p.provname, `Region_${index}`];
                     const rawName = nameCandidates.find(Boolean);
@@ -8522,7 +8522,7 @@ class BillionaireMap {
                 };
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.state || `State_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `MEX_${index}`;
@@ -8710,7 +8710,7 @@ class BillionaireMap {
                 };
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `IDN_${index}`;
@@ -8868,7 +8868,7 @@ class BillionaireMap {
                 };
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `SAU_${index}`;
@@ -9003,10 +9003,9 @@ class BillionaireMap {
                     }
                 }
                 if (!data) throw lastError || new Error('No Turkey dataset available');
-                return data;
                 
                 // 81개 이상의 feature가 있으면 그룹화 필요 (주 -> 지역)
-                const needsGrouping = geoJsonData.features && geoJsonData.features.length > 50;
+                const needsGrouping = data.features && data.features.length > 50;
                 
                 if (needsGrouping) {
                     // 튀르키예 주를 7개 지역으로 그룹화하는 매핑
@@ -9050,7 +9049,7 @@ class BillionaireMap {
                     const groupedFeatures = new Map();
                     const idSet = new Set();
                     
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
                         const nameLower = rawName.toLowerCase();
@@ -9253,16 +9252,16 @@ class BillionaireMap {
                         this.regionData.set(finalId, mergedFeatures[mergedFeatures.length - 1].properties);
                     });
                     
-                    console.log(`[Turkey] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${geoJsonData.features.length}개)`);
+                    console.log(`[Turkey] 최종 통합: ${mergedFeatures.length}개 지역 (원본: ${data.features.length}개)`);
                     
-                    geoJsonData = {
+                    data = {
                         type: 'FeatureCollection',
                         features: mergedFeatures
                     };
                 } else {
                     // 그룹화가 필요 없으면 원본 데이터 속성만 정규화
                     const idSet = new Set();
-                    geoJsonData.features.forEach((feature, index) => {
+                    data.features.forEach((feature, index) => {
                         const p = feature.properties || {};
                         const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
                         const baseIdSrc = p.hasc || p.shapeID || rawName || `TUR_${index}`;
@@ -9486,9 +9485,9 @@ class BillionaireMap {
                 });
                 
                 const idSet = new Set();
-                const isDistrictLevel = geoJsonData.features.length > 40; // ADM2 데이터인 경우 (52개 지구)
+                const isDistrictLevel = data.features.length > 40; // ADM2 데이터인 경우 (52개 지구)
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_2 || p.NAME_1 || p.province || p.district || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `ZAF_${index}`;
@@ -9944,7 +9943,7 @@ class BillionaireMap {
                 this.argentinaProvinceMapping = argentinaProvinceMapping;
                 
                 const idSet = new Set();
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.province || `Province_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `ARG_${index}`;
@@ -11019,9 +11018,9 @@ class BillionaireMap {
                 });
                 
                 const idSet = new Set();
-                const isProvinceLevel = geoJsonData.features.length > 40; // ADM2 데이터인 경우 (52개 주)
+                const isProvinceLevel = data.features.length > 40; // ADM2 데이터인 경우 (52개 주)
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.NAME_2 || p.province || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `ESP_${index}`;
@@ -12628,9 +12627,9 @@ class BillionaireMap {
                 });
                 
                 const idSet = new Set();
-                const isDistrictLevel = geoJsonData.features.length > 15; // ADM2 데이터인 경우 (21개 구)
+                const isDistrictLevel = data.features.length > 15; // ADM2 데이터인 경우 (21개 구)
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.NAME_2 || p.district || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `AUT_${index}`;
@@ -13358,9 +13357,9 @@ class BillionaireMap {
                 });
                 
                 const idSet = new Set();
-                const isCountyLevel = geoJsonData.features.length > 10; // 카운티 레벨 데이터인 경우 (26개 카운티)
+                const isCountyLevel = data.features.length > 10; // 카운티 레벨 데이터인 경우 (26개 카운티)
                 
-                geoJsonData.features.forEach((feature, index) => {
+                data.features.forEach((feature, index) => {
                     const p = feature.properties || {};
                     const rawName = p.name || p.NAME_1 || p.county || `Region_${index}`;
                     const baseIdSrc = p.hasc || p.shapeID || rawName || `IRL_${index}`;
