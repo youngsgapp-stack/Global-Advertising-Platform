@@ -151,6 +151,10 @@ class BillionaireMap {
         this.pixelGrids = new Map(); // regionId -> pixelGridData
         this.pixelGridListeners = new Map(); // regionId -> unsubscribe function
         this.pixelGridSource = null; // Mapbox source for pixel grids
+        this.pixelGridMetadata = new Map(); // regionId -> { bbox, feature } (메타데이터만 저장, 픽셀 데이터는 지연 로딩)
+        this.loadedPixelGrids = new Set(); // 현재 메모리에 로드된 regionId 집합
+        this.pixelGridLoadQueue = new Set(); // 로드 대기 중인 regionId 집합
+        this.maxLoadedGrids = 50; // 최대 메모리에 유지할 픽셀 그리드 수
         this.currentPixelColor = '#FF0000'; // 현재 선택된 색상
         this.isPixelDrawing = false; // 드래그로 여러 픽셀 색칠 중인지
         this.selectedPixels = new Set(); // 드래그 중 선택된 픽셀들
@@ -25627,10 +25631,14 @@ class BillionaireMap {
         if (useViewportFilter && viewport && zoom && zoom >= 6) {
             const [minX, minY, maxX, maxY] = viewport;
             const filteredBefore = pixelsToProcess.length;
+            // cellSize를 사용하여 bounds 계산 (메모리 최적화)
+            const cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
+            const halfCell = cellSize / 2;
+            
             pixelsToProcess = pixelsToProcess.filter(pixel => {
-                // 픽셀의 중심점 또는 경계가 뷰포트와 겹치는지 확인
-                const centerX = (pixel.bounds.minX + pixel.bounds.maxX) / 2;
-                const centerY = (pixel.bounds.minY + pixel.bounds.maxY) / 2;
+                // 픽셀의 중심점이 뷰포트와 겹치는지 확인 (bounds 대신 x, y 사용)
+                const centerX = pixel.x || (pixel.bounds ? (pixel.bounds.minX + pixel.bounds.maxX) / 2 : 0);
+                const centerY = pixel.y || (pixel.bounds ? (pixel.bounds.minY + pixel.bounds.maxY) / 2 : 0);
                 return centerX >= minX && centerX <= maxX && 
                        centerY >= minY && centerY <= maxY;
             });
@@ -25648,9 +25656,12 @@ class BillionaireMap {
                     maxY + height * 0.1
                 ];
                 const [expMinX, expMinY, expMaxX, expMaxY] = expandedViewport;
+                // cellSize를 사용하여 bounds 계산 (메모리 최적화)
+                const cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
+                
                 pixelsToProcess = pixelGrid.pixels.filter(pixel => {
-                    const centerX = (pixel.bounds.minX + pixel.bounds.maxX) / 2;
-                    const centerY = (pixel.bounds.minY + pixel.bounds.maxY) / 2;
+                    const centerX = pixel.x || (pixel.bounds ? (pixel.bounds.minX + pixel.bounds.maxX) / 2 : 0);
+                    const centerY = pixel.y || (pixel.bounds ? (pixel.bounds.minY + pixel.bounds.maxY) / 2 : 0);
                     return centerX >= expMinX && centerX <= expMaxX && 
                            centerY >= expMinY && centerY <= expMaxY;
                 });
@@ -25694,8 +25705,30 @@ class BillionaireMap {
         // 성능 최적화: 배열 미리 할당
         const features = new Array(pixelsToProcess.length);
         
+        // cellSize를 사용하여 bounds 계산 (메모리 최적화)
+        const cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
+        const halfCell = cellSize / 2;
+        
         for (let i = 0; i < pixelsToProcess.length; i++) {
             const pixel = pixelsToProcess[i];
+            
+            // bounds가 있으면 사용, 없으면 x, y, cellSize로 계산
+            let minX, minY, maxX, maxY;
+            if (pixel.bounds) {
+                minX = pixel.bounds.minX;
+                minY = pixel.bounds.minY;
+                maxX = pixel.bounds.maxX;
+                maxY = pixel.bounds.maxY;
+            } else {
+                // x, y, cellSize로 bounds 계산
+                const centerX = pixel.x || 0;
+                const centerY = pixel.y || 0;
+                minX = centerX - halfCell;
+                minY = centerY - halfCell;
+                maxX = centerX + halfCell;
+                maxY = centerY + halfCell;
+            }
+            
             features[i] = {
                 type: 'Feature',
                 properties: {
@@ -25708,11 +25741,11 @@ class BillionaireMap {
                 geometry: {
                     type: 'Polygon',
                     coordinates: [[
-                        [pixel.bounds.minX, pixel.bounds.minY],
-                        [pixel.bounds.maxX, pixel.bounds.minY],
-                        [pixel.bounds.maxX, pixel.bounds.maxY],
-                        [pixel.bounds.minX, pixel.bounds.maxY],
-                        [pixel.bounds.minX, pixel.bounds.minY]
+                        [minX, minY],
+                        [maxX, minY],
+                        [maxX, maxY],
+                        [minX, maxY],
+                        [minX, minY]
                     ]]
                 }
             };
@@ -26155,86 +26188,204 @@ class BillionaireMap {
     }
     
     /**
-     * 모든 행정구역에 픽셀 그리드 생성 (배치 처리 및 점진적 로딩)
+     * 모든 행정구역의 픽셀 그리드 메타데이터만 저장 (메모리 최적화)
+     * 실제 픽셀 데이터는 뷰포트에 보일 때만 로드
      */
     async createAllPixelGrids(geoJson) {
         if (!geoJson || !geoJson.features || geoJson.features.length === 0) return;
         
         const features = geoJson.features;
-        const batchSize = 10; // 한 번에 처리할 행정구역 수 (성능 최적화)
-        let processedCount = 0;
-        let createdCount = 0;
-        let loadedCount = 0;
+        let metadataCount = 0;
         
-        // 진행 상황 표시
-        const showProgress = (current, total) => {
-            if (current % 50 === 0 || current === total) {
-                console.log(`[픽셀 그리드 생성] 진행: ${current}/${total} (${((current/total)*100).toFixed(1)}%)`);
-            }
-        };
-        
-        // 배치 단위로 처리
-        for (let i = 0; i < features.length; i += batchSize) {
-            const batch = features.slice(i, i + batchSize);
+        // 모든 행정구역의 메타데이터만 저장 (픽셀 데이터는 저장하지 않음)
+        features.forEach((feature) => {
+            const regionId = feature.properties?.id || feature.properties?.regionId;
+            if (!regionId) return;
             
-            // 배치 병렬 처리
-            const batchPromises = batch.map(async (feature) => {
-                const regionId = feature.properties?.id || feature.properties?.regionId;
-                if (!regionId) return null;
-                
-                // 이미 생성된 픽셀 그리드가 있으면 스킵
-                if (this.pixelGrids.has(regionId)) {
-                    loadedCount++;
-                    return null;
-                }
-                
+            // 바운딩 박스만 계산하여 메타데이터 저장
+            const bbox = this.calculateBoundingBox(feature);
+            if (bbox) {
+                this.pixelGridMetadata.set(regionId, {
+                    bbox,
+                    feature,
+                    regionId
+                });
+                metadataCount++;
+            }
+        });
+        
+        console.log(`[픽셀 그리드 메타데이터 저장 완료] ${metadataCount}개 행정구역 메타데이터 저장 (픽셀 데이터는 지연 로딩)`);
+        
+        // 초기 뷰포트에 보이는 픽셀만 로드
+        if (this.map) {
+            await this.loadVisiblePixelGrids();
+            this.updateVisiblePixels();
+        }
+    }
+    
+    /**
+     * 뷰포트에 보이는 지역의 픽셀 그리드만 로드 (메모리 최적화)
+     */
+    async loadVisiblePixelGrids() {
+        if (!this.map || !this.pixelGridMetadata || this.pixelGridMetadata.size === 0) return;
+        
+        const bounds = this.map.getBounds();
+        const viewport = [
+            bounds.getWest(),
+            bounds.getSouth(),
+            bounds.getEast(),
+            bounds.getNorth()
+        ];
+        
+        const visibleRegionIds = [];
+        
+        // 뷰포트와 겹치는 지역 찾기
+        this.pixelGridMetadata.forEach((metadata, regionId) => {
+            const { bbox } = metadata;
+            if (this.isBboxIntersectingViewport(bbox, viewport)) {
+                visibleRegionIds.push(regionId);
+            }
+        });
+        
+        // 이미 로드된 지역 제외
+        const toLoad = visibleRegionIds.filter(id => !this.loadedPixelGrids.has(id) && !this.pixelGridLoadQueue.has(id));
+        
+        if (toLoad.length === 0) return;
+        
+        // 로드 대기 큐에 추가
+        toLoad.forEach(id => this.pixelGridLoadQueue.add(id));
+        
+        // 배치 단위로 로드 (한 번에 최대 10개)
+        const batchSize = 10;
+        for (let i = 0; i < toLoad.length; i += batchSize) {
+            const batch = toLoad.slice(i, i + batchSize);
+            
+            const loadPromises = batch.map(async (regionId) => {
                 try {
+                    const metadata = this.pixelGridMetadata.get(regionId);
+                    if (!metadata) return;
+                    
                     // Firestore에서 먼저 로드 시도
-                    const loadedGrid = await this.loadPixelGrid(regionId);
-                    if (loadedGrid) {
-                        this.pixelGrids.set(regionId, loadedGrid);
-                        loadedCount++;
-                        return null; // 이미 로드되었으므로 생성 불필요
-                    }
+                    let pixelGrid = await this.loadPixelGrid(regionId);
                     
                     // Firestore에 없으면 새로 생성
-                    const pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
+                    if (!pixelGrid) {
+                        pixelGrid = this.createPixelGrid(metadata.feature, this.pixelGridGridSize);
+                        if (pixelGrid && pixelGrid.pixels && pixelGrid.pixels.length > 0) {
+                            // Firestore에 비동기 저장
+                            this.savePixelGrid(regionId, pixelGrid).catch(err => {
+                                console.warn(`[픽셀 그리드 저장 실패] ${regionId}:`, err);
+                            });
+                        }
+                    }
+                    
                     if (pixelGrid && pixelGrid.pixels && pixelGrid.pixels.length > 0) {
+                        // 메모리 제한 체크
+                        if (this.loadedPixelGrids.size >= this.maxLoadedGrids) {
+                            await this.unloadOldestPixelGrids(5); // 가장 오래된 5개 제거
+                        }
+                        
                         // 메모리에 저장
                         this.pixelGrids.set(regionId, pixelGrid);
+                        this.loadedPixelGrids.add(regionId);
                         
-                        // Firestore에 비동기 저장 (결과 기다리지 않음)
-                        this.savePixelGrid(regionId, pixelGrid).catch(err => {
-                            console.warn(`[픽셀 그리드 저장 실패] ${regionId}:`, err);
-                        });
-                        
-                        createdCount++;
-                        return pixelGrid;
+                        // Firestore 리스너 설정 (뷰포트에 보이는 지역만)
+                        this.setupPixelRealtimeListener(regionId);
                     }
                 } catch (error) {
-                    console.warn(`[픽셀 그리드 생성 실패] ${regionId}:`, error);
+                    console.warn(`[픽셀 그리드 로드 실패] ${regionId}:`, error);
+                } finally {
+                    this.pixelGridLoadQueue.delete(regionId);
                 }
-                
-                return null;
             });
             
-            // 배치 완료 대기
-            await Promise.all(batchPromises);
-            processedCount += batch.length;
-            showProgress(processedCount, features.length);
+            await Promise.all(loadPromises);
             
             // UI 블로킹 방지를 위해 다음 배치 전 짧은 대기
-            if (i + batchSize < features.length) {
+            if (i + batchSize < toLoad.length) {
                 await new Promise(resolve => setTimeout(resolve, 10));
             }
         }
         
-        console.log(`[픽셀 그리드 초기화 완료] 총 ${features.length}개 행정구역 중 ${createdCount}개 생성, ${loadedCount}개 로드`);
+        // 뷰포트에서 벗어난 지역의 픽셀 그리드 제거
+        await this.unloadInvisiblePixelGrids(viewport);
+    }
+    
+    /**
+     * 바운딩 박스가 뷰포트와 겹치는지 확인
+     */
+    isBboxIntersectingViewport(bbox, viewport) {
+        const [minX, minY, maxX, maxY] = bbox;
+        const [vMinX, vMinY, vMaxX, vMaxY] = viewport;
         
-        // 초기 뷰포트에 보이는 픽셀 표시
-        if (this.map) {
-            this.updateVisiblePixels();
+        // 뷰포트를 약간 확장하여 경계 근처 지역도 포함
+        const padding = 0.1; // 10% 확장
+        const vWidth = vMaxX - vMinX;
+        const vHeight = vMaxY - vMinY;
+        const expandedViewport = [
+            vMinX - vWidth * padding,
+            vMinY - vHeight * padding,
+            vMaxX + vWidth * padding,
+            vMaxY + vHeight * padding
+        ];
+        
+        const [evMinX, evMinY, evMaxX, evMaxY] = expandedViewport;
+        
+        return !(maxX < evMinX || minX > evMaxX || maxY < evMinY || minY > evMaxY);
+    }
+    
+    /**
+     * 뷰포트에서 벗어난 지역의 픽셀 그리드 메모리에서 제거
+     */
+    async unloadInvisiblePixelGrids(viewport) {
+        const toUnload = [];
+        
+        this.loadedPixelGrids.forEach(regionId => {
+            const metadata = this.pixelGridMetadata.get(regionId);
+            if (!metadata) {
+                toUnload.push(regionId);
+                return;
+            }
+            
+            // 뷰포트와 겹치지 않으면 제거 대상
+            if (!this.isBboxIntersectingViewport(metadata.bbox, viewport)) {
+                toUnload.push(regionId);
+            }
+        });
+        
+        // 제거 대상 처리
+        for (const regionId of toUnload) {
+            await this.unloadPixelGrid(regionId);
         }
+        
+        if (toUnload.length > 0) {
+            console.log(`[픽셀 그리드 메모리 해제] ${toUnload.length}개 지역 제거 (현재 로드: ${this.loadedPixelGrids.size}개)`);
+        }
+    }
+    
+    /**
+     * 가장 오래된 픽셀 그리드 제거 (LRU 방식)
+     */
+    async unloadOldestPixelGrids(count) {
+        const toUnload = Array.from(this.loadedPixelGrids).slice(0, count);
+        for (const regionId of toUnload) {
+            await this.unloadPixelGrid(regionId);
+        }
+    }
+    
+    /**
+     * 특정 지역의 픽셀 그리드를 메모리에서 제거
+     */
+    async unloadPixelGrid(regionId) {
+        // Firestore 리스너 제거
+        if (this.pixelGridListeners.has(regionId)) {
+            this.pixelGridListeners.get(regionId)();
+            this.pixelGridListeners.delete(regionId);
+        }
+        
+        // 메모리에서 제거
+        this.pixelGrids.delete(regionId);
+        this.loadedPixelGrids.delete(regionId);
     }
     
     /**
@@ -27027,8 +27178,13 @@ class BillionaireMap {
      * Phase 3: 뷰포트 기반 렌더링 업데이트
      * Wplace 스타일: 모든 행정구역의 픽셀을 뷰포트와 줌 레벨에 맞게 표시
      */
-    updateVisiblePixels() {
+    async updateVisiblePixels() {
         if (!this.map || !this.map.getSource('pixel-grids')) return;
+        
+        // 뷰포트에 보이는 지역의 픽셀 그리드 로드 (비동기, 결과 기다리지 않음)
+        this.loadVisiblePixelGrids().catch(err => {
+            console.warn('[픽셀 그리드 로드 실패]:', err);
+        });
         
         // 픽셀 그리드가 없으면 즉시 종료
         if (!this.pixelGrids || this.pixelGrids.size === 0) return;
@@ -27044,10 +27200,16 @@ class BillionaireMap {
         
         const allVisibleFeatures = [];
         
-        // 모든 픽셀 그리드에서 화면에 보이는 픽셀만 필터링
+        // 메모리에 로드된 픽셀 그리드에서 화면에 보이는 픽셀만 필터링
         // pixelGridToGeoJson 함수를 사용하여 뷰포트 필터링과 줌 레벨 기반 샘플링 적용
         this.pixelGrids.forEach((pixelGrid, regionId) => {
             if (!pixelGrid.pixels || pixelGrid.pixels.length === 0) return;
+            
+            // 뷰포트와 겹치는지 확인
+            const metadata = this.pixelGridMetadata.get(regionId);
+            if (metadata && !this.isBboxIntersectingViewport(metadata.bbox, viewport)) {
+                return; // 뷰포트와 겹치지 않으면 스킵
+            }
             
             // pixelGridToGeoJson을 사용하여 최적화된 픽셀 필터링
             const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
@@ -27202,14 +27364,8 @@ class BillionaireMap {
             }
         });
         
-        // Phase 3: 모든 지역에 실시간 리스너 설정 (픽셀 그리드가 생성된 후)
-        // 비동기로 설정하여 픽셀 그리드 생성이 완료된 후 실행
-        setTimeout(() => {
-            this.pixelGrids.forEach((grid, regionId) => {
-                this.setupPixelRealtimeListener(regionId);
-            });
-            console.log(`[픽셀 그리드 리스너] ${this.pixelGrids.size}개 지역에 실시간 리스너 설정 완료`);
-        }, 1000);
+        // Phase 3: 뷰포트에 보이는 지역에만 실시간 리스너 설정 (메모리 최적화)
+        // updateVisiblePixels에서 loadVisiblePixelGrids가 자동으로 리스너를 설정하므로 여기서는 설정하지 않음
     }
     
     // ========== 옥션 대시보드 ==========
@@ -30027,6 +30183,20 @@ class BillionaireMap {
                 }
             }
             this.pixelGridListeners.clear();
+        }
+        
+        // 픽셀 그리드 메모리 정리
+        if (this.pixelGrids) {
+            this.pixelGrids.clear();
+        }
+        if (this.pixelGridMetadata) {
+            this.pixelGridMetadata.clear();
+        }
+        if (this.loadedPixelGrids) {
+            this.loadedPixelGrids.clear();
+        }
+        if (this.pixelGridLoadQueue) {
+            this.pixelGridLoadQueue.clear();
         }
         
         if (this.communityPoolListener) {
