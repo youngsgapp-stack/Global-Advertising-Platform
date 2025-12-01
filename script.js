@@ -1607,24 +1607,16 @@ class BillionaireMap {
             await this.initializeMap();
             
             // 모든 국가 데이터와 모든 국가의 Firestore 데이터를 동시에 병렬로 로드
-            const allCountries = ['usa', 'korea', 'japan', 'china', 'india', 'canada', 'germany', 'uk', 'france', 
-                'italy', 'brazil', 'australia', 'mexico', 'indonesia', 'saudi-arabia', 'turkey', 
-                'south-africa', 'argentina', 'european-union', 'spain', 'netherlands', 'poland', 
-                'belgium', 'sweden', 'austria', 'denmark', 'finland', 'ireland', 'portugal', 
-                'greece', 'czech-republic', 'romania', 'hungary', 'bulgaria', 'russia'];
-            
-            // 모든 국가의 Firestore 데이터를 병렬로 로드
-            const firestoreLoadPromises = allCountries.map(country => 
-                this.loadRegionDataForMode(country).catch(err => {
-                    console.warn(`[${country}] Firestore 데이터 불러오기 실패 (계속 진행):`, err);
-                    return null;
-                })
-            );
+            // 성능 최적화: 모든 국가의 Firestore 데이터를 한 번에 배치로 로드
+            const firestoreLoadPromise = this.loadAllRegionsDataFromFirestore().catch(err => {
+                console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+                return null;
+            });
             
             // GeoJSON 데이터와 Firestore 데이터를 병렬로 로드
             const [geoJsonResult] = await Promise.all([
                 this.loadAllCountriesForDisplay(),
-                ...firestoreLoadPromises
+                firestoreLoadPromise
             ]);
             
             // 모든 지역 가격을 픽셀 수 기반으로 계산 (픽셀당 $0.1) - 병렬 처리
@@ -2015,6 +2007,97 @@ class BillionaireMap {
     }
 
     // Firestore에서 지역 데이터 불러오기 (국가 단위 캐싱 지원)
+    // 모든 국가의 Firestore 데이터를 한 번에 배치로 로드 (성능 최적화)
+    async loadAllRegionsDataFromFirestore(force = false) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            console.warn('Firebase가 초기화되지 않아 Firestore에서 데이터를 불러올 수 없습니다.');
+            return;
+        }
+
+        const cacheKey = '__all__';
+        const cachedState = this.regionDataLoadState.get(cacheKey);
+
+        if (cachedState && cachedState.status === 'loaded' && !force) {
+            return cachedState.result;
+        }
+
+        if (cachedState && cachedState.status === 'loading') {
+            return cachedState.promise;
+        }
+
+        const loadPromise = (async () => {
+            try {
+                const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                
+                // 모든 국가의 데이터를 한 번에 로드 (country 필터 없이)
+                const regionsRef = collection(this.firestore, 'regions');
+                const regionsSnapshot = await getDocs(regionsRef);
+                
+                let loadedCount = 0;
+                let mergedCount = 0;
+                
+                regionsSnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const regionId = data.regionId || doc.id;
+                    
+                    const existingData = this.regionData.get(regionId) || {};
+                    
+                    const mergedData = {
+                        ...existingData,
+                        ...data,
+                        // Firestore 데이터가 있으면 우선 사용, 없으면 기존 데이터 유지, 둘 다 없으면 0
+                        population: (data.population !== undefined && data.population !== null && data.population > 0)
+                            ? data.population 
+                            : (existingData.population !== undefined && existingData.population !== null && existingData.population > 0)
+                                ? existingData.population
+                                : 0,
+                        area: (data.area !== undefined && data.area !== null && data.area > 0)
+                            ? data.area 
+                            : (existingData.area !== undefined && existingData.area !== null && existingData.area > 0)
+                                ? existingData.area
+                                : 0,
+                        // 가격은 Firestore 데이터 우선, 없으면 null로 설정하여 나중에 픽셀 수 기반으로 계산
+                        ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
+                            ? existingData.ad_price 
+                            : (data.ad_price !== undefined && data.ad_price !== null && data.ad_price > 0 ? data.ad_price : null),
+                        name_ko: data.name_ko || existingData.name_ko || '',
+                        name_en: data.name_en || existingData.name_en || existingData.name || '',
+                        country: data.country || existingData.country || '',
+                        admin_level: data.admin_level || existingData.admin_level || '',
+                        ad_status: data.ad_status || existingData.ad_status || 'available'
+                    };
+                    
+                    if (Object.keys(existingData).length > 0) {
+                        mergedCount++;
+                    }
+                    
+                    this.regionData.set(regionId, mergedData);
+                    loadedCount++;
+                });
+    
+                console.log(`Firestore(ALL)에서 ${loadedCount}개의 지역 데이터를 한 번에 불러왔습니다. (병합: ${mergedCount}개)`);
+    
+                this.updateMapSourcesWithRegionData();
+                return { loadedCount, mergedCount, country: 'ALL' };
+            } catch (error) {
+                console.error('Firestore 지역 데이터 불러오기 오류:', error);
+                throw error;
+            }
+        })();
+
+        this.regionDataLoadState.set(cacheKey, { status: 'loading', promise: loadPromise });
+
+        try {
+            const result = await loadPromise;
+            this.regionDataLoadState.set(cacheKey, { status: 'loaded', result, timestamp: Date.now() });
+            return result;
+        } catch (error) {
+            this.regionDataLoadState.delete(cacheKey);
+            // 오류가 나도 계속 진행 (로컬 데이터 사용)
+            return null;
+        }
+    }
+
     async loadRegionDataFromFirestore(options = {}) {
         if (!this.isFirebaseInitialized || !this.firestore) {
             console.warn('Firebase가 초기화되지 않아 Firestore에서 데이터를 불러올 수 없습니다.');
@@ -2791,15 +2874,26 @@ class BillionaireMap {
                     // 각 feature에 국가별 색상 적용
                     cachedData.features.forEach(feature => {
                         if (feature.properties) {
+                            // 국가 이름 정규화 (countryColors 키와 일치하도록)
                             const country = feature.properties.country || config.name;
-                            const countryColor = this.countryColors[country] || this.countryColors[config.name] || '#4ecdc4';
+                            // countryColors에서 정확히 일치하는 색상 찾기
+                            let countryColor = this.countryColors[country] || this.countryColors[config.name];
+                            // 여전히 없으면 기본 색상 사용
+                            if (!countryColor) {
+                                countryColor = '#4ecdc4'; // 기본 색상
+                                console.warn(`[색상] ${country} 또는 ${config.name}에 대한 색상을 찾을 수 없어 기본 색상 사용`);
+                            }
                             feature.properties.country = country;
                             feature.properties.country_color = countryColor;
                             // 기본 색상도 업데이트
                             feature.properties.color = countryColor;
+                            // 디버깅을 위한 로그 (처음 몇 개만)
+                            if (cachedData.features.indexOf(feature) < 3) {
+                                console.log(`[${config.name}] 색상 설정: ${country} -> ${countryColor}`);
+                            }
                         }
                     });
-                    console.log(`[${config.name}] ${cachedData.features.length}개 행정구역 로드 완료`);
+                    console.log(`[${config.name}] ${cachedData.features.length}개 행정구역 로드 완료 (색상: ${cachedData.features[0]?.properties?.country_color || 'N/A'})`);
                     return cachedData.features;
                 }
                 return [];
@@ -29005,6 +29099,12 @@ class BillionaireMap {
                 if (feature.properties.adminLevel) optimizedProps.adminLevel = feature.properties.adminLevel;
                 if (feature.properties.population) optimizedProps.population = feature.properties.population;
                 if (feature.properties.area) optimizedProps.area = feature.properties.area;
+                // 국가별 색상 정보 유지 (중요!)
+                if (feature.properties.country_color) optimizedProps.country_color = feature.properties.country_color;
+                if (feature.properties.color) optimizedProps.color = feature.properties.color;
+                // 광고 상태 및 옥션 상태 유지
+                if (feature.properties.ad_status) optimizedProps.ad_status = feature.properties.ad_status;
+                if (feature.properties.auction_status) optimizedProps.auction_status = feature.properties.auction_status;
                 
                 feature.properties = optimizedProps;
             }
