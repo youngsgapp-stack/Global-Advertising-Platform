@@ -1674,7 +1674,44 @@
     </script>
     <!-- 전역 오류 처리 -->
     <script>
+        // Firestore ERR_BLOCKED_BY_CLIENT 오류 필터링
+        // 이 오류는 브라우저 확장 프로그램(광고 차단기 등)에 의해 발생하며, 애플리케이션 기능에는 영향을 미치지 않습니다.
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+            const errorMessage = args.join(' ');
+            // ERR_BLOCKED_BY_CLIENT 오류는 무시 (Firestore WebChannel 종료 요청 차단)
+            if (errorMessage.includes('ERR_BLOCKED_BY_CLIENT') || 
+                errorMessage.includes('net::ERR_BLOCKED_BY_CLIENT') ||
+                (errorMessage.includes('firestore.googleapis.com') && errorMessage.includes('terminate'))) {
+                return; // 오류를 콘솔에 표시하지 않음
+            }
+            // 다른 오류는 정상적으로 표시
+            originalConsoleError.apply(console, args);
+        };
+
+        // 네트워크 오류 필터링 (fetch/XHR)
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+            return originalFetch.apply(this, args).catch(error => {
+                // ERR_BLOCKED_BY_CLIENT 오류는 조용히 무시
+                if (error.message && error.message.includes('ERR_BLOCKED_BY_CLIENT')) {
+                    return Promise.reject(new Error('Request blocked by browser extension'));
+                }
+                throw error;
+            });
+        };
+
         window.addEventListener('error', (event) => {
+            // ERR_BLOCKED_BY_CLIENT 오류는 무시
+            if (event.message && (
+                event.message.includes('ERR_BLOCKED_BY_CLIENT') ||
+                event.message.includes('net::ERR_BLOCKED_BY_CLIENT') ||
+                (event.message.includes('firestore.googleapis.com') && event.message.includes('terminate'))
+            )) {
+                event.preventDefault();
+                return;
+            }
+
             console.error('Global error:', event.error, event.filename, event.lineno, event.colno);
             if (event.error && event.error.message && event.error.message.includes('Unexpected reserved word')) {
                 console.error('Syntax error detected. Please check the browser console for details.');
@@ -1684,6 +1721,17 @@
                 }
             }
         }, true);
+
+        // unhandledrejection 이벤트도 필터링
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason?.message || event.reason?.toString() || '';
+            if (reason.includes('ERR_BLOCKED_BY_CLIENT') || 
+                reason.includes('net::ERR_BLOCKED_BY_CLIENT') ||
+                (reason.includes('firestore.googleapis.com') && reason.includes('terminate'))) {
+                event.preventDefault();
+                return;
+            }
+        });
     </script>
     <script type="module" src="script.js"></script>
 </body>
