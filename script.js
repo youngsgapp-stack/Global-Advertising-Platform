@@ -2150,35 +2150,48 @@ class BillionaireMap {
     /**
      * 모든 지역의 가격을 픽셀 수 기반으로 계산하여 설정
      * 픽셀 1개 = 0.1달러 (PIXEL_PRICE_PER_UNIT)
+     * 배치 처리로 동시 요청 수를 제한하여 "Too many outstanding requests" 오류 방지
      */
     async setAllRegionsPriceBasedOnPixels() {
         let updatedCount = 0;
-        const updatePromises = [];
+        const regionEntries = Array.from(this.regionData.entries());
+        const BATCH_SIZE = 10; // 동시에 처리할 최대 요청 수
+        const DELAY_BETWEEN_BATCHES = 100; // 배치 간 지연 시간 (ms)
         
-        // 모든 지역의 가격을 병렬로 계산
-        for (const [regionId, regionData] of this.regionData.entries()) {
-            // 각 지역의 가격 계산을 Promise로 만들어 병렬 처리
-            const pricePromise = this.getStartingPriceForRegion(regionId)
-                .then(calculatedPrice => {
-                    // 가격이 변경되었거나 설정되지 않은 경우 업데이트
-                    if (regionData.ad_price !== calculatedPrice) {
-                        regionData.ad_price = calculatedPrice;
-                        this.regionData.set(regionId, regionData);
-                        return 1; // 업데이트됨
-                    }
-                    return 0; // 업데이트 안됨
-                })
-                .catch(err => {
-                    console.warn(`[가격 계산 실패] ${regionId}:`, err);
-                    return 0;
-                });
+        // 배치로 나누어 처리
+        for (let i = 0; i < regionEntries.length; i += BATCH_SIZE) {
+            const batch = regionEntries.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(([regionId, regionData]) => {
+                // 각 지역의 가격 계산을 Promise로 만들어 병렬 처리
+                return this.getStartingPriceForRegion(regionId)
+                    .then(calculatedPrice => {
+                        // 가격이 변경되었거나 설정되지 않은 경우 업데이트
+                        if (regionData.ad_price !== calculatedPrice) {
+                            regionData.ad_price = calculatedPrice;
+                            this.regionData.set(regionId, regionData);
+                            return 1; // 업데이트됨
+                        }
+                        return 0; // 업데이트 안됨
+                    })
+                    .catch(err => {
+                        // 오프라인 또는 리소스 고갈 오류는 조용히 무시
+                        if (err.code !== 'unavailable' && err.code !== 'resource-exhausted' && 
+                            !err.message?.includes('offline') && !err.message?.includes('Too many outstanding requests')) {
+                            console.warn(`[가격 계산 실패] ${regionId}:`, err);
+                        }
+                        return 0;
+                    });
+            });
             
-            updatePromises.push(pricePromise);
+            // 현재 배치가 완료될 때까지 대기
+            const batchResults = await Promise.all(batchPromises);
+            updatedCount += batchResults.reduce((sum, count) => sum + count, 0);
+            
+            // 마지막 배치가 아니면 다음 배치 전에 잠시 대기 (Firestore 부하 감소)
+            if (i + BATCH_SIZE < regionEntries.length) {
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+            }
         }
-
-        // 모든 가격 계산이 완료될 때까지 대기
-        const results = await Promise.all(updatePromises);
-        updatedCount = results.reduce((sum, count) => sum + count, 0);
 
         // 지도 소스도 업데이트
         this.updateMapSourcesWithRegionData();
@@ -2522,7 +2535,11 @@ class BillionaireMap {
                             this.regionData.set(regionId, regionData);
                         }
                     }).catch(err => {
-                        console.warn(`[가격 계산 실패] ${regionId}:`, err);
+                        // 오프라인 또는 리소스 고갈 오류는 조용히 무시
+                        if (err.code !== 'unavailable' && err.code !== 'resource-exhausted' && 
+                            !err.message?.includes('offline') && !err.message?.includes('Too many outstanding requests')) {
+                            console.warn(`[가격 계산 실패] ${regionId}:`, err);
+                        }
                         // 실패 시 최소값 사용
                         regionData.ad_price = 1.0;
                         this.regionData.set(regionId, regionData);
@@ -25217,11 +25234,29 @@ class BillionaireMap {
         if (!this.isFirebaseInitialized || !this.firestore) return null;
         
         try {
-            const { doc, getDoc, collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { doc, getDoc, getDocFromCache, collection, getDocs, getDocsFromCache } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // 메타데이터 로드
             const gridRef = doc(this.firestore, 'pixelGrids', regionId);
-            const gridDoc = await getDoc(gridRef);
+            let gridDoc;
+            
+            // 먼저 서버에서 읽기를 시도하고, 오류가 발생하면 캐시에서 읽기 시도
+            try {
+                gridDoc = await getDoc(gridRef);
+            } catch (error) {
+                // 오프라인 또는 리소스 고갈 오류인 경우 캐시에서 읽기 시도
+                if (error.code === 'unavailable' || error.code === 'resource-exhausted' || error.message?.includes('offline') || error.message?.includes('Too many outstanding requests')) {
+                    try {
+                        gridDoc = await getDocFromCache(gridRef);
+                    } catch (cacheError) {
+                        // 캐시에도 없으면 조용히 무시
+                        return null;
+                    }
+                } else {
+                    // 다른 오류는 조용히 무시
+                    return null;
+                }
+            }
             
             if (!gridDoc.exists()) return null;
             
@@ -25229,7 +25264,24 @@ class BillionaireMap {
             
             // 픽셀 데이터 로드
             const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
-            const pixelsSnapshot = await getDocs(pixelsRef);
+            let pixelsSnapshot;
+            
+            try {
+                pixelsSnapshot = await getDocs(pixelsRef);
+            } catch (error) {
+                // 오프라인 또는 리소스 고갈 오류인 경우 캐시에서 읽기 시도
+                if (error.code === 'unavailable' || error.code === 'resource-exhausted' || error.message?.includes('offline') || error.message?.includes('Too many outstanding requests')) {
+                    try {
+                        pixelsSnapshot = await getDocsFromCache(pixelsRef);
+                    } catch (cacheError) {
+                        // 캐시에도 없으면 조용히 무시
+                        return null;
+                    }
+                } else {
+                    // 다른 오류는 조용히 무시
+                    return null;
+                }
+            }
             
             const pixels = [];
             pixelsSnapshot.forEach(doc => {
@@ -25261,7 +25313,12 @@ class BillionaireMap {
                 cellHeight: gridData.cellHeight
             };
         } catch (error) {
-            console.error(`[픽셀 그리드 로드 실패] ${regionId}:`, error);
+            // 오프라인 또는 리소스 고갈 오류는 조용히 무시 (정상적인 상황)
+            // 다른 오류만 콘솔에 출력
+            if (error.code !== 'unavailable' && error.code !== 'resource-exhausted' && 
+                !error.message?.includes('offline') && !error.message?.includes('Too many outstanding requests')) {
+                console.error(`[픽셀 그리드 로드 실패] ${regionId}:`, error);
+            }
             return null;
         }
     }
