@@ -1427,6 +1427,33 @@ class BillionaireMap {
         return null;
     }
     
+    // 현재 국가의 총 행정구역 수 계산
+    getTotalAdminRegionsCount(country) {
+        if (!country) return 0;
+        
+        // regionData Map에서 같은 국가의 행정구역 개수 세기
+        let count = 0;
+        this.regionData.forEach((regionData) => {
+            if (regionData.country === country) {
+                count++;
+            }
+        });
+        
+        // regionData에 없으면 지도 소스에서 확인
+        if (count === 0 && this.map && this.map.getSource('world-regions')) {
+            const source = this.map.getSource('world-regions');
+            const data = source._data;
+            if (data && data.features) {
+                count = data.features.filter(feature => {
+                    const props = feature.properties || {};
+                    return props.country === country;
+                }).length;
+            }
+        }
+        
+        return count;
+    }
+    
     async loadRegionDataForMode(mode, options = {}) {
         if (!this.isFirebaseInitialized || !this.firestore) {
             return;
@@ -2005,12 +2032,17 @@ class BillionaireMap {
                     const mergedData = {
                         ...existingData,
                         ...data,
+                        // Firestore 데이터가 있으면 우선 사용, 없으면 기존 데이터 유지, 둘 다 없으면 0
                         population: (data.population !== undefined && data.population !== null && data.population > 0)
                             ? data.population 
-                            : (existingData.population || 0),
+                            : (existingData.population !== undefined && existingData.population !== null && existingData.population > 0)
+                                ? existingData.population
+                                : 0,
                         area: (data.area !== undefined && data.area !== null && data.area > 0)
                             ? data.area 
-                            : (existingData.area || 0),
+                            : (existingData.area !== undefined && existingData.area !== null && existingData.area > 0)
+                                ? existingData.area
+                                : 0,
                         ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null 
                             ? existingData.ad_price 
                             : (data.ad_price !== undefined ? data.ad_price : this.uniformAdPrice || 1000),
@@ -2170,9 +2202,15 @@ class BillionaireMap {
                             name_en: existingData.name_en || props.name_en || props.name || '',
                             country: existingData.country || props.country || '',
                             admin_level: existingData.admin_level || props.admin_level || '',
-                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 GeoJSON 사용, 없으면 계산
-                            population: firestorePopulation !== null ? firestorePopulation : (props.population !== undefined && props.population !== null && props.population > 0 ? props.population : 0),
-                            area: calculatedArea, // 계산된 면적 사용
+                            // 인구/면적은 Firestore 데이터가 있으면 우선 유지, 없으면 기존 데이터 유지, 없으면 GeoJSON 사용, 없으면 계산
+                            population: firestorePopulation !== null && firestorePopulation > 0 
+                                ? firestorePopulation 
+                                : (existingData.population !== undefined && existingData.population !== null && existingData.population > 0 
+                                    ? existingData.population 
+                                    : (props.population !== undefined && props.population !== null && props.population > 0 ? props.population : 0)),
+                            area: firestoreArea !== null && firestoreArea > 0
+                                ? firestoreArea
+                                : (calculatedArea > 0 ? calculatedArea : (existingData.area !== undefined && existingData.area !== null && existingData.area > 0 ? existingData.area : 0)),
                             // 가격은 기존 데이터 우선, 없으면 픽셀 수 기반으로 계산, 없으면 기본값
                             ad_price: existingData.ad_price !== undefined && existingData.ad_price !== null ? existingData.ad_price : (props.ad_price !== undefined && props.ad_price !== null ? props.ad_price : null), // null로 설정하여 나중에 픽셀 수 기반으로 계산
                             ad_status: existingData.ad_status || props.ad_status || (props.occupied ? 'occupied' : 'available')
@@ -4352,7 +4390,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('russia');
+        await this.loadRegionDataForMode('india');
         
         await this.loadIndiaData();
         
@@ -4380,7 +4418,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('india');
+        await this.loadRegionDataForMode('canada');
         
         await this.loadCanadaData();
         
@@ -4520,7 +4558,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('italy');
+        await this.loadRegionDataForMode('brazil');
         
         await this.loadBrazilData();
         
@@ -4548,7 +4586,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('brazil');
+        await this.loadRegionDataForMode('australia');
         
         await this.loadAustraliaData();
         
@@ -4576,7 +4614,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('australia');
+        await this.loadRegionDataForMode('mexico');
         
         await this.loadMexicoData();
         
@@ -4604,7 +4642,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('mexico');
+        await this.loadRegionDataForMode('indonesia');
         
         await this.loadIndonesiaData();
         
@@ -4660,7 +4698,7 @@ class BillionaireMap {
         });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('saudi-arabia');
+        await this.loadRegionDataForMode('turkey');
         
         await this.loadTurkeyData();
         
@@ -4766,7 +4804,7 @@ class BillionaireMap {
         this.map.easeTo({ center: [-3, 40], zoom: 5, duration: 600 });
         
         // Firestore 데이터를 먼저 로드 (이전에 입력한 인구/면적 데이터 유지)
-        await this.loadRegionDataForMode('european-union');
+        await this.loadRegionDataForMode('spain');
         
         await this.loadSpainData();
         
@@ -15939,7 +15977,14 @@ class BillionaireMap {
                 areaEl.textContent = area ? `${area.toLocaleString()} km²` : '-';
             }
             if (adminLevelEl) {
-                adminLevelEl.textContent = regionDataFromMap.admin_level || regionData.admin_level || '-';
+                const adminLevel = regionDataFromMap.admin_level || regionData.admin_level || '-';
+                // 현재 국가의 총 행정구역 수 계산
+                const totalRegions = this.getTotalAdminRegionsCount(regionDataFromMap.country || regionData.country);
+                if (adminLevel !== '-' && totalRegions > 0) {
+                    adminLevelEl.textContent = `${adminLevel} (${totalRegions}개)`;
+                } else {
+                    adminLevelEl.textContent = adminLevel;
+                }
             }
             if (priceEl) {
                 const adPrice = regionDataFromMap.ad_price || regionData.ad_price || 0;
@@ -19541,7 +19586,10 @@ class BillionaireMap {
         
         document.getElementById('region-modal-population').textContent = population ? population.toLocaleString() : '-';
         document.getElementById('region-modal-area').textContent = area ? `${area.toLocaleString()} km²` : '-';
-        document.getElementById('region-modal-admin-level').textContent = adminLevel;
+        // 행정구역 수 포함하여 표시
+        const totalRegions = this.getTotalAdminRegionsCount(regionData.country);
+        const adminLevelText = adminLevel && totalRegions > 0 ? `${adminLevel} (${totalRegions}개)` : adminLevel;
+        document.getElementById('region-modal-admin-level').textContent = adminLevelText;
         document.getElementById('region-modal-price').textContent = adPrice ? `$${adPrice.toLocaleString()}` : '-';
         
         // 라벨 텍스트 설정 (언어 변환 적용)
