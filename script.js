@@ -1606,22 +1606,44 @@ class BillionaireMap {
             
             await this.initializeMap();
             
-            // 모든 국가 데이터와 Firestore 데이터를 동시에 병렬로 로드
-            await Promise.all([
-                this.loadAllCountriesForDisplay(),
-                this.loadRegionDataForMode('usa').catch(err => {
-                    console.warn('Firestore 데이터 불러오기 실패 (계속 진행):', err);
+            // 모든 국가 데이터와 모든 국가의 Firestore 데이터를 동시에 병렬로 로드
+            const allCountries = ['usa', 'korea', 'japan', 'china', 'india', 'canada', 'germany', 'uk', 'france', 
+                'italy', 'brazil', 'australia', 'mexico', 'indonesia', 'saudi-arabia', 'turkey', 
+                'south-africa', 'argentina', 'european-union', 'spain', 'netherlands', 'poland', 
+                'belgium', 'sweden', 'austria', 'denmark', 'finland', 'ireland', 'portugal', 
+                'greece', 'czech-republic', 'romania', 'hungary', 'bulgaria', 'russia'];
+            
+            // 모든 국가의 Firestore 데이터를 병렬로 로드
+            const firestoreLoadPromises = allCountries.map(country => 
+                this.loadRegionDataForMode(country).catch(err => {
+                    console.warn(`[${country}] Firestore 데이터 불러오기 실패 (계속 진행):`, err);
+                    return null;
                 })
+            );
+            
+            // GeoJSON 데이터와 Firestore 데이터를 병렬로 로드
+            const [geoJsonResult] = await Promise.all([
+                this.loadAllCountriesForDisplay(),
+                ...firestoreLoadPromises
             ]);
             
-            // 모든 지역 가격을 픽셀 수 기반으로 계산 (픽셀당 $0.1)
-            await this.setAllRegionsPriceBasedOnPixels();
+            // 모든 지역 가격을 픽셀 수 기반으로 계산 (픽셀당 $0.1) - 병렬 처리
+            // 가격 계산은 백그라운드에서 실행하고, 지도 표시는 먼저 진행
+            const priceCalculationPromise = this.setAllRegionsPriceBasedOnPixels().catch(err => {
+                console.warn('[가격 계산 실패]:', err);
+            });
             
+            // 지도가 표시되면 로딩을 숨김 (가격 계산 완료를 기다리지 않음)
             if (!this.eventListenersAdded) {
                 this.setupEventListeners();
                 this.eventListenersAdded = true;
             }
+            
+            // 지도 표시 완료 후 로딩 숨김
             this.hideLoading();
+            
+            // 가격 계산 완료 대기 (백그라운드에서 실행)
+            await priceCalculationPromise;
             
             // 온보딩 투어 초기화 (첫 방문 시)
             this.initOnboardingTour();
@@ -2133,17 +2155,30 @@ class BillionaireMap {
         let updatedCount = 0;
         const updatePromises = [];
         
+        // 모든 지역의 가격을 병렬로 계산
         for (const [regionId, regionData] of this.regionData.entries()) {
-            // 픽셀 수 기반으로 가격 계산
-            const calculatedPrice = await this.getStartingPriceForRegion(regionId);
+            // 각 지역의 가격 계산을 Promise로 만들어 병렬 처리
+            const pricePromise = this.getStartingPriceForRegion(regionId)
+                .then(calculatedPrice => {
+                    // 가격이 변경되었거나 설정되지 않은 경우 업데이트
+                    if (regionData.ad_price !== calculatedPrice) {
+                        regionData.ad_price = calculatedPrice;
+                        this.regionData.set(regionId, regionData);
+                        return 1; // 업데이트됨
+                    }
+                    return 0; // 업데이트 안됨
+                })
+                .catch(err => {
+                    console.warn(`[가격 계산 실패] ${regionId}:`, err);
+                    return 0;
+                });
             
-            // 가격이 변경되었거나 설정되지 않은 경우 업데이트
-            if (regionData.ad_price !== calculatedPrice) {
-                regionData.ad_price = calculatedPrice;
-                this.regionData.set(regionId, regionData);
-                updatedCount++;
-            }
+            updatePromises.push(pricePromise);
         }
+
+        // 모든 가격 계산이 완료될 때까지 대기
+        const results = await Promise.all(updatePromises);
+        updatedCount = results.reduce((sum, count) => sum + count, 0);
 
         // 지도 소스도 업데이트
         this.updateMapSourcesWithRegionData();
@@ -2773,9 +2808,6 @@ class BillionaireMap {
         
         console.log(`[loadAllCountriesForDisplay] 총 ${allFeatures.length}개 행정구역 로드 완료`);
         
-        // 옥션 상태 정보를 각 feature에 추가
-        await this.enrichFeaturesWithAuctionStatus(allFeatures);
-        
         // 쿼드트리 인덱스 초기화 (성능 최적화)
         this.initQuadtree(allFeatures);
         
@@ -2788,6 +2820,39 @@ class BillionaireMap {
                 data: mergedGeoJson
             });
         }
+        
+        // 옥션 상태 정보를 각 feature에 추가 (비동기로 실행, 완료 후 지도 업데이트)
+        // 지도는 먼저 표시하고 옥션 상태는 백그라운드에서 업데이트
+        this.enrichFeaturesWithAuctionStatus(allFeatures).then(() => {
+            // 옥션 상태 업데이트 후 지도 레이어 색상 업데이트
+            if (this.map.getLayer('regions-fill')) {
+                const colorExpression = [
+                    'case',
+                    ['==', ['get', 'ad_status'], 'occupied'],
+                    '#ff6b6b', // 점유된 지역은 빨간색
+                    ['==', ['get', 'auction_status'], 'active'],
+                    '#3498db', // 진행 중인 옥션: 파란색
+                    ['==', ['get', 'auction_status'], 'upcoming'],
+                    '#f39c12', // 곧 시작할 옥션: 주황색
+                    ['==', ['get', 'auction_status'], 'ended'],
+                    '#95a5a6', // 종료된 옥션: 회색
+                    ['==', ['get', 'auction_status'], 'sold'],
+                    '#7f8c8d', // 판매 완료: 어두운 회색
+                    ['coalesce', 
+                        ['get', 'country_color'], 
+                        ['get', 'color'],
+                        '#4ecdc4' // 기본 색상
+                    ]
+                ];
+                this.map.setPaintProperty('regions-fill', 'fill-color', colorExpression);
+            }
+            // 소스 데이터도 업데이트
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(mergedGeoJson);
+            }
+        }).catch(err => {
+            console.warn('[옥션 상태 추가 실패]:', err);
+        });
         
         // 레이어 설정 (국가별 색상 + 옥션 상태 적용)
         if (!this.map.getLayer('regions-fill')) {
@@ -16844,7 +16909,11 @@ class BillionaireMap {
     
     hideLoading() {
         const loading = document.getElementById('loading');
-        loading.style.display = 'none';
+        if (loading) {
+            loading.style.display = 'none';
+            // 추가로 클래스 제거로 확실히 숨김
+            loading.classList.add('hidden');
+        }
     }
     
     showTooltip(point, properties) {
