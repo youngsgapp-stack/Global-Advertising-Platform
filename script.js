@@ -24100,8 +24100,24 @@ class BillionaireMap {
         
         if (!pixelGrid) return;
         
-        // 해당 지역의 픽셀만 필터링하여 표시
-        const regionGeoJson = this.pixelGridToGeoJson(pixelGrid);
+        // 현재 뷰포트와 줌 레벨 가져오기
+        const bounds = this.map.getBounds();
+        const zoom = this.map.getZoom();
+        const viewport = [
+            bounds.getWest(),
+            bounds.getSouth(),
+            bounds.getEast(),
+            bounds.getNorth()
+        ];
+        
+        // 해당 지역의 픽셀만 필터링하여 표시 (뷰포트와 줌 레벨 고려)
+        const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
+            viewport,
+            zoom,
+            useViewportFilter: true,
+            maxPixels: 500000
+        });
+        
         if (regionGeoJson && this.map.getSource('pixel-grids')) {
             // 기존 소스에 해당 지역 픽셀만 추가/업데이트
             const currentSource = this.map.getSource('pixel-grids');
@@ -24134,8 +24150,70 @@ class BillionaireMap {
             }
         }
         
+        // 지도 이동/줌 시 픽셀 동적 업데이트 (디바운싱 적용)
+        if (!this.pixelUpdateHandler) {
+            let updateTimeout;
+            this.pixelUpdateHandler = () => {
+                clearTimeout(updateTimeout);
+                updateTimeout = setTimeout(() => {
+                    this.updatePixelsForViewport(regionId, pixelGrid);
+                }, 300); // 300ms 디바운싱
+            };
+            
+            this.map.on('moveend', this.pixelUpdateHandler);
+            this.map.on('zoomend', this.pixelUpdateHandler);
+        }
+        
         // 실시간 리스너 설정
         await this.setupPixelRealtimeListener(regionId);
+    }
+    
+    /**
+     * 뷰포트 변경 시 픽셀 동적 업데이트
+     */
+    updatePixelsForViewport(regionId, pixelGrid) {
+        if (!this.map || !pixelGrid || !this.map.getSource('pixel-grids')) return;
+        
+        // 현재 뷰포트와 줌 레벨 가져오기
+        const bounds = this.map.getBounds();
+        const zoom = this.map.getZoom();
+        const viewport = [
+            bounds.getWest(),
+            bounds.getSouth(),
+            bounds.getEast(),
+            bounds.getNorth()
+        ];
+        
+        // 뷰포트와 줌 레벨을 고려하여 픽셀 업데이트
+        const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
+            viewport,
+            zoom,
+            useViewportFilter: true,
+            maxPixels: 500000
+        });
+        
+        if (!regionGeoJson) return;
+        
+        // 기존 소스에 해당 지역 픽셀만 업데이트
+        const currentSource = this.map.getSource('pixel-grids');
+        const currentData = currentSource._data;
+        
+        // 다른 지역의 픽셀은 유지하고, 현재 지역만 업데이트
+        const filteredFeatures = currentData.features.filter(f => 
+            f.properties.regionId !== regionId
+        );
+        
+        // 현재 지역 픽셀 추가
+        if (regionGeoJson.features) {
+            filteredFeatures.push(...regionGeoJson.features);
+        }
+        
+        const filteredGeoJson = {
+            type: 'FeatureCollection',
+            features: filteredFeatures
+        };
+        
+        currentSource.setData(filteredGeoJson);
     }
     
     /**
@@ -25422,18 +25500,54 @@ class BillionaireMap {
     
     /**
      * Phase 1: 픽셀 그리드를 GeoJSON으로 변환
-     * 성능 최적화: 큰 그리드의 경우 메모리 사용량 제한
+     * 성능 최적화: 뷰포트 기반 필터링 + 줌 레벨 기반 샘플링
      */
-    pixelGridToGeoJson(pixelGrid, maxPixels = 50000) {
+    pixelGridToGeoJson(pixelGrid, options = {}) {
         if (!pixelGrid || !pixelGrid.pixels) return null;
         
-        // 성능 최적화: 픽셀이 너무 많으면 샘플링 또는 제한
+        const {
+            maxPixels = 500000, // 기본값 증가 (50000 → 500000)
+            viewport = null,    // 현재 뷰포트 [minX, minY, maxX, maxY]
+            zoom = null,        // 현재 줌 레벨
+            useViewportFilter = true // 뷰포트 필터링 사용 여부
+        } = options;
+        
         let pixelsToProcess = pixelGrid.pixels;
-        if (pixelsToProcess.length > maxPixels) {
-            // 샘플링: 일정 간격으로 픽셀 선택
-            const step = Math.ceil(pixelsToProcess.length / maxPixels);
+        const totalPixels = pixelsToProcess.length;
+        
+        // 1단계: 뷰포트 필터링 (줌 레벨이 높을 때만 적용)
+        if (useViewportFilter && viewport && zoom && zoom >= 6) {
+            const [minX, minY, maxX, maxY] = viewport;
+            pixelsToProcess = pixelsToProcess.filter(pixel => {
+                // 픽셀의 중심점 또는 경계가 뷰포트와 겹치는지 확인
+                const centerX = (pixel.bounds.minX + pixel.bounds.maxX) / 2;
+                const centerY = (pixel.bounds.minY + pixel.bounds.maxY) / 2;
+                return centerX >= minX && centerX <= maxX && 
+                       centerY >= minY && centerY <= maxY;
+            });
+            console.log(`[픽셀 그리드 최적화] 뷰포트 필터링: ${totalPixels} → ${pixelsToProcess.length} (줌: ${zoom.toFixed(1)})`);
+        }
+        
+        // 2단계: 줌 레벨에 따른 동적 maxPixels 조정
+        let effectiveMaxPixels = maxPixels;
+        if (zoom !== null) {
+            if (zoom >= 8) {
+                // 높은 줌 레벨: 모든 픽셀 표시 (뷰포트 필터링으로 이미 줄어듦)
+                effectiveMaxPixels = Infinity;
+            } else if (zoom >= 6) {
+                // 중간 줌 레벨: 더 많은 픽셀 허용
+                effectiveMaxPixels = maxPixels * 2;
+            } else {
+                // 낮은 줌 레벨: 샘플링 적용
+                effectiveMaxPixels = maxPixels;
+            }
+        }
+        
+        // 3단계: 여전히 너무 많으면 샘플링 (최후의 수단)
+        if (pixelsToProcess.length > effectiveMaxPixels) {
+            const step = Math.ceil(pixelsToProcess.length / effectiveMaxPixels);
             pixelsToProcess = pixelsToProcess.filter((_, index) => index % step === 0);
-            console.warn(`[픽셀 그리드 최적화] 픽셀 수가 너무 많아 샘플링 적용: ${pixelGrid.pixels.length} → ${pixelsToProcess.length}`);
+            console.warn(`[픽셀 그리드 최적화] 샘플링 적용: ${totalPixels} → ${pixelsToProcess.length} (step: ${step})`);
         }
         
         // 성능 최적화: 배열 미리 할당
