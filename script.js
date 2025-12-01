@@ -15899,8 +15899,25 @@ class BillionaireMap {
                     this.regionData.set(targetStateId, region);
                 }
                 
-                // targetStateId도 없으면 에러
-                if (!regionId) {
+                // 관리자 모드에서는 regionId가 없어도 최소 정보로 생성 가능
+                if (!regionId && this.isAdminLoggedIn) {
+                    // 관리자 모드: targetStateId가 있으면 사용
+                    if (targetStateId) {
+                        regionId = targetStateId;
+                        console.log('[관리자 모드] targetStateId 사용:', regionId);
+                    } else {
+                        console.error('[픽셀 아트 편집] 관리자 모드에서도 regionId를 찾을 수 없습니다.', {
+                            targetStateId,
+                            currentRegion: this.currentRegion,
+                            selectedStateId: this.selectedStateId
+                        });
+                        this.showNotification('지역을 선택한 후 픽셀 아트 편집 버튼을 클릭해주세요.', 'warning');
+                        return;
+                    }
+                }
+                
+                // 일반 사용자는 regionId가 필수
+                if (!regionId && !this.isAdminLoggedIn) {
                     console.error('픽셀 아트 편집 (region): 지역 ID를 찾을 수 없습니다.', {
                         targetStateId,
                         currentRegion: this.currentRegion,
@@ -15912,7 +15929,7 @@ class BillionaireMap {
                 }
                 
                 // region이 없어도 regionId만 있으면 최소 정보로 생성 (관리자 모드 지원)
-                if (!region) {
+                if (!region && regionId) {
                     console.warn('픽셀 아트 편집: region 객체가 없지만 regionId로 진행:', regionId);
                     region = {
                         id: regionId,
@@ -15926,13 +15943,6 @@ class BillionaireMap {
                 }
                 
                 console.log('픽셀 아트 편집 시작:', { regionId, region, isAdmin: this.isAdminLoggedIn });
-                
-                // regionId가 없으면 에러 표시
-                if (!regionId) {
-                    console.error('[픽셀 아트 편집 실패] regionId가 없습니다.');
-                    this.showNotification('지역 정보를 찾을 수 없습니다. 다시 시도해주세요.', 'error');
-                    return;
-                }
                 
                 // openPixelStudio 호출
                 try {
@@ -24128,9 +24138,16 @@ class BillionaireMap {
                 f.properties.regionId === regionId
             );
             
-            // 현재 지역 픽셀 추가
-            if (regionGeoJson.features) {
-                filteredFeatures.push(...regionGeoJson.features);
+            // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
+            if (regionGeoJson.features && regionGeoJson.features.length > 0) {
+                // 큰 배열의 경우 concat 사용 (스프레드 연산자는 스택 오버플로우 발생 가능)
+                if (regionGeoJson.features.length > 100000) {
+                    // 매우 큰 배열의 경우 concat 사용
+                    filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
+                } else {
+                    // 작은 배열은 스프레드 사용 (더 빠름)
+                    filteredFeatures.push(...regionGeoJson.features);
+                }
             }
             
             const filteredGeoJson = {
@@ -24203,9 +24220,16 @@ class BillionaireMap {
             f.properties.regionId !== regionId
         );
         
-        // 현재 지역 픽셀 추가
-        if (regionGeoJson.features) {
-            filteredFeatures.push(...regionGeoJson.features);
+        // 현재 지역 픽셀 추가 (스택 오버플로우 방지: concat 사용)
+        if (regionGeoJson.features && regionGeoJson.features.length > 0) {
+            // 큰 배열의 경우 concat 사용 (스프레드 연산자는 스택 오버플로우 발생 가능)
+            if (regionGeoJson.features.length > 100000) {
+                // 매우 큰 배열의 경우 concat 사용
+                filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
+            } else {
+                // 작은 배열은 스프레드 사용 (더 빠름)
+                filteredFeatures.push(...regionGeoJson.features);
+            }
         }
         
         const filteredGeoJson = {
