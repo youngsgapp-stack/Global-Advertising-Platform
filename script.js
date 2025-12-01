@@ -1671,6 +1671,9 @@ class BillionaireMap {
             this.setupColorPresetListeners(); // 색상 프리셋 이벤트 리스너 추가
             this.updateUserUI(); // 사용자 UI 초기화 (사이드 메뉴 로그인 버튼 표시)
             
+            // 메모리 최적화 초기화
+            this.initMemoryOptimization();
+            
             // 초기화 시 관리자 섹션 숨기기
             const sideAdminSection = document.getElementById('side-admin-section');
             if (sideAdminSection) {
@@ -2818,10 +2821,13 @@ class BillionaireMap {
         });
         
         // 통합된 GeoJSON 생성
-        const mergedGeoJson = {
+        let mergedGeoJson = {
             type: 'FeatureCollection',
             features: allFeatures
         };
+        
+        // GeoJSON 최적화 적용 (불필요한 속성 제거)
+        mergedGeoJson = this.optimizeGeoJson(mergedGeoJson);
         
         console.log(`[loadAllCountriesForDisplay] 총 ${allFeatures.length}개 행정구역 로드 완료`);
         
@@ -22060,6 +22066,18 @@ class BillionaireMap {
             return;
         }
         
+        // 리스너 수 제한 (메모리 최적화)
+        const maxListeners = 50;
+        if (this.auctionListeners.size >= maxListeners) {
+            // 가장 오래된 리스너 제거
+            const firstKey = this.auctionListeners.keys().next().value;
+            if (firstKey) {
+                this.auctionListeners.get(firstKey)();
+                this.auctionListeners.delete(firstKey);
+                this.activeAuctions.delete(firstKey);
+            }
+        }
+        
         // 기존 리스너 정리
         if (this.auctionListeners.has(regionId)) {
             this.auctionListeners.get(regionId)();
@@ -26093,6 +26111,17 @@ class BillionaireMap {
     async setupPixelRealtimeListener(regionId) {
         if (!this.isFirebaseInitialized || !this.firestore) return;
         
+        // 리스너 수 제한 (메모리 최적화)
+        const maxListeners = 20;
+        if (this.pixelGridListeners.size >= maxListeners) {
+            // 가장 오래된 리스너 제거
+            const firstKey = this.pixelGridListeners.keys().next().value;
+            if (firstKey) {
+                this.pixelGridListeners.get(firstKey)();
+                this.pixelGridListeners.delete(firstKey);
+            }
+        }
+        
         // 기존 리스너 제거
         if (this.pixelGridListeners.has(regionId)) {
             this.pixelGridListeners.get(regionId)();
@@ -28702,6 +28731,287 @@ class BillionaireMap {
                 });
             });
         }
+    }
+    
+    // ==================== 메모리 최적화 함수 ====================
+    
+    /**
+     * 메모리 사용량 모니터링 및 정리
+     */
+    initMemoryOptimization() {
+        // 주기적으로 메모리 정리 (5분마다)
+        setInterval(() => {
+            this.cleanupMemory();
+        }, 5 * 60 * 1000);
+        
+        // 페이지 가시성 변경 시 메모리 정리
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.cleanupMemory();
+            }
+        });
+        
+        // 메모리 사용량 모니터링 (개발 모드)
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            setInterval(() => {
+                this.logMemoryUsage();
+            }, 30 * 1000);
+        }
+    }
+    
+    /**
+     * 메모리 정리 함수
+     */
+    cleanupMemory() {
+        const startTime = performance.now();
+        let cleanedCount = 0;
+        
+        // 1. 오래된 캐시 데이터 정리
+        cleanedCount += this.cleanupOldCache();
+        
+        // 2. 사용하지 않는 실시간 리스너 정리
+        cleanedCount += this.cleanupUnusedListeners();
+        
+        // 3. 모니터링 로그 정리
+        this.cleanupMonitoringLogs();
+        
+        // 4. GeoJSON 캐시 크기 제한
+        this.limitGeoJsonCache();
+        
+        // 5. 이벤트 로그 정리
+        this.cleanupEventLogs();
+        
+        const duration = performance.now() - startTime;
+        if (cleanedCount > 0) {
+            console.log(`[메모리 정리] ${cleanedCount}개 항목 정리 완료 (${duration.toFixed(2)}ms)`);
+        }
+    }
+    
+    /**
+     * 오래된 캐시 데이터 정리
+     */
+    cleanupOldCache() {
+        let cleaned = 0;
+        const now = Date.now();
+        const maxAge = 30 * 60 * 1000; // 30분
+        
+        // regionDataLoadState 정리
+        for (const [key, value] of this.regionDataLoadState.entries()) {
+            if (value.timestamp && (now - value.timestamp) > maxAge) {
+                this.regionDataLoadState.delete(key);
+                cleaned++;
+            }
+        }
+        
+        // rawGeoJsonCache 정리 (크기 기반)
+        const maxCacheSize = 100 * 1024 * 1024; // 100MB
+        let currentSize = 0;
+        const cacheEntries = Object.entries(this.rawGeoJsonCache);
+        
+        // 크기 계산 및 정리
+        for (const [key, value] of cacheEntries) {
+            const size = JSON.stringify(value).length;
+            currentSize += size;
+            
+            if (currentSize > maxCacheSize) {
+                delete this.rawGeoJsonCache[key];
+                cleaned++;
+                currentSize -= size;
+            }
+        }
+        
+        // geoJsonPipeline 캐시 정리
+        if (this.geoJsonPipeline.cache.size > 50) {
+            // LRU 방식으로 오래된 항목 제거
+            const entries = Array.from(this.geoJsonPipeline.cache.entries());
+            entries.sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0));
+            
+            // 상위 50개만 유지
+            const toKeep = entries.slice(0, 50);
+            this.geoJsonPipeline.cache.clear();
+            toKeep.forEach(([key, value]) => {
+                this.geoJsonPipeline.cache.set(key, value);
+            });
+            cleaned += entries.length - 50;
+        }
+        
+        return cleaned;
+    }
+    
+    /**
+     * 사용하지 않는 실시간 리스너 정리
+     */
+    cleanupUnusedListeners() {
+        let cleaned = 0;
+        
+        // 옥션 리스너 정리 (종료된 옥션)
+        for (const [regionId, listener] of this.auctionListeners.entries()) {
+            const auction = this.activeAuctions.get(regionId);
+            if (auction && (auction.status === 'ended' || auction.status === 'completed')) {
+                listener();
+                this.auctionListeners.delete(regionId);
+                this.activeAuctions.delete(regionId);
+                cleaned++;
+            }
+        }
+        
+        // 픽셀 그리드 리스너 정리 (현재 보이지 않는 지역)
+        if (this.map && this.viewportBounds) {
+            for (const [regionId, listener] of this.pixelGridListeners.entries()) {
+                // 뷰포트 밖에 있는 지역의 리스너는 유지하되, 오래된 것은 정리
+                // 실제로는 지역이 보일 때만 리스너를 활성화하는 것이 더 좋지만,
+                // 여기서는 단순히 리스너 수를 제한
+                if (this.pixelGridListeners.size > 20) {
+                    // 가장 오래된 리스너 제거 (실제 구현 시 타임스탬프 필요)
+                    listener();
+                    this.pixelGridListeners.delete(regionId);
+                    cleaned++;
+                    break; // 한 번에 하나씩만 제거
+                }
+            }
+        }
+        
+        return cleaned;
+    }
+    
+    /**
+     * 모니터링 로그 정리
+     */
+    cleanupMonitoringLogs() {
+        if (!this.monitoring) return;
+        
+        // 이벤트 로그 정리
+        if (this.monitoring.eventLog.length > this.monitoring.maxLogSize) {
+            const toRemove = this.monitoring.eventLog.length - this.monitoring.maxLogSize;
+            this.monitoring.eventLog.splice(0, toRemove);
+        }
+        
+        // 성능 메트릭 정리
+        const maxMetrics = 100;
+        ['loadTimes', 'renderTimes', 'queryTimes'].forEach(metric => {
+            if (this.monitoring.performanceMetrics[metric].length > maxMetrics) {
+                const toRemove = this.monitoring.performanceMetrics[metric].length - maxMetrics;
+                this.monitoring.performanceMetrics[metric].splice(0, toRemove);
+            }
+        });
+        
+        // 이상 탐지 데이터 정리
+        if (this.monitoring.anomalyDetection.suspiciousBids.length > 100) {
+            this.monitoring.anomalyDetection.suspiciousBids.splice(0, 50);
+        }
+    }
+    
+    /**
+     * GeoJSON 캐시 크기 제한
+     */
+    limitGeoJsonCache() {
+        if (!this.geoJsonPipeline) return;
+        
+        const maxSize = this.geoJsonPipeline.maxCacheSize || 50 * 1024 * 1024;
+        let currentSize = 0;
+        const entries = Array.from(this.geoJsonPipeline.cache.entries());
+        
+        // 각 항목의 크기 계산
+        const sizedEntries = entries.map(([key, value]) => {
+            const size = JSON.stringify(value).length;
+            return { key, value, size };
+        });
+        
+        // 크기 순으로 정렬
+        sizedEntries.sort((a, b) => b.size - a.size);
+        
+        // 최대 크기 내로 유지
+        for (const entry of sizedEntries) {
+            if (currentSize + entry.size > maxSize) {
+                this.geoJsonPipeline.cache.delete(entry.key);
+            } else {
+                currentSize += entry.size;
+            }
+        }
+    }
+    
+    /**
+     * 이벤트 로그 정리
+     */
+    cleanupEventLogs() {
+        // monitoring.eventLog은 이미 cleanupMonitoringLogs에서 처리
+        // 추가로 필요한 로그 정리 작업
+    }
+    
+    /**
+     * 메모리 사용량 로깅 (개발 모드)
+     */
+    logMemoryUsage() {
+        if (!performance.memory) return; // Chrome만 지원
+        
+        const memory = performance.memory;
+        const used = (memory.usedJSHeapSize / 1024 / 1024).toFixed(2);
+        const total = (memory.totalJSHeapSize / 1024 / 1024).toFixed(2);
+        const limit = (memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2);
+        
+        console.log(`[메모리 사용량] 사용: ${used}MB / 전체: ${total}MB / 제한: ${limit}MB`);
+        
+        // 메모리 사용량이 80% 이상이면 경고
+        if (memory.usedJSHeapSize / memory.jsHeapSizeLimit > 0.8) {
+            console.warn('[메모리 경고] 메모리 사용량이 80%를 초과했습니다. 정리를 권장합니다.');
+            this.cleanupMemory();
+        }
+    }
+    
+    /**
+     * 데이터 구조 최적화 - 불필요한 속성 제거
+     */
+    optimizeRegionData(regionData) {
+        if (!regionData) return regionData;
+        
+        // 불필요한 속성 제거 (필요한 속성만 유지)
+        const optimized = {
+            id: regionData.id,
+            name: regionData.name,
+            country: regionData.country,
+            population: regionData.population,
+            area: regionData.area,
+            adminLevel: regionData.adminLevel,
+            price: regionData.price,
+            status: regionData.status,
+            // 기타 필수 속성만 유지
+        };
+        
+        // 선택적 속성만 추가
+        if (regionData.company) optimized.company = regionData.company;
+        if (regionData.logo) optimized.logo = regionData.logo;
+        if (regionData.color) optimized.color = regionData.color;
+        
+        return optimized;
+    }
+    
+    /**
+     * GeoJSON 데이터 최적화 - 불필요한 속성 제거
+     */
+    optimizeGeoJson(geoJson) {
+        if (!geoJson || !geoJson.features) return geoJson;
+        
+        // 각 feature의 properties 최적화
+        geoJson.features = geoJson.features.map(feature => {
+            if (feature.properties) {
+                // 필수 속성만 유지
+                const optimizedProps = {
+                    name: feature.properties.name,
+                    id: feature.properties.id,
+                    country: feature.properties.country,
+                };
+                
+                // 선택적 속성 추가
+                if (feature.properties.adminLevel) optimizedProps.adminLevel = feature.properties.adminLevel;
+                if (feature.properties.population) optimizedProps.population = feature.properties.population;
+                if (feature.properties.area) optimizedProps.area = feature.properties.area;
+                
+                feature.properties = optimizedProps;
+            }
+            return feature;
+        });
+        
+        return geoJson;
     }
     
     
