@@ -589,11 +589,35 @@ class PixelCanvas {
             territory.territoryValue = this.calculateValue();
             
             // 6. 이벤트 발행 (맵 반영용) - 최신 territory 객체 포함
+            // TerritoryManager에서 최신 정보 가져오기 (sourceId, featureId 포함)
+            const latestTerritory = territoryManager.getTerritory(this.territoryId) || territory;
+            
             const updatedTerritory = {
-                ...territory,
+                ...latestTerritory,
+                id: this.territoryId,
                 pixelCanvas: pixelCanvasMeta,
-                territoryValue: territory.territoryValue
+                territoryValue: territory.territoryValue,
+                // sourceId와 featureId 반드시 포함 (맵 업데이트에 필수!)
+                sourceId: latestTerritory.sourceId || territory.sourceId,
+                featureId: latestTerritory.featureId || territory.featureId,
+                country: latestTerritory.country || territory.country,
+                properties: latestTerritory.properties || territory.properties
             };
+            
+            // TerritoryManager에도 업데이트된 정보 저장
+            if (territoryManager.territories.has(this.territoryId)) {
+                const managedTerritory = territoryManager.territories.get(this.territoryId);
+                managedTerritory.pixelCanvas = pixelCanvasMeta;
+                managedTerritory.territoryValue = territory.territoryValue;
+            }
+            
+            log.info(`📦 Updated territory object:`, {
+                id: updatedTerritory.id,
+                hasSourceId: !!updatedTerritory.sourceId,
+                hasFeatureId: !!updatedTerritory.featureId,
+                country: updatedTerritory.country,
+                filledPixels: updatedTerritory.pixelCanvas?.filledPixels
+            });
             
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
                 territory: updatedTerritory

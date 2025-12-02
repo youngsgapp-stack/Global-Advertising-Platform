@@ -145,61 +145,84 @@ class MapController {
      */
     handlePixelCanvasUpdate(data) {
         const { territoryId, filledPixels, territory } = data;
-        log.info(`🎨 Pixel canvas updated for territory ${territoryId}: ${filledPixels} pixels`);
+        log.info(`🎨 ===== PIXEL CANVAS UPDATED =====`);
+        log.info(`Territory ID: ${territoryId}, Filled Pixels: ${filledPixels}`);
         
         // territory 객체가 직접 전달되면 사용, 없으면 TerritoryManager에서 가져오기
         let targetTerritory = territory;
         if (!targetTerritory) {
+            log.warn(`⚠️ Territory object not in event data, fetching from TerritoryManager...`);
             targetTerritory = territoryManager.getTerritory(territoryId);
         }
         
-        if (targetTerritory) {
-            log.info(`📍 Updating map visual for territory ${territoryId}`, {
+        // TerritoryManager에서 최신 정보로 업데이트 (sourceId, featureId 확보)
+        if (!targetTerritory) {
+            log.error(`❌ Territory ${territoryId} not found!`);
+            return;
+        }
+        
+        const latestTerritory = territoryManager.getTerritory(territoryId);
+        if (latestTerritory) {
+            // 최신 정보로 업데이트 (sourceId, featureId 중요!)
+            targetTerritory = {
+                ...targetTerritory,
+                ...latestTerritory,
+                pixelCanvas: targetTerritory.pixelCanvas || latestTerritory.pixelCanvas
+            };
+        }
+        
+        log.info(`📍 ===== UPDATING MAP VISUAL =====`);
+        log.info(`Territory Info:`, {
+            id: targetTerritory.id,
+            hasSourceId: !!targetTerritory.sourceId,
+            sourceId: targetTerritory.sourceId,
+            hasFeatureId: !!targetTerritory.featureId,
+            featureId: targetTerritory.featureId,
+            country: targetTerritory.country,
+            filledPixels: targetTerritory.pixelCanvas?.filledPixels || filledPixels
+        });
+        
+        // sourcesLoaded 동기화 (먼저 실행)
+        this.syncSourcesLoaded();
+        log.info(`sourcesLoaded after sync: ${Array.from(this.sourcesLoaded).join(', ') || '(empty)'}`);
+        
+        // 즉시 업데이트 시도
+        this.updateTerritoryLayerVisual(targetTerritory);
+        
+        // source를 찾지 못한 경우 재시도 (맵이 로드될 때까지 기다림)
+        // sourcesLoaded가 비어있거나, Territory에 sourceId가 없으면 재시도
+        const needsRetry = this.sourcesLoaded.size === 0 || !targetTerritory.sourceId;
+        if (needsRetry) {
+            log.warn(`⚠️ No sources loaded yet or sourceId missing. Will retry map update after delay...`, {
+                sourcesLoadedSize: this.sourcesLoaded.size,
                 hasSourceId: !!targetTerritory.sourceId,
-                hasFeatureId: !!targetTerritory.featureId,
                 country: targetTerritory.country
             });
             
-            // 즉시 업데이트 시도
-            this.updateTerritoryLayerVisual(targetTerritory);
+            // 재시도 로직 (최대 3번, 1초 간격)
+            let retryCount = 0;
+            const maxRetries = 3;
+            const retryInterval = 1000;
             
-            // source를 찾지 못한 경우 재시도 (맵이 로드될 때까지 기다림)
-            // sourcesLoaded가 비어있거나, Territory에 sourceId가 없으면 재시도
-            const needsRetry = this.sourcesLoaded.size === 0 || !targetTerritory.sourceId;
-            if (needsRetry) {
-                log.warn(`⚠️ No sources loaded yet or sourceId missing. Will retry map update after delay...`, {
-                    sourcesLoadedSize: this.sourcesLoaded.size,
-                    hasSourceId: !!targetTerritory.sourceId,
-                    country: targetTerritory.country
-                });
+            const retryUpdate = () => {
+                retryCount++;
+                log.info(`🔄 Retrying map update for territory ${territoryId} (attempt ${retryCount}/${maxRetries})...`);
                 
-                // 재시도 로직 (최대 3번, 1초 간격)
-                let retryCount = 0;
-                const maxRetries = 3;
-                const retryInterval = 1000;
+                // sourcesLoaded 동기화 시도
+                this.syncSourcesLoaded();
                 
-                const retryUpdate = () => {
-                    retryCount++;
-                    log.info(`🔄 Retrying map update for territory ${territoryId} (attempt ${retryCount}/${maxRetries})...`);
-                    
-                    // sourcesLoaded 동기화 시도
-                    this.syncSourcesLoaded();
-                    
-                    // 업데이트 다시 시도
-                    this.updateTerritoryLayerVisual(targetTerritory);
-                    
-                    // 아직도 실패하고 재시도 횟수가 남아있으면 계속
-                    if (retryCount < maxRetries && this.sourcesLoaded.size === 0) {
-                        setTimeout(retryUpdate, retryInterval);
-                    } else if (this.sourcesLoaded.size === 0) {
-                        log.error(`❌ Failed to find sources after ${maxRetries} retries`);
-                    }
-                };
+                // 업데이트 다시 시도
+                this.updateTerritoryLayerVisual(targetTerritory);
                 
-                setTimeout(retryUpdate, retryInterval);
-            }
-        } else {
-            log.error(`❌ Territory ${territoryId} not found in TerritoryManager`);
+                // 아직도 실패하고 재시도 횟수가 남아있으면 계속
+                if (retryCount < maxRetries && this.sourcesLoaded.size === 0) {
+                    setTimeout(retryUpdate, retryInterval);
+                } else if (this.sourcesLoaded.size === 0) {
+                    log.error(`❌ Failed to find sources after ${maxRetries} retries`);
+                }
+            };
+            
+            setTimeout(retryUpdate, retryInterval);
         }
     }
     
