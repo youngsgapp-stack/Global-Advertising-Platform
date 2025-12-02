@@ -26,15 +26,16 @@ class PixelEditor {
         this.currentColor = '#4ecdc4';
         this.brushSize = 1;
         this.customColors = [];
+        this.eventListenersBound = false; // 이벤트 바인딩 여부 추적
     }
     
     /**
      * 초기화
      */
     initialize(containerId = 'pixel-editor-modal') {
+        console.log('🔥🔥🔥 PixelEditor.initialize() CALLED! 🔥🔥🔥');
         this.createModal(containerId);
         this.setupEventListeners();
-        
         log.info('PixelEditor initialized');
     }
     
@@ -42,11 +43,13 @@ class PixelEditor {
      * 모달 생성
      */
     createModal(containerId) {
+        console.log('🔥 Creating pixel editor modal...');
         this.container = document.createElement('div');
         this.container.id = containerId;
-        this.container.className = 'modal pixel-editor-modal hidden';
+        this.container.className = 'pixel-editor-modal hidden';
         this.container.innerHTML = this.getModalHTML();
         document.body.appendChild(this.container);
+        console.log('✅ Pixel editor modal created:', this.container);
     }
     
     /**
@@ -207,18 +210,47 @@ class PixelEditor {
      * 에디터 열기
      */
     async open(territory) {
+        console.log('🔥🔥🔥 PixelEditor.open() CALLED! 🔥🔥🔥');
+        console.log('Territory:', territory);
+        log.info(`PixelEditor opening for territory: ${territory?.id}`);
+        
+        if (!territory || !territory.id) {
+            console.error('❌ Invalid territory provided!');
+            return;
+        }
+        
         this.currentTerritory = territory;
         this.isOpen = true;
         
         // 모달 표시
-        this.container.classList.remove('hidden');
+        if (this.container) {
+            this.container.classList.remove('hidden');
+            console.log('✅ Modal shown');
+        } else {
+            console.error('❌ Container not found!');
+            return;
+        }
         
         // 캔버스 초기화
         const canvasElement = document.getElementById('pixel-canvas');
-        await pixelCanvas.initialize(territory.id, canvasElement);
+        if (!canvasElement) {
+            console.error('❌ Canvas element not found!');
+            return;
+        }
         
-        // UI 바인딩
-        this.bindUIEvents();
+        console.log('🔥 Initializing pixel canvas...');
+        await pixelCanvas.initialize(territory.id, canvasElement);
+        console.log('✅ Pixel canvas initialized');
+        
+        // UI 바인딩 (한 번만)
+        if (!this.eventListenersBound) {
+            console.log('🔥 Binding UI events (first time)...');
+            this.bindUIEvents();
+            this.eventListenersBound = true;
+        } else {
+            console.log('⚠️ UI events already bound, re-binding anyway...');
+            this.bindUIEvents();
+        }
         
         // 협업 상태 확인
         this.updateCollabStatus();
@@ -230,6 +262,7 @@ class PixelEditor {
         });
         
         log.info(`PixelEditor opened for territory: ${territory.id}`);
+        console.log('✅ PixelEditor opened successfully!');
     }
     
     /**
@@ -237,7 +270,9 @@ class PixelEditor {
      */
     close() {
         this.isOpen = false;
-        this.container.classList.add('hidden');
+        if (this.container) {
+            this.container.classList.add('hidden');
+        }
         
         // 캔버스 정리
         pixelCanvas.cleanup();
@@ -246,17 +281,69 @@ class PixelEditor {
     }
     
     /**
-     * UI 이벤트 바인딩
+     * UI 이벤트 바인딩 (완전히 재작성)
      */
     bindUIEvents() {
+        console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
         console.log('🔥🔥🔥 bindUIEvents() CALLED! 🔥🔥🔥');
+        console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
         log.info('🔧 Binding UI events in PixelEditor...');
         
+        if (!this.container) {
+            console.error('❌ Container not found! Cannot bind events.');
+            return;
+        }
+        
+        // 저장 버튼 직접 찾기 및 이벤트 등록
+        const saveButton = this.container.querySelector('#pixel-save');
+        console.log('🔥 Checking save button:', saveButton);
+        console.log('Container:', this.container);
+        console.log('Container HTML:', this.container.innerHTML.substring(0, 500));
+        
+        if (saveButton) {
+            console.log('✅ Save button found! Text:', saveButton.textContent);
+            
+            // 기존 리스너 제거
+            const newSaveButton = saveButton.cloneNode(true);
+            saveButton.parentNode?.replaceChild(newSaveButton, saveButton);
+            
+            // 새 리스너 추가
+            newSaveButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                console.log('🔥🔥🔥 SAVE BUTTON CLICKED! 🔥🔥🔥');
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                
+                // 즉시 alert
+                alert('💾💾💾 저장 버튼 클릭됨! 💾💾💾');
+                
+                await this.handleSave();
+            }, { capture: true }); // 캡처 단계에서 먼저 처리
+            
+            console.log('✅ Save button event listener added!');
+        } else {
+            console.error('❌❌❌ Save button NOT FOUND! ❌❌❌');
+            // 모든 버튼 찾기
+            const allButtons = this.container.querySelectorAll('button');
+            console.log('All buttons in container:', Array.from(allButtons).map(b => ({
+                id: b.id,
+                text: b.textContent?.trim(),
+                classes: Array.from(b.classList)
+            })));
+        }
+        
         // 닫기 버튼
-        document.getElementById('close-pixel-editor')?.addEventListener('click', () => this.close());
+        const closeBtn = this.container.querySelector('#close-pixel-editor');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.close());
+        }
         
         // 도구 버튼
-        document.querySelectorAll('.tool-btn').forEach(btn => {
+        this.container.querySelectorAll('.tool-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const tool = btn.dataset.tool;
                 this.setTool(tool);
@@ -264,104 +351,128 @@ class PixelEditor {
         });
         
         // 브러시 크기 슬라이더
-        const brushSlider = document.getElementById('brush-size-slider');
-        brushSlider?.addEventListener('input', (e) => {
-            this.brushSize = parseInt(e.target.value);
-            pixelCanvas.setBrushSize(this.brushSize);
-            document.getElementById('brush-size-value').textContent = `${this.brushSize}px`;
-        });
+        const brushSlider = this.container.querySelector('#brush-size-slider');
+        if (brushSlider) {
+            brushSlider.addEventListener('input', (e) => {
+                this.brushSize = parseInt(e.target.value);
+                pixelCanvas.setBrushSize(this.brushSize);
+                const valueDisplay = this.container.querySelector('#brush-size-value');
+                if (valueDisplay) {
+                    valueDisplay.textContent = `${this.brushSize}px`;
+                }
+            });
+        }
         
         // 컬러 피커
-        const colorPicker = document.getElementById('color-picker-input');
-        colorPicker?.addEventListener('input', (e) => {
-            this.setColor(e.target.value);
-        });
+        const colorPicker = this.container.querySelector('#color-picker-input');
+        if (colorPicker) {
+            colorPicker.addEventListener('input', (e) => {
+                this.setColor(e.target.value);
+            });
+        }
         
         // 팔레트 색상
-        document.querySelectorAll('.palette-color').forEach(el => {
+        this.container.querySelectorAll('.palette-color').forEach(el => {
             el.addEventListener('click', () => {
                 this.setColor(el.dataset.color);
             });
         });
         
         // 커스텀 색상 추가
-        document.getElementById('add-custom-color')?.addEventListener('click', () => {
-            this.addCustomColor(this.currentColor);
-        });
+        const addColorBtn = this.container.querySelector('#add-custom-color');
+        if (addColorBtn) {
+            addColorBtn.addEventListener('click', () => {
+                this.addCustomColor(this.currentColor);
+            });
+        }
         
         // Undo/Redo
-        document.getElementById('pixel-undo')?.addEventListener('click', () => pixelCanvas.undo());
-        document.getElementById('pixel-redo')?.addEventListener('click', () => pixelCanvas.redo());
+        const undoBtn = this.container.querySelector('#pixel-undo');
+        if (undoBtn) {
+            undoBtn.addEventListener('click', () => pixelCanvas.undo());
+        }
+        
+        const redoBtn = this.container.querySelector('#pixel-redo');
+        if (redoBtn) {
+            redoBtn.addEventListener('click', () => pixelCanvas.redo());
+        }
         
         // 클리어
-        document.getElementById('pixel-clear')?.addEventListener('click', () => {
-            if (confirm('모든 픽셀을 지우시겠습니까?')) {
-                pixelCanvas.clear();
-            }
-        });
-        
-        // 저장
-        const saveButton = document.getElementById('pixel-save');
-        console.log('🔥 Checking save button:', saveButton);
-        if (saveButton) {
-            console.log('✅ Save button found! Adding event listener...');
-            saveButton.addEventListener('click', async () => {
-                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
-                console.log('🔥🔥🔥 SAVE BUTTON CLICKED! 🔥🔥🔥');
-                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
-                alert('💾 저장 버튼이 클릭되었습니다! 콘솔을 확인하세요.');
-                log.info('💾 Save button clicked in PixelEditor');
-                
-                try {
-                    console.log('🔥 Step 1: Calling saveToFirestore...');
-                    log.info('💾 Calling saveToFirestore...');
-                    
-                    await pixelCanvas.saveToFirestore();
-                    
-                    console.log('✅ Step 2: saveToFirestore completed successfully!');
-                    log.info('✅ saveToFirestore completed successfully!');
-                    
-                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                        type: 'success',
-                        message: '저장되었습니다!'
-                    });
-                    
-                    console.log('✅ Step 3: All done!');
-                } catch (error) {
-                    console.error('❌❌❌ ERROR in save button handler ❌❌❌');
-                    console.error('Error:', error);
-                    console.error('Error message:', error.message);
-                    console.error('Error stack:', error.stack);
-                    log.error('❌ ERROR in save button handler:', error);
-                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                        type: 'error',
-                        message: '저장 실패: ' + (error.message || '알 수 없는 오류')
-                    });
+        const clearBtn = this.container.querySelector('#pixel-clear');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                if (confirm('모든 픽셀을 지우시겠습니까?')) {
+                    pixelCanvas.clear();
                 }
             });
-            console.log('✅ Save button event listener added successfully!');
-        } else {
-            console.error('❌ Save button NOT FOUND! ID: pixel-save');
         }
         
         // 내보내기
-        document.getElementById('export-png')?.addEventListener('click', () => {
-            this.exportAsPNG();
-        });
+        const exportBtn = this.container.querySelector('#export-png');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => {
+                this.exportAsPNG();
+            });
+        }
         
         // 협업 토글
-        document.getElementById('toggle-collab')?.addEventListener('click', () => {
-            this.toggleCollaboration();
-        });
+        const collabBtn = this.container.querySelector('#toggle-collab');
+        if (collabBtn) {
+            collabBtn.addEventListener('click', () => {
+                this.toggleCollaboration();
+            });
+        }
         
         // 캔버스 좌표 표시
-        const canvas = document.getElementById('pixel-canvas');
-        canvas?.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = Math.floor((e.clientX - rect.left) / (canvas.width / CONFIG.TERRITORY.PIXEL_GRID_SIZE));
-            const y = Math.floor((e.clientY - rect.top) / (canvas.height / CONFIG.TERRITORY.PIXEL_GRID_SIZE));
-            document.getElementById('canvas-coords').textContent = `X: ${x}, Y: ${y}`;
-        });
+        const canvas = this.container.querySelector('#pixel-canvas');
+        if (canvas) {
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / (canvas.width / CONFIG.TERRITORY.PIXEL_GRID_SIZE));
+                const y = Math.floor((e.clientY - rect.top) / (canvas.height / CONFIG.TERRITORY.PIXEL_GRID_SIZE));
+                const coordsEl = this.container.querySelector('#canvas-coords');
+                if (coordsEl) {
+                    coordsEl.textContent = `X: ${x}, Y: ${y}`;
+                }
+            });
+        }
+        
+        console.log('✅ All UI events bound!');
+    }
+    
+    /**
+     * 저장 핸들러
+     */
+    async handleSave() {
+        console.log('🔥🔥🔥 handleSave() CALLED! 🔥🔥🔥');
+        log.info('💾 Handle save called in PixelEditor');
+        
+        try {
+            console.log('🔥 Step 1: Calling saveToFirestore...');
+            log.info('💾 Calling saveToFirestore...');
+            
+            await pixelCanvas.saveToFirestore();
+            
+            console.log('✅ Step 2: saveToFirestore completed successfully!');
+            log.info('✅ saveToFirestore completed successfully!');
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: '저장되었습니다!'
+            });
+            
+            console.log('✅ Step 3: All done!');
+        } catch (error) {
+            console.error('❌❌❌ ERROR in handleSave ❌❌❌');
+            console.error('Error:', error);
+            console.error('Error message:', error.message);
+            console.error('Error stack:', error.stack);
+            log.error('❌ ERROR in handleSave:', error);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '저장 실패: ' + (error.message || '알 수 없는 오류')
+            });
+        }
     }
     
     /**
@@ -377,7 +488,7 @@ class PixelEditor {
      * 도구 UI 업데이트
      */
     updateToolUI(toolName) {
-        document.querySelectorAll('.tool-btn').forEach(btn => {
+        this.container?.querySelectorAll('.tool-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tool === toolName);
         });
     }
@@ -389,8 +500,15 @@ class PixelEditor {
         this.currentColor = color;
         pixelCanvas.setColor(color);
         
-        document.getElementById('current-color-preview').style.background = color;
-        document.getElementById('color-picker-input').value = color;
+        const preview = this.container?.querySelector('#current-color-preview');
+        if (preview) {
+            preview.style.background = color;
+        }
+        
+        const picker = this.container?.querySelector('#color-picker-input');
+        if (picker) {
+            picker.value = color;
+        }
     }
     
     /**
@@ -407,7 +525,7 @@ class PixelEditor {
      * 커스텀 색상 UI 업데이트
      */
     updateCustomColorsUI() {
-        const container = document.getElementById('custom-colors');
+        const container = this.container?.querySelector('#custom-colors');
         if (!container) return;
         
         container.innerHTML = this.customColors.map(color => `
@@ -425,23 +543,31 @@ class PixelEditor {
      * 협업 상태 업데이트
      */
     updateCollabStatus() {
-        const collab = collaborationHub.getCollaboration(this.currentTerritory.id);
-        const statusEl = document.getElementById('collab-status');
-        const toggleBtn = document.getElementById('toggle-collab');
-        const leaderboardSection = document.getElementById('collab-leaderboard-section');
+        if (!this.currentTerritory) return;
         
-        if (collab) {
-            statusEl.innerHTML = `
-                <span class="status-active">🟢 활성화</span>
-                <span class="collaborator-count">${collab.stats.totalContributors}명 참여 중</span>
-            `;
-            toggleBtn.textContent = '협업 종료';
-            leaderboardSection.style.display = 'block';
-            this.updateLeaderboard(collab);
-        } else {
-            statusEl.innerHTML = '<span class="status-inactive">⚫ 비활성화</span>';
-            toggleBtn.textContent = 'Start Collab';
-            leaderboardSection.style.display = 'none';
+        const collab = collaborationHub.getCollaboration(this.currentTerritory.id);
+        const statusEl = this.container?.querySelector('#collab-status');
+        const toggleBtn = this.container?.querySelector('#toggle-collab');
+        const leaderboardSection = this.container?.querySelector('#collab-leaderboard-section');
+        
+        if (statusEl && toggleBtn) {
+            if (collab) {
+                statusEl.innerHTML = `
+                    <span class="status-active">🟢 활성화</span>
+                    <span class="collaborator-count">${collab.stats.totalContributors}명 참여 중</span>
+                `;
+                toggleBtn.textContent = '협업 종료';
+                if (leaderboardSection) {
+                    leaderboardSection.style.display = 'block';
+                }
+                this.updateLeaderboard(collab);
+            } else {
+                statusEl.innerHTML = '<span class="status-inactive">⚫ 비활성화</span>';
+                toggleBtn.textContent = 'Start Collab';
+                if (leaderboardSection) {
+                    leaderboardSection.style.display = 'none';
+                }
+            }
         }
     }
     
@@ -449,13 +575,13 @@ class PixelEditor {
      * 협업 토글
      */
     async toggleCollaboration() {
+        if (!this.currentTerritory) return;
+        
         const collab = collaborationHub.getCollaboration(this.currentTerritory.id);
         
         if (collab) {
-            // 협업 종료
             await collaborationHub.closeCollaboration(this.currentTerritory.id);
         } else {
-            // 협업 시작
             await collaborationHub.openCollaboration(this.currentTerritory.id);
         }
         
@@ -466,8 +592,10 @@ class PixelEditor {
      * 리더보드 업데이트
      */
     updateLeaderboard(collab) {
+        if (!this.currentTerritory) return;
+        
         const leaderboard = collaborationHub.getLeaderboard(this.currentTerritory.id);
-        const container = document.getElementById('collab-leaderboard');
+        const container = this.container?.querySelector('#collab-leaderboard');
         
         if (!container) return;
         
@@ -494,22 +622,30 @@ class PixelEditor {
     updateStats(data) {
         const total = CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE;
         
-        document.getElementById('pixel-count').textContent = 
-            `${data.filledPixels?.toLocaleString() || 0} / ${total.toLocaleString()} 픽셀`;
+        const pixelCountEl = this.container?.querySelector('#pixel-count');
+        if (pixelCountEl) {
+            pixelCountEl.textContent = `${data.filledPixels?.toLocaleString() || 0} / ${total.toLocaleString()} 픽셀`;
+        }
         
-        document.getElementById('total-pixels').textContent = 
-            data.filledPixels?.toLocaleString() || '0';
+        const totalPixelsEl = this.container?.querySelector('#total-pixels');
+        if (totalPixelsEl) {
+            totalPixelsEl.textContent = data.filledPixels?.toLocaleString() || '0';
+        }
         
-        document.getElementById('territory-value').textContent = 
-            data.value?.toLocaleString() || '0';
+        const valueEl = this.container?.querySelector('#territory-value');
+        if (valueEl) {
+            valueEl.textContent = data.value?.toLocaleString() || '0';
+        }
         
         // 내 기여도
         const user = firebaseService.getCurrentUser();
         if (user) {
             const contributors = pixelCanvas.getContributorStats();
             const myContrib = contributors.find(c => c.userId === user.uid);
-            document.getElementById('my-contribution').textContent = 
-                myContrib ? `${myContrib.count} (${myContrib.percentage}%)` : '0';
+            const myContribEl = this.container?.querySelector('#my-contribution');
+            if (myContribEl) {
+                myContribEl.textContent = myContrib ? `${myContrib.count} (${myContrib.percentage}%)` : '0';
+            }
         }
     }
     
@@ -519,7 +655,7 @@ class PixelEditor {
     exportAsPNG() {
         const dataURL = pixelCanvas.toDataURL();
         const link = document.createElement('a');
-        link.download = `${this.currentTerritory.name.ko || this.currentTerritory.id}_pixel_art.png`;
+        link.download = `${this.currentTerritory.name?.ko || this.currentTerritory.id}_pixel_art.png`;
         link.href = dataURL;
         link.click();
         
@@ -533,4 +669,3 @@ class PixelEditor {
 // 싱글톤 인스턴스
 export const pixelEditor = new PixelEditor();
 export default pixelEditor;
-
