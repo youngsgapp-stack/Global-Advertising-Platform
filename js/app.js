@@ -18,6 +18,8 @@ import { territoryPanel } from './ui/TerritoryPanel.js';
 import { pixelEditor } from './ui/PixelEditor.js';
 import { rankingBoard } from './ui/RankingBoard.js';
 import { timelineWidget } from './ui/TimelineWidget.js';
+import { recommendationSystem } from './features/RecommendationSystem.js';
+import { recommendationPanel } from './ui/RecommendationPanel.js';
 
 class BillionaireApp {
     constructor() {
@@ -50,7 +52,8 @@ class BillionaireApp {
                 rankingSystem.initialize(),
                 buffSystem.initialize(),
                 collaborationHub.initialize(),
-                historyLogger.initialize()
+                historyLogger.initialize(),
+                recommendationSystem.initialize()
             ]);
             
             // 6. Initialize UI
@@ -58,6 +61,7 @@ class BillionaireApp {
             pixelEditor.initialize();
             rankingBoard.initialize();
             timelineWidget.initialize();
+            recommendationPanel.initialize();
             this.initializeUI();
             
             // 7. Setup Event Listeners
@@ -130,6 +134,18 @@ class BillionaireApp {
         
         // Listen for reload-country event
         eventBus.on('reload-country', async ({ country }) => {
+            await this.loadCountry(country);
+        });
+        
+        // Listen for load-country event (from recommendations)
+        eventBus.on('load-country', async ({ country }) => {
+            // Switch to Country View if in World View
+            const toggleBtn = document.getElementById('view-mode-toggle');
+            if (mapController.getViewMode() === 'world') {
+                toggleBtn.textContent = '🌍 World';
+                toggleBtn.classList.remove('active');
+                mapController.setViewMode('country');
+            }
             await this.loadCountry(country);
         });
     }

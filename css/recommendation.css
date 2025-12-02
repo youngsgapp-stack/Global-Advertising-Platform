@@ -1,0 +1,294 @@
+/**
+ * Recommendation Panel Styles
+ * 추천 패널 스타일
+ */
+
+/* === 추천 패널 === */
+.recommendation-panel {
+    position: fixed;
+    bottom: var(--spacing-lg);
+    left: var(--spacing-lg);
+    width: 280px;
+    max-height: 400px;
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-light);
+    box-shadow: var(--shadow-soft);
+    z-index: var(--z-sidebar);
+    overflow: hidden;
+    transition: var(--transition-normal);
+}
+
+.recommendation-panel:hover {
+    box-shadow: 0 8px 32px rgba(78, 205, 196, 0.2);
+}
+
+/* === 헤더 === */
+.rec-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.2), rgba(255, 107, 107, 0.1));
+    border-bottom: var(--border-light);
+}
+
+.rec-header h3 {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--color-text);
+    margin: 0;
+}
+
+.rec-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-full);
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rec-toggle:hover {
+    background: var(--color-primary);
+    color: var(--color-bg-deep);
+}
+
+/* === 콘텐츠 === */
+.rec-content {
+    padding: var(--spacing-sm);
+    max-height: 320px;
+    overflow-y: auto;
+    transition: var(--transition-normal);
+}
+
+.rec-content.collapsed {
+    max-height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* === 섹션 === */
+.rec-section {
+    margin-bottom: var(--spacing-md);
+}
+
+.rec-section:last-child {
+    margin-bottom: 0;
+}
+
+.rec-section-header {
+    margin-bottom: var(--spacing-xs);
+}
+
+/* === 뱃지 === */
+.rec-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rec-badge.hot {
+    background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+    color: white;
+}
+
+.rec-badge.starter {
+    background: linear-gradient(135deg, #4ecdc4, #45b7aa);
+    color: white;
+}
+
+.rec-badge.live {
+    background: linear-gradient(135deg, #a855f7, #6366f1);
+    color: white;
+    animation: pulse 2s infinite;
+}
+
+.rec-badge.filter {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-secondary);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* === 오늘의 지역 카드 === */
+.today-pick-card {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(255, 142, 83, 0.1));
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: var(--transition-normal);
+    border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.today-pick-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(255, 107, 107, 0.3);
+}
+
+.pick-flag {
+    font-size: 32px;
+}
+
+.pick-info {
+    flex: 1;
+}
+
+.pick-name {
+    font-weight: 600;
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+}
+
+.pick-reason {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: 2px;
+}
+
+.pick-go-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--color-secondary);
+    border: none;
+    border-radius: var(--radius-md);
+    color: white;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.pick-go-btn:hover {
+    background: #ff8e53;
+    transform: scale(1.05);
+}
+
+/* === 추천 리스트 === */
+.rec-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.rec-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.rec-item:hover {
+    background: rgba(78, 205, 196, 0.2);
+    transform: translateX(4px);
+}
+
+.rec-flag, .rec-icon {
+    font-size: 20px;
+}
+
+.rec-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+}
+
+.rec-type, .rec-reason {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+/* === 필터 버튼 === */
+.rec-filters {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-full);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.filter-btn:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.filter-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-bg-deep);
+}
+
+/* === 스크롤바 === */
+.rec-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.rec-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.rec-content::-webkit-scrollbar-thumb {
+    background: rgba(78, 205, 196, 0.3);
+    border-radius: 2px;
+}
+
+/* === 반응형 === */
+@media (max-width: 768px) {
+    .recommendation-panel {
+        left: var(--spacing-sm);
+        right: var(--spacing-sm);
+        bottom: 80px;
+        width: auto;
+        max-height: 300px;
+    }
+    
+    .rec-filters {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .recommendation-panel {
+        bottom: 100px;
+    }
+    
+    .today-pick-card {
+        flex-wrap: wrap;
+    }
+    
+    .pick-go-btn {
+        width: 100%;
+        margin-top: var(--spacing-xs);
+    }
+}
+
