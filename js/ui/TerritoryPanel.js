@@ -144,6 +144,12 @@ class TerritoryPanel {
             }
         }
         
+        // 이름 추출 (객체일 수 있으므로 처리) - 먼저 정의 필요
+        const territoryName = this.extractName(t.name) || 
+                              this.extractName(t.properties?.name) || 
+                              this.extractName(t.properties?.name_en) || 
+                              'Unknown Territory';
+        
         // Get real country data
         this.countryData = territoryDataService.getCountryStats(countryCode);
         const countryInfo = CONFIG.COUNTRIES[countryCode] || {};
@@ -167,12 +173,6 @@ class TerritoryPanel {
         
         // 가격 계산 (픽셀 수 기반)
         const realPrice = territoryDataService.calculateTerritoryPrice(t, countryCode);
-        
-        // 이름 추출 (객체일 수 있으므로 처리)
-        const territoryName = this.extractName(t.name) || 
-                              this.extractName(t.properties?.name) || 
-                              this.extractName(t.properties?.name_en) || 
-                              'Unknown Territory';
         
         // 국가명: CONFIG에서 가져오거나, 없으면 countryCode를 그대로 사용 (절대 properties.admin 사용 안 함)
         const countryName = countryInfo.name || countryInfo.nameKo || countryCode || 'Unknown';
