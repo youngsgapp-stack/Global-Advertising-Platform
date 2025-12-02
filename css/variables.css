@@ -1,0 +1,108 @@
+/**
+ * Billionaire Homepage v2 - CSS Variables
+ * 테마 및 전역 변수
+ */
+
+:root {
+    /* === 주요 색상 === */
+    --color-primary: #4ecdc4;
+    --color-secondary: #ff6b6b;
+    --color-accent: #feca57;
+    
+    /* === 주권 상태 색상 === */
+    --color-unconquered: #4ecdc4;
+    --color-contested: #feca57;
+    --color-ruled: #ff6b6b;
+    
+    /* === 배경 색상 === */
+    --color-bg-deep: #0a0a1a;
+    --color-bg-surface: rgba(0, 0, 0, 0.9);
+    --color-bg-card: rgba(255, 255, 255, 0.05);
+    --color-bg-hover: rgba(255, 255, 255, 0.08);
+    
+    /* === 텍스트 색상 === */
+    --color-text: #ffffff;
+    --color-text-secondary: #cccccc;
+    --color-text-muted: #888888;
+    
+    /* === 랭킹 색상 === */
+    --color-rank-gold: #ffd700;
+    --color-rank-silver: #c0c0c0;
+    --color-rank-bronze: #cd7f32;
+    
+    /* === 그라데이션 === */
+    --gradient-conquest: linear-gradient(45deg, #ff6b6b, #ee5a24);
+    --gradient-primary: linear-gradient(45deg, #4ecdc4, #44a08d);
+    --gradient-gold: linear-gradient(45deg, #feca57, #ff9ff3);
+    --gradient-space: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a0a1a 100%);
+    
+    /* === 그림자 === */
+    --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --shadow-glow-primary: 0 4px 15px rgba(78, 205, 196, 0.3);
+    --shadow-glow-secondary: 0 4px 15px rgba(255, 107, 107, 0.3);
+    --shadow-glow-accent: 0 4px 15px rgba(254, 202, 87, 0.3);
+    
+    /* === 테두리 === */
+    --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
+    --border-light: 1px solid rgba(255, 255, 255, 0.2);
+    --border-primary: 1px solid rgba(78, 205, 196, 0.4);
+    --border-secondary: 1px solid rgba(255, 107, 107, 0.4);
+    
+    /* === 라운드 === */
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 15px;
+    --radius-pill: 999px;
+    
+    /* === 간격 === */
+    --spacing-xs: 5px;
+    --spacing-sm: 10px;
+    --spacing-md: 15px;
+    --spacing-lg: 20px;
+    --spacing-xl: 30px;
+    
+    /* === 폰트 === */
+    --font-family: 'Pretendard', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-md: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    --font-size-3xl: 2rem;
+    
+    /* === 트랜지션 === */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+    
+    /* === z-index === */
+    --z-map: 1;
+    --z-panel: 100;
+    --z-header: 500;
+    --z-sidebar: 600;
+    --z-modal: 1000;
+    --z-notification: 2000;
+    --z-loading: 3000;
+    
+    /* === 블러 === */
+    --blur-sm: blur(5px);
+    --blur-md: blur(10px);
+    --blur-lg: blur(20px);
+}
+
+/* 다크 테마 (기본) */
+[data-theme="dark"] {
+    --color-bg-deep: #0a0a1a;
+    --color-text: #ffffff;
+}
+
+/* 라이트 테마 (옵션) */
+[data-theme="light"] {
+    --color-bg-deep: #f5f5f5;
+    --color-bg-surface: rgba(255, 255, 255, 0.95);
+    --color-text: #1a1a1a;
+    --color-text-secondary: #666666;
+}
+

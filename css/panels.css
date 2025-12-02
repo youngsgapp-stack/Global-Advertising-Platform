@@ -1,0 +1,447 @@
+/**
+ * Billionaire Homepage v2 - Panels CSS
+ * 패널 및 모달 스타일
+ */
+
+/* === 영토 패널 === */
+.territory-panel {
+    position: fixed;
+    top: 50%;
+    right: var(--spacing-lg);
+    transform: translateY(-50%);
+    width: 380px;
+    max-height: 85vh;
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-light);
+    box-shadow: var(--shadow-soft);
+    z-index: var(--z-panel);
+    overflow: hidden;
+    transition: var(--transition-normal);
+}
+
+.territory-panel.hidden {
+    transform: translateY(-50%) translateX(420px);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.territory-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: var(--border-subtle);
+    background: rgba(78, 205, 196, 0.1);
+}
+
+.territory-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.territory-icon {
+    font-size: var(--font-size-2xl);
+}
+
+.territory-title h2 {
+    font-size: var(--font-size-xl);
+    color: var(--color-text);
+    margin: 0;
+}
+
+.territory-panel .panel-content {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    max-height: calc(85vh - 80px);
+}
+
+/* === 주권 섹션 === */
+.sovereignty-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+}
+
+.sovereignty-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    width: fit-content;
+}
+
+.sovereignty-badge.unconquered {
+    background: rgba(78, 205, 196, 0.2);
+    color: var(--color-unconquered);
+    border: 1px solid rgba(78, 205, 196, 0.4);
+}
+
+.sovereignty-badge.contested {
+    background: rgba(254, 202, 87, 0.2);
+    color: var(--color-contested);
+    border: 1px solid rgba(254, 202, 87, 0.4);
+}
+
+.sovereignty-badge.ruled {
+    background: rgba(255, 107, 107, 0.2);
+    color: var(--color-ruled);
+    border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+.ruler-info {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+.ruler-name {
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* === 영토 통계 === */
+.territory-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+}
+
+.territory-stats .stat-item {
+    padding: var(--spacing-md);
+}
+
+.stat-value.tribute {
+    color: var(--color-accent);
+}
+
+/* === 픽셀 가치 섹션 === */
+.pixel-value-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.pixel-value-section h3 {
+    font-size: var(--font-size-md);
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.value-bar-container {
+    width: 100%;
+    height: 12px;
+    background: var(--color-bg-card);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    margin-bottom: var(--spacing-xs);
+}
+
+.value-bar {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-pill);
+    transition: width var(--transition-slow);
+}
+
+.value-text {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+/* === 버프 섹션 === */
+.buffs-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.buffs-section h3 {
+    font-size: var(--font-size-md);
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.buff-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+/* === 역사 섹션 === */
+.history-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.history-section h3 {
+    font-size: var(--font-size-md);
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.history-timeline {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* === 옥션 섹션 === */
+.auction-section {
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: rgba(254, 202, 87, 0.1);
+    border: 1px solid rgba(254, 202, 87, 0.3);
+    border-radius: var(--radius-lg);
+}
+
+.auction-section h3 {
+    font-size: var(--font-size-md);
+    color: var(--color-accent);
+    margin-bottom: var(--spacing-md);
+}
+
+.auction-info {
+    display: grid;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.auction-info > div {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--font-size-sm);
+}
+
+.bid-label, .bidder-label, .time-label {
+    color: var(--color-text-secondary);
+}
+
+.bid-amount {
+    color: var(--color-accent);
+    font-weight: 700;
+    font-size: var(--font-size-lg);
+}
+
+.time-value {
+    color: var(--color-secondary);
+    font-weight: 600;
+}
+
+.bid-input-group {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.bid-input-group input {
+    flex: 1;
+    padding: var(--spacing-sm);
+    background: var(--color-bg-card);
+    border: var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+}
+
+.bid-btn {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--gradient-gold);
+    border: none;
+    border-radius: var(--radius-md);
+    color: #1a1a1a;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-normal);
+}
+
+.bid-btn:hover {
+    box-shadow: var(--shadow-glow-accent);
+}
+
+/* === 액션 버튼 === */
+.territory-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+}
+
+.action-btn {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-normal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+}
+
+.conquest-btn {
+    background: var(--gradient-conquest);
+    color: var(--color-text);
+}
+
+.conquest-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow-secondary);
+}
+
+.auction-btn {
+    background: var(--gradient-gold);
+    color: #1a1a1a;
+}
+
+.auction-btn:hover {
+    box-shadow: var(--shadow-glow-accent);
+}
+
+.pixel-btn {
+    background: var(--gradient-primary);
+    color: var(--color-text);
+}
+
+.pixel-btn:hover {
+    box-shadow: var(--shadow-glow-primary);
+}
+
+.collab-btn {
+    background: var(--color-bg-card);
+    border: var(--border-primary);
+    color: var(--color-primary);
+}
+
+.collab-btn:hover {
+    background: rgba(78, 205, 196, 0.2);
+}
+
+.login-btn {
+    background: var(--color-bg-card);
+    border: var(--border-light);
+    color: var(--color-text);
+}
+
+/* === 모달 === */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: var(--blur-sm);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: var(--z-modal);
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-subtle);
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: var(--border-subtle);
+}
+
+.modal-header h2 {
+    font-size: var(--font-size-xl);
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.modal-body {
+    padding: var(--spacing-lg);
+}
+
+/* === 랭킹 보드 === */
+.ranking-board {
+    position: fixed;
+    bottom: var(--spacing-lg);
+    left: var(--spacing-lg);
+    width: 300px;
+    max-height: 400px;
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-light);
+    box-shadow: var(--shadow-soft);
+    z-index: var(--z-panel);
+    overflow: hidden;
+}
+
+.ranking-board h3 {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: rgba(255, 215, 0, 0.1);
+    border-bottom: var(--border-subtle);
+    font-size: var(--font-size-lg);
+    color: var(--color-rank-gold);
+    margin: 0;
+}
+
+.ranking-list {
+    padding: var(--spacing-md);
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+/* === 반응형 === */
+@media (max-width: 768px) {
+    .territory-panel {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 70vh;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        transform: translateY(0);
+    }
+    
+    .territory-panel.hidden {
+        transform: translateY(100%);
+    }
+    
+    .territory-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .ranking-board {
+        display: none;
+    }
+}
+

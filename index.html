@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mr.Young's Billionaire Homepage v2 - 영토 패권 전쟁</title>
+    <meta name="description" content="전 세계 영토를 정복하고, 픽셀로 꾸미고, 패권을 차지하세요!">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>">
+    
+    <!-- Mapbox GL JS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    
+    <!-- Google Fonts - Pretendard -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    
+    <!-- v2 CSS -->
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/panels.css">
+    <link rel="stylesheet" href="css/pixel-editor.css">
+    <link rel="stylesheet" href="css/ranking.css">
+    <link rel="stylesheet" href="css/timeline.css">
+    
+    <style>
+        /* 추가 인라인 스타일 (빠른 로딩) */
+        body {
+            opacity: 0;
+            animation: fadeIn 0.5s ease forwards;
+            animation-delay: 0.2s;
+        }
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        <!-- 별 배경 캔버스 -->
+        <canvas id="stars-canvas"></canvas>
+        
+        <!-- Mapbox 지도 -->
+        <div id="map"></div>
+        
+        <!-- 햄버거 메뉴 버튼 -->
+        <button id="hamburger-menu-btn" class="hamburger-menu-btn" aria-label="메뉴 열기">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        
+        <!-- 좌측 사이드 메뉴 -->
+        <aside id="side-menu" class="side-menu hidden">
+            <div class="side-menu-header">
+                <h3>🏰 메뉴</h3>
+                <button id="close-side-menu" class="close-btn" aria-label="메뉴 닫기">&times;</button>
+            </div>
+            <div class="side-menu-content">
+                <!-- 사용자 섹션 -->
+                <section class="side-menu-section">
+                    <h4>👤 사용자</h4>
+                    <button id="side-user-login-btn" class="side-menu-btn">
+                        🔐 로그인
+                    </button>
+                    <button id="side-user-logout-btn" class="side-menu-btn hidden">
+                        🚪 로그아웃
+                    </button>
+                    <span id="side-user-email" class="side-user-email hidden"></span>
+                </section>
+                
+                <!-- 랭킹 섹션 -->
+                <section class="side-menu-section">
+                    <h4>🏆 패권 랭킹</h4>
+                    <button id="side-ranking-btn" class="side-menu-btn">
+                        📊 세계 패권 보드
+                    </button>
+                    <button id="side-my-territories-btn" class="side-menu-btn">
+                        🗺️ 내 영토 목록
+                    </button>
+                </section>
+                
+                <!-- 도움말 섹션 -->
+                <section class="side-menu-section">
+                    <h4>❓ 도움말</h4>
+                    <button id="side-help-btn" class="side-menu-btn">
+                        📖 사용법
+                    </button>
+                    <button id="side-about-btn" class="side-menu-btn">
+                        ℹ️ About
+                    </button>
+                </section>
+                
+                <!-- 버전 정보 -->
+                <div class="version-info" style="margin-top: auto; padding-top: 20px; text-align: center; color: var(--color-text-muted); font-size: 12px;">
+                    v2.0.0 - 영토 패권 시대
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 상단 헤더 -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🏰 Billionaire Map</h1>
+                <p>영토 패권 전쟁 · Territorial Hegemony</p>
+            </div>
+        </header>
+        
+        <!-- 국가 선택기 -->
+        <div class="map-mode-toggle">
+            <span style="color: var(--color-accent); font-weight: 600;">G20</span>
+            <select id="country-selector">
+                <option value="">국가 선택...</option>
+            </select>
+        </div>
+        
+        <!-- 영토 패널 (동적 생성) -->
+        <div id="territory-panel" class="territory-panel hidden"></div>
+        
+        <!-- 랭킹 보드 -->
+        <aside class="ranking-board" id="ranking-board">
+            <!-- RankingBoard.js에서 동적 렌더링 -->
+        </aside>
+        
+        <!-- 모바일 랭킹 버튼 -->
+        <button class="ranking-mobile-btn" id="ranking-mobile-btn" title="패권 랭킹">🏆</button>
+        
+        <!-- 글로벌 타임라인 (우측 하단) -->
+        <aside class="timeline-widget" id="timeline-widget">
+            <div class="timeline-header">
+                <h4>📜 실시간 타임라인</h4>
+                <button class="timeline-toggle" id="timeline-toggle">−</button>
+            </div>
+            <div class="timeline-content" id="timeline-content">
+                <!-- HistoryLogger에서 동적 렌더링 -->
+            </div>
+        </aside>
+        
+        <!-- 로딩 인디케이터 -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <p>🌍 세계를 불러오는 중...</p>
+        </div>
+    </div>
+    
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    
+    <!-- PayPal SDK -->
+    <script src="https://www.paypal.com/sdk/js?client-id=AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp&currency=USD" async></script>
+    
+    <!-- v2 앱 모듈 -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
+

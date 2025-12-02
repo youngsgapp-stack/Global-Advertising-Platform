@@ -1,0 +1,394 @@
+/**
+ * Billionaire Homepage v2 - Components CSS
+ * UI 컴포넌트 스타일
+ */
+
+/* === 버튼 === */
+.btn {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-normal);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+}
+
+.btn-primary {
+    background: var(--gradient-primary);
+    color: var(--color-text);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow-primary);
+}
+
+.btn-conquest {
+    background: var(--gradient-conquest);
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+    padding: var(--spacing-md) var(--spacing-xl);
+}
+
+.btn-conquest:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow-secondary);
+}
+
+.btn-secondary {
+    background: var(--color-bg-card);
+    border: var(--border-light);
+    color: var(--color-text);
+}
+
+.btn-secondary:hover {
+    background: var(--color-bg-hover);
+}
+
+.btn-gold {
+    background: var(--gradient-gold);
+    color: #1a1a1a;
+}
+
+.btn-gold:hover {
+    box-shadow: var(--shadow-glow-accent);
+}
+
+/* === 닫기 버튼 === */
+.close-btn {
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-size: var(--font-size-2xl);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    border-radius: 50%;
+    transition: var(--transition-fast);
+    line-height: 1;
+}
+
+.close-btn:hover {
+    background: var(--color-bg-hover);
+}
+
+/* === 카드 === */
+.card {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    padding: var(--spacing-lg);
+    transition: var(--transition-normal);
+}
+
+.card:hover {
+    background: var(--color-bg-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+}
+
+/* === 배지 === */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-pill);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-unconquered {
+    background: rgba(78, 205, 196, 0.2);
+    color: var(--color-unconquered);
+    border: 1px solid rgba(78, 205, 196, 0.4);
+}
+
+.badge-contested {
+    background: rgba(254, 202, 87, 0.2);
+    color: var(--color-contested);
+    border: 1px solid rgba(254, 202, 87, 0.4);
+}
+
+.badge-ruled {
+    background: rgba(255, 107, 107, 0.2);
+    color: var(--color-ruled);
+    border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+/* === 입력 필드 === */
+.input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-card);
+    border: var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+    transition: var(--transition-fast);
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(78, 205, 196, 0.2);
+}
+
+.input::placeholder {
+    color: var(--color-text-muted);
+}
+
+/* === 진행 바 === */
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--color-bg-card);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-pill);
+    transition: width var(--transition-slow);
+}
+
+/* === 통계 아이템 === */
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    border: var(--border-subtle);
+}
+
+.stat-icon {
+    font-size: var(--font-size-xl);
+}
+
+.stat-label {
+    flex: 1;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.stat-value {
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+/* === 버프 아이템 === */
+.buff-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    border-left: 3px solid;
+}
+
+.buff-icon {
+    font-size: var(--font-size-lg);
+}
+
+.buff-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.buff-bonus {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+/* === 타임라인 === */
+.timeline {
+    list-style: none;
+    position: relative;
+    padding-left: var(--spacing-lg);
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--color-bg-card);
+}
+
+.timeline-item {
+    position: relative;
+    padding-bottom: var(--spacing-md);
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -18px;
+    top: 4px;
+    width: 10px;
+    height: 10px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    border: 2px solid var(--color-bg-deep);
+}
+
+.timeline-item.conquered::before {
+    background: var(--color-secondary);
+}
+
+.timeline-date {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    display: block;
+    margin-bottom: var(--spacing-xs);
+}
+
+.timeline-text {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+/* === 랭킹 아이템 === */
+.rank-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    border: var(--border-subtle);
+    margin-bottom: var(--spacing-sm);
+}
+
+.rank-item.rank-1 {
+    border-color: var(--color-rank-gold);
+    background: rgba(255, 215, 0, 0.1);
+}
+
+.rank-item.rank-2 {
+    border-color: var(--color-rank-silver);
+}
+
+.rank-item.rank-3 {
+    border-color: var(--color-rank-bronze);
+}
+
+.rank-number {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg-card);
+    border-radius: 50%;
+    font-weight: 700;
+}
+
+.rank-1 .rank-number {
+    background: var(--color-rank-gold);
+    color: #1a1a1a;
+}
+
+.rank-2 .rank-number {
+    background: var(--color-rank-silver);
+    color: #1a1a1a;
+}
+
+.rank-3 .rank-number {
+    background: var(--color-rank-bronze);
+    color: #1a1a1a;
+}
+
+.rank-user {
+    flex: 1;
+    font-weight: 500;
+}
+
+.rank-score {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+/* === 툴팁 === */
+.tooltip {
+    position: relative;
+}
+
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--color-bg-surface);
+    border: var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: var(--transition-fast);
+}
+
+.tooltip:hover::after {
+    opacity: 1;
+}
+
+/* === 섹션 제목 === */
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 2px solid rgba(78, 205, 196, 0.3);
+}
+
+/* === 디바이더 === */
+.divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(78, 205, 196, 0.3), transparent);
+    margin: var(--spacing-xl) 0;
+}
+
+/* === 숨김 === */
+.hidden {
+    display: none !important;
+}
+
+/* === 스크롤바 커스텀 === */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary);
+}
+

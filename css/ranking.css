@@ -1,0 +1,366 @@
+/**
+ * Billionaire Homepage v2 - Ranking CSS
+ * 랭킹 보드 전용 스타일
+ */
+
+/* === 랭킹 보드 (사이드바) === */
+.ranking-board {
+    position: fixed;
+    bottom: var(--spacing-lg);
+    left: var(--spacing-lg);
+    width: 280px;
+    max-height: 400px;
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-light);
+    box-shadow: var(--shadow-soft);
+    z-index: var(--z-panel);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.ranking-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: rgba(255, 215, 0, 0.1);
+    border-bottom: var(--border-subtle);
+}
+
+.ranking-header h3 {
+    font-size: var(--font-size-lg);
+    color: var(--color-rank-gold);
+    margin: 0;
+}
+
+.ranking-refresh-btn {
+    background: none;
+    border: none;
+    font-size: var(--font-size-lg);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    border-radius: 50%;
+    transition: var(--transition-fast);
+}
+
+.ranking-refresh-btn:hover {
+    background: var(--color-bg-hover);
+    transform: rotate(180deg);
+}
+
+/* === 랭킹 탭 === */
+.ranking-tabs {
+    display: flex;
+    border-bottom: var(--border-subtle);
+}
+
+.ranking-tab {
+    flex: 1;
+    padding: var(--spacing-sm);
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    border-bottom: 2px solid transparent;
+}
+
+.ranking-tab:hover {
+    color: var(--color-text);
+    background: var(--color-bg-hover);
+}
+
+.ranking-tab.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+/* === 랭킹 콘텐츠 === */
+.ranking-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+}
+
+.ranking-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.ranking-empty {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+/* === 랭크 아이템 === */
+.rank-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    border: var(--border-subtle);
+    transition: var(--transition-fast);
+}
+
+.rank-item:hover {
+    background: var(--color-bg-hover);
+    transform: translateX(4px);
+}
+
+.rank-item.rank-1 {
+    background: rgba(255, 215, 0, 0.15);
+    border-color: var(--color-rank-gold);
+}
+
+.rank-item.rank-2 {
+    background: rgba(192, 192, 192, 0.1);
+    border-color: var(--color-rank-silver);
+}
+
+.rank-item.rank-3 {
+    background: rgba(205, 127, 50, 0.1);
+    border-color: var(--color-rank-bronze);
+}
+
+.rank-number {
+    min-width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg-card);
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+}
+
+.rank-1 .rank-number {
+    background: var(--color-rank-gold);
+    color: #1a1a1a;
+}
+
+.rank-2 .rank-number {
+    background: var(--color-rank-silver);
+    color: #1a1a1a;
+}
+
+.rank-3 .rank-number {
+    background: var(--color-rank-bronze);
+    color: #1a1a1a;
+}
+
+.rank-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rank-user {
+    font-weight: 500;
+    font-size: var(--font-size-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rank-details {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.rank-score {
+    font-weight: 700;
+    color: var(--color-primary);
+    font-size: var(--font-size-sm);
+}
+
+/* === 국가 점령도 === */
+.country-occupation-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-xs);
+}
+
+.country-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    min-width: 80px;
+}
+
+.country-flag {
+    font-size: var(--font-size-lg);
+}
+
+.country-name {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+}
+
+.occupation-bar-container {
+    flex: 1;
+    height: 8px;
+    background: var(--color-bg-deep);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.occupation-bar {
+    height: 100%;
+    background: var(--gradient-conquest);
+    border-radius: var(--radius-pill);
+    transition: width var(--transition-slow);
+}
+
+.occupation-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 50px;
+}
+
+.occupation-stats .percentage {
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--color-secondary);
+}
+
+.occupation-stats .count {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+/* === 내 랭킹 === */
+.my-ranking {
+    padding: var(--spacing-md);
+    border-top: var(--border-subtle);
+    background: rgba(78, 205, 196, 0.05);
+}
+
+.my-ranking-login,
+.my-ranking-empty {
+    text-align: center;
+    padding: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.my-ranking-empty {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.my-ranking-card {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    border: var(--border-primary);
+}
+
+.my-rank-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+}
+
+.my-rank-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+.my-rank-number {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.my-rank-stats {
+    display: flex;
+    justify-content: space-around;
+    gap: var(--spacing-sm);
+}
+
+.my-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.my-stat .stat-value {
+    font-weight: 700;
+    font-size: var(--font-size-md);
+    color: var(--color-text);
+}
+
+.my-stat .stat-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+/* === 랭킹 모달 === */
+.ranking-modal .modal-content {
+    max-width: 800px;
+}
+
+.ranking-modal .ranking-list {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+/* === 반응형 === */
+@media (max-width: 768px) {
+    .ranking-board {
+        display: none;
+    }
+}
+
+/* 모바일에서는 버튼으로 모달 열기 */
+.ranking-mobile-btn {
+    display: none;
+    position: fixed;
+    bottom: var(--spacing-lg);
+    left: var(--spacing-lg);
+    width: 50px;
+    height: 50px;
+    background: var(--color-bg-surface);
+    border: var(--border-light);
+    border-radius: 50%;
+    font-size: var(--font-size-xl);
+    cursor: pointer;
+    z-index: var(--z-panel);
+    transition: var(--transition-normal);
+    box-shadow: var(--shadow-soft);
+}
+
+.ranking-mobile-btn:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow-glow-accent);
+}
+
+@media (max-width: 768px) {
+    .ranking-mobile-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
