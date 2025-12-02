@@ -489,10 +489,10 @@ class TerritoryDataService {
     }
     
     /**
-     * 가격 포맷
+     * 가격 포맷 (포인트)
      */
     formatPrice(price) {
-        return '$' + price.toLocaleString();
+        return price.toLocaleString() + ' pt';
     }
 }
 

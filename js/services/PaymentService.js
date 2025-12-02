@@ -131,7 +131,7 @@ class PaymentService {
             const shortage = amount - walletService.getBalance();
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: `Insufficient balance. You need $${shortage} more.`
+                message: `Insufficient balance. You need ${shortage} pt more.`
             });
             this.openChargeModal(amount);
         }
@@ -158,7 +158,7 @@ class PaymentService {
                     
                     <div class="current-balance">
                         <span>Current Balance:</span>
-                        <strong id="modal-current-balance">$0</strong>
+                        <strong id="modal-current-balance">0 pt</strong>
                     </div>
                     
                     <div class="point-packages" id="point-packages">
@@ -199,15 +199,15 @@ class PaymentService {
                         </div>
                         <div class="purchase-item">
                             <span>Price:</span>
-                            <strong id="confirm-price">$0</strong>
+                            <strong id="confirm-price">0 pt</strong>
                         </div>
                         <div class="purchase-item">
                             <span>Your Balance:</span>
-                            <strong id="confirm-balance">$0</strong>
+                            <strong id="confirm-balance">0 pt</strong>
                         </div>
                         <div class="purchase-item total">
                             <span>After Purchase:</span>
-                            <strong id="confirm-remaining">$0</strong>
+                            <strong id="confirm-remaining">0 pt</strong>
                         </div>
                     </div>
                     
@@ -319,9 +319,9 @@ class PaymentService {
         
         document.getElementById('confirm-territory-name').textContent = 
             purchaseData.territoryName || purchaseData.territoryId;
-        document.getElementById('confirm-price').textContent = `$${purchaseData.amount}`;
-        document.getElementById('confirm-balance').textContent = `$${balance}`;
-        document.getElementById('confirm-remaining').textContent = `$${remaining}`;
+        document.getElementById('confirm-price').textContent = `${purchaseData.amount} pt`;
+        document.getElementById('confirm-balance').textContent = `${balance} pt`;
+        document.getElementById('confirm-remaining').textContent = `${remaining} pt`;
         
         this.showScreen('confirm-screen');
         this.modalContainer.classList.remove('hidden');
@@ -351,7 +351,7 @@ class PaymentService {
      */
     updateBalanceDisplay() {
         const balance = walletService.getBalance();
-        document.getElementById('modal-current-balance').textContent = `$${balance}`;
+        document.getElementById('modal-current-balance').textContent = `${balance.toLocaleString()} pt`;
     }
     
     /**

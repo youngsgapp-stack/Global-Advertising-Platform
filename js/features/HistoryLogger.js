@@ -209,7 +209,7 @@ class HistoryLogger {
             
             [HISTORY_EVENT_TYPE.CONQUERED]: () => {
                 if (data.previousRuler) {
-                    return `${data.newRuler}이(가) ${data.previousRuler}로부터 영토를 정복했습니다! 💰 $${data.tribute}`;
+                    return `${data.newRuler}이(가) ${data.previousRuler}로부터 영토를 정복했습니다! 💰 ${data.tribute} pt`;
                 }
                 return `${data.newRuler}이(가) 미정복 영토를 최초로 정복했습니다! 🌟`;
             },
@@ -221,13 +221,13 @@ class HistoryLogger {
                 `${data.newRuler}이(가) 영토를 탈환했습니다!`,
             
             [HISTORY_EVENT_TYPE.AUCTION_STARTED]: () => 
-                `옥션이 시작되었습니다. 시작가: $${data.startingBid}`,
+                `옥션이 시작되었습니다. 시작가: ${data.startingBid} pt`,
             
             [HISTORY_EVENT_TYPE.AUCTION_BID]: () => 
-                `${data.bidder}이(가) $${data.amount}에 입찰했습니다.`,
+                `${data.bidder}이(가) ${data.amount} pt에 입찰했습니다.`,
             
             [HISTORY_EVENT_TYPE.AUCTION_WON]: () => 
-                `${data.winner}이(가) $${data.amount}에 낙찰받았습니다! 🎉`,
+                `${data.winner}이(가) ${data.amount} pt에 낙찰받았습니다! 🎉`,
             
             [HISTORY_EVENT_TYPE.PIXEL_MILESTONE]: () => 
                 `${data.milestone} 픽셀 마일스톤 달성! 🎨`,

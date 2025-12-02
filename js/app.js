@@ -389,7 +389,7 @@ class BillionaireApp {
         eventBus.on(WALLET_EVENTS.INSUFFICIENT_BALANCE, ({ required, current }) => {
             this.showNotification({
                 type: 'warning',
-                message: `Insufficient balance. Need $${required}, have $${current}`
+                message: `Insufficient balance. Need ${required} pt, have ${current} pt`
             });
             paymentService.openChargeModal(required);
         });
@@ -401,12 +401,12 @@ class BillionaireApp {
     updateWalletUI(balance) {
         const walletDisplay = document.getElementById('wallet-balance');
         if (walletDisplay) {
-            walletDisplay.textContent = `$${balance.toLocaleString()}`;
+            walletDisplay.textContent = `${balance.toLocaleString()} pt`;
         }
         
         const headerWallet = document.getElementById('header-wallet-balance');
         if (headerWallet) {
-            headerWallet.textContent = `$${balance.toLocaleString()}`;
+            headerWallet.textContent = `${balance.toLocaleString()} pt`;
         }
     }
     

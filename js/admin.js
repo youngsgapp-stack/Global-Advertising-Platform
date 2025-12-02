@@ -350,7 +350,7 @@ class AdminDashboard {
             territoriesSnapshot.forEach(doc => {
                 totalRevenue += doc.data().price || 0;
             });
-            document.getElementById('stat-revenue').textContent = '$' + totalRevenue.toLocaleString();
+            document.getElementById('stat-revenue').textContent = totalRevenue.toLocaleString() + ' pt';
             
             // 활성 옥션
             const auctionsSnapshot = await this.db.collection('auctions')
@@ -362,7 +362,7 @@ class AdminDashboard {
             // 기본값 표시
             document.getElementById('stat-users').textContent = '0';
             document.getElementById('stat-territories').textContent = '0';
-            document.getElementById('stat-revenue').textContent = '$0';
+            document.getElementById('stat-revenue').textContent = '0 pt';
             document.getElementById('stat-active').textContent = '0';
         }
     }
@@ -521,7 +521,7 @@ class AdminDashboard {
                         <td>${data.name || doc.id}</td>
                         <td>${data.country || '-'}</td>
                         <td>${data.rulerName || '미점유'}</td>
-                        <td>$${(data.price || 0).toLocaleString()}</td>
+                        <td>${(data.price || 0).toLocaleString()} pt</td>
                         <td>${(data.pixelCount || 0).toLocaleString()}</td>
                         <td>
                             <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${doc.id}')">보기</button>
@@ -560,7 +560,7 @@ class AdminDashboard {
                 return `
                     <tr>
                         <td>${data.territoryId || doc.id}</td>
-                        <td>$${(data.currentBid || data.startingPrice || 0).toLocaleString()}</td>
+                        <td>${(data.currentBid || data.startingPrice || 0).toLocaleString()} pt</td>
                         <td>${data.bidCount || 0}</td>
                         <td>${endsAt}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>

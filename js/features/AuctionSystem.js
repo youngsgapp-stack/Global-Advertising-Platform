@@ -182,7 +182,7 @@ class AuctionSystem {
         // 입찰 금액 검증
         const minBid = auction.currentBid + auction.minIncrement;
         if (bidAmount < minBid) {
-            throw new Error(`Minimum bid is $${minBid}`);
+            throw new Error(`Minimum bid is ${minBid} pt`);
         }
         
         // 전략 버프 적용
@@ -208,7 +208,7 @@ class AuctionSystem {
         // 이벤트 발행
         eventBus.emit(EVENTS.AUCTION_UPDATE, { auction, newBid: bid });
         
-        log.info(`Bid placed: $${bidAmount} (buffed: $${buffedBid}) by ${userName}`);
+        log.info(`Bid placed: ${bidAmount} pt (buffed: ${buffedBid} pt) by ${userName}`);
         return bid;
     }
     

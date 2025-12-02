@@ -116,7 +116,7 @@ class WalletService {
                 balance: this.currentBalance
             });
             
-            log.info(`Wallet loaded: $${this.currentBalance}`);
+            log.info(`Wallet loaded: ${this.currentBalance} pt`);
             
         } catch (error) {
             log.error('Failed to load wallet:', error);
@@ -220,7 +220,7 @@ class WalletService {
             
             eventBus.emit(WALLET_EVENTS.TRANSACTION_ADDED, { transaction });
             
-            log.info(`Points added: +$${amount}, new balance: $${newBalance}`);
+            log.info(`Points added: +${amount} pt, new balance: ${newBalance} pt`);
             return { success: true, newBalance };
             
         } catch (error) {
@@ -249,7 +249,7 @@ class WalletService {
                 required: amount,
                 current: this.currentBalance
             });
-            throw new Error(`Insufficient balance. Required: $${amount}, Current: $${this.currentBalance}`);
+            throw new Error(`Insufficient balance. Required: ${amount} pt, Current: ${this.currentBalance} pt`);
         }
         
         try {
@@ -291,7 +291,7 @@ class WalletService {
             eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: newBalance });
             eventBus.emit(WALLET_EVENTS.TRANSACTION_ADDED, { transaction });
             
-            log.info(`Points deducted: -$${amount}, new balance: $${newBalance}`);
+            log.info(`Points deducted: -${amount} pt, new balance: ${newBalance} pt`);
             return { success: true, newBalance };
             
         } catch (error) {
@@ -358,7 +358,7 @@ class WalletService {
                 }
             );
             
-            log.info(`Admin adjusted points for ${userId}: ${amount > 0 ? '+' : ''}$${amount}`);
+            log.info(`Admin adjusted points for ${userId}: ${amount > 0 ? '+' : ''}${amount} pt`);
             return { success: true, newBalance };
             
         } catch (error) {
@@ -371,7 +371,7 @@ class WalletService {
      * 포맷된 잔액 문자열
      */
     getFormattedBalance() {
-        return `$${this.currentBalance.toLocaleString()}`;
+        return `${this.currentBalance.toLocaleString()} pt`;
     }
     
     /**

@@ -76,7 +76,7 @@ class TimelineWidget {
             this.addEvent({
                 type: HISTORY_EVENT_TYPE.AUCTION_BID,
                 icon: '💰',
-                text: `${data.userName} bid $${data.bidAmount}`,
+                text: `${data.userName} bid ${data.bidAmount} pt`,
                 className: 'auction'
             });
         });

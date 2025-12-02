@@ -361,12 +361,12 @@ class TerritoryListPanel {
      */
     formatPrice(price) {
         if (price >= 1000000) {
-            return `$${(price / 1000000).toFixed(1)}M`;
+            return `${(price / 1000000).toFixed(1)}M pt`;
         }
         if (price >= 1000) {
-            return `$${(price / 1000).toFixed(0)}K`;
+            return `${(price / 1000).toFixed(0)}K pt`;
         }
-        return `$${price}`;
+        return `${price} pt`;
     }
 }
 

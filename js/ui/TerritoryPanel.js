@@ -298,7 +298,7 @@ class TerritoryPanel {
                 <div class="auction-info">
                     <div class="current-bid">
                         <span class="bid-label">Current Bid</span>
-                        <span class="bid-amount">$${this.formatNumber(auction.currentBid)}</span>
+                        <span class="bid-amount">${this.formatNumber(auction.currentBid)} pt</span>
                     </div>
                     <div class="highest-bidder">
                         <span class="bidder-label">Highest Bidder</span>
@@ -384,7 +384,7 @@ class TerritoryPanel {
             }
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
-                    ⚔️ Claim Now ($${this.formatNumber(realPrice)})
+                    ⚔️ Claim Now (${this.formatNumber(realPrice)} pt)
                 </button>
                 <button class="action-btn auction-btn" id="start-auction">
                     🏷️ Start Auction
@@ -631,7 +631,7 @@ class TerritoryPanel {
         if (bidAmount < minBid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: `Minimum bid is $${this.formatNumber(minBid)}`
+                message: `Minimum bid is ${this.formatNumber(minBid)} pt`
             });
             return;
         }
@@ -641,7 +641,7 @@ class TerritoryPanel {
         if (currentBalance < bidAmount) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: `Insufficient balance. You have $${this.formatNumber(currentBalance)}`
+                message: `Insufficient balance. You have ${this.formatNumber(currentBalance)} pt`
             });
             // PaymentService의 충전 모달 열기
             eventBus.emit(EVENTS.PAYMENT_START, {
@@ -661,7 +661,7 @@ class TerritoryPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: `🎯 Bid placed: $${this.formatNumber(bidAmount)}`
+                message: `🎯 Bid placed: ${this.formatNumber(bidAmount)} pt`
             });
             
             // 입력 필드 초기화

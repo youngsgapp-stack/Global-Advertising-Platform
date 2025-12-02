@@ -123,7 +123,7 @@ class RecommendationSystem {
             territoryId: a.territoryId,
             type: RECOMMENDATION_TYPE.NEW_AUCTION,
             badge: '🔥 Live',
-            reason: `Current bid: $${a.currentBid}`,
+            reason: `Current bid: ${a.currentBid} pt`,
             auction: a
         })));
         
