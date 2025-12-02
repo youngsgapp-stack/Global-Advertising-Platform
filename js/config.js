@@ -11,8 +11,8 @@ export const CONFIG = {
     // Mapbox 설정
     MAPBOX: {
         ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.dIefOUuYqwYtl8MwXbpJuw',
-        // satellite-streets: 실제 위성 사진 + 도로/지명 표시 (바다/대지 선명)
-        STYLE: 'mapbox://styles/mapbox/satellite-streets-v12',
+        // standard: 바다(밝은 파란색), 대지(자연색), 도로/지명 표시 - 균형 잡힌 스타일
+        STYLE: 'mapbox://styles/mapbox/standard',
         DEFAULT_CENTER: [0, 20],
         DEFAULT_ZOOM: 2,
         MAX_ZOOM: 12,

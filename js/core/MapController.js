@@ -82,15 +82,15 @@ class MapController {
     
     /**
      * 지구본 분위기 효과 설정
-     * 위성 스타일에 맞게 밝고 자연스러운 우주 분위기
+     * Standard 스타일에 맞게 밝고 선명한 분위기
      */
     setupGlobeAtmosphere() {
         this.map.setFog({
-            color: 'rgb(186, 210, 235)',      // 대기권 색상 (밝은 하늘색)
-            'high-color': 'rgb(36, 92, 223)', // 고도 색상 (파란색)
-            'horizon-blend': 0.02,            // 지평선 블렌드
-            'space-color': 'rgb(11, 11, 25)', // 우주 색상 (어두운 남색)
-            'star-intensity': 0.8             // 별 강도 (더 밝게)
+            color: 'rgb(220, 235, 255)',      // 대기권 색상 (밝은 하늘색)
+            'high-color': 'rgb(70, 130, 220)', // 고도 색상 (선명한 파란색)
+            'horizon-blend': 0.03,            // 지평선 블렌드 (살짝 더 넓게)
+            'space-color': 'rgb(15, 20, 35)', // 우주 색상 (어두운 남색)
+            'star-intensity': 0.6             // 별 강도
         });
     }
     
