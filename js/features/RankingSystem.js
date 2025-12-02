@@ -21,6 +21,7 @@ class RankingSystem {
         this.rankings = new Map();
         this.hegemonyBoard = [];
         this.countryOccupation = new Map();
+        this.isUpdating = false; // 무한 재귀 방지 플래그
     }
     
     /**
@@ -85,67 +86,84 @@ class RankingSystem {
      * 모든 랭킹 업데이트
      */
     async updateAllRankings() {
-        const territories = territoryManager.getAllTerritories();
-        const userStats = new Map();
+        // 이미 업데이트 중이면 스킵 (무한 재귀 방지)
+        if (this.isUpdating) {
+            log.debug('RankingSystem: Update already in progress, skipping');
+            return;
+        }
         
-        // 사용자별 통계 집계
-        for (const territory of territories) {
-            if (!territory.ruler) continue;
+        this.isUpdating = true;
+        
+        try {
+            const territories = territoryManager.getAllTerritories();
+            const userStats = new Map();
             
-            const userId = territory.ruler;
+            // 사용자별 통계 집계
+            for (const territory of territories) {
+                if (!territory.ruler) continue;
+                
+                const userId = territory.ruler;
+                
+                if (!userStats.has(userId)) {
+                    userStats.set(userId, {
+                        userId,
+                        territoryCount: 0,
+                        totalValue: 0,
+                        totalPixels: 0,
+                        countries: new Set(),
+                        continents: new Set()
+                    });
+                }
+                
+                const stats = userStats.get(userId);
+                stats.territoryCount++;
+                stats.totalValue += territory.territoryValue || 0;
+                stats.totalPixels += territory.pixelCanvas?.filledPixels || 0;
+                stats.countries.add(territory.countryCode);
+                
+                // 대륙 추가 (국가 코드 기반)
+                const continent = this.getContinent(territory.countryCode);
+                if (continent) stats.continents.add(continent);
+            }
             
-            if (!userStats.has(userId)) {
-                userStats.set(userId, {
+            // 패권 점수 계산 및 저장
+            for (const [userId, stats] of userStats) {
+                const hegemonyScore = this.calculateHegemonyScore(stats);
+                
+                // Set을 배열로 변환 (Firestore 호환성)
+                const ranking = {
                     userId,
-                    territoryCount: 0,
-                    totalValue: 0,
-                    totalPixels: 0,
-                    countries: new Set(),
-                    continents: new Set()
+                    territoryCount: stats.territoryCount,
+                    totalValue: stats.totalValue,
+                    totalPixels: stats.totalPixels,
+                    countryCount: stats.countries.size,
+                    continentCount: stats.continents.size,
+                    countries: Array.from(stats.countries), // Set을 배열로 변환
+                    continents: Array.from(stats.continents), // Set을 배열로 변환
+                    hegemonyScore,
+                    updatedAt: new Date()
+                };
+                
+                this.rankings.set(userId, ranking);
+                
+                // Firestore 저장 (비동기)
+                firebaseService.setDocument('rankings', userId, ranking).catch(err => {
+                    log.warn('Failed to save ranking:', err);
                 });
             }
             
-            const stats = userStats.get(userId);
-            stats.territoryCount++;
-            stats.totalValue += territory.territoryValue || 0;
-            stats.totalPixels += territory.pixelCanvas?.filledPixels || 0;
-            stats.countries.add(territory.countryCode);
+            // 패권 보드 업데이트
+            this.updateHegemonyBoard();
             
-            // 대륙 추가 (국가 코드 기반)
-            const continent = this.getContinent(territory.countryCode);
-            if (continent) stats.continents.add(continent);
-        }
-        
-        // 패권 점수 계산 및 저장
-        for (const [userId, stats] of userStats) {
-            const hegemonyScore = this.calculateHegemonyScore(stats);
-            
-            const ranking = {
-                userId,
-                territoryCount: stats.territoryCount,
-                totalValue: stats.totalValue,
-                totalPixels: stats.totalPixels,
-                countryCount: stats.countries.size,
-                continentCount: stats.continents.size,
-                hegemonyScore,
-                updatedAt: new Date()
-            };
-            
-            this.rankings.set(userId, ranking);
-            
-            // Firestore 저장 (비동기)
-            firebaseService.setDocument('rankings', userId, ranking).catch(err => {
-                log.warn('Failed to save ranking:', err);
+            // 이벤트 발행
+            eventBus.emit(EVENTS.RANKING_UPDATE, {
+                hegemonyBoard: this.hegemonyBoard
             });
+        } catch (error) {
+            log.error('Failed to update rankings:', error);
+        } finally {
+            this.isUpdating = false;
         }
-        
-        // 패권 보드 업데이트
-        this.updateHegemonyBoard();
-        
-        // 이벤트 발행
-        eventBus.emit(EVENTS.RANKING_UPDATE, {
-            hegemonyBoard: this.hegemonyBoard
-        });
     }
     
     /**

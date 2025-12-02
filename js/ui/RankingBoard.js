@@ -33,9 +33,12 @@ class RankingBoard {
      * 이벤트 리스너 설정
      */
     setupEventListeners() {
-        // 랭킹 업데이트 이벤트
+        // 랭킹 업데이트 이벤트 (무한 루프 방지)
+        this.isRefreshing = false;
         eventBus.on(EVENTS.RANKING_UPDATE, () => {
-            this.refresh();
+            if (!this.isRefreshing) {
+                this.updateUI();
+            }
         });
         
         // 탭 클릭 이벤트
@@ -288,7 +291,16 @@ class RankingBoard {
      * 새로고침
      */
     async refresh() {
+        this.isRefreshing = true;
         await rankingSystem.updateAllRankings();
+        this.isRefreshing = false;
+        this.updateUI();
+    }
+    
+    /**
+     * UI만 업데이트 (이벤트 루프 방지)
+     */
+    updateUI() {
         this.switchTab(this.currentTab);
         
         // 내 랭킹 업데이트

@@ -3,11 +3,34 @@
  * 픽셀 에디터 전용 스타일
  */
 
-/* === 픽셀 에디터 모달 === */
+/* === 픽셀 에디터 모달 (사이드 패널 형태) === */
+.pixel-editor-modal {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 450px;
+    max-width: 90vw;
+    height: 100vh;
+    z-index: var(--z-modal);
+    transform: translateX(100%);
+    transition: transform var(--transition-normal);
+}
+
+.pixel-editor-modal:not(.hidden) {
+    transform: translateX(0);
+}
+
 .pixel-editor-modal .modal-content {
-    max-width: 1200px;
-    width: 95%;
-    max-height: 90vh;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    position: relative;
+    top: 0;
+    left: 0;
+    transform: none;
+    margin: 0;
+    border-radius: 0;
 }
 
 .pixel-editor-content {
@@ -31,27 +54,32 @@
 }
 
 .editor-body {
-    display: grid;
-    grid-template-columns: 200px 1fr 200px;
-    gap: var(--spacing-lg);
-    padding: var(--spacing-lg);
-    height: calc(90vh - 80px);
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    height: calc(100vh - 70px);
+    overflow-y: auto;
 }
 
 /* === 도구 패널 === */
 .tools-panel {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
 }
 
 .tools-section {
     background: var(--color-bg-card);
     border-radius: var(--radius-md);
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm);
     border: var(--border-subtle);
+    font-size: var(--font-size-xs);
+}
+
+.tools-section h4 {
+    font-size: var(--font-size-xs);
 }
 
 .tools-section h4 {
@@ -194,17 +222,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    flex: 1;
+    min-height: 300px;
     overflow: hidden;
 }
 
 .canvas-wrapper {
     background: var(--color-bg-deep);
     border-radius: var(--radius-lg);
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm);
     box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
     overflow: auto;
-    max-height: calc(90vh - 180px);
+    width: 100%;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 #pixel-canvas {
@@ -229,10 +262,10 @@
 
 /* === 협업 패널 === */
 .collab-panel {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
 }
 
 .collab-section {

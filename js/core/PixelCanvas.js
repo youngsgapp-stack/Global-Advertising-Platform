@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from './EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { territoryManager } from './TerritoryManager.js';
 
 // 픽셀 도구
 export const PIXEL_TOOLS = {
@@ -481,6 +482,31 @@ class PixelCanvas {
             };
             
             await firebaseService.setDocument('pixelCanvases', this.territoryId, data);
+            
+            // 영토 문서의 픽셀 정보 업데이트 (메타데이터만)
+            const territory = territoryManager.getTerritory(this.territoryId);
+            if (territory) {
+                territory.pixelCanvas = territory.pixelCanvas || {};
+                territory.pixelCanvas.filledPixels = this.pixels.size;
+                territory.pixelCanvas.lastUpdated = Date.now();
+                territory.territoryValue = this.calculateValue();
+                
+                // 영토 문서 업데이트 (픽셀 메타데이터만, pixels 배열 제외)
+                // Firestore는 중첩 배열을 지원하지 않으므로 메타데이터만 저장
+                await firebaseService.setDocument('territories', this.territoryId, {
+                    pixelCanvas: {
+                        width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                        height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                        filledPixels: this.pixels.size,
+                        lastUpdated: Date.now()
+                        // pixels 배열은 저장하지 않음 - pixelCanvases 컬렉션에만 저장
+                    },
+                    territoryValue: territory.territoryValue
+                }, true); // merge: true
+                
+                // 영토 업데이트 이벤트 발행 (맵 반영용)
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+            }
             
             // 가치 변경 이벤트 발행
             eventBus.emit(EVENTS.PIXEL_VALUE_CHANGE, {
