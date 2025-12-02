@@ -107,6 +107,15 @@ class PaymentService {
     }
     
     /**
+     * 관리자 모드 확인
+     */
+    isAdminMode() {
+        const adminAuth = sessionStorage.getItem('adminAuth');
+        const adminUserMode = sessionStorage.getItem('adminUserMode');
+        return !!(adminAuth && adminUserMode === 'true');
+    }
+    
+    /**
      * 결제 시작 처리
      */
     async handlePaymentStart(data) {
@@ -119,6 +128,12 @@ class PaymentService {
                 message: 'Please sign in to make a purchase'
             });
             eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        // 관리자 모드: 무료 구매 (바로 확인 모달로)
+        if (this.isAdminMode()) {
+            this.openConfirmModal({ ...data, isAdmin: true });
             return;
         }
         
@@ -491,34 +506,43 @@ class PaymentService {
             return;
         }
         
+        const isAdmin = this.isAdminMode();
+        
         this.showScreen('processing-screen');
         document.getElementById('processing-message').textContent = 
-            'Processing your purchase...';
+            isAdmin ? 'Processing (Admin Mode - Free)...' : 'Processing your purchase...';
         
         try {
-            // 포인트 차감
-            await walletService.deductPoints(
-                this.currentPayment.amount,
-                `Territory purchase: ${this.currentPayment.territoryName || this.currentPayment.territoryId}`,
-                TRANSACTION_TYPE.PURCHASE,
-                { territoryId: this.currentPayment.territoryId }
-            );
+            // 관리자 모드가 아닌 경우에만 포인트 차감
+            if (!isAdmin) {
+                await walletService.deductPoints(
+                    this.currentPayment.amount,
+                    `Territory purchase: ${this.currentPayment.territoryName || this.currentPayment.territoryId}`,
+                    TRANSACTION_TYPE.PURCHASE,
+                    { territoryId: this.currentPayment.territoryId }
+                );
+            }
             
             // 구매 성공 이벤트 발행 (영토 정복 처리)
             eventBus.emit(EVENTS.PAYMENT_SUCCESS, {
                 type: PRODUCT_TYPE.TERRITORY,
                 territoryId: this.currentPayment.territoryId,
-                amount: this.currentPayment.amount
+                amount: isAdmin ? 0 : this.currentPayment.amount,
+                isAdmin: isAdmin
             });
             
             // 성공 화면
             this.showScreen('success-screen');
             document.getElementById('success-message').textContent = 
-                `You now own ${this.currentPayment.territoryName || 'this territory'}! 🎉`;
+                isAdmin 
+                    ? `🔧 Admin: ${this.currentPayment.territoryName || 'Territory'} claimed for FREE!`
+                    : `You now own ${this.currentPayment.territoryName || 'this territory'}! 🎉`;
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: 'Territory claimed successfully! 🎉'
+                message: isAdmin 
+                    ? `🔧 Admin claimed: ${this.currentPayment.territoryName || 'Territory'}`
+                    : 'Territory claimed successfully! 🎉'
             });
             
         } catch (error) {

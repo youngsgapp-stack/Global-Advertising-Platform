@@ -33,10 +33,193 @@ const PIXEL_CONFIG = {
     PRICE_PER_PIXEL: 0.1    // 픽셀당 기본 가격 ($)
 };
 
+// Wikidata 행정구역 타입 매핑 (국가 코드 → Wikidata 클래스 ID)
+// 전 세계 100+ 국가 지원
+const WIKIDATA_ADMIN_TYPES = {
+    // === 북미 (North America) ===
+    'USA': 'Q35657',      // state of the United States
+    'CAN': 'Q11828004',   // province or territory of Canada
+    'MEX': 'Q171079',     // state of Mexico
+    
+    // === 남미 (South America) ===
+    'BRA': 'Q856076',     // state of Brazil
+    'ARG': 'Q44753',      // province of Argentina
+    'CHL': 'Q1615742',    // region of Chile
+    'COL': 'Q200547',     // department of Colombia
+    'PER': 'Q867741',     // region of Peru
+    'VEN': 'Q856076',     // state of Venezuela
+    'ECU': 'Q842112',     // province of Ecuador
+    'BOL': 'Q200547',     // department of Bolivia
+    'PRY': 'Q200547',     // department of Paraguay
+    'URY': 'Q200547',     // department of Uruguay
+    
+    // === 유럽 (Europe) ===
+    'GBR': 'Q211690',     // country of the United Kingdom
+    'DEU': 'Q1221156',    // state of Germany
+    'FRA': 'Q36784',      // region of France
+    'ITA': 'Q16110',      // region of Italy
+    'ESP': 'Q10742',      // autonomous community of Spain
+    'PRT': 'Q1615742',    // district of Portugal (using province)
+    'NLD': 'Q134390',     // province of the Netherlands
+    'BEL': 'Q878521',     // province of Belgium
+    'CHE': 'Q23058',      // canton of Switzerland
+    'AUT': 'Q261543',     // state of Austria
+    'POL': 'Q150093',     // voivodeship of Poland
+    'CZE': 'Q108163',     // region of the Czech Republic
+    'SWE': 'Q193556',     // county of Sweden
+    'NOR': 'Q1615742',    // county of Norway
+    'DNK': 'Q1615742',    // region of Denmark
+    'FIN': 'Q1615742',    // region of Finland
+    'IRL': 'Q1615742',    // province of Ireland
+    'GRC': 'Q207299',     // region of Greece
+    'HUN': 'Q1615742',    // county of Hungary
+    'ROU': 'Q1615742',    // county of Romania
+    'BGR': 'Q209824',     // province of Bulgaria
+    'HRV': 'Q1615742',    // county of Croatia
+    'SVK': 'Q1615742',    // region of Slovakia
+    'SVN': 'Q1615742',    // statistical region of Slovenia
+    'SRB': 'Q1615742',    // district of Serbia
+    'UKR': 'Q3348196',    // oblast of Ukraine
+    'BLR': 'Q3348196',    // oblast of Belarus
+    
+    // === 아시아 (Asia) ===
+    'RUS': 'Q835714',     // federal subject of Russia
+    'CHN': 'Q1615742',    // province of China
+    'JPN': 'Q50337',      // prefecture of Japan
+    'KOR': 'Q2311958',    // province of South Korea (도/특별시)
+    'PRK': 'Q1615742',    // province of North Korea
+    'TWN': 'Q1615742',    // county of Taiwan
+    'IND': 'Q131541',     // state of India
+    'IDN': 'Q1615742',    // province of Indonesia
+    'THA': 'Q1615742',    // province of Thailand
+    'VNM': 'Q1615742',    // province of Vietnam
+    'PHL': 'Q1615742',    // province of Philippines
+    'MYS': 'Q1615742',    // state of Malaysia
+    'SGP': 'Q1615742',    // planning area of Singapore
+    'PAK': 'Q1615742',    // province of Pakistan
+    'BGD': 'Q1615742',    // division of Bangladesh
+    'MMR': 'Q1615742',    // state of Myanmar
+    'NPL': 'Q1615742',    // province of Nepal
+    'LKA': 'Q1615742',    // province of Sri Lanka
+    'KHM': 'Q1615742',    // province of Cambodia
+    'LAO': 'Q1615742',    // province of Laos
+    'MNG': 'Q1615742',    // province of Mongolia
+    'KAZ': 'Q1615742',    // region of Kazakhstan
+    'UZB': 'Q1615742',    // region of Uzbekistan
+    'TKM': 'Q1615742',    // region of Turkmenistan
+    'KGZ': 'Q1615742',    // region of Kyrgyzstan
+    'TJK': 'Q1615742',    // region of Tajikistan
+    
+    // === 중동 (Middle East) ===
+    'TUR': 'Q48336',      // province of Turkey
+    'IRN': 'Q1615742',    // province of Iran
+    'IRQ': 'Q1615742',    // governorate of Iraq
+    'SAU': 'Q1615742',    // province of Saudi Arabia
+    'ARE': 'Q1615742',    // emirate of UAE
+    'ISR': 'Q1615742',    // district of Israel
+    'JOR': 'Q1615742',    // governorate of Jordan
+    'LBN': 'Q1615742',    // governorate of Lebanon
+    'SYR': 'Q1615742',    // governorate of Syria
+    'YEM': 'Q1615742',    // governorate of Yemen
+    'OMN': 'Q1615742',    // governorate of Oman
+    'KWT': 'Q1615742',    // governorate of Kuwait
+    'QAT': 'Q1615742',    // municipality of Qatar
+    'BHR': 'Q1615742',    // governorate of Bahrain
+    
+    // === 아프리카 (Africa) ===
+    'EGY': 'Q204910',     // governorate of Egypt
+    'ZAF': 'Q134626',     // province of South Africa
+    'NGA': 'Q1615742',    // state of Nigeria
+    'KEN': 'Q1615742',    // county of Kenya
+    'ETH': 'Q1615742',    // region of Ethiopia
+    'TZA': 'Q1615742',    // region of Tanzania
+    'MAR': 'Q1615742',    // region of Morocco
+    'DZA': 'Q1615742',    // province of Algeria
+    'TUN': 'Q1615742',    // governorate of Tunisia
+    'GHA': 'Q1615742',    // region of Ghana
+    'CIV': 'Q1615742',    // region of Ivory Coast
+    'CMR': 'Q1615742',    // region of Cameroon
+    'UGA': 'Q1615742',    // district of Uganda
+    'AGO': 'Q1615742',    // province of Angola
+    'MOZ': 'Q1615742',    // province of Mozambique
+    'ZWE': 'Q1615742',    // province of Zimbabwe
+    'ZMB': 'Q1615742',    // province of Zambia
+    'SEN': 'Q1615742',    // region of Senegal
+    'MLI': 'Q1615742',    // region of Mali
+    'NER': 'Q1615742',    // region of Niger
+    'TCD': 'Q1615742',    // region of Chad
+    'SDN': 'Q1615742',    // state of Sudan
+    'SSD': 'Q1615742',    // state of South Sudan
+    'COD': 'Q1615742',    // province of DR Congo
+    'COG': 'Q1615742',    // department of Congo
+    
+    // === 오세아니아 (Oceania) ===
+    'AUS': 'Q5852411',    // state or territory of Australia
+    'NZL': 'Q1615742',    // region of New Zealand
+    'PNG': 'Q1615742',    // province of Papua New Guinea
+    'FJI': 'Q1615742',    // division of Fiji
+    
+    // === 추가 아시아 국가 ===
+    'HKG': 'Q1615742',    // district of Hong Kong
+    'BRN': 'Q1615742',    // district of Brunei
+    'BTN': 'Q1615742',    // district of Bhutan
+    'MDV': 'Q1615742',    // atoll of Maldives
+    'TLS': 'Q1615742',    // district of Timor-Leste
+    'AFG': 'Q1615742',    // province of Afghanistan
+    'PSE': 'Q1615742',    // governorate of Palestine
+    
+    // === 추가 유럽 국가 ===
+    'LTU': 'Q1615742',    // county of Lithuania
+    'LVA': 'Q1615742',    // municipality of Latvia
+    'EST': 'Q1615742',    // county of Estonia
+    'CYP': 'Q1615742',    // district of Cyprus
+    'LUX': 'Q1615742',    // canton of Luxembourg
+    'MLT': 'Q1615742',    // local council of Malta
+    'ALB': 'Q1615742',    // county of Albania
+    'MKD': 'Q1615742',    // statistical region of North Macedonia
+    'MNE': 'Q1615742',    // municipality of Montenegro
+    'BIH': 'Q1615742',    // entity of Bosnia
+    'MDA': 'Q1615742',    // district of Moldova
+    'ISL': 'Q1615742',    // region of Iceland
+    'GEO': 'Q1615742',    // region of Georgia
+    'ARM': 'Q1615742',    // province of Armenia
+    'AZE': 'Q1615742',    // district of Azerbaijan
+    
+    // === 추가 북미/카리브해 국가 ===
+    'CUB': 'Q1615742',    // province of Cuba
+    'JAM': 'Q1615742',    // parish of Jamaica
+    'HTI': 'Q1615742',    // department of Haiti
+    'DOM': 'Q1615742',    // province of Dominican Republic
+    'GTM': 'Q1615742',    // department of Guatemala
+    'HND': 'Q1615742',    // department of Honduras
+    'SLV': 'Q1615742',    // department of El Salvador
+    'NIC': 'Q1615742',    // department of Nicaragua
+    'CRI': 'Q1615742',    // province of Costa Rica
+    'PAN': 'Q1615742',    // province of Panama
+    'BLZ': 'Q1615742',    // district of Belize
+    'PRI': 'Q1615742',    // municipality of Puerto Rico
+    
+    // === 추가 남미 국가 ===
+    'GUY': 'Q1615742',    // region of Guyana
+    'SUR': 'Q1615742',    // district of Suriname
+    
+    // === 추가 아프리카 국가 ===
+    'LBY': 'Q1615742',    // district of Libya
+    'RWA': 'Q1615742',    // province of Rwanda
+    'BWA': 'Q1615742',    // district of Botswana
+    'NAM': 'Q1615742',    // region of Namibia
+    'MDG': 'Q1615742',    // region of Madagascar
+    'MUS': 'Q1615742',    // district of Mauritius
+};
+
+// 캐시된 행정구역 데이터
+const ADMIN_DATA_CACHE = new Map();
+
 class TerritoryDataService {
     constructor() {
         this.territoryData = new Map();
         this.countryStats = new Map();
+        this.adminDataCache = new Map(); // 행정구역 실데이터 캐시
         this.initialized = false;
     }
     
@@ -97,6 +280,103 @@ class TerritoryDataService {
             // 폴백: 기본 데이터 사용
             this.loadFallbackData();
         }
+    }
+    
+    /**
+     * Wikidata에서 행정구역 실데이터 로드
+     * @param {string} countryCode - 국가 코드 (예: 'USA', 'KOR')
+     */
+    async loadAdminDataFromWikidata(countryCode) {
+        const adminType = WIKIDATA_ADMIN_TYPES[countryCode];
+        if (!adminType) {
+            log.warn(`No Wikidata mapping for country: ${countryCode}`);
+            return null;
+        }
+        
+        // 캐시 확인
+        if (this.adminDataCache.has(countryCode)) {
+            return this.adminDataCache.get(countryCode);
+        }
+        
+        try {
+            const sparqlQuery = `
+                SELECT ?item ?itemLabel ?area ?population WHERE {
+                    ?item wdt:P31 wd:${adminType}.
+                    OPTIONAL { ?item wdt:P2046 ?area. }
+                    OPTIONAL { ?item wdt:P1082 ?population. }
+                    SERVICE wikibase:label { bd:serviceParam wikibase:language "en,ko". }
+                }
+            `;
+            
+            const url = 'https://query.wikidata.org/sparql?' + 
+                new URLSearchParams({ query: sparqlQuery, format: 'json' });
+            
+            const response = await fetch(url, {
+                headers: { 'Accept': 'application/sparql-results+json' }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Wikidata API error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const adminData = new Map();
+            
+            for (const result of data.results.bindings) {
+                const name = result.itemLabel?.value || '';
+                const area = result.area?.value ? parseFloat(result.area.value) : null;
+                const population = result.population?.value ? parseInt(result.population.value) : null;
+                
+                if (name) {
+                    // 이름 정규화 (대소문자 무시, 공백 처리)
+                    const normalizedName = name.toLowerCase().trim();
+                    adminData.set(normalizedName, {
+                        name: name,
+                        area: area,  // km²
+                        population: population,
+                        wikidataId: result.item?.value?.split('/').pop()
+                    });
+                    
+                    // 영어 이름과 한국어 이름 모두 매핑
+                    // 예: "Texas" → { area: 695662, population: 29145505 }
+                }
+            }
+            
+            // 캐시에 저장
+            this.adminDataCache.set(countryCode, adminData);
+            log.info(`Loaded ${adminData.size} admin regions from Wikidata for ${countryCode}`);
+            
+            return adminData;
+            
+        } catch (error) {
+            log.error(`Failed to load Wikidata for ${countryCode}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 영토 이름으로 Wikidata 실데이터 조회
+     */
+    async getWikidataForTerritory(territoryName, countryCode) {
+        const adminData = await this.loadAdminDataFromWikidata(countryCode);
+        if (!adminData) return null;
+        
+        // 이름 정규화
+        const normalizedName = territoryName.toLowerCase().trim();
+        
+        // 직접 매칭
+        if (adminData.has(normalizedName)) {
+            return adminData.get(normalizedName);
+        }
+        
+        // 부분 매칭 (예: "Texas" ↔ "State of Texas")
+        for (const [key, value] of adminData) {
+            if (key.includes(normalizedName) || normalizedName.includes(key)) {
+                return value;
+            }
+        }
+        
+        return null;
     }
     
     /**
@@ -217,15 +497,35 @@ class TerritoryDataService {
     
     /**
      * 영토에서 면적 추출 (km² 단위)
+     * 우선순위: Wikidata 캐시 > GeoJSON 속성 > 지오메트리 계산 > 추정치
      */
     extractArea(territory, countryCode) {
         const props = territory.properties || territory;
-        
-        // 1. Natural Earth Admin 1 데이터 속성 시도
-        // Natural Earth 10m admin_1 데이터의 면적 관련 필드들
         let area = null;
         
-        // 직접적인 면적 속성
+        // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
+        const territoryName = this.extractTerritoryName(props);
+        if (territoryName && this.adminDataCache.has(countryCode)) {
+            const adminData = this.adminDataCache.get(countryCode);
+            const normalizedName = territoryName.toLowerCase().trim();
+            
+            // 직접 매칭
+            if (adminData.has(normalizedName)) {
+                const wikidataInfo = adminData.get(normalizedName);
+                if (wikidataInfo.area && wikidataInfo.area > 0) {
+                    return Math.round(wikidataInfo.area);
+                }
+            }
+            
+            // 부분 매칭
+            for (const [key, value] of adminData) {
+                if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.area > 0) {
+                    return Math.round(value.area);
+                }
+            }
+        }
+        
+        // 1. Natural Earth Admin 1 데이터 속성 시도
         const areaFields = [
             'area_sqkm', 'AREA', 'area', 'Shape_Area', 'arealand',
             'areakm2', 'area_km2', 'AREA_KM2', 'region_area'
@@ -240,15 +540,13 @@ class TerritoryDataService {
         
         // 2. Shape_Area가 있으면 제곱미터에서 km²로 변환 (일부 GeoJSON)
         if (!area && props.Shape_Area) {
-            // Shape_Area는 보통 제곱미터 또는 제곱도
             const shapeArea = parseFloat(props.Shape_Area);
             if (shapeArea > 0) {
-                // 값이 매우 작으면 제곱도, 크면 제곱미터로 추정
-                area = shapeArea > 1000 ? shapeArea / 1000000 : shapeArea * 12365; // 1 sq deg ≈ 12365 km²
+                area = shapeArea > 1000 ? shapeArea / 1000000 : shapeArea * 12365;
             }
         }
         
-        // 3. 지오메트리에서 면적 계산 시도 (대략적)
+        // 3. 지오메트리에서 면적 계산 시도 (구면 기하학)
         if (!area && territory.geometry) {
             area = this.calculateGeometryArea(territory.geometry);
         }
@@ -258,10 +556,9 @@ class TerritoryDataService {
             const id = props.id || props.name || props.fid || Math.random();
             const hash = this.hashString(String(id));
             
-            // 국가 데이터에서 평균 면적을 기반으로 ±50% 변동
             const countryData = this.getCountryStats(countryCode);
             const baseArea = countryData?.area ? countryData.area / 50 : 10000;
-            const variation = 0.5 + (hash % 100) / 100; // 0.5 ~ 1.5
+            const variation = 0.5 + (hash % 100) / 100;
             area = baseArea * variation;
         }
         
@@ -269,10 +566,49 @@ class TerritoryDataService {
     }
     
     /**
+     * 영토 이름 추출 헬퍼
+     */
+    extractTerritoryName(props) {
+        const nameFields = ['name', 'NAME', 'name_en', 'NAME_EN', 'admin', 'ADMIN'];
+        for (const field of nameFields) {
+            if (props[field]) {
+                if (typeof props[field] === 'object') {
+                    return props[field].en || props[field].ko || Object.values(props[field])[0];
+                }
+                return props[field];
+            }
+        }
+        return null;
+    }
+    
+    /**
      * 영토에서 인구 추출
+     * 우선순위: Wikidata 캐시 > GeoJSON 속성 > 추정치
      */
     extractPopulation(territory, countryCode) {
         const props = territory.properties || territory;
+        
+        // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
+        const territoryName = this.extractTerritoryName(props);
+        if (territoryName && this.adminDataCache.has(countryCode)) {
+            const adminData = this.adminDataCache.get(countryCode);
+            const normalizedName = territoryName.toLowerCase().trim();
+            
+            // 직접 매칭
+            if (adminData.has(normalizedName)) {
+                const wikidataInfo = adminData.get(normalizedName);
+                if (wikidataInfo.population && wikidataInfo.population > 0) {
+                    return Math.round(wikidataInfo.population);
+                }
+            }
+            
+            // 부분 매칭
+            for (const [key, value] of adminData) {
+                if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.population > 0) {
+                    return Math.round(value.population);
+                }
+            }
+        }
         
         // 1. Natural Earth Admin 1 데이터의 인구 관련 필드들
         const popFields = [
@@ -302,10 +638,9 @@ class TerritoryDataService {
         const id = props.id || props.name || props.fid || Math.random();
         const hash = this.hashString(String(id));
         
-        // 국가 데이터에서 평균 인구를 기반으로 ±50% 변동
         const countryData = this.getCountryStats(countryCode);
         const basePop = countryData?.population ? countryData.population / 50 : 1000000;
-        const variation = 0.3 + (hash % 140) / 100; // 0.3 ~ 1.7
+        const variation = 0.3 + (hash % 140) / 100;
         
         return Math.round(basePop * variation);
     }
@@ -326,43 +661,70 @@ class TerritoryDataService {
     /**
      * 지오메트리에서 대략적인 면적 계산 (km²)
      */
+    /**
+     * 지오메트리에서 면적 계산 (km² 단위)
+     * 구면 기하학을 사용한 정확한 다각형 면적 계산
+     */
     calculateGeometryArea(geometry) {
         try {
             if (!geometry || !geometry.coordinates) return null;
             
-            // Polygon 또는 MultiPolygon의 바운딩 박스로 대략적 면적 추정
-            let minLng = Infinity, maxLng = -Infinity;
-            let minLat = Infinity, maxLat = -Infinity;
+            const EARTH_RADIUS = 6371; // km
             
-            const processCoords = (coords) => {
-                if (typeof coords[0] === 'number') {
-                    const [lng, lat] = coords;
-                    minLng = Math.min(minLng, lng);
-                    maxLng = Math.max(maxLng, lng);
-                    minLat = Math.min(minLat, lat);
-                    maxLat = Math.max(maxLat, lat);
-                } else {
-                    coords.forEach(processCoords);
+            // 라디안 변환
+            const toRad = deg => deg * Math.PI / 180;
+            
+            // 구면 다각형 면적 계산 (Shoelace formula의 구면 버전)
+            const ringArea = (coords) => {
+                if (!coords || coords.length < 4) return 0;
+                
+                let total = 0;
+                const len = coords.length;
+                
+                for (let i = 0; i < len - 1; i++) {
+                    const p1 = coords[i];
+                    const p2 = coords[(i + 1) % len];
+                    
+                    const lng1 = toRad(p1[0]);
+                    const lat1 = toRad(p1[1]);
+                    const lng2 = toRad(p2[0]);
+                    const lat2 = toRad(p2[1]);
+                    
+                    total += (lng2 - lng1) * (2 + Math.sin(lat1) + Math.sin(lat2));
                 }
+                
+                return Math.abs(total * EARTH_RADIUS * EARTH_RADIUS / 2);
             };
             
-            processCoords(geometry.coordinates);
+            // 폴리곤 면적 계산 (외부 링 - 내부 링들)
+            const polygonArea = (rings) => {
+                if (!rings || rings.length === 0) return 0;
+                
+                // 외부 링
+                let area = ringArea(rings[0]);
+                
+                // 내부 링(holes)은 빼기
+                for (let i = 1; i < rings.length; i++) {
+                    area -= ringArea(rings[i]);
+                }
+                
+                return Math.abs(area);
+            };
             
-            if (minLng === Infinity) return null;
+            let totalArea = 0;
             
-            // 위경도 차이로 면적 추정 (1도 ≈ 111km)
-            const lngDiff = maxLng - minLng;
-            const latDiff = maxLat - minLat;
-            const midLat = (minLat + maxLat) / 2;
+            if (geometry.type === 'Polygon') {
+                totalArea = polygonArea(geometry.coordinates);
+            } else if (geometry.type === 'MultiPolygon') {
+                for (const polygon of geometry.coordinates) {
+                    totalArea += polygonArea(polygon);
+                }
+            }
             
-            // 위도에 따른 경도 보정
-            const lngKm = lngDiff * 111 * Math.cos(midLat * Math.PI / 180);
-            const latKm = latDiff * 111;
-            
-            // 바운딩 박스의 약 60% 정도가 실제 영역 (불규칙한 모양 보정)
-            return lngKm * latKm * 0.6;
+            return totalArea > 0 ? Math.round(totalArea) : null;
             
         } catch (e) {
+            log.warn('Area calculation failed:', e);
             return null;
         }
     }

@@ -393,6 +393,167 @@ class BillionaireApp {
             });
             paymentService.openChargeModal(required);
         });
+        
+        // Help section buttons
+        document.getElementById('side-help-btn')?.addEventListener('click', () => {
+            this.showHowToPlayModal();
+        });
+        
+        document.getElementById('side-about-btn')?.addEventListener('click', () => {
+            this.showAboutModal();
+        });
+    }
+    
+    /**
+     * Show How to Play Modal
+     */
+    showHowToPlayModal() {
+        const existingModal = document.querySelector('.help-modal');
+        if (existingModal) existingModal.remove();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal help-modal';
+        modal.innerHTML = `
+            <div class="modal-content help-modal-content">
+                <div class="modal-header">
+                    <h2>📖 How to Play</h2>
+                    <button class="close-btn" id="close-help-modal">&times;</button>
+                </div>
+                <div class="modal-body help-body">
+                    <div class="help-section">
+                        <h3>🌍 1. Explore the Globe</h3>
+                        <p>Rotate and zoom the 3D globe to discover territories around the world. Click on any country to see its administrative regions.</p>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>💰 2. Charge Points</h3>
+                        <p>Click the <strong>💰 Wallet</strong> button to charge points via PayPal. Points are used to claim territories and place auction bids.</p>
+                        <ul>
+                            <li>$10 → 1,000 pt</li>
+                            <li>$25 → 2,750 pt (+10% bonus)</li>
+                            <li>$50 → 6,000 pt (+20% bonus)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>🏴 3. Claim Territories</h3>
+                        <p>Click on an unclaimed territory and hit <strong>"Claim Now"</strong> to instantly own it. Each territory has a unique price based on population and area.</p>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>🔥 4. Join Auctions</h3>
+                        <p>Compete with other players by placing bids on territories. The highest bidder wins when the auction ends!</p>
+                        <ul>
+                            <li>🏠 Adjacent Territory Bonus: +5~15%</li>
+                            <li>🌍 Country Domination Bonus: +3~10%</li>
+                            <li>📅 Season Bonus: +5~20%</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>🎨 5. Decorate Your Land</h3>
+                        <p>Use the <strong>Pixel Editor</strong> to draw on your territories. Your artwork becomes part of the map for everyone to see!</p>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>🏆 6. Climb Rankings</h3>
+                        <p>Earn points by owning territories, creating pixel art, and dominating countries. Compete on the global leaderboard!</p>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>⌨️ Keyboard Shortcuts</h3>
+                        <ul>
+                            <li><kbd>H</kbd> - Open Help</li>
+                            <li><kbd>ESC</kbd> - Close panels</li>
+                            <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> - Zoom levels</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        document.getElementById('close-help-modal')?.addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+    }
+    
+    /**
+     * Show About Modal
+     */
+    showAboutModal() {
+        const existingModal = document.querySelector('.about-modal');
+        if (existingModal) existingModal.remove();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal about-modal';
+        modal.innerHTML = `
+            <div class="modal-content about-modal-content">
+                <div class="modal-header">
+                    <h2>ℹ️ About Billionaire Map</h2>
+                    <button class="close-btn" id="close-about-modal">&times;</button>
+                </div>
+                <div class="modal-body about-body">
+                    <div class="about-hero">
+                        <h1>🌍 Billionaire Map</h1>
+                        <p class="tagline">"Own a Piece of Earth"</p>
+                        <p class="version">Version ${CONFIG.VERSION}</p>
+                    </div>
+                    
+                    <div class="about-section">
+                        <h3>🎮 What is Billionaire Map?</h3>
+                        <p>Billionaire Map is an interactive global territory game where players can claim, auction, and decorate real-world administrative regions. Build your empire, compete with others, and leave your mark on the world!</p>
+                    </div>
+                    
+                    <div class="about-section">
+                        <h3>✨ Features</h3>
+                        <ul>
+                            <li>🌐 200+ countries with real administrative regions</li>
+                            <li>💰 Point-based economy with PayPal integration</li>
+                            <li>🔥 Competitive auction system with strategic buffs</li>
+                            <li>🎨 Pixel art editor for territory customization</li>
+                            <li>🏆 Global rankings and achievements</li>
+                            <li>🤝 Collaboration features for team artwork</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="about-section">
+                        <h3>📊 Statistics</h3>
+                        <ul>
+                            <li>🗺️ 200+ supported countries</li>
+                            <li>🏛️ 10,000+ administrative regions</li>
+                            <li>🎨 Unlimited pixel art possibilities</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="about-section">
+                        <h3>📧 Contact</h3>
+                        <p>Questions or feedback? Reach out to us!</p>
+                        <p>Email: support@billionairemap.com</p>
+                    </div>
+                    
+                    <div class="about-footer">
+                        <p>© 2025 Billionaire Map. All rights reserved.</p>
+                        <p>Made with ❤️ for global explorers</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        document.getElementById('close-about-modal')?.addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
     }
     
     /**
@@ -625,6 +786,9 @@ class BillionaireApp {
                 message: `Loading ${countryCode}...`
             });
             
+            // 백그라운드에서 Wikidata 실데이터 로드 (병렬 실행)
+            const wikidataPromise = territoryDataService.loadAdminDataFromWikidata(countryCode.toUpperCase());
+            
             // Load GeoJSON data
             const geoJson = await mapController.loadGeoJsonData(countryCode);
             
@@ -636,6 +800,17 @@ class BillionaireApp {
                 // Still move camera
                 mapController.flyToCountry(countryCode);
                 return;
+            }
+            
+            // Wikidata 로드 완료 대기 (최대 3초)
+            try {
+                await Promise.race([
+                    wikidataPromise,
+                    new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000))
+                ]);
+            } catch (e) {
+                // Wikidata 로드 실패해도 계속 진행
+                log.warn('Wikidata load skipped (timeout or error)');
             }
             
             // Add territory layer

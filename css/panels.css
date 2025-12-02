@@ -1381,3 +1381,210 @@
     }
 }
 
+/* === Help & About Modal Styles === */
+.help-modal,
+.about-modal,
+.ranking-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: modalFadeIn 0.3s ease;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.help-modal-content,
+.about-modal-content,
+.ranking-modal-content {
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    border: var(--border-light);
+    box-shadow: var(--shadow-heavy);
+    max-width: 600px;
+    width: 90%;
+    max-height: 85vh;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from { transform: translateY(-20px) scale(0.95); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.help-modal .modal-header,
+.about-modal .modal-header,
+.ranking-modal .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: var(--border-subtle);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15) 0%, rgba(78, 205, 196, 0.05) 100%);
+}
+
+.help-modal .modal-header h2,
+.about-modal .modal-header h2,
+.ranking-modal .modal-header h2 {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    color: var(--color-text-primary);
+    margin: 0;
+}
+
+.help-modal .close-btn,
+.about-modal .close-btn,
+.ranking-modal .close-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+}
+
+.help-modal .close-btn:hover,
+.about-modal .close-btn:hover,
+.ranking-modal .close-btn:hover {
+    background: rgba(255, 107, 107, 0.3);
+    color: #ff6b6b;
+    transform: scale(1.1);
+}
+
+.help-body,
+.about-body {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    max-height: calc(85vh - 80px);
+}
+
+.help-section,
+.about-section {
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: var(--border-subtle);
+}
+
+.help-section:last-child,
+.about-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.help-section h3,
+.about-section h3 {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-accent);
+    margin-bottom: var(--spacing-sm);
+}
+
+.help-section p,
+.about-section p {
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+    margin-bottom: var(--spacing-sm);
+}
+
+.help-section ul,
+.about-section ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.help-section ul li,
+.about-section ul li {
+    padding: var(--spacing-xs) 0;
+    color: var(--color-text-secondary);
+    padding-left: var(--spacing-md);
+    position: relative;
+}
+
+.help-section ul li::before,
+.about-section ul li::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: var(--color-accent);
+}
+
+.help-section kbd {
+    display: inline-block;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 0 4px;
+}
+
+/* About Modal Specific */
+.about-hero {
+    text-align: center;
+    padding: var(--spacing-xl) 0;
+    margin-bottom: var(--spacing-lg);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.1) 0%, rgba(255, 107, 107, 0.1) 100%);
+    border-radius: var(--radius-lg);
+}
+
+.about-hero h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.about-hero .tagline {
+    font-size: var(--font-size-lg);
+    color: var(--color-accent);
+    font-style: italic;
+    margin-bottom: var(--spacing-sm);
+}
+
+.about-hero .version {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.about-footer {
+    text-align: center;
+    padding-top: var(--spacing-lg);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.about-footer p {
+    margin: var(--spacing-xs) 0;
+}
+
+/* Ranking Modal Specific */
+.ranking-modal-content {
+    max-width: 700px;
+}
+
+.ranking-modal .modal-body {
+    padding: var(--spacing-lg);
+    max-height: calc(85vh - 80px);
+    overflow-y: auto;
+}
+

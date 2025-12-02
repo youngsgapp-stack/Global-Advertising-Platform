@@ -599,6 +599,7 @@ class TerritoryPanel {
         const bidAmount = parseInt(input.value, 10);
         const user = firebaseService.getCurrentUser();
         const auction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
+        const isAdmin = this.isAdminMode();
         
         // 로그인 체크
         if (!user) {
@@ -636,19 +637,21 @@ class TerritoryPanel {
             return;
         }
         
-        // 잔액 체크
-        const currentBalance = walletService.getBalance();
-        if (currentBalance < bidAmount) {
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'warning',
-                message: `Insufficient balance. You have ${this.formatNumber(currentBalance)} pt`
-            });
-            // PaymentService의 충전 모달 열기
-            eventBus.emit(EVENTS.PAYMENT_START, {
-                type: 'bid',
-                amount: bidAmount
-            });
-            return;
+        // 관리자 모드가 아닌 경우에만 잔액 체크
+        if (!isAdmin) {
+            const currentBalance = walletService.getBalance();
+            if (currentBalance < bidAmount) {
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'warning',
+                    message: `Insufficient balance. You have ${this.formatNumber(currentBalance)} pt`
+                });
+                // PaymentService의 충전 모달 열기
+                eventBus.emit(EVENTS.PAYMENT_START, {
+                    type: 'bid',
+                    amount: bidAmount
+                });
+                return;
+            }
         }
         
         try {
