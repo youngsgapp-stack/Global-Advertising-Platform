@@ -3,9 +3,9 @@
  * 상태별로 영토를 필터링하여 리스트로 표시
  */
 
-import { CONFIG, log, SOVEREIGNTY } from '../config.js';
+import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
-import territoryManager from '../core/TerritoryManager.js';
+import territoryManager, { SOVEREIGNTY } from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
 
 class TerritoryListPanel {
