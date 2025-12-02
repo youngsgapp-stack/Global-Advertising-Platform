@@ -9,13 +9,15 @@ import { SOVEREIGNTY } from '../core/TerritoryManager.js';
 import { buffSystem } from '../features/BuffSystem.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { territoryDataService } from '../services/TerritoryDataService.js';
 
 class TerritoryPanel {
     constructor() {
         this.container = null;
         this.isOpen = false;
         this.currentTerritory = null;
-        this.lang = 'ko';
+        this.lang = 'en';  // English default
+        this.countryData = null;
     }
     
     /**
@@ -106,62 +108,98 @@ class TerritoryPanel {
         const t = this.currentTerritory;
         if (!t) return;
         
-        const vocab = CONFIG.VOCABULARY[this.lang];
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const user = firebaseService.getCurrentUser();
         const isOwner = user && t.ruler === user.uid;
         const auction = auctionSystem.getAuctionByTerritory(t.id);
+        
+        // Get real country data
+        this.countryData = territoryDataService.getCountryStats(t.country);
+        const countryInfo = CONFIG.COUNTRIES[t.country] || {};
+        
+        // Calculate price from real data
+        const realPrice = this.countryData ? 
+            territoryDataService.calculateTerritoryPrice(t, t.country) : 
+            (t.tribute || 100);
+        
+        // Get population and area from real data or territory
+        const population = t.properties?.pop_est || 
+                          t.properties?.population || 
+                          this.countryData?.population || 
+                          t.population || 0;
+        
+        const area = t.properties?.area_sqkm || 
+                    t.properties?.AREA || 
+                    this.countryData?.area || 
+                    t.area || 0;
+        
+        const territoryName = t.name?.en || t.name || t.properties?.name || 'Unknown Territory';
+        const countryName = countryInfo.name || t.country || 'Unknown';
+        const countryFlag = countryInfo.flag || '🏳️';
         
         this.container.innerHTML = `
             <div class="panel-header">
                 <div class="territory-title">
                     <span class="territory-icon">${this.getTerritoryIcon(t.sovereignty)}</span>
-                    <h2>${t.name[this.lang] || t.name.en}</h2>
+                    <h2>${territoryName}</h2>
                 </div>
                 <button class="close-btn" id="close-territory-panel">&times;</button>
             </div>
             
             <div class="panel-content">
-                <!-- 주권 상태 -->
+                <!-- Sovereignty Status -->
                 <div class="sovereignty-section">
-                    <div class="sovereignty-badge ${t.sovereignty}">
+                    <div class="sovereignty-badge ${t.sovereignty || 'unconquered'}">
                         <span class="sovereignty-icon">${this.getSovereigntyIcon(t.sovereignty)}</span>
-                        <span class="sovereignty-text">${vocab[t.sovereignty]}</span>
+                        <span class="sovereignty-text">${vocab[t.sovereignty] || 'Available'}</span>
                     </div>
                     ${t.ruler ? `
                         <div class="ruler-info">
-                            <span class="ruler-label">통치자:</span>
+                            <span class="ruler-label">Owner:</span>
                             <span class="ruler-name">${t.rulerName || t.ruler}</span>
                         </div>
                     ` : ''}
                 </div>
                 
-                <!-- 영토 정보 -->
+                <!-- Territory Stats (Real Data) -->
                 <div class="territory-stats">
                     <div class="stat-item">
-                        <span class="stat-icon">📍</span>
-                        <span class="stat-label">국가</span>
-                        <span class="stat-value">${t.country || '-'}</span>
+                        <span class="stat-icon">${countryFlag}</span>
+                        <span class="stat-label">Country</span>
+                        <span class="stat-value">${countryName}</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-icon">👥</span>
-                        <span class="stat-label">인구</span>
-                        <span class="stat-value">${this.formatNumber(t.population)}</span>
+                        <span class="stat-label">Population</span>
+                        <span class="stat-value">${territoryDataService.formatNumber(population)}</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-icon">📏</span>
-                        <span class="stat-label">면적</span>
-                        <span class="stat-value">${this.formatNumber(t.area)} km²</span>
+                        <span class="stat-label">Area</span>
+                        <span class="stat-value">${territoryDataService.formatArea(area)}</span>
                     </div>
-                    <div class="stat-item">
+                    <div class="stat-item highlight">
                         <span class="stat-icon">💰</span>
-                        <span class="stat-label">${vocab.tribute}</span>
-                        <span class="stat-value tribute">$${this.formatNumber(t.tribute)}</span>
+                        <span class="stat-label">Price</span>
+                        <span class="stat-value tribute">${territoryDataService.formatPrice(realPrice)}</span>
                     </div>
+                    ${this.countryData ? `
+                        <div class="stat-item">
+                            <span class="stat-icon">🏙️</span>
+                            <span class="stat-label">Capital</span>
+                            <span class="stat-value">${this.countryData.capital || 'N/A'}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-icon">🌍</span>
+                            <span class="stat-label">Region</span>
+                            <span class="stat-value">${this.countryData.region || 'N/A'}</span>
+                        </div>
+                    ` : ''}
                 </div>
                 
-                <!-- 픽셀 가치 -->
+                <!-- Pixel Value -->
                 <div class="pixel-value-section">
-                    <h3>🎨 ${vocab.pixel} ${vocab.value}</h3>
+                    <h3>🎨 Pixel Value</h3>
                     <div class="value-bar-container">
                         <div class="value-bar" style="width: ${this.getPixelPercentage(t)}%"></div>
                     </div>
@@ -169,22 +207,22 @@ class TerritoryPanel {
                         <span>${this.formatNumber(t.pixelCanvas?.filledPixels || 0)}</span>
                         <span>/</span>
                         <span>${this.formatNumber(t.pixelCanvas?.width * t.pixelCanvas?.height || 10000)}</span>
-                        <span>픽셀</span>
+                        <span>pixels</span>
                     </div>
                 </div>
                 
-                <!-- 적용 버프 -->
+                <!-- Applied Buffs -->
                 ${this.renderBuffs(t)}
                 
-                <!-- 영토 역사 -->
+                <!-- Territory History -->
                 ${this.renderHistory(t)}
                 
-                <!-- 옥션 정보 (있을 경우) -->
+                <!-- Auction Info (if exists) -->
                 ${auction ? this.renderAuction(auction) : ''}
                 
-                <!-- 액션 버튼 -->
+                <!-- Action Buttons -->
                 <div class="territory-actions">
-                    ${this.renderActions(t, isOwner, auction)}
+                    ${this.renderActions(t, isOwner, auction, realPrice)}
                 </div>
             </div>
         `;
@@ -229,7 +267,7 @@ class TerritoryPanel {
         
         return `
             <div class="history-section">
-                <h3>📜 영토 역사</h3>
+                <h3>📜 Territory History</h3>
                 <ul class="history-timeline">
                     ${recentHistory.map(event => `
                         <li class="history-item ${event.type}">
@@ -243,46 +281,46 @@ class TerritoryPanel {
     }
     
     /**
-     * 옥션 섹션 렌더링
+     * Auction Section Rendering
      */
     renderAuction(auction) {
         return `
             <div class="auction-section">
-                <h3>⚔️ 진행 중인 옥션</h3>
+                <h3>⚔️ Active Auction</h3>
                 <div class="auction-info">
                     <div class="current-bid">
-                        <span class="bid-label">현재 최고가</span>
+                        <span class="bid-label">Current Bid</span>
                         <span class="bid-amount">$${this.formatNumber(auction.currentBid)}</span>
                     </div>
                     <div class="highest-bidder">
-                        <span class="bidder-label">최고 입찰자</span>
-                        <span class="bidder-name">${auction.highestBidderName || '없음'}</span>
+                        <span class="bidder-label">Highest Bidder</span>
+                        <span class="bidder-name">${auction.highestBidderName || 'None'}</span>
                     </div>
                     <div class="time-remaining">
-                        <span class="time-label">남은 시간</span>
+                        <span class="time-label">Time Left</span>
                         <span class="time-value">${this.getTimeRemaining(auction.endTime)}</span>
                     </div>
                 </div>
                 <div class="bid-input-group">
                     <input type="number" id="bid-amount-input" 
-                           placeholder="입찰 금액" 
+                           placeholder="Bid amount" 
                            min="${auction.currentBid + auction.minIncrement}">
-                    <button class="bid-btn" id="place-bid-btn">입찰하기</button>
+                    <button class="bid-btn" id="place-bid-btn">Place Bid</button>
                 </div>
             </div>
         `;
     }
     
     /**
-     * 액션 버튼 렌더링
+     * Action Buttons Rendering
      */
-    renderActions(territory, isOwner, auction) {
+    renderActions(territory, isOwner, auction, realPrice = 100) {
         const user = firebaseService.getCurrentUser();
         
         if (!user) {
             return `
                 <button class="action-btn login-btn" id="login-to-conquer">
-                    🔐 로그인하여 정복하기
+                    🔐 Sign in to Claim
                 </button>
             `;
         }
@@ -290,27 +328,27 @@ class TerritoryPanel {
         if (territory.sovereignty === SOVEREIGNTY.RULED && isOwner) {
             return `
                 <button class="action-btn pixel-btn" id="open-pixel-editor">
-                    🎨 영토 꾸미기
+                    🎨 Decorate Territory
                 </button>
                 <button class="action-btn collab-btn" id="open-collaboration">
-                    👥 협업 열기
+                    👥 Open Collaboration
                 </button>
             `;
         }
         
         if (territory.sovereignty === SOVEREIGNTY.CONTESTED && auction) {
             return `
-                <span class="auction-notice">옥션 진행 중 - 위에서 입찰하세요</span>
+                <span class="auction-notice">Auction in progress - Place your bid above</span>
             `;
         }
         
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
-                    ⚔️ 즉시 정복하기 ($${this.formatNumber(territory.tribute)})
+                    ⚔️ Claim Now ($${this.formatNumber(realPrice)})
                 </button>
                 <button class="action-btn auction-btn" id="start-auction">
-                    🏷️ 옥션 시작하기
+                    🏷️ Start Auction
                 </button>
             `;
         }
@@ -405,7 +443,7 @@ class TerritoryPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: '옥션이 시작되었습니다!'
+                message: 'Auction has started!'
             });
             
             // 패널 갱신
@@ -520,7 +558,7 @@ class TerritoryPanel {
             case 'pixel_milestone':
                 return `${data.milestone} 픽셀 달성! 🎉`;
             case 'auction_started':
-                return '옥션이 시작되었습니다';
+                return 'Auction started';
             default:
                 return event.narrative || '알 수 없는 이벤트';
         }

@@ -141,7 +141,7 @@ class PixelEditor {
                             <div id="collab-status" class="collab-status">
                                 <span class="status-text">비활성화</span>
                             </div>
-                            <button class="btn btn-primary btn-sm" id="toggle-collab">협업 시작</button>
+                            <button class="btn btn-primary btn-sm" id="toggle-collab">Start Collab</button>
                         </div>
                         
                         <div class="collab-section" id="collab-leaderboard-section" style="display: none;">
@@ -402,7 +402,7 @@ class PixelEditor {
             this.updateLeaderboard(collab);
         } else {
             statusEl.innerHTML = '<span class="status-inactive">⚫ 비활성화</span>';
-            toggleBtn.textContent = '협업 시작';
+            toggleBtn.textContent = 'Start Collab';
             leaderboardSection.style.display = 'none';
         }
     }

@@ -20,6 +20,7 @@ import { rankingBoard } from './ui/RankingBoard.js';
 import { timelineWidget } from './ui/TimelineWidget.js';
 import { recommendationSystem } from './features/RecommendationSystem.js';
 import { recommendationPanel } from './ui/RecommendationPanel.js';
+import { territoryDataService } from './services/TerritoryDataService.js';
 
 class BillionaireApp {
     constructor() {
@@ -37,8 +38,9 @@ class BillionaireApp {
             // 1. Show loading
             this.showLoading();
             
-            // 2. Initialize Firebase
+            // 2. Initialize Firebase & Data Services
             await firebaseService.initialize();
+            await territoryDataService.initialize();
             
             // 3. Initialize Map
             await mapController.initialize('map');
