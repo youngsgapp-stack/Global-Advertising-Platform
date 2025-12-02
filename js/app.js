@@ -288,28 +288,24 @@ class BillionaireApp {
      */
     async loadCountry(countryCode) {
         try {
-            log.info(`국가 로드: ${countryCode}`);
+            log.info(`Loading country: ${countryCode}`);
             
-            // 지원 국가 확인
-            if (!mapController.isCountrySupported(countryCode)) {
-                const countryName = CONFIG.G20_COUNTRIES[countryCode]?.nameKo || countryCode;
-                this.showNotification({
-                    type: 'warning',
-                    message: `${countryName}은(는) 아직 준비 중입니다.`
-                });
-                // 카메라는 이동하되 영토 레이어는 추가하지 않음
-                mapController.flyToCountry(countryCode);
-                return;
-            }
+            // 로딩 표시
+            this.showNotification({
+                type: 'info',
+                message: `Loading ${countryCode}...`
+            });
             
             // GeoJSON 데이터 로드
             const geoJson = await mapController.loadGeoJsonData(countryCode);
             
-            if (!geoJson) {
+            if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
                 this.showNotification({
                     type: 'warning',
-                    message: '지도 데이터를 불러올 수 없습니다.'
+                    message: `No region data available for this country yet.`
                 });
+                // 카메라는 이동
+                mapController.flyToCountry(countryCode);
                 return;
             }
             
@@ -321,11 +317,17 @@ class BillionaireApp {
             
             this.currentCountry = countryCode;
             
+            // 성공 알림
+            this.showNotification({
+                type: 'success',
+                message: `Loaded ${geoJson.features.length} regions`
+            });
+            
         } catch (error) {
-            log.error(`국가 로드 실패: ${countryCode}`, error);
+            log.error(`Failed to load country: ${countryCode}`, error);
             this.showNotification({
                 type: 'error',
-                message: '지도 데이터를 불러올 수 없습니다.'
+                message: 'Failed to load map data.'
             });
         }
     }

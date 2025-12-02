@@ -15,6 +15,8 @@ class MapController {
         this.selectedTerritoryId = null;
         this.geoJsonCache = new Map();
         this.sourcesLoaded = new Set();
+        this.globalAdminData = null;  // 전 세계 행정구역 데이터
+        this.globalAdminLoaded = false;
     }
     
     /**
@@ -119,16 +121,147 @@ class MapController {
     }
     
     /**
+     * 전 세계 행정구역 데이터 로드 (Natural Earth Admin 1)
+     */
+    async loadGlobalAdminData() {
+        if (this.globalAdminLoaded && this.globalAdminData) {
+            return this.globalAdminData;
+        }
+        
+        try {
+            log.info('Loading global admin boundaries data...');
+            
+            // Natural Earth Admin 1 데이터 (주/도 레벨)
+            const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch global admin data: ${response.status}`);
+            }
+            
+            this.globalAdminData = await response.json();
+            this.globalAdminLoaded = true;
+            
+            log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
+            return this.globalAdminData;
+            
+        } catch (error) {
+            log.error('Failed to load global admin data:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * 국가별 행정구역 필터링
+     */
+    filterAdminByCountry(countryCode) {
+        if (!this.globalAdminData) return null;
+        
+        // 국가 코드 매핑 (우리 코드 -> ISO/Natural Earth 코드)
+        const countryNameMap = {
+            'usa': ['United States of America', 'United States', 'US', 'USA'],
+            'south-korea': ['South Korea', 'Korea, Republic of', 'KOR', 'Republic of Korea'],
+            'japan': ['Japan', 'JPN'],
+            'china': ['China', 'CHN', "People's Republic of China"],
+            'india': ['India', 'IND'],
+            'germany': ['Germany', 'DEU'],
+            'france': ['France', 'FRA'],
+            'uk': ['United Kingdom', 'GBR', 'Great Britain'],
+            'italy': ['Italy', 'ITA'],
+            'spain': ['Spain', 'ESP'],
+            'brazil': ['Brazil', 'BRA'],
+            'canada': ['Canada', 'CAN'],
+            'russia': ['Russia', 'RUS', 'Russian Federation'],
+            'australia': ['Australia', 'AUS'],
+            'mexico': ['Mexico', 'MEX'],
+            'indonesia': ['Indonesia', 'IDN'],
+            'turkey': ['Turkey', 'TUR', 'Türkiye'],
+            'saudi-arabia': ['Saudi Arabia', 'SAU'],
+            'south-africa': ['South Africa', 'ZAF'],
+            'argentina': ['Argentina', 'ARG'],
+            'netherlands': ['Netherlands', 'NLD'],
+            'switzerland': ['Switzerland', 'CHE'],
+            'poland': ['Poland', 'POL'],
+            'belgium': ['Belgium', 'BEL'],
+            'sweden': ['Sweden', 'SWE'],
+            'austria': ['Austria', 'AUT'],
+            'norway': ['Norway', 'NOR'],
+            'uae': ['United Arab Emirates', 'ARE'],
+            'thailand': ['Thailand', 'THA'],
+            'vietnam': ['Vietnam', 'VNM', 'Viet Nam'],
+            'malaysia': ['Malaysia', 'MYS'],
+            'singapore': ['Singapore', 'SGP'],
+            'philippines': ['Philippines', 'PHL'],
+            'egypt': ['Egypt', 'EGY'],
+            'nigeria': ['Nigeria', 'NGA'],
+            'pakistan': ['Pakistan', 'PAK'],
+            'bangladesh': ['Bangladesh', 'BGD'],
+            'iran': ['Iran', 'IRN'],
+            'iraq': ['Iraq', 'IRQ'],
+            'israel': ['Israel', 'ISR'],
+            'ukraine': ['Ukraine', 'UKR'],
+            'portugal': ['Portugal', 'PRT'],
+            'greece': ['Greece', 'GRC'],
+            'czech-republic': ['Czech Republic', 'Czechia', 'CZE'],
+            'romania': ['Romania', 'ROU'],
+            'hungary': ['Hungary', 'HUN'],
+            'denmark': ['Denmark', 'DNK'],
+            'finland': ['Finland', 'FIN'],
+            'ireland': ['Ireland', 'IRL'],
+            'new-zealand': ['New Zealand', 'NZL'],
+            'chile': ['Chile', 'CHL'],
+            'colombia': ['Colombia', 'COL'],
+            'peru': ['Peru', 'PER'],
+            'venezuela': ['Venezuela', 'VEN'],
+            'kenya': ['Kenya', 'KEN'],
+            'morocco': ['Morocco', 'MAR'],
+            'algeria': ['Algeria', 'DZA'],
+            'qatar': ['Qatar', 'QAT'],
+            'kuwait': ['Kuwait', 'KWT']
+        };
+        
+        const countryNames = countryNameMap[countryCode] || [countryCode];
+        
+        const filtered = this.globalAdminData.features.filter(feature => {
+            const props = feature.properties;
+            const admin = props.admin || props.sovereign || props.name_en || '';
+            const iso = props.iso_a2 || props.iso_3166_2 || '';
+            const sov = props.sov_a3 || '';
+            
+            return countryNames.some(name => 
+                admin.toLowerCase().includes(name.toLowerCase()) ||
+                iso.toUpperCase().includes(name.toUpperCase()) ||
+                sov.toUpperCase().includes(name.toUpperCase())
+            );
+        });
+        
+        if (filtered.length === 0) {
+            log.warn(`No admin regions found for ${countryCode}`);
+            return null;
+        }
+        
+        // 정규화된 GeoJSON 반환
+        return {
+            type: 'FeatureCollection',
+            features: filtered.map((feature, index) => ({
+                ...feature,
+                id: index,
+                properties: {
+                    ...feature.properties,
+                    id: `${countryCode}-${index}`,
+                    name: feature.properties.name || feature.properties.name_en || feature.properties.admin || `Region ${index + 1}`,
+                    country: countryCode,
+                    sovereignty: 'unconquered'
+                }
+            }))
+        };
+    }
+    
+    /**
      * GeoJSON 데이터 로드
      * @param {string} country - 국가 코드
      */
     async loadGeoJsonData(country) {
-        // 지원 국가 확인
-        if (!this.isCountrySupported(country)) {
-            log.warn(`국가 ${country}는 아직 지원되지 않습니다.`);
-            return null;
-        }
-        
         // 캐시 확인
         if (this.geoJsonCache.has(country)) {
             log.debug(`Using cached GeoJSON for ${country}`);
@@ -136,123 +269,58 @@ class MapController {
         }
         
         try {
-            const urlInfo = this.getGeoJsonUrl(country);
-            if (!urlInfo) {
-                log.warn(`No GeoJSON URL for ${country}`);
-                return null;
+            // 로컬 파일 우선 확인
+            const localUrl = this.getLocalGeoJsonUrl(country);
+            if (localUrl) {
+                log.info(`Loading local GeoJSON for ${country}...`);
+                const response = await fetch(localUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    const normalized = this.normalizeGeoJson(data, country);
+                    this.geoJsonCache.set(country, normalized);
+                    log.info(`Local GeoJSON loaded for ${country}: ${normalized.features?.length} regions`);
+                    return normalized;
+                }
             }
             
-            log.info(`Loading GeoJSON for ${country} from ${urlInfo.isLocal ? 'local' : 'CDN'}...`);
+            // 전 세계 데이터에서 필터링
+            log.info(`Loading ${country} from global admin data...`);
+            await this.loadGlobalAdminData();
             
-            const response = await fetch(urlInfo.url);
-            
-            if (!response.ok) {
-                throw new Error(`Failed to fetch GeoJSON: ${response.status}`);
+            if (this.globalAdminData) {
+                const filtered = this.filterAdminByCountry(country);
+                if (filtered && filtered.features.length > 0) {
+                    this.geoJsonCache.set(country, filtered);
+                    log.info(`Filtered GeoJSON for ${country}: ${filtered.features.length} regions`);
+                    return filtered;
+                }
             }
             
-            let data = await response.json();
-            
-            // 외부 소스인 경우 데이터 변환이 필요할 수 있음
-            if (!urlInfo.isLocal) {
-                data = this.normalizeGeoJson(data, country);
-            }
-            
-            // 캐시에 저장
-            this.geoJsonCache.set(country, data);
-            log.info(`GeoJSON loaded for ${country}:`, data.features?.length || 1, 'features');
-            
-            return data;
+            log.warn(`No GeoJSON data available for ${country}`);
+            return null;
             
         } catch (error) {
             log.error(`Failed to load GeoJSON for ${country}:`, error);
-            // 외부 소스 실패 시 대체 소스 시도
-            return await this.loadFallbackGeoJson(country);
+            return null;
         }
     }
     
     /**
-     * 대체 GeoJSON 로드 (OSM Nominatim)
+     * 로컬 GeoJSON URL 확인
      */
-    async loadFallbackGeoJson(country) {
-        // ISO 3166-1 alpha-2 코드 매핑
-        const isoCodeMap = {
-            // 아시아
-            'china': 'CN', 'taiwan': 'TW', 'hong-kong': 'HK', 'india': 'IN',
-            'indonesia': 'ID', 'thailand': 'TH', 'vietnam': 'VN', 'malaysia': 'MY',
-            'singapore': 'SG', 'philippines': 'PH', 'pakistan': 'PK', 'bangladesh': 'BD',
-            'myanmar': 'MM', 'cambodia': 'KH', 'laos': 'LA', 'mongolia': 'MN',
-            'nepal': 'NP', 'sri-lanka': 'LK', 'kazakhstan': 'KZ', 'uzbekistan': 'UZ',
-            'north-korea': 'KP', 'brunei': 'BN', 'bhutan': 'BT', 'maldives': 'MV',
-            'timor-leste': 'TL',
-            // 중동
-            'saudi-arabia': 'SA', 'uae': 'AE', 'qatar': 'QA', 'iran': 'IR',
-            'iraq': 'IQ', 'israel': 'IL', 'jordan': 'JO', 'lebanon': 'LB',
-            'oman': 'OM', 'kuwait': 'KW', 'bahrain': 'BH', 'syria': 'SY',
-            'yemen': 'YE', 'palestine': 'PS', 'turkey': 'TR', 'afghanistan': 'AF',
-            // 유럽
-            'germany': 'DE', 'france': 'FR', 'uk': 'GB', 'italy': 'IT',
-            'spain': 'ES', 'netherlands': 'NL', 'poland': 'PL', 'belgium': 'BE',
-            'sweden': 'SE', 'austria': 'AT', 'switzerland': 'CH', 'norway': 'NO',
-            'portugal': 'PT', 'greece': 'GR', 'czech-republic': 'CZ', 'romania': 'RO',
-            'hungary': 'HU', 'denmark': 'DK', 'finland': 'FI', 'ireland': 'IE',
-            'bulgaria': 'BG', 'slovakia': 'SK', 'croatia': 'HR', 'lithuania': 'LT',
-            'slovenia': 'SI', 'latvia': 'LV', 'estonia': 'EE', 'cyprus': 'CY',
-            'luxembourg': 'LU', 'malta': 'MT', 'russia': 'RU', 'ukraine': 'UA',
-            'belarus': 'BY', 'serbia': 'RS', 'albania': 'AL', 'north-macedonia': 'MK',
-            'montenegro': 'ME', 'bosnia': 'BA', 'moldova': 'MD', 'iceland': 'IS',
-            'georgia': 'GE', 'armenia': 'AM', 'azerbaijan': 'AZ',
-            // 북미
-            'canada': 'CA', 'mexico': 'MX', 'cuba': 'CU', 'jamaica': 'JM',
-            'haiti': 'HT', 'dominican-republic': 'DO', 'guatemala': 'GT', 'honduras': 'HN',
-            'el-salvador': 'SV', 'nicaragua': 'NI', 'costa-rica': 'CR', 'panama': 'PA',
-            'belize': 'BZ', 'puerto-rico': 'PR',
-            // 남미
-            'brazil': 'BR', 'argentina': 'AR', 'chile': 'CL', 'colombia': 'CO',
-            'peru': 'PE', 'venezuela': 'VE', 'ecuador': 'EC', 'bolivia': 'BO',
-            'paraguay': 'PY', 'uruguay': 'UY', 'guyana': 'GY', 'suriname': 'SR',
-            // 아프리카
-            'south-africa': 'ZA', 'egypt': 'EG', 'nigeria': 'NG', 'kenya': 'KE',
-            'ethiopia': 'ET', 'ghana': 'GH', 'morocco': 'MA', 'algeria': 'DZ',
-            'tunisia': 'TN', 'libya': 'LY', 'sudan': 'SD', 'tanzania': 'TZ',
-            'uganda': 'UG', 'rwanda': 'RW', 'senegal': 'SN', 'ivory-coast': 'CI',
-            'cameroon': 'CM', 'angola': 'AO', 'mozambique': 'MZ', 'zimbabwe': 'ZW',
-            'zambia': 'ZM', 'botswana': 'BW', 'namibia': 'NA', 'madagascar': 'MG',
-            'mauritius': 'MU', 'congo-drc': 'CD',
-            // 오세아니아
-            'australia': 'AU', 'new-zealand': 'NZ', 'fiji': 'FJ', 'papua-new-guinea': 'PG'
+    getLocalGeoJsonUrl(country) {
+        const localMap = {
+            'usa': '/data/us-states-accurate.geojson',
+            'south-korea': '/data/korea-official.geojson',
+            'japan': '/data/japan-prefectures-accurate.geojson'
         };
-        
-        const iso2 = isoCodeMap[country];
-        if (!iso2) return null;
-        
-        try {
-            // OSM Admin Boundaries API 사용
-            const url = `https://nominatim.openstreetmap.org/search?country=${iso2}&polygon_geojson=1&format=geojson&limit=1`;
-            const response = await fetch(url, {
-                headers: { 'User-Agent': 'BillionaireHomepage/2.0' }
-            });
-            
-            if (!response.ok) return null;
-            
-            const data = await response.json();
-            if (data.features && data.features.length > 0) {
-                const normalized = this.normalizeGeoJson(data, country);
-                this.geoJsonCache.set(country, normalized);
-                log.info(`Fallback GeoJSON loaded for ${country}`);
-                return normalized;
-            }
-        } catch (error) {
-            log.error(`Fallback GeoJSON also failed for ${country}:`, error);
-        }
-        
-        return null;
+        return localMap[country] || null;
     }
     
     /**
      * GeoJSON 데이터 정규화
      */
     normalizeGeoJson(data, country) {
-        // 단일 Feature인 경우 FeatureCollection으로 변환
         if (data.type === 'Feature') {
             data = {
                 type: 'FeatureCollection',
@@ -260,15 +328,14 @@ class MapController {
             };
         }
         
-        // 각 feature에 id와 필수 속성 추가
         if (data.features) {
             data.features = data.features.map((feature, index) => ({
                 ...feature,
-                id: feature.id || `${country}-${index}`,
+                id: feature.id ?? index,
                 properties: {
                     ...feature.properties,
                     id: feature.properties?.id || `${country}-${index}`,
-                    name: feature.properties?.name || feature.properties?.NAME || feature.properties?.admin || country,
+                    name: feature.properties?.name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`,
                     country: country,
                     sovereignty: 'unconquered'
                 }
@@ -279,110 +346,20 @@ class MapController {
     }
     
     /**
-     * GeoJSON URL 결정
-     * 로컬 파일 우선, 없으면 외부 CDN 사용
-     */
-    getGeoJsonUrl(country) {
-        // 로컬 파일 (고품질)
-        const localMap = {
-            'usa': '/data/us-states-accurate.geojson',
-            'south-korea': '/data/korea-official.geojson',
-            'japan': '/data/japan-prefectures-accurate.geojson',
-            'world': '/data/world-regions.geojson'
-        };
-        
-        if (localMap[country]) {
-            return { url: localMap[country], isLocal: true };
-        }
-        
-        // 외부 CDN - ISO 3166-1 alpha-3 코드 매핑 (전 세계 200+ 국가)
-        const isoCodeMap = {
-            // 아시아
-            'china': 'CHN', 'taiwan': 'TWN', 'hong-kong': 'HKG', 'india': 'IND',
-            'indonesia': 'IDN', 'thailand': 'THA', 'vietnam': 'VNM', 'malaysia': 'MYS',
-            'singapore': 'SGP', 'philippines': 'PHL', 'pakistan': 'PAK', 'bangladesh': 'BGD',
-            'myanmar': 'MMR', 'cambodia': 'KHM', 'laos': 'LAO', 'mongolia': 'MNG',
-            'nepal': 'NPL', 'sri-lanka': 'LKA', 'kazakhstan': 'KAZ', 'uzbekistan': 'UZB',
-            'north-korea': 'PRK', 'brunei': 'BRN', 'bhutan': 'BTN', 'maldives': 'MDV',
-            'timor-leste': 'TLS',
-            
-            // 중동
-            'saudi-arabia': 'SAU', 'uae': 'ARE', 'qatar': 'QAT', 'iran': 'IRN',
-            'iraq': 'IRQ', 'israel': 'ISR', 'jordan': 'JOR', 'lebanon': 'LBN',
-            'oman': 'OMN', 'kuwait': 'KWT', 'bahrain': 'BHR', 'syria': 'SYR',
-            'yemen': 'YEM', 'palestine': 'PSE', 'turkey': 'TUR', 'afghanistan': 'AFG',
-            
-            // 유럽
-            'germany': 'DEU', 'france': 'FRA', 'uk': 'GBR', 'italy': 'ITA',
-            'spain': 'ESP', 'netherlands': 'NLD', 'poland': 'POL', 'belgium': 'BEL',
-            'sweden': 'SWE', 'austria': 'AUT', 'switzerland': 'CHE', 'norway': 'NOR',
-            'portugal': 'PRT', 'greece': 'GRC', 'czech-republic': 'CZE', 'romania': 'ROU',
-            'hungary': 'HUN', 'denmark': 'DNK', 'finland': 'FIN', 'ireland': 'IRL',
-            'bulgaria': 'BGR', 'slovakia': 'SVK', 'croatia': 'HRV', 'lithuania': 'LTU',
-            'slovenia': 'SVN', 'latvia': 'LVA', 'estonia': 'EST', 'cyprus': 'CYP',
-            'luxembourg': 'LUX', 'malta': 'MLT', 'russia': 'RUS', 'ukraine': 'UKR',
-            'belarus': 'BLR', 'serbia': 'SRB', 'albania': 'ALB', 'north-macedonia': 'MKD',
-            'montenegro': 'MNE', 'bosnia': 'BIH', 'moldova': 'MDA', 'iceland': 'ISL',
-            'georgia': 'GEO', 'armenia': 'ARM', 'azerbaijan': 'AZE',
-            
-            // 북미
-            'canada': 'CAN', 'mexico': 'MEX', 'cuba': 'CUB', 'jamaica': 'JAM',
-            'haiti': 'HTI', 'dominican-republic': 'DOM', 'guatemala': 'GTM', 'honduras': 'HND',
-            'el-salvador': 'SLV', 'nicaragua': 'NIC', 'costa-rica': 'CRI', 'panama': 'PAN',
-            'belize': 'BLZ', 'puerto-rico': 'PRI',
-            
-            // 남미
-            'brazil': 'BRA', 'argentina': 'ARG', 'chile': 'CHL', 'colombia': 'COL',
-            'peru': 'PER', 'venezuela': 'VEN', 'ecuador': 'ECU', 'bolivia': 'BOL',
-            'paraguay': 'PRY', 'uruguay': 'URY', 'guyana': 'GUY', 'suriname': 'SUR',
-            
-            // 아프리카
-            'south-africa': 'ZAF', 'egypt': 'EGY', 'nigeria': 'NGA', 'kenya': 'KEN',
-            'ethiopia': 'ETH', 'ghana': 'GHA', 'morocco': 'MAR', 'algeria': 'DZA',
-            'tunisia': 'TUN', 'libya': 'LBY', 'sudan': 'SDN', 'tanzania': 'TZA',
-            'uganda': 'UGA', 'rwanda': 'RWA', 'senegal': 'SEN', 'ivory-coast': 'CIV',
-            'cameroon': 'CMR', 'angola': 'AGO', 'mozambique': 'MOZ', 'zimbabwe': 'ZWE',
-            'zambia': 'ZMB', 'botswana': 'BWA', 'namibia': 'NAM', 'madagascar': 'MDG',
-            'mauritius': 'MUS', 'congo-drc': 'COD',
-            
-            // 오세아니아
-            'australia': 'AUS', 'new-zealand': 'NZL', 'fiji': 'FJI', 'papua-new-guinea': 'PNG',
-            
-            'european-union': 'EU'
-        };
-        
-        const isoCode = isoCodeMap[country];
-        if (isoCode) {
-            // GADM (Global Administrative Areas) CDN 사용
-            return { 
-                url: `https://raw.githubusercontent.com/datasets/geo-countries/master/data/${isoCode}.geojson`,
-                isLocal: false,
-                isoCode: isoCode
-            };
-        }
-        
-        return null;
-    }
-    
-    /**
      * 지원 국가 목록 (전 세계)
      */
     getSupportedCountries() {
-        // CONFIG.COUNTRIES의 모든 키를 반환
         if (typeof CONFIG !== 'undefined' && CONFIG.COUNTRIES) {
             return Object.keys(CONFIG.COUNTRIES);
         }
-        // 폴백: 기본 국가 목록
         return ['usa', 'south-korea', 'japan'];
     }
     
     /**
-     * 국가 지원 여부 확인
+     * 국가 지원 여부 확인 - 모든 국가 지원
      */
     isCountrySupported(country) {
-        // 로컬 파일이 있거나 ISO 코드 매핑이 있으면 지원
-        const urlInfo = this.getGeoJsonUrl(country);
-        return urlInfo !== null;
+        return true;  // Natural Earth 데이터로 모든 국가 지원
     }
     
     /**
