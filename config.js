@@ -10,7 +10,7 @@ export const CONFIG = {
     
     // Mapbox 설정
     MAPBOX: {
-        ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.dIefOUuYqwYtl8MwXbpJuw',
+        ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.dIefOUuYqwYtl8MwXbpJuw',
         STYLE: 'mapbox://styles/mapbox/dark-v11',
         DEFAULT_CENTER: [0, 20],
         DEFAULT_ZOOM: 2,
@@ -163,5 +163,4 @@ export const log = {
 };
 
 export default CONFIG;
-
 
