@@ -215,6 +215,61 @@ const WIKIDATA_ADMIN_TYPES = {
 // 캐시된 행정구역 데이터
 const ADMIN_DATA_CACHE = new Map();
 
+// 국가 슬러그 → ISO 3자리 코드 매핑
+const COUNTRY_SLUG_TO_ISO = {
+    // 아시아
+    'south-korea': 'KOR', 'japan': 'JPN', 'china': 'CHN', 'taiwan': 'TWN',
+    'hong-kong': 'HKG', 'india': 'IND', 'indonesia': 'IDN', 'thailand': 'THA',
+    'vietnam': 'VNM', 'malaysia': 'MYS', 'singapore': 'SGP', 'philippines': 'PHL',
+    'pakistan': 'PAK', 'bangladesh': 'BGD', 'myanmar': 'MMR', 'cambodia': 'KHM',
+    'laos': 'LAO', 'mongolia': 'MNG', 'nepal': 'NPL', 'sri-lanka': 'LKA',
+    'kazakhstan': 'KAZ', 'uzbekistan': 'UZB', 'north-korea': 'PRK',
+    'brunei': 'BRN', 'bhutan': 'BTN', 'maldives': 'MDV', 'timor-leste': 'TLS',
+    
+    // 중동
+    'saudi-arabia': 'SAU', 'uae': 'ARE', 'qatar': 'QAT', 'iran': 'IRN',
+    'iraq': 'IRQ', 'israel': 'ISR', 'jordan': 'JOR', 'lebanon': 'LBN',
+    'oman': 'OMN', 'kuwait': 'KWT', 'bahrain': 'BHR', 'syria': 'SYR',
+    'yemen': 'YEM', 'palestine': 'PSE', 'turkey': 'TUR', 'afghanistan': 'AFG',
+    
+    // 유럽
+    'germany': 'DEU', 'france': 'FRA', 'uk': 'GBR', 'italy': 'ITA',
+    'spain': 'ESP', 'netherlands': 'NLD', 'poland': 'POL', 'belgium': 'BEL',
+    'sweden': 'SWE', 'austria': 'AUT', 'switzerland': 'CHE', 'norway': 'NOR',
+    'portugal': 'PRT', 'greece': 'GRC', 'czech-republic': 'CZE', 'romania': 'ROU',
+    'hungary': 'HUN', 'denmark': 'DNK', 'finland': 'FIN', 'ireland': 'IRL',
+    'bulgaria': 'BGR', 'slovakia': 'SVK', 'croatia': 'HRV', 'lithuania': 'LTU',
+    'slovenia': 'SVN', 'latvia': 'LVA', 'estonia': 'EST', 'cyprus': 'CYP',
+    'luxembourg': 'LUX', 'malta': 'MLT', 'russia': 'RUS', 'ukraine': 'UKR',
+    'belarus': 'BLR', 'serbia': 'SRB', 'albania': 'ALB', 'north-macedonia': 'MKD',
+    'montenegro': 'MNE', 'bosnia': 'BIH', 'moldova': 'MDA', 'iceland': 'ISL',
+    'georgia': 'GEO', 'armenia': 'ARM', 'azerbaijan': 'AZE',
+    
+    // 북미
+    'usa': 'USA', 'canada': 'CAN', 'mexico': 'MEX', 'cuba': 'CUB',
+    'jamaica': 'JAM', 'haiti': 'HTI', 'dominican-republic': 'DOM',
+    'guatemala': 'GTM', 'honduras': 'HND', 'el-salvador': 'SLV',
+    'nicaragua': 'NIC', 'costa-rica': 'CRI', 'panama': 'PAN',
+    'belize': 'BLZ', 'puerto-rico': 'PRI',
+    
+    // 남미
+    'brazil': 'BRA', 'argentina': 'ARG', 'chile': 'CHL', 'colombia': 'COL',
+    'peru': 'PER', 'venezuela': 'VEN', 'ecuador': 'ECU', 'bolivia': 'BOL',
+    'paraguay': 'PRY', 'uruguay': 'URY', 'guyana': 'GUY', 'suriname': 'SUR',
+    
+    // 아프리카
+    'south-africa': 'ZAF', 'egypt': 'EGY', 'nigeria': 'NGA', 'kenya': 'KEN',
+    'ethiopia': 'ETH', 'ghana': 'GHA', 'morocco': 'MAR', 'algeria': 'DZA',
+    'tunisia': 'TUN', 'libya': 'LBY', 'sudan': 'SDN', 'tanzania': 'TZA',
+    'uganda': 'UGA', 'rwanda': 'RWA', 'senegal': 'SEN', 'ivory-coast': 'CIV',
+    'cameroon': 'CMR', 'angola': 'AGO', 'mozambique': 'MOZ', 'zimbabwe': 'ZWE',
+    'zambia': 'ZMB', 'botswana': 'BWA', 'namibia': 'NAM', 'madagascar': 'MDG',
+    'mauritius': 'MUS', 'congo-drc': 'COD',
+    
+    // 오세아니아
+    'australia': 'AUS', 'new-zealand': 'NZL', 'fiji': 'FJI', 'papua-new-guinea': 'PNG'
+};
+
 class TerritoryDataService {
     constructor() {
         this.territoryData = new Map();
@@ -283,19 +338,39 @@ class TerritoryDataService {
     }
     
     /**
+     * 국가 슬러그를 ISO 코드로 변환
+     */
+    convertToISOCode(countrySlug) {
+        if (!countrySlug) return null;
+        
+        // 이미 ISO 코드인 경우 (대문자 3자리)
+        const upperCode = countrySlug.toUpperCase();
+        if (upperCode.length === 3 && WIKIDATA_ADMIN_TYPES[upperCode]) {
+            return upperCode;
+        }
+        
+        // 슬러그에서 ISO 코드로 변환
+        const slug = countrySlug.toLowerCase();
+        return COUNTRY_SLUG_TO_ISO[slug] || upperCode;
+    }
+    
+    /**
      * Wikidata에서 행정구역 실데이터 로드
-     * @param {string} countryCode - 국가 코드 (예: 'USA', 'KOR')
+     * @param {string} countryCode - 국가 코드 또는 슬러그 (예: 'USA', 'usa', 'south-korea')
      */
     async loadAdminDataFromWikidata(countryCode) {
-        const adminType = WIKIDATA_ADMIN_TYPES[countryCode];
+        // 국가 코드 정규화 (슬러그 → ISO 코드)
+        const isoCode = this.convertToISOCode(countryCode);
+        
+        const adminType = WIKIDATA_ADMIN_TYPES[isoCode];
         if (!adminType) {
-            log.warn(`No Wikidata mapping for country: ${countryCode}`);
+            log.warn(`No Wikidata mapping for country: ${countryCode} (ISO: ${isoCode})`);
             return null;
         }
         
-        // 캐시 확인
-        if (this.adminDataCache.has(countryCode)) {
-            return this.adminDataCache.get(countryCode);
+        // 캐시 확인 (ISO 코드로)
+        if (this.adminDataCache.has(isoCode)) {
+            return this.adminDataCache.get(isoCode);
         }
         
         try {
@@ -342,9 +417,9 @@ class TerritoryDataService {
                 }
             }
             
-            // 캐시에 저장
-            this.adminDataCache.set(countryCode, adminData);
-            log.info(`Loaded ${adminData.size} admin regions from Wikidata for ${countryCode}`);
+            // 캐시에 저장 (ISO 코드로)
+            this.adminDataCache.set(isoCode, adminData);
+            log.info(`Loaded ${adminData.size} admin regions from Wikidata for ${isoCode}`);
             
             return adminData;
             
@@ -503,10 +578,13 @@ class TerritoryDataService {
         const props = territory.properties || territory;
         let area = null;
         
+        // 국가 코드 정규화 (슬러그 → ISO 코드)
+        const isoCode = this.convertToISOCode(countryCode);
+        
         // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
         const territoryName = this.extractTerritoryName(props);
-        if (territoryName && this.adminDataCache.has(countryCode)) {
-            const adminData = this.adminDataCache.get(countryCode);
+        if (territoryName && this.adminDataCache.has(isoCode)) {
+            const adminData = this.adminDataCache.get(isoCode);
             const normalizedName = territoryName.toLowerCase().trim();
             
             // 직접 매칭
@@ -588,10 +666,13 @@ class TerritoryDataService {
     extractPopulation(territory, countryCode) {
         const props = territory.properties || territory;
         
+        // 국가 코드 정규화 (슬러그 → ISO 코드)
+        const isoCode = this.convertToISOCode(countryCode);
+        
         // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
         const territoryName = this.extractTerritoryName(props);
-        if (territoryName && this.adminDataCache.has(countryCode)) {
-            const adminData = this.adminDataCache.get(countryCode);
+        if (territoryName && this.adminDataCache.has(isoCode)) {
+            const adminData = this.adminDataCache.get(isoCode);
             const normalizedName = territoryName.toLowerCase().trim();
             
             // 직접 매칭

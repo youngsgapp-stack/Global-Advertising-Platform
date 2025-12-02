@@ -787,7 +787,8 @@ class BillionaireApp {
             });
             
             // 백그라운드에서 Wikidata 실데이터 로드 (병렬 실행)
-            const wikidataPromise = territoryDataService.loadAdminDataFromWikidata(countryCode.toUpperCase());
+            // convertToISOCode가 슬러그('usa', 'south-korea')를 ISO 코드로 변환
+            const wikidataPromise = territoryDataService.loadAdminDataFromWikidata(countryCode);
             
             // Load GeoJSON data
             const geoJson = await mapController.loadGeoJsonData(countryCode);
