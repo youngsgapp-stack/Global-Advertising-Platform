@@ -637,7 +637,26 @@ class MapController {
     }
     
     /**
-     * Load World View - Display all countries at once
+     * Generate color from string (hash-based)
+     */
+    stringToColor(str) {
+        if (!str) return '#4ecdc4';
+        
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        
+        // Generate HSL color with good saturation and lightness
+        const h = Math.abs(hash) % 360;
+        const s = 50 + (Math.abs(hash >> 8) % 30);  // 50-80%
+        const l = 40 + (Math.abs(hash >> 16) % 20); // 40-60%
+        
+        return `hsl(${h}, ${s}%, ${l}%)`;
+    }
+    
+    /**
+     * Load World View - Display all countries at once with unique colors
      */
     async loadWorldView() {
         try {
@@ -653,23 +672,39 @@ class MapController {
                 return false;
             }
             
-            // Add all regions as one layer
+            // Create color map for countries
+            const countryColors = new Map();
+            
+            // Add all regions as one layer with country colors
             const worldData = {
                 type: 'FeatureCollection',
-                features: this.globalAdminData.features.map((feature, index) => ({
-                    ...feature,
-                    id: index,
-                    properties: {
-                        ...feature.properties,
-                        id: `world-${index}`,
-                        name: feature.properties.name || feature.properties.name_en || `Region ${index}`,
-                        country: feature.properties.admin || feature.properties.sov_a3 || 'unknown',
-                        sovereignty: 'unconquered'
+                features: this.globalAdminData.features.map((feature, index) => {
+                    const countryCode = feature.properties.sov_a3 || feature.properties.admin || 'unknown';
+                    
+                    // Get or generate color for this country
+                    if (!countryColors.has(countryCode)) {
+                        countryColors.set(countryCode, this.stringToColor(countryCode));
                     }
-                }))
+                    
+                    return {
+                        ...feature,
+                        id: index,
+                        properties: {
+                            ...feature.properties,
+                            id: `world-${index}`,
+                            name: feature.properties.name || feature.properties.name_en || `Region ${index}`,
+                            country: feature.properties.admin || countryCode,
+                            countryCode: countryCode,
+                            countryColor: countryColors.get(countryCode),
+                            sovereignty: 'unconquered'
+                        }
+                    };
+                })
             };
             
-            // Add world layer (skip clearing since we just cleared)
+            log.info(`Generated colors for ${countryColors.size} countries`);
+            
+            // Add world layer
             if (this.map.getSource('world-territories')) {
                 this.map.getSource('world-territories').setData(worldData);
             } else {
@@ -684,16 +719,12 @@ class MapController {
                     type: 'fill',
                     source: 'world-territories',
                     paint: {
-                        'fill-color': [
-                            'case',
-                            ['==', ['get', 'sovereignty'], 'ruled'], CONFIG.COLORS.SOVEREIGNTY.RULED,
-                            ['==', ['get', 'sovereignty'], 'contested'], CONFIG.COLORS.SOVEREIGNTY.CONTESTED,
-                            CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
-                        ],
+                        'fill-color': ['get', 'countryColor'],
                         'fill-opacity': [
                             'case',
-                            ['boolean', ['feature-state', 'hover'], false], 0.7,
-                            0.5
+                            ['boolean', ['feature-state', 'hover'], false], 0.85,
+                            ['boolean', ['feature-state', 'selected'], false], 0.9,
+                            0.65
                         ]
                     }
                 });
@@ -704,8 +735,12 @@ class MapController {
                     source: 'world-territories',
                     paint: {
                         'line-color': '#ffffff',
-                        'line-width': 0.5,
-                        'line-opacity': 0.6
+                        'line-width': [
+                            'case',
+                            ['boolean', ['feature-state', 'hover'], false], 1.5,
+                            0.5
+                        ],
+                        'line-opacity': 0.7
                     }
                 });
                 

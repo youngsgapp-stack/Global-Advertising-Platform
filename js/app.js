@@ -347,8 +347,13 @@ class BillionaireApp {
      * Load Initial Data
      */
     async loadInitialData() {
-        // Load USA as default
-        await this.loadCountry('usa');
+        // Start with World View as default
+        const toggleBtn = document.getElementById('view-mode-toggle');
+        if (toggleBtn) {
+            toggleBtn.textContent = '📍 Country';
+            toggleBtn.classList.add('active');
+        }
+        await mapController.loadWorldView();
     }
     
     /**
