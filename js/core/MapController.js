@@ -651,10 +651,22 @@ class MapController {
             { selected: true }
         );
         
+        // 국가 코드 추출: currentCountry 또는 sourceId에서 추출
+        // sourceId 형식: 'states-usa', 'regions-south-korea', 'prefectures-japan'
+        let countryCode = this.currentCountry;
+        if (!countryCode && sourceId) {
+            const parts = sourceId.split('-');
+            if (parts.length >= 2) {
+                // 첫 번째 부분 (states, regions, etc) 제거하고 나머지 합침
+                countryCode = parts.slice(1).join('-');
+            }
+        }
+        
         eventBus.emit(EVENTS.TERRITORY_SELECT, {
             territoryId: feature.properties.id || feature.id,
             properties: feature.properties,
-            geometry: feature.geometry
+            geometry: feature.geometry,
+            country: countryCode
         });
     }
     

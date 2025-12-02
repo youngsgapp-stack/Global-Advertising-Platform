@@ -83,7 +83,7 @@ class TerritoryManager {
      * 영토 선택 처리
      */
     async handleTerritorySelect(data) {
-        const { territoryId, properties } = data;
+        const { territoryId, properties, country, geometry } = data;
         
         // Firestore에서 최신 데이터 가져오기
         let territory = this.territories.get(territoryId);
@@ -93,6 +93,10 @@ class TerritoryManager {
             territory = this.createTerritoryFromProperties(territoryId, properties);
             this.territories.set(territoryId, territory);
         }
+        
+        // 국가 코드와 지오메트리 추가
+        territory.country = country;
+        territory.geometry = geometry;
         
         this.currentTerritory = territory;
         

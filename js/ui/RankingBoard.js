@@ -55,7 +55,10 @@ class RankingBoard {
         this.container.innerHTML = `
             <div class="ranking-header">
                 <h3 class="ranking-title" id="ranking-title" style="cursor: pointer;">🏆 Global Rankings</h3>
-                <button class="ranking-refresh-btn" id="ranking-refresh">🔄</button>
+                <div class="ranking-header-buttons">
+                    <button class="ranking-refresh-btn" id="ranking-refresh" title="새로고침">🔄</button>
+                    <button class="ranking-close-btn" id="ranking-close" title="닫기">×</button>
+                </div>
             </div>
             
             <div class="ranking-tabs">
@@ -79,6 +82,12 @@ class RankingBoard {
         // 새로고침 버튼
         document.getElementById('ranking-refresh')?.addEventListener('click', () => {
             this.refresh();
+        });
+        
+        // 닫기 버튼
+        document.getElementById('ranking-close')?.addEventListener('click', (e) => {
+            e.stopPropagation(); // 이벤트 버블링 방지
+            this.close();
         });
         
         // 제목 클릭 → 전체 화면 모달
@@ -323,6 +332,26 @@ class RankingBoard {
     formatNumber(num) {
         if (!num) return '0';
         return num.toLocaleString();
+    }
+    
+    /**
+     * 패널 닫기
+     */
+    close() {
+        if (this.container) {
+            this.container.classList.add('hidden');
+            this.isOpen = false;
+        }
+    }
+    
+    /**
+     * 패널 열기
+     */
+    open() {
+        if (this.container) {
+            this.container.classList.remove('hidden');
+            this.isOpen = true;
+        }
     }
     
     /**
