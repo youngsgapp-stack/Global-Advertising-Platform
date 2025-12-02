@@ -148,6 +148,35 @@
             <div class="spinner"></div>
             <p>🌍 Loading the world...</p>
         </div>
+        
+        <!-- Admin Login Modal (P키 5번 연타로 열기) -->
+        <div id="admin-login-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content admin-modal">
+                <button class="modal-close" id="close-admin-modal">&times;</button>
+                <div class="modal-header">
+                    <h2>🔐 Admin Access</h2>
+                    <p>관리자 로그인</p>
+                </div>
+                <form id="admin-login-form-main">
+                    <div class="form-group">
+                        <label for="admin-id">Admin ID</label>
+                        <input type="text" id="admin-id" placeholder="Enter admin ID" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="admin-pwd">Password</label>
+                        <input type="password" id="admin-pwd" placeholder="Enter password" required>
+                    </div>
+                    <button type="submit" class="btn-primary btn-full">
+                        🔓 Login
+                    </button>
+                    <div id="admin-login-error" class="error-message hidden"></div>
+                </form>
+                <div class="modal-footer">
+                    <small>💡 P키 5번 연타로 이 모달을 열 수 있습니다</small>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Mapbox GL JS -->

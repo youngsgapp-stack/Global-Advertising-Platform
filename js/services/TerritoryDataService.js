@@ -1,6 +1,7 @@
 /**
  * TerritoryDataService - 영토 실데이터 관리
  * 인구, 면적, GDP, 가격 산정
+ * 면적 기반 픽셀 수 및 광고 가격 계산
  */
 
 import { CONFIG, log } from '../config.js';
@@ -20,7 +21,16 @@ const REGION_MULTIPLIER = {
 const COUNTRY_ECONOMIC_FACTOR = {
     'USA': 1.5, 'JPN': 1.4, 'DEU': 1.3, 'GBR': 1.3, 'FRA': 1.2,
     'KOR': 1.2, 'CHN': 1.1, 'IND': 0.9, 'BRA': 0.9, 'RUS': 1.0,
-    'default': 1.0
+    'AUS': 1.2, 'CAN': 1.3, 'SGP': 1.6, 'ARE': 1.5, 'CHE': 1.6,
+    'NOR': 1.4, 'SWE': 1.3, 'NLD': 1.3, 'default': 1.0
+};
+
+// 픽셀 계산 상수
+const PIXEL_CONFIG = {
+    MIN_PIXELS: 100,        // 최소 픽셀 수
+    MAX_PIXELS: 10000,      // 최대 픽셀 수
+    AREA_DIVISOR: 1000,     // 면적을 픽셀로 변환할 때 나눌 값 (km² / DIVISOR)
+    PRICE_PER_PIXEL: 0.1    // 픽셀당 기본 가격 ($)
 };
 
 class TerritoryDataService {
@@ -155,41 +165,154 @@ class TerritoryDataService {
     }
     
     /**
-     * 행정구역 가격 계산
+     * 행정구역 가격 계산 - 픽셀 수 기반
      */
     calculateTerritoryPrice(territory, countryCode) {
-        const countryData = this.countryStats.get(countryCode);
-        if (!countryData) return 100;
+        // 픽셀 수 기반 가격 계산
+        const pixelCount = this.calculatePixelCount(territory, countryCode);
+        const econFactor = this.getEconomicFactor(countryCode);
         
-        // Natural Earth 데이터에서 인구 추출
-        const pop = territory.properties?.pop_est || 
-                    territory.properties?.population ||
-                    countryData.population / 50; // 대략 50개 지역으로 나눔
+        // 기본 가격 = 픽셀 수 × 픽셀당 가격 × 경제계수
+        let price = pixelCount * PIXEL_CONFIG.PRICE_PER_PIXEL * econFactor;
         
-        const area = territory.properties?.area_sqkm ||
-                     territory.properties?.AREA ||
-                     countryData.area / 50;
+        // 지역 타입에 따른 보너스
+        const regionMult = this.getRegionMultiplier(territory);
+        price = price * regionMult;
         
-        // 지역 타입 판단
-        const name = (territory.properties?.name || '').toLowerCase();
-        let regionType = 'inland';
+        // 깔끔한 숫자로 반올림 ($5 ~ $50,000 범위)
+        price = Math.max(5, Math.min(50000, price));
         
-        if (name.includes('capital') || name.includes('seoul') || 
-            name.includes('tokyo') || name.includes('washington')) {
-            regionType = 'capital';
-        } else if (name.includes('city') || name.includes('metro')) {
-            regionType = 'major_city';
+        if (price < 50) {
+            price = Math.round(price / 5) * 5;
+        } else if (price < 500) {
+            price = Math.round(price / 10) * 10;
+        } else if (price < 5000) {
+            price = Math.round(price / 50) * 50;
+        } else {
+            price = Math.round(price / 100) * 100;
         }
         
-        const regionMult = REGION_MULTIPLIER[regionType] || 1.0;
-        
-        // 가격 계산
-        let price = this.calculateBasePrice(pop, area, countryCode) * regionMult;
-        
-        // 범위 조정
-        price = Math.max(10, Math.min(50000, price));
-        
         return Math.round(price);
+    }
+    
+    /**
+     * 면적 기반 픽셀 수 계산
+     */
+    calculatePixelCount(territory, countryCode) {
+        // 면적 데이터 추출 (Natural Earth 데이터에서)
+        const area = this.extractArea(territory, countryCode);
+        
+        if (!area || area <= 0) {
+            return PIXEL_CONFIG.MIN_PIXELS;
+        }
+        
+        // 면적 → 픽셀 변환
+        // 작은 지역도 최소 픽셀 보장, 큰 지역은 최대 픽셀로 제한
+        let pixels = Math.sqrt(area) * 10; // 제곱근 사용하여 스케일 조정
+        
+        pixels = Math.max(PIXEL_CONFIG.MIN_PIXELS, Math.min(PIXEL_CONFIG.MAX_PIXELS, pixels));
+        
+        return Math.round(pixels);
+    }
+    
+    /**
+     * 영토에서 면적 추출
+     */
+    extractArea(territory, countryCode) {
+        const props = territory.properties || territory;
+        
+        // Natural Earth 속성에서 면적 추출 시도
+        const area = props.area_sqkm || 
+                    props.AREA ||
+                    props.area ||
+                    props.Shape_Area ||  // ESRI shapefile 형식
+                    props.arealand ||
+                    null;
+        
+        if (area) return area;
+        
+        // 국가 데이터에서 평균 면적 추정
+        const countryData = this.getCountryStats(countryCode);
+        if (countryData && countryData.area) {
+            // 국가 면적을 대략적인 행정구역 수로 나눔
+            return countryData.area / 50;
+        }
+        
+        return 10000; // 기본값: 10,000 km²
+    }
+    
+    /**
+     * 영토에서 인구 추출
+     */
+    extractPopulation(territory, countryCode) {
+        const props = territory.properties || territory;
+        
+        // Natural Earth 속성에서 인구 추출 시도
+        const population = props.pop_est ||
+                          props.population ||
+                          props.POP_EST ||
+                          props.POPULATION ||
+                          props.pop ||
+                          null;
+        
+        if (population) return population;
+        
+        // 국가 데이터에서 평균 인구 추정
+        const countryData = this.getCountryStats(countryCode);
+        if (countryData && countryData.population) {
+            // 국가 인구를 대략적인 행정구역 수로 나눔
+            return Math.round(countryData.population / 50);
+        }
+        
+        return 1000000; // 기본값: 100만
+    }
+    
+    /**
+     * 지역 유형에 따른 가격 배수 결정
+     */
+    getRegionMultiplier(territory) {
+        const props = territory.properties || territory;
+        const name = (props.name || props.name_en || '').toLowerCase();
+        
+        // 수도 지역
+        const capitals = ['seoul', 'tokyo', 'washington', 'london', 'paris', 'berlin', 
+                         'beijing', 'moscow', 'canberra', 'ottawa', 'capital', 'district'];
+        if (capitals.some(cap => name.includes(cap))) {
+            return REGION_MULTIPLIER.capital;
+        }
+        
+        // 대도시
+        const majorCities = ['new york', 'los angeles', 'chicago', 'osaka', 'shanghai',
+                            'mumbai', 'são paulo', 'city', 'metro', 'urban'];
+        if (majorCities.some(city => name.includes(city))) {
+            return REGION_MULTIPLIER.major_city;
+        }
+        
+        // 해안 지역 (일반적인 해안 관련 키워드)
+        const coastal = ['coastal', 'beach', 'shore', 'bay', 'port', 'harbor'];
+        if (coastal.some(c => name.includes(c))) {
+            return REGION_MULTIPLIER.coastal;
+        }
+        
+        return REGION_MULTIPLIER.inland;
+    }
+    
+    /**
+     * 국가별 경제 계수 반환
+     */
+    getEconomicFactor(countryCode) {
+        // ISO 코드 변환
+        const codeMap = {
+            'usa': 'USA', 'south-korea': 'KOR', 'japan': 'JPN',
+            'china': 'CHN', 'germany': 'DEU', 'uk': 'GBR',
+            'france': 'FRA', 'india': 'IND', 'brazil': 'BRA',
+            'russia': 'RUS', 'australia': 'AUS', 'canada': 'CAN',
+            'singapore': 'SGP', 'uae': 'ARE', 'switzerland': 'CHE',
+            'norway': 'NOR', 'sweden': 'SWE', 'netherlands': 'NLD'
+        };
+        
+        const iso3 = codeMap[countryCode] || countryCode?.toUpperCase() || 'default';
+        return COUNTRY_ECONOMIC_FACTOR[iso3] || COUNTRY_ECONOMIC_FACTOR.default;
     }
     
     /**

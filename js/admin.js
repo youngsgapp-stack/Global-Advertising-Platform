@@ -8,11 +8,20 @@ import { CONFIG } from './config.js';
 // Firebase 설정
 const firebaseConfig = CONFIG.FIREBASE;
 
-// 관리자 이메일 목록 (실제 운영 시 Firestore에서 관리)
+// 관리자 이메일 목록 (Firebase Auth 사용 시)
 const ADMIN_EMAILS = [
     'admin@billionairemap.com',
-    'young91@naver.com',  // 본인 이메일로 변경하세요
+    'young91@naver.com',
 ];
+
+// 로컬 관리자 계정 (P키 5번 연타 로그인용)
+const LOCAL_ADMIN_CREDENTIALS = {
+    'admin': 'billionaire2024!',
+    'young91': 'admin1234!'
+};
+
+// 세션 인증 유효 시간 (1시간)
+const SESSION_VALID_DURATION = 60 * 60 * 1000;
 
 class AdminDashboard {
     constructor() {
@@ -29,7 +38,24 @@ class AdminDashboard {
      */
     async init() {
         try {
-            // Firebase 초기화
+            // 1. 먼저 세션 인증 확인 (P키 5번 로그인)
+            const sessionAuth = this.checkSessionAuth();
+            if (sessionAuth) {
+                console.log('Session auth valid:', sessionAuth.id);
+                this.currentUser = { email: sessionAuth.id, uid: 'local-' + sessionAuth.id };
+                this.isLocalAuth = true;
+                
+                // Firebase 초기화 (Firestore 사용을 위해)
+                this.firebase = firebase.initializeApp(firebaseConfig);
+                this.db = firebase.firestore();
+                
+                this.showDashboard();
+                this.loadDashboardData();
+                this.setupEventListeners();
+                return;
+            }
+            
+            // 2. Firebase 초기화 및 Auth
             this.firebase = firebase.initializeApp(firebaseConfig);
             this.auth = firebase.auth();
             this.db = firebase.firestore();
@@ -47,6 +73,35 @@ class AdminDashboard {
         } catch (error) {
             console.error('Admin init failed:', error);
             this.showError('Failed to initialize admin dashboard');
+        }
+    }
+    
+    /**
+     * 세션 인증 확인 (P키 5번 로그인)
+     */
+    checkSessionAuth() {
+        try {
+            const authData = sessionStorage.getItem('adminAuth');
+            if (!authData) return null;
+            
+            const parsed = JSON.parse(authData);
+            const now = Date.now();
+            
+            // 세션 유효 시간 확인
+            if (now - parsed.timestamp > SESSION_VALID_DURATION) {
+                sessionStorage.removeItem('adminAuth');
+                return null;
+            }
+            
+            // 유효한 관리자 ID인지 확인
+            if (!LOCAL_ADMIN_CREDENTIALS[parsed.id]) {
+                sessionStorage.removeItem('adminAuth');
+                return null;
+            }
+            
+            return parsed;
+        } catch (e) {
+            return null;
         }
     }
     
@@ -111,7 +166,16 @@ class AdminDashboard {
         
         // 로그아웃
         document.getElementById('admin-logout-btn')?.addEventListener('click', () => {
-            this.auth.signOut();
+            // 세션 인증 삭제
+            sessionStorage.removeItem('adminAuth');
+            
+            // Firebase 로그아웃 (Firebase Auth 사용 시)
+            if (this.auth && !this.isLocalAuth) {
+                this.auth.signOut();
+            } else {
+                // 로컬 로그아웃
+                window.location.href = 'index.html';
+            }
         });
         
         // 새로고침

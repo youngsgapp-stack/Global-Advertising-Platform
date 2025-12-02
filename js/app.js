@@ -335,6 +335,7 @@ class BillionaireApp {
             // ESC: Close panel
             if (e.key === 'Escape') {
                 eventBus.emit(EVENTS.UI_PANEL_CLOSE, { type: 'territory' });
+                this.closeAdminModal();
             }
             
             // H: Help
@@ -350,7 +351,7 @@ class BillionaireApp {
                 
                 if (pKeyCount >= 5) {
                     pKeyCount = 0;
-                    eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'admin' });
+                    this.openAdminModal();
                 }
             }
             
@@ -359,6 +360,105 @@ class BillionaireApp {
             if (e.key === '2') mapController.flyTo([0, 20], 4);
             if (e.key === '3') mapController.flyTo([0, 20], 6);
         });
+        
+        // Admin modal event listeners
+        this.setupAdminModal();
+    }
+    
+    /**
+     * Admin Modal Setup
+     */
+    setupAdminModal() {
+        const modal = document.getElementById('admin-login-modal');
+        const closeBtn = document.getElementById('close-admin-modal');
+        const form = document.getElementById('admin-login-form-main');
+        const overlay = modal?.querySelector('.modal-overlay');
+        
+        // Close button
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeAdminModal());
+        }
+        
+        // Overlay click to close
+        if (overlay) {
+            overlay.addEventListener('click', () => this.closeAdminModal());
+        }
+        
+        // Form submission
+        if (form) {
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleAdminLogin();
+            });
+        }
+    }
+    
+    /**
+     * Open Admin Modal
+     */
+    openAdminModal() {
+        const modal = document.getElementById('admin-login-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            document.getElementById('admin-id')?.focus();
+            log.info('Admin modal opened');
+        }
+    }
+    
+    /**
+     * Close Admin Modal
+     */
+    closeAdminModal() {
+        const modal = document.getElementById('admin-login-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            // Clear form
+            document.getElementById('admin-id').value = '';
+            document.getElementById('admin-pwd').value = '';
+            document.getElementById('admin-login-error')?.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * Handle Admin Login
+     */
+    async handleAdminLogin() {
+        const adminId = document.getElementById('admin-id')?.value?.trim();
+        const adminPwd = document.getElementById('admin-pwd')?.value;
+        const errorEl = document.getElementById('admin-login-error');
+        
+        // 하드코딩된 관리자 계정 (실제 운영에서는 Firebase Auth 사용 권장)
+        const ADMIN_CREDENTIALS = {
+            'admin': 'billionaire2024!',
+            'young91': 'admin1234!'
+        };
+        
+        if (ADMIN_CREDENTIALS[adminId] && ADMIN_CREDENTIALS[adminId] === adminPwd) {
+            // 로그인 성공 - admin.html로 이동
+            this.showNotification({
+                type: 'success',
+                message: '✅ Admin login successful!'
+            });
+            
+            // 세션 스토리지에 관리자 상태 저장
+            sessionStorage.setItem('adminAuth', JSON.stringify({
+                id: adminId,
+                timestamp: Date.now()
+            }));
+            
+            this.closeAdminModal();
+            
+            // admin.html로 이동
+            setTimeout(() => {
+                window.location.href = 'admin.html';
+            }, 500);
+        } else {
+            // 로그인 실패
+            if (errorEl) {
+                errorEl.textContent = '❌ Invalid ID or password';
+                errorEl.classList.remove('hidden');
+            }
+        }
     }
     
     /**

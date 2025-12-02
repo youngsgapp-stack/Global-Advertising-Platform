@@ -113,28 +113,29 @@ class TerritoryPanel {
         const isOwner = user && t.ruler === user.uid;
         const auction = auctionSystem.getAuctionByTerritory(t.id);
         
+        // 국가 코드 결정 (properties에서 추출)
+        const countryCode = t.country || 
+                           t.properties?.country || 
+                           t.properties?.admin?.toLowerCase().replace(/\s+/g, '-') ||
+                           t.properties?.sov_a3?.toLowerCase() ||
+                           'unknown';
+        
         // Get real country data
-        this.countryData = territoryDataService.getCountryStats(t.country);
-        const countryInfo = CONFIG.COUNTRIES[t.country] || {};
+        this.countryData = territoryDataService.getCountryStats(countryCode);
+        const countryInfo = CONFIG.COUNTRIES[countryCode] || {};
         
-        // Calculate price from real data
-        const realPrice = this.countryData ? 
-            territoryDataService.calculateTerritoryPrice(t, t.country) : 
-            (t.tribute || 100);
+        // 인구/면적 데이터 추출 (TerritoryDataService 사용)
+        const population = territoryDataService.extractPopulation(t, countryCode);
+        const area = territoryDataService.extractArea(t, countryCode);
         
-        // Get population and area from real data or territory
-        const population = t.properties?.pop_est || 
-                          t.properties?.population || 
-                          this.countryData?.population || 
-                          t.population || 0;
+        // 픽셀 수 계산 (면적 기반)
+        const pixelCount = territoryDataService.calculatePixelCount(t, countryCode);
         
-        const area = t.properties?.area_sqkm || 
-                    t.properties?.AREA || 
-                    this.countryData?.area || 
-                    t.area || 0;
+        // 가격 계산 (픽셀 수 기반)
+        const realPrice = territoryDataService.calculateTerritoryPrice(t, countryCode);
         
-        const territoryName = t.name?.en || t.name || t.properties?.name || 'Unknown Territory';
-        const countryName = countryInfo.name || t.country || 'Unknown';
+        const territoryName = t.name?.en || t.name || t.properties?.name || t.properties?.name_en || 'Unknown Territory';
+        const countryName = countryInfo.name || t.properties?.admin || t.country || 'Unknown';
         const countryFlag = countryInfo.flag || '🏳️';
         
         this.container.innerHTML = `
@@ -197,17 +198,18 @@ class TerritoryPanel {
                     ` : ''}
                 </div>
                 
-                <!-- Pixel Value -->
+                <!-- Pixel Value (면적 기반) -->
                 <div class="pixel-value-section">
-                    <h3>🎨 Pixel Value</h3>
+                    <h3>🎨 Ad Space (Pixels)</h3>
                     <div class="value-bar-container">
-                        <div class="value-bar" style="width: ${this.getPixelPercentage(t)}%"></div>
+                        <div class="value-bar" style="width: ${Math.min(100, (pixelCount / 100))}%"></div>
                     </div>
                     <div class="value-text">
-                        <span>${this.formatNumber(t.pixelCanvas?.filledPixels || 0)}</span>
-                        <span>/</span>
-                        <span>${this.formatNumber(t.pixelCanvas?.width * t.pixelCanvas?.height || 10000)}</span>
-                        <span>pixels</span>
+                        <span class="pixel-count">${this.formatNumber(pixelCount)}</span>
+                        <span>available pixels</span>
+                    </div>
+                    <div class="price-breakdown">
+                        <small>💡 Price based on area × pixels × location</small>
                     </div>
                 </div>
                 
