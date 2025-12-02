@@ -54,7 +54,7 @@ class RankingBoard {
         
         this.container.innerHTML = `
             <div class="ranking-header">
-                <h3>🏆 Global Rankings</h3>
+                <h3 class="ranking-title" id="ranking-title" style="cursor: pointer;">🏆 Global Rankings</h3>
                 <button class="ranking-refresh-btn" id="ranking-refresh">🔄</button>
             </div>
             
@@ -79,6 +79,11 @@ class RankingBoard {
         // 새로고침 버튼
         document.getElementById('ranking-refresh')?.addEventListener('click', () => {
             this.refresh();
+        });
+        
+        // 제목 클릭 → 전체 화면 모달
+        document.getElementById('ranking-title')?.addEventListener('click', () => {
+            this.openFullScreen();
         });
         
         // 탭 버튼
@@ -326,13 +331,59 @@ class RankingBoard {
     openFullScreen() {
         const modal = document.createElement('div');
         modal.className = 'modal ranking-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
         modal.innerHTML = `
-            <div class="modal-content ranking-modal-content">
-                <div class="modal-header">
-                    <h2>🏆 Global Rankings</h2>
-                    <button class="close-btn" id="close-ranking-modal">&times;</button>
+            <div class="modal-content ranking-modal-content" style="
+                background: #1a1a2e;
+                border-radius: 16px;
+                border: 1px solid rgba(255,255,255,0.1);
+                max-width: 700px;
+                width: 90%;
+                max-height: 85vh;
+                overflow: hidden;
+            ">
+                <div class="modal-header" style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 20px;
+                    border-bottom: 1px solid rgba(255,255,255,0.1);
+                    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15) 0%, rgba(78, 205, 196, 0.05) 100%);
+                ">
+                    <h2 style="margin: 0; font-size: 1.5rem; color: white;">🏆 Global Rankings</h2>
+                    <button id="close-ranking-modal" style="
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 50%;
+                        border: 2px solid rgba(255, 107, 107, 0.5);
+                        background: rgba(255, 107, 107, 0.3);
+                        color: white;
+                        font-size: 24px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    ">×</button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="
+                    padding: 20px;
+                    max-height: calc(85vh - 80px);
+                    overflow-y: auto;
+                    color: white;
+                ">
                     ${this.container.innerHTML}
                 </div>
             </div>
@@ -351,6 +402,15 @@ class RankingBoard {
                 modal.remove();
             }
         });
+        
+        // ESC 키로 닫기
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
     }
 }
 

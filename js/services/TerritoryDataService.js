@@ -215,6 +215,176 @@ const WIKIDATA_ADMIN_TYPES = {
 // 캐시된 행정구역 데이터
 const ADMIN_DATA_CACHE = new Map();
 
+// 미국 50개 주 실제 데이터 (하드코딩 - 가장 정확)
+const US_STATES_DATA = {
+    'alabama': { area: 135767, population: 5024279 },
+    'alaska': { area: 1723337, population: 733391 },
+    'arizona': { area: 295234, population: 7151502 },
+    'arkansas': { area: 137732, population: 3011524 },
+    'california': { area: 423967, population: 39538223 },
+    'colorado': { area: 269601, population: 5773714 },
+    'connecticut': { area: 14357, population: 3605944 },
+    'delaware': { area: 6446, population: 989948 },
+    'florida': { area: 170312, population: 21538187 },
+    'georgia': { area: 153910, population: 10711908 },
+    'hawaii': { area: 28313, population: 1455271 },
+    'idaho': { area: 216443, population: 1839106 },
+    'illinois': { area: 149995, population: 12812508 },
+    'indiana': { area: 94326, population: 6785528 },
+    'iowa': { area: 145746, population: 3190369 },
+    'kansas': { area: 213100, population: 2937880 },
+    'kentucky': { area: 104656, population: 4505836 },
+    'louisiana': { area: 135659, population: 4657757 },
+    'maine': { area: 91633, population: 1362359 },
+    'maryland': { area: 32131, population: 6177224 },
+    'massachusetts': { area: 27336, population: 7029917 },
+    'michigan': { area: 250487, population: 10077331 },
+    'minnesota': { area: 225163, population: 5706494 },
+    'mississippi': { area: 125438, population: 2961279 },
+    'missouri': { area: 180540, population: 6154913 },
+    'montana': { area: 380831, population: 1084225 },
+    'nebraska': { area: 200330, population: 1961504 },
+    'nevada': { area: 286380, population: 3104614 },
+    'new hampshire': { area: 24214, population: 1377529 },
+    'new jersey': { area: 22591, population: 9288994 },
+    'new mexico': { area: 314917, population: 2117522 },
+    'new york': { area: 141297, population: 20201249 },
+    'north carolina': { area: 139391, population: 10439388 },
+    'north dakota': { area: 183108, population: 779094 },
+    'ohio': { area: 116098, population: 11799448 },
+    'oklahoma': { area: 181037, population: 3959353 },
+    'oregon': { area: 254799, population: 4237256 },
+    'pennsylvania': { area: 119280, population: 13002700 },
+    'rhode island': { area: 4001, population: 1097379 },
+    'south carolina': { area: 82933, population: 5118425 },
+    'south dakota': { area: 199729, population: 886667 },
+    'tennessee': { area: 109153, population: 6910840 },
+    'texas': { area: 695662, population: 29145505 },
+    'utah': { area: 219882, population: 3271616 },
+    'vermont': { area: 24906, population: 643077 },
+    'virginia': { area: 110787, population: 8631393 },
+    'washington': { area: 184661, population: 7614893 },
+    'west virginia': { area: 62756, population: 1793716 },
+    'wisconsin': { area: 169635, population: 5893718 },
+    'wyoming': { area: 253335, population: 576851 },
+    'district of columbia': { area: 177, population: 689545 },
+    'puerto rico': { area: 9104, population: 3285874 }
+};
+
+// 한국 광역시/도 실제 데이터
+const KOREA_REGIONS_DATA = {
+    '서울특별시': { area: 605, population: 9736027 },
+    '서울': { area: 605, population: 9736027 },
+    'seoul': { area: 605, population: 9736027 },
+    '부산광역시': { area: 770, population: 3404423 },
+    '부산': { area: 770, population: 3404423 },
+    'busan': { area: 770, population: 3404423 },
+    '대구광역시': { area: 884, population: 2418346 },
+    '대구': { area: 884, population: 2418346 },
+    'daegu': { area: 884, population: 2418346 },
+    '인천광역시': { area: 1063, population: 2942828 },
+    '인천': { area: 1063, population: 2942828 },
+    'incheon': { area: 1063, population: 2942828 },
+    '광주광역시': { area: 501, population: 1441970 },
+    '광주': { area: 501, population: 1441970 },
+    'gwangju': { area: 501, population: 1441970 },
+    '대전광역시': { area: 540, population: 1463882 },
+    '대전': { area: 540, population: 1463882 },
+    'daejeon': { area: 540, population: 1463882 },
+    '울산광역시': { area: 1062, population: 1136017 },
+    '울산': { area: 1062, population: 1136017 },
+    'ulsan': { area: 1062, population: 1136017 },
+    '세종특별자치시': { area: 465, population: 371895 },
+    '세종': { area: 465, population: 371895 },
+    'sejong': { area: 465, population: 371895 },
+    '경기도': { area: 10183, population: 13530519 },
+    '경기': { area: 10183, population: 13530519 },
+    'gyeonggi': { area: 10183, population: 13530519 },
+    '강원도': { area: 16875, population: 1538492 },
+    '강원': { area: 16875, population: 1538492 },
+    'gangwon': { area: 16875, population: 1538492 },
+    '충청북도': { area: 7407, population: 1600007 },
+    '충북': { area: 7407, population: 1600007 },
+    'chungbuk': { area: 7407, population: 1600007 },
+    '충청남도': { area: 8226, population: 2119257 },
+    '충남': { area: 8226, population: 2119257 },
+    'chungnam': { area: 8226, population: 2119257 },
+    '전라북도': { area: 8069, population: 1804104 },
+    '전북': { area: 8069, population: 1804104 },
+    'jeonbuk': { area: 8069, population: 1804104 },
+    '전라남도': { area: 12335, population: 1851549 },
+    '전남': { area: 12335, population: 1851549 },
+    'jeonnam': { area: 12335, population: 1851549 },
+    '경상북도': { area: 19030, population: 2639422 },
+    '경북': { area: 19030, population: 2639422 },
+    'gyeongbuk': { area: 19030, population: 2639422 },
+    '경상남도': { area: 10540, population: 3340216 },
+    '경남': { area: 10540, population: 3340216 },
+    'gyeongnam': { area: 10540, population: 3340216 },
+    '제주특별자치도': { area: 1850, population: 674635 },
+    '제주': { area: 1850, population: 674635 },
+    'jeju': { area: 1850, population: 674635 }
+};
+
+// 일본 도도부현 실제 데이터
+const JAPAN_PREFECTURES_DATA = {
+    'hokkaido': { area: 83424, population: 5224614 },
+    '北海道': { area: 83424, population: 5224614 },
+    'aomori': { area: 9646, population: 1237984 },
+    'iwate': { area: 15275, population: 1210534 },
+    'miyagi': { area: 7282, population: 2301996 },
+    'akita': { area: 11638, population: 959502 },
+    'yamagata': { area: 9323, population: 1068027 },
+    'fukushima': { area: 13784, population: 1833152 },
+    'ibaraki': { area: 6097, population: 2867009 },
+    'tochigi': { area: 6408, population: 1933146 },
+    'gunma': { area: 6362, population: 1939110 },
+    'saitama': { area: 3798, population: 7344765 },
+    'chiba': { area: 5158, population: 6284480 },
+    'tokyo': { area: 2194, population: 14047594 },
+    '東京': { area: 2194, population: 14047594 },
+    '東京都': { area: 2194, population: 14047594 },
+    'kanagawa': { area: 2416, population: 9237337 },
+    'niigata': { area: 12584, population: 2201272 },
+    'toyama': { area: 4248, population: 1034814 },
+    'ishikawa': { area: 4186, population: 1132526 },
+    'fukui': { area: 4190, population: 766863 },
+    'yamanashi': { area: 4465, population: 809974 },
+    'nagano': { area: 13562, population: 2048011 },
+    'gifu': { area: 10621, population: 1978742 },
+    'shizuoka': { area: 7777, population: 3633202 },
+    'aichi': { area: 5173, population: 7542415 },
+    '愛知': { area: 5173, population: 7542415 },
+    'mie': { area: 5774, population: 1770254 },
+    'shiga': { area: 4017, population: 1413610 },
+    'kyoto': { area: 4612, population: 2578087 },
+    '京都': { area: 4612, population: 2578087 },
+    'osaka': { area: 1905, population: 8837685 },
+    '大阪': { area: 1905, population: 8837685 },
+    'hyogo': { area: 8401, population: 5465002 },
+    'nara': { area: 3691, population: 1324473 },
+    'wakayama': { area: 4725, population: 922584 },
+    'tottori': { area: 3507, population: 553407 },
+    'shimane': { area: 6708, population: 671126 },
+    'okayama': { area: 7114, population: 1888432 },
+    'hiroshima': { area: 8479, population: 2799702 },
+    'yamaguchi': { area: 6112, population: 1342059 },
+    'tokushima': { area: 4147, population: 719559 },
+    'kagawa': { area: 1877, population: 950244 },
+    'ehime': { area: 5676, population: 1334841 },
+    'kochi': { area: 7104, population: 691527 },
+    'fukuoka': { area: 4987, population: 5135214 },
+    '福岡': { area: 4987, population: 5135214 },
+    'saga': { area: 2441, population: 811442 },
+    'nagasaki': { area: 4131, population: 1312317 },
+    'kumamoto': { area: 7409, population: 1738301 },
+    'oita': { area: 6341, population: 1123852 },
+    'miyazaki': { area: 7735, population: 1069576 },
+    'kagoshima': { area: 9187, population: 1588256 },
+    'okinawa': { area: 2281, population: 1467480 },
+    '沖縄': { area: 2281, population: 1467480 }
+};
+
 // 국가 슬러그 → ISO 3자리 코드 매핑
 const COUNTRY_SLUG_TO_ISO = {
     // 아시아
@@ -572,7 +742,7 @@ class TerritoryDataService {
     
     /**
      * 영토에서 면적 추출 (km² 단위)
-     * 우선순위: Wikidata 캐시 > GeoJSON 속성 > 지오메트리 계산 > 추정치
+     * 우선순위: 하드코딩 데이터 > Wikidata 캐시 > GeoJSON 속성 > 지오메트리 계산 > 추정치
      */
     extractArea(territory, countryCode) {
         const props = territory.properties || territory;
@@ -580,25 +750,49 @@ class TerritoryDataService {
         
         // 국가 코드 정규화 (슬러그 → ISO 코드)
         const isoCode = this.convertToISOCode(countryCode);
-        
-        // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
         const territoryName = this.extractTerritoryName(props);
-        if (territoryName && this.adminDataCache.has(isoCode)) {
-            const adminData = this.adminDataCache.get(isoCode);
+        
+        if (territoryName) {
             const normalizedName = territoryName.toLowerCase().trim();
             
-            // 직접 매칭
-            if (adminData.has(normalizedName)) {
-                const wikidataInfo = adminData.get(normalizedName);
-                if (wikidataInfo.area && wikidataInfo.area > 0) {
-                    return Math.round(wikidataInfo.area);
+            // 0. 하드코딩된 데이터에서 먼저 조회 (가장 정확하고 빠름)
+            if (isoCode === 'USA') {
+                const usData = US_STATES_DATA[normalizedName];
+                if (usData?.area) {
+                    log.debug(`[US] ${territoryName}: ${usData.area} km²`);
+                    return usData.area;
+                }
+            } else if (isoCode === 'KOR') {
+                const krData = KOREA_REGIONS_DATA[normalizedName] || KOREA_REGIONS_DATA[territoryName];
+                if (krData?.area) {
+                    log.debug(`[KR] ${territoryName}: ${krData.area} km²`);
+                    return krData.area;
+                }
+            } else if (isoCode === 'JPN') {
+                const jpData = JAPAN_PREFECTURES_DATA[normalizedName] || JAPAN_PREFECTURES_DATA[territoryName];
+                if (jpData?.area) {
+                    log.debug(`[JP] ${territoryName}: ${jpData.area} km²`);
+                    return jpData.area;
                 }
             }
             
-            // 부분 매칭
-            for (const [key, value] of adminData) {
-                if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.area > 0) {
-                    return Math.round(value.area);
+            // 1. Wikidata 캐시에서 조회
+            if (this.adminDataCache.has(isoCode)) {
+                const adminData = this.adminDataCache.get(isoCode);
+                
+                // 직접 매칭
+                if (adminData.has(normalizedName)) {
+                    const wikidataInfo = adminData.get(normalizedName);
+                    if (wikidataInfo.area && wikidataInfo.area > 0) {
+                        return Math.round(wikidataInfo.area);
+                    }
+                }
+                
+                // 부분 매칭
+                for (const [key, value] of adminData) {
+                    if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.area > 0) {
+                        return Math.round(value.area);
+                    }
                 }
             }
         }
@@ -661,32 +855,53 @@ class TerritoryDataService {
     
     /**
      * 영토에서 인구 추출
-     * 우선순위: Wikidata 캐시 > GeoJSON 속성 > 추정치
+     * 우선순위: 하드코딩 데이터 > Wikidata 캐시 > GeoJSON 속성 > 추정치
      */
     extractPopulation(territory, countryCode) {
         const props = territory.properties || territory;
         
         // 국가 코드 정규화 (슬러그 → ISO 코드)
         const isoCode = this.convertToISOCode(countryCode);
-        
-        // 0. Wikidata 캐시에서 실제 데이터 조회 (가장 정확)
         const territoryName = this.extractTerritoryName(props);
-        if (territoryName && this.adminDataCache.has(isoCode)) {
-            const adminData = this.adminDataCache.get(isoCode);
+        
+        if (territoryName) {
             const normalizedName = territoryName.toLowerCase().trim();
             
-            // 직접 매칭
-            if (adminData.has(normalizedName)) {
-                const wikidataInfo = adminData.get(normalizedName);
-                if (wikidataInfo.population && wikidataInfo.population > 0) {
-                    return Math.round(wikidataInfo.population);
+            // 0. 하드코딩된 데이터에서 먼저 조회 (가장 정확하고 빠름)
+            if (isoCode === 'USA') {
+                const usData = US_STATES_DATA[normalizedName];
+                if (usData?.population) {
+                    return usData.population;
+                }
+            } else if (isoCode === 'KOR') {
+                const krData = KOREA_REGIONS_DATA[normalizedName] || KOREA_REGIONS_DATA[territoryName];
+                if (krData?.population) {
+                    return krData.population;
+                }
+            } else if (isoCode === 'JPN') {
+                const jpData = JAPAN_PREFECTURES_DATA[normalizedName] || JAPAN_PREFECTURES_DATA[territoryName];
+                if (jpData?.population) {
+                    return jpData.population;
                 }
             }
             
-            // 부분 매칭
-            for (const [key, value] of adminData) {
-                if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.population > 0) {
-                    return Math.round(value.population);
+            // 1. Wikidata 캐시에서 조회
+            if (this.adminDataCache.has(isoCode)) {
+                const adminData = this.adminDataCache.get(isoCode);
+                
+                // 직접 매칭
+                if (adminData.has(normalizedName)) {
+                    const wikidataInfo = adminData.get(normalizedName);
+                    if (wikidataInfo.population && wikidataInfo.population > 0) {
+                        return Math.round(wikidataInfo.population);
+                    }
+                }
+                
+                // 부분 매칭
+                for (const [key, value] of adminData) {
+                    if ((key.includes(normalizedName) || normalizedName.includes(key)) && value.population > 0) {
+                        return Math.round(value.population);
+                    }
                 }
             }
         }
