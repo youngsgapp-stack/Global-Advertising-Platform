@@ -43,6 +43,11 @@ class PixelCanvas {
         
         // 실시간 구독 해제 함수
         this.unsubscribe = null;
+        
+        // 배치 렌더링 최적화
+        this.pendingRender = false;
+        this.renderRequestId = null;
+        this.dirtyPixels = new Set(); // 변경된 픽셀 추적
     }
     
     /**
@@ -214,7 +219,32 @@ class PixelCanvas {
         
         this.lastX = x;
         this.lastY = y;
-        this.render();
+        this.requestRender(); // 배치 렌더링 사용
+    }
+    
+    /**
+     * 배치 렌더링 요청 (requestAnimationFrame 사용)
+     */
+    requestRender() {
+        if (!this.pendingRender) {
+            this.pendingRender = true;
+            this.renderRequestId = requestAnimationFrame(() => {
+                this.render();
+                this.pendingRender = false;
+                this.renderRequestId = null;
+            });
+        }
+    }
+    
+    /**
+     * 렌더링 취소 (필요시)
+     */
+    cancelRender() {
+        if (this.renderRequestId !== null) {
+            cancelAnimationFrame(this.renderRequestId);
+            this.renderRequestId = null;
+            this.pendingRender = false;
+        }
     }
     
     /**
@@ -429,7 +459,8 @@ class PixelCanvas {
         // 배경 다시 그리기
         this.drawBackground();
         
-        // 모든 픽셀 그리기
+        // 모든 픽셀 그리기 (배치 처리 최적화)
+        this.ctx.save();
         for (const [key, pixel] of this.pixels) {
             const [x, y] = key.split(',').map(Number);
             this.ctx.fillStyle = pixel.color;
@@ -440,11 +471,15 @@ class PixelCanvas {
                 this.pixelSize
             );
         }
+        this.ctx.restore();
         
         // 그리드 오버레이 (선택적)
         if (this.showGrid) {
             this.drawGrid();
         }
+        
+        // 변경된 픽셀 추적 초기화
+        this.dirtyPixels.clear();
     }
     
     /**
@@ -470,70 +505,115 @@ class PixelCanvas {
     }
     
     /**
-     * Firestore에 저장
+     * Firestore에 저장 (완전히 재작성된 버전)
      */
     async saveToFirestore() {
+        if (!this.territoryId) {
+            log.warn('Cannot save: territoryId is not set');
+            return;
+        }
+        
         try {
-            const data = {
+            // 1. 픽셀 캔버스 데이터 저장 (pixelCanvases 컬렉션)
+            const pixelCanvasData = {
                 territoryId: this.territoryId,
-                pixels: this.encodePixels(),
+                pixels: this.encodePixels(), // 배열이지만 pixelCanvases 컬렉션에는 문제 없음
                 filledPixels: this.pixels.size,
                 lastUpdated: Date.now()
             };
             
-            await firebaseService.setDocument('pixelCanvases', this.territoryId, data);
+            await firebaseService.setDocument('pixelCanvases', this.territoryId, pixelCanvasData);
+            log.debug('✅ Pixel canvas data saved to pixelCanvases collection');
             
-            // 영토 문서의 픽셀 정보 업데이트 (메타데이터만)
-            const territory = territoryManager.getTerritory(this.territoryId);
-            if (territory) {
-                territory.territoryValue = this.calculateValue();
-                
-                // 영토 문서 업데이트 (픽셀 메타데이터만, pixels 배열 제외)
-                // Firestore는 중첩 배열을 지원하지 않으므로 메타데이터만 저장
-                
-                // pixelCanvas 객체를 명시적으로 재생성하여 pixels 배열이 포함되지 않도록 함
-                // updateDocument를 사용하여 pixelCanvas 필드를 완전히 교체
-                // 이렇게 하면 기존 pixelCanvas 객체 전체가 새 객체로 교체됨
-                const newPixelCanvas = {
-                    width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    filledPixels: this.pixels.size,
-                    lastUpdated: Date.now()
-                    // pixels 배열은 명시적으로 제외 - pixelCanvases 컬렉션에만 저장
-                };
-                
-                const updateData = {
-                    'pixelCanvas': newPixelCanvas,
-                    'territoryValue': territory.territoryValue
-                };
-                
-                // updateDocument를 사용하여 pixelCanvas 필드를 완전히 교체
-                // 중첩 배열 문제를 방지하기 위해 pixelCanvas 객체를 완전히 새로 만듦
-                await firebaseService.updateDocument('territories', this.territoryId, updateData);
-                
-                // 로컬 territory 객체도 업데이트 (배열 제외)
-                territory.pixelCanvas = {
-                    width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    filledPixels: this.pixels.size,
-                    lastUpdated: Date.now()
-                };
-                
-                // 영토 업데이트 이벤트 발행 (맵 반영용)
-                eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+            // 2. 영토 문서 확인 및 업데이트
+            let territory = territoryManager.getTerritory(this.territoryId);
+            
+            // territory가 없으면 Firestore에서 로드 시도
+            if (!territory) {
+                const territoryData = await firebaseService.getDocument('territories', this.territoryId);
+                if (territoryData) {
+                    territory = territoryData;
+                    territoryManager.territories.set(this.territoryId, territory);
+                } else {
+                    log.warn(`Territory ${this.territoryId} not found in Firestore or TerritoryManager`);
+                    // territory 문서가 없으면 기본 구조로 생성
+                    territory = {
+                        id: this.territoryId,
+                        pixelCanvas: {
+                            width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                            height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                            filledPixels: 0,
+                            lastUpdated: null
+                        },
+                        territoryValue: 0
+                    };
+                }
             }
             
-            // 가치 변경 이벤트 발행
+            // 가치 계산
+            territory.territoryValue = this.calculateValue();
+            
+            // 3. 영토 문서에 픽셀 메타데이터만 저장 (배열 필드 완전히 제외)
+            const pixelCanvasMeta = {
+                width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                filledPixels: this.pixels.size,
+                lastUpdated: Date.now()
+            };
+            
+            // Firestore에 저장할 데이터: 배열 필드 완전히 제외
+            const territoryUpdateData = {
+                pixelCanvas: pixelCanvasMeta,
+                territoryValue: territory.territoryValue
+            };
+            
+            // setDocument를 merge=true로 사용하여 안전하게 저장
+            // 문서가 없으면 생성, 있으면 업데이트
+            await firebaseService.setDocument('territories', this.territoryId, territoryUpdateData, true);
+            log.debug('✅ Territory pixel metadata saved');
+            
+            // 4. 로컬 territory 객체 업데이트
+            if (!territoryManager.territories.has(this.territoryId)) {
+                territoryManager.territories.set(this.territoryId, territory);
+            }
+            territory.pixelCanvas = pixelCanvasMeta;
+            territory.territoryValue = this.calculateValue();
+            
+            // 5. 이벤트 발행 (맵 반영용)
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+                territory: {
+                    ...territory,
+                    pixelCanvas: pixelCanvasMeta
+                }
+            });
+            
             eventBus.emit(EVENTS.PIXEL_VALUE_CHANGE, {
                 territoryId: this.territoryId,
                 filledPixels: this.pixels.size,
-                value: this.calculateValue()
+                value: territory.territoryValue
             });
             
-            log.debug('Pixels saved to Firestore');
+            eventBus.emit(EVENTS.PIXEL_CANVAS_SAVED, {
+                territoryId: this.territoryId,
+                filledPixels: this.pixels.size,
+                value: territory.territoryValue
+            });
+            
+            log.info(`✅ Pixels saved successfully for territory ${this.territoryId} (${this.pixels.size} pixels)`);
+            
+            // 성공 알림
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: `픽셀 저장 완료! (${this.pixels.size}개 픽셀)`
+            });
             
         } catch (error) {
-            log.error('Failed to save pixels:', error);
+            log.error('❌ Failed to save pixels:', error);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '픽셀 저장 실패: ' + (error.message || '알 수 없는 오류')
+            });
+            throw error; // 에러를 다시 throw하여 호출자가 처리할 수 있도록
         }
     }
     
@@ -627,7 +707,7 @@ class PixelCanvas {
     clear() {
         this.saveToHistory();
         this.pixels.clear();
-        this.render();
+        this.requestRender();
         this.saveToFirestore();
     }
     

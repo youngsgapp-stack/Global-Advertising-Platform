@@ -5,6 +5,7 @@
 
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from './EventBus.js';
+import { territoryManager } from './TerritoryManager.js';
 
 class MapController {
     constructor() {
@@ -121,6 +122,99 @@ class MapController {
                 bounds: this.map.getBounds()
             });
         });
+        
+        // 픽셀 캔버스 업데이트 이벤트
+        eventBus.on(EVENTS.PIXEL_CANVAS_SAVED, (data) => {
+            this.handlePixelCanvasUpdate(data);
+        });
+        
+        // 영토 업데이트 이벤트
+        eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
+            if (data.territory) {
+                this.updateTerritoryLayerVisual(data.territory);
+            }
+        });
+    }
+    
+    /**
+     * 픽셀 캔버스 업데이트 처리
+     */
+    handlePixelCanvasUpdate(data) {
+        const { territoryId, filledPixels } = data;
+        log.debug(`Pixel canvas updated for territory ${territoryId}: ${filledPixels} pixels`);
+        
+        // 영토 레이어 시각적 업데이트
+        const territory = territoryManager.getTerritory(territoryId);
+        if (territory) {
+            this.updateTerritoryLayerVisual(territory);
+        }
+    }
+    
+    /**
+     * 영토 레이어 시각적 업데이트 (픽셀 데이터 반영)
+     */
+    updateTerritoryLayerVisual(territory) {
+        if (!this.map || !territory || !territory.id) return;
+        
+        try {
+            // 모든 territory source 찾기
+            const territoryId = territory.id;
+            const sources = Array.from(this.sourcesLoaded);
+            
+            for (const sourceId of sources) {
+                const source = this.map.getSource(sourceId);
+                if (!source || source.type !== 'geojson') continue;
+                
+                // GeoJSON 데이터 가져오기
+                const geoJsonData = source._data;
+                if (!geoJsonData || !geoJsonData.features) continue;
+                
+                // 해당 territory feature 찾기
+                const feature = geoJsonData.features.find(f => {
+                    const fid = f.properties?.id || f.id || '';
+                    return fid === territoryId || fid.endsWith(territoryId);
+                });
+                
+                if (feature) {
+                    // 픽셀 데이터로 속성 업데이트
+                    if (territory.pixelCanvas) {
+                        feature.properties.filledPixels = territory.pixelCanvas.filledPixels || 0;
+                        feature.properties.pixelCanvasWidth = territory.pixelCanvas.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                        feature.properties.pixelCanvasHeight = territory.pixelCanvas.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                        feature.properties.pixelCanvasUpdated = Date.now();
+                        
+                        // 픽셀 채움 비율 계산
+                        const totalPixels = feature.properties.pixelCanvasWidth * feature.properties.pixelCanvasHeight;
+                        feature.properties.pixelFillRatio = totalPixels > 0 
+                            ? feature.properties.filledPixels / totalPixels 
+                            : 0;
+                    }
+                    
+                    // source 데이터 업데이트
+                    source.setData(geoJsonData);
+                    
+                    // 레이어 강제 리페인트 (애니메이션과 함께)
+                    this.map.triggerRepaint();
+                    
+                    // 애니메이션 효과를 위한 feature state 업데이트
+                    try {
+                        const layerId = `${sourceId}-fill`;
+                        if (this.map.getLayer(layerId)) {
+                            // 부드러운 전환을 위한 약간의 지연
+                            setTimeout(() => {
+                                this.map.triggerRepaint();
+                            }, 50);
+                        }
+                    } catch (e) {
+                        // 애니메이션 실패 시 무시
+                    }
+                    
+                    log.debug(`Territory layer visual updated: ${territoryId} (${feature.properties.filledPixels || 0} pixels, ${((feature.properties.pixelFillRatio || 0) * 100).toFixed(1)}% filled)`);
+                }
+            }
+        } catch (error) {
+            log.error('Failed to update territory layer visual:', error);
+        }
     }
     
     /**
@@ -463,6 +557,7 @@ class MapController {
         });
         
         // Fill layer (territory fill)
+        // 픽셀 채움 비율에 따른 색상 변화 추가
         // 경매 중(contested)도 기본 색상 유지 - 테두리로만 구분
         // 미점유(unconquered) 영토는 국가별 고유 색상 사용
         this.map.addLayer({
@@ -472,8 +567,27 @@ class MapController {
             paint: {
                 'fill-color': [
                     'case',
-                    ['==', ['get', 'sovereignty'], 'ruled'], CONFIG.COLORS.SOVEREIGNTY.RULED,
-                    ['==', ['get', 'sovereignty'], 'protected'], CONFIG.COLORS.SOVEREIGNTY.RULED,
+                    // 정복된 영토: 픽셀 채움 비율에 따라 색상 변화
+                    ['==', ['get', 'sovereignty'], 'ruled'], [
+                        'interpolate',
+                        ['linear'],
+                        ['coalesce', ['get', 'pixelFillRatio'], 0],
+                        0, CONFIG.COLORS.SOVEREIGNTY.RULED,  // 0%: 기본 빨강
+                        0.25, '#ff8c8c',  // 25%: 밝은 빨강
+                        0.5, '#ffb347',   // 50%: 주황
+                        0.75, '#ffd700',  // 75%: 금색
+                        1, '#90ee90'      // 100%: 밝은 초록 (완성도 높음)
+                    ],
+                    ['==', ['get', 'sovereignty'], 'protected'], [
+                        'interpolate',
+                        ['linear'],
+                        ['coalesce', ['get', 'pixelFillRatio'], 0],
+                        0, CONFIG.COLORS.SOVEREIGNTY.RULED,
+                        0.25, '#ff8c8c',
+                        0.5, '#ffb347',
+                        0.75, '#ffd700',
+                        1, '#90ee90'
+                    ],
                     // 미점유 & 경매중: 해당 지역 고유 색상 사용
                     ['coalesce', ['get', 'hashColor'], CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED]
                 ],
@@ -482,7 +596,12 @@ class MapController {
                     ['boolean', ['feature-state', 'hover'], false], 0.7,
                     ['boolean', ['feature-state', 'selected'], false], 0.8,
                     0.5  // 위성 배경이 살짝 비치도록 투명도 낮춤
-                ]
+                ],
+                // 애니메이션 효과: 색상 전환 시간 500ms
+                'fill-color-transition': {
+                    duration: 500,
+                    delay: 0
+                }
             }
         });
         

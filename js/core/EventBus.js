@@ -144,6 +144,8 @@ export const EVENTS = {
     PIXEL_UPDATE: 'pixel:update',
     PIXEL_CANVAS_LOAD: 'pixel:canvasLoad',
     PIXEL_VALUE_CHANGE: 'pixel:valueChange',
+    PIXEL_CANVAS_UPDATED: 'pixel:canvasUpdated',
+    PIXEL_CANVAS_SAVED: 'pixel:canvasSaved',
     
     // 랭킹
     RANKING_UPDATE: 'ranking:update',

@@ -262,9 +262,40 @@ class TerritoryManager {
             }
         });
         
-        // Firestore 업데이트
+        // Firestore 업데이트 (배열 필드 제외)
         try {
-            await firebaseService.setDocument('territories', territoryId, territory);
+            // Firestore에 저장할 때 배열 필드 제외
+            const territoryForFirestore = {
+                id: territory.id,
+                name: territory.name,
+                country: territory.country,
+                countryCode: territory.countryCode,
+                adminLevel: territory.adminLevel,
+                population: territory.population,
+                area: territory.area,
+                sovereignty: territory.sovereignty,
+                ruler: territory.ruler,
+                rulerName: territory.rulerName,
+                rulerSince: territory.rulerSince,
+                protectionEndsAt: territory.protectionEndsAt,
+                pixelCanvas: {
+                    width: territory.pixelCanvas?.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    height: territory.pixelCanvas?.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    filledPixels: territory.pixelCanvas?.filledPixels || 0,
+                    lastUpdated: territory.pixelCanvas?.lastUpdated || null
+                    // pixels 배열은 제외
+                },
+                territoryValue: territory.territoryValue || 0,
+                rankScore: territory.rankScore || 0,
+                tribute: territory.tribute,
+                currentAuction: territory.currentAuction,
+                purchasedByAdmin: territory.purchasedByAdmin,
+                createdAt: territory.createdAt,
+                updatedAt: territory.updatedAt
+                // history, buffs 배열 필드는 제외 (별도 컬렉션에 저장)
+            };
+            
+            await firebaseService.setDocument('territories', territoryId, territoryForFirestore);
             log.info(`Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
             
             // 영토 업데이트 이벤트 발행

@@ -190,6 +190,7 @@ class FirebaseService {
     
     /**
      * 문서 필드 업데이트 (특정 필드만 업데이트)
+     * 문서가 없으면 생성 (안전한 업데이트)
      */
     async updateDocument(collectionName, docId, data) {
         if (!this.initialized) {
@@ -198,12 +199,24 @@ class FirebaseService {
         
         try {
             const docRef = this._firestore.doc(this.db, collectionName, docId);
-            await this._firestore.updateDoc(docRef, {
-                ...data,
-                updatedAt: this._firestore.Timestamp.now()
-            });
+            const docSnap = await this._firestore.getDoc(docRef);
             
-            log.debug(`Document updated: ${collectionName}/${docId}`);
+            if (docSnap.exists()) {
+                // 문서가 존재하면 업데이트
+                await this._firestore.updateDoc(docRef, {
+                    ...data,
+                    updatedAt: this._firestore.Timestamp.now()
+                });
+                log.debug(`Document updated: ${collectionName}/${docId}`);
+            } else {
+                // 문서가 없으면 생성 (merge=true로 안전하게)
+                await this._firestore.setDoc(docRef, {
+                    ...data,
+                    updatedAt: this._firestore.Timestamp.now()
+                }, { merge: true });
+                log.debug(`Document created: ${collectionName}/${docId}`);
+            }
+            
             return true;
         } catch (error) {
             log.error(`Failed to update document ${collectionName}/${docId}:`, error);
