@@ -104,6 +104,36 @@ class BillionaireApp {
         
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
+        
+        // Check admin user mode
+        this.checkAdminUserMode();
+    }
+    
+    /**
+     * 관리자 사용자 모드 체크 및 배너 표시
+     */
+    checkAdminUserMode() {
+        const isAdminUserMode = sessionStorage.getItem('adminUserMode') === 'true';
+        const hasAdminAuth = sessionStorage.getItem('adminAuth');
+        
+        if (isAdminUserMode && hasAdminAuth) {
+            // 관리자 사용자 모드 배너 표시
+            const banner = document.getElementById('admin-user-mode-banner');
+            if (banner) {
+                banner.classList.remove('hidden');
+                
+                // 관리자 페이지로 돌아가기 버튼
+                const backBtn = document.getElementById('back-to-admin');
+                if (backBtn) {
+                    backBtn.addEventListener('click', () => {
+                        sessionStorage.removeItem('adminUserMode');
+                        window.location.href = 'admin.html';
+                    });
+                }
+            }
+            
+            log.info('관리자 사용자 모드 활성화');
+        }
     }
     
     /**

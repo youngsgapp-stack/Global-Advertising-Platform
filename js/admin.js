@@ -54,6 +54,9 @@ class AdminDashboard {
                 this.currentUser = { email: sessionAuth.id, uid: 'local-' + sessionAuth.id };
                 this.isLocalAuth = true;
                 
+                // Firebase 익명 로그인으로 Firestore 접근 권한 획득
+                await this.signInAnonymouslyForFirestore();
+                
                 this.showDashboard();
                 this.loadDashboardData();
                 this.setupEventListeners();
@@ -74,6 +77,26 @@ class AdminDashboard {
         } catch (error) {
             console.error('Admin init failed:', error);
             this.showError('Failed to initialize admin dashboard');
+        }
+    }
+    
+    /**
+     * Firestore 접근을 위한 익명 로그인
+     */
+    async signInAnonymouslyForFirestore() {
+        try {
+            // 이미 로그인된 경우 스킵
+            if (this.auth.currentUser) {
+                console.log('Already signed in to Firebase');
+                return;
+            }
+            
+            // 익명 로그인 시도
+            await this.auth.signInAnonymously();
+            console.log('Signed in anonymously for Firestore access');
+        } catch (error) {
+            console.warn('Anonymous sign-in failed:', error);
+            // 실패해도 계속 진행 (읽기는 가능할 수 있음)
         }
     }
     
@@ -562,10 +585,14 @@ class AdminDashboard {
         this.isUserMode = !this.isUserMode;
         
         if (this.isUserMode) {
-            // 사용자 모드로 전환 - 메인 페이지로 이동
-            window.open('index.html', '_blank');
-            document.getElementById('user-mode-banner').classList.remove('hidden');
+            // 사용자 모드로 전환 - 관리자 세션 유지하면서 메인 페이지로 이동
+            // 세션 스토리지에 관리자 모드 표시 저장
+            sessionStorage.setItem('adminUserMode', 'true');
+            
+            // 메인 페이지로 이동 (새 탭 대신 현재 창)
+            window.location.href = 'index.html';
         } else {
+            sessionStorage.removeItem('adminUserMode');
             document.getElementById('user-mode-banner').classList.add('hidden');
         }
     }
@@ -633,7 +660,7 @@ class AdminDashboard {
                 alert('사용자가 차단되었습니다.');
             } catch (error) {
                 console.error('Failed to ban user:', error);
-                alert('사용자 차단에 실패했습니다.');
+                this.handleFirestoreError(error, '사용자 차단');
             }
         }
     }
@@ -657,7 +684,7 @@ class AdminDashboard {
                 alert('영토가 수정되었습니다.');
             } catch (error) {
                 console.error('Failed to edit territory:', error);
-                alert('영토 수정에 실패했습니다.');
+                this.handleFirestoreError(error, '영토 수정');
             }
         }
     }
@@ -681,8 +708,19 @@ class AdminDashboard {
                 alert('옥션이 종료되었습니다.');
             } catch (error) {
                 console.error('Failed to end auction:', error);
-                alert('옥션 종료에 실패했습니다.');
+                this.handleFirestoreError(error, '옥션 종료');
             }
+        }
+    }
+    
+    /**
+     * Firestore 에러 처리
+     */
+    handleFirestoreError(error, action) {
+        if (error.code === 'permission-denied') {
+            alert(`⚠️ ${action}에 실패했습니다.\n\nFirestore 권한이 부족합니다.\n\n해결 방법:\n1. Firebase 콘솔에서 Firestore 보안 규칙 수정\n2. 또는 Firebase Auth로 관리자 계정 로그인\n\n(현재: 로컬 세션 인증 사용 중)`);
+        } else {
+            alert(`${action}에 실패했습니다: ${error.message}`);
         }
     }
     
