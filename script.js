@@ -154,7 +154,7 @@ class BillionaireMap {
         this.pixelGridMetadata = new Map(); // regionId -> { bbox, feature } (메타데이터만 저장, 픽셀 데이터는 지연 로딩)
         this.loadedPixelGrids = new Set(); // 현재 메모리에 로드된 regionId 집합
         this.pixelGridLoadQueue = new Set(); // 로드 대기 중인 regionId 집합
-        this.maxLoadedGrids = 50; // 최대 메모리에 유지할 픽셀 그리드 수
+        this.maxLoadedGrids = 10; // 최대 메모리에 유지할 픽셀 그리드 수 (Wplace 스타일: 메모리 최적화)
         this.currentPixelColor = '#FF0000'; // 현재 선택된 색상
         this.isPixelDrawing = false; // 드래그로 여러 픽셀 색칠 중인지
         this.selectedPixels = new Set(); // 드래그 중 선택된 픽셀들
@@ -175,7 +175,114 @@ class BillionaireMap {
             loadingStates: new Map(), // 로딩 상태 추적
             viewportCache: new Map(), // 뷰포트 기반 캐시
             streamingQueue: [], // 스트리밍 큐
-            maxCacheSize: 50 * 1024 * 1024 // 최대 캐시 크기 (50MB)
+            maxCacheSize: 20 * 1024 * 1024 // Wplace 스타일: 최대 캐시 크기 20MB로 감소
+        };
+        
+        // Wplace 스타일: 메모리 모니터링 및 자동 정리 시스템
+        this.memoryMonitor = {
+            enabled: true,
+            checkInterval: 30000, // 30초마다 체크
+            maxMemoryMB: 200, // 최대 메모리 200MB (Wplace 수준)
+            lastCheck: Date.now(),
+            cleanupThreshold: 0.8 // 80% 이상 사용 시 정리
+        };
+        
+        // 메모리 모니터링 시작
+        if (this.memoryMonitor.enabled) {
+            this.startMemoryMonitoring();
+        }
+        
+        // Wplace 스타일: 메모리 모니터링 함수
+        this.startMemoryMonitoring = () => {
+            if (!this.memoryMonitor.enabled) return;
+            
+            const checkMemory = () => {
+                try {
+                    // performance.memory는 Chrome에서만 사용 가능
+                    if (performance.memory) {
+                        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+                        const totalMB = performance.memory.totalJSHeapSize / 1024 / 1024;
+                        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+                        
+                        // 메모리 사용률 계산
+                        const usagePercent = (usedMB / limitMB) * 100;
+                        
+                        // 80% 이상 사용 시 자동 정리
+                        if (usagePercent > this.memoryMonitor.cleanupThreshold * 100) {
+                            console.warn(`[메모리 경고] 사용률 ${usagePercent.toFixed(1)}% (${usedMB.toFixed(1)}MB / ${limitMB.toFixed(1)}MB). 자동 정리 시작...`);
+                            this.cleanupMemory();
+                        } else {
+                            console.log(`[메모리 상태] ${usedMB.toFixed(1)}MB / ${limitMB.toFixed(1)}MB (${usagePercent.toFixed(1)}%)`);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[메모리 모니터링 오류]:', error);
+                }
+                
+                // 다음 체크 예약
+                this.memoryMonitor.lastCheck = Date.now();
+                if (this.memoryMonitor.enabled) {
+                    this.timerManager.setTimeout(() => {
+                        checkMemory();
+                    }, this.memoryMonitor.checkInterval);
+                }
+            };
+            
+            // 첫 체크는 10초 후
+            this.timerManager.setTimeout(() => {
+                checkMemory();
+            }, 10000);
+        };
+        
+        // Wplace 스타일: 메모리 정리 함수
+        this.cleanupMemory = async () => {
+            console.log('[메모리 정리 시작]');
+            
+            // 1. 뷰포트에서 벗어난 픽셀 그리드 제거
+            if (this.map) {
+                const bounds = this.map.getBounds();
+                const viewport = [
+                    bounds.getWest(),
+                    bounds.getSouth(),
+                    bounds.getEast(),
+                    bounds.getNorth()
+                ];
+                await this.unloadInvisiblePixelGrids(viewport);
+            }
+            
+            // 2. 가장 오래된 픽셀 그리드 제거 (현재 로드된 것의 절반)
+            const currentLoaded = this.loadedPixelGrids.size;
+            if (currentLoaded > this.maxLoadedGrids) {
+                const toUnload = Math.ceil((currentLoaded - this.maxLoadedGrids) / 2);
+                await this.unloadOldestPixelGrids(toUnload);
+            }
+            
+            // 3. GeoJSON 캐시 정리 (오래된 항목 제거)
+            if (this.geoJsonPipeline.cache.size > 10) {
+                const cacheEntries = Array.from(this.geoJsonPipeline.cache.entries());
+                const toRemove = cacheEntries.slice(0, Math.floor(cacheEntries.length / 2));
+                toRemove.forEach(([key]) => {
+                    this.geoJsonPipeline.cache.delete(key);
+                });
+                console.log(`[메모리 정리] GeoJSON 캐시 ${toRemove.length}개 항목 제거`);
+            }
+            
+            // 4. 뷰포트 캐시 정리
+            if (this.geoJsonPipeline.viewportCache.size > 20) {
+                const viewportEntries = Array.from(this.geoJsonPipeline.viewportCache.entries());
+                const toRemove = viewportEntries.slice(0, Math.floor(viewportEntries.length / 2));
+                toRemove.forEach(([key]) => {
+                    this.geoJsonPipeline.viewportCache.delete(key);
+                });
+                console.log(`[메모리 정리] 뷰포트 캐시 ${toRemove.length}개 항목 제거`);
+            }
+            
+            // 5. 가비지 컬렉션 힌트 (Chrome DevTools에서만 작동)
+            if (window.gc) {
+                window.gc();
+            }
+            
+            console.log('[메모리 정리 완료]');
         };
         this.quadtree = null; // 쿼드트리 인덱스
         this.viewportBounds = null; // 현재 뷰포트 경계
@@ -16169,12 +16276,19 @@ class BillionaireMap {
             // 향후 각 국가별 GeoJSON 데이터를 로드할 수 있도록 확장 가능
             console.log(`${countryCode} 데이터 로드 중...`);
             
-            // 기존 레이어 제거
-            if (this.map.getLayer('regions-fill')) {
-                this.map.removeLayer('regions-fill');
-            }
+            // Wplace 스타일: 기존 레이어와 소스 완전히 제거 (메모리 정리)
+            const layersToRemove = ['regions-fill', 'regions-border', 'regions-hover'];
+            layersToRemove.forEach(layerId => {
+                if (this.map.getLayer(layerId)) {
+                    this.map.removeLayer(layerId);
+                }
+            });
             if (this.map.getSource('world-regions')) {
                 this.map.removeSource('world-regions');
+            }
+            // 메모리 정리 강제 실행
+            if (window.gc) {
+                window.gc();
             }
             
             // 국가별 데이터 로드 (현재는 기본 데이터 사용)
@@ -25575,19 +25689,15 @@ class BillionaireMap {
                 const isInside = this.isPointInPolygon([cellCenterX, cellCenterY], feature.geometry);
                 
                 if (isInside) {
+                    // Wplace 스타일: 메모리 최적화 - bounds 객체 제거, 필요한 데이터만 저장
                     pixels.push({
                         id: `${row}-${col}`,
                         row,
                         col,
                         x: cellCenterX,
                         y: cellCenterY,
-                        color: null,
-                        bounds: {
-                            minX: minX + col * cellSize,
-                            minY: minY + row * cellSize,
-                            maxX: minX + (col + 1) * cellSize,
-                            maxY: minY + (row + 1) * cellSize
-                        }
+                        color: null
+                        // bounds 제거: 필요시 x, y, cellSize로 계산 (메모리 50% 절약)
                     });
                 }
             }
@@ -25618,7 +25728,7 @@ class BillionaireMap {
         if (!pixelGrid || !pixelGrid.pixels) return null;
         
         const {
-            maxPixels = 500000, // 기본값 증가 (50000 → 500000)
+            maxPixels = 100000, // Wplace 스타일: 메모리 최적화를 위해 100,000으로 제한
             viewport = null,    // 현재 뷰포트 [minX, minY, maxX, maxY]
             zoom = null,        // 현재 줌 레벨
             useViewportFilter = true // 뷰포트 필터링 사용 여부
@@ -25636,9 +25746,9 @@ class BillionaireMap {
             const halfCell = cellSize / 2;
             
             pixelsToProcess = pixelsToProcess.filter(pixel => {
-                // 픽셀의 중심점이 뷰포트와 겹치는지 확인 (bounds 대신 x, y 사용)
-                const centerX = pixel.x || (pixel.bounds ? (pixel.bounds.minX + pixel.bounds.maxX) / 2 : 0);
-                const centerY = pixel.y || (pixel.bounds ? (pixel.bounds.minY + pixel.bounds.maxY) / 2 : 0);
+                // Wplace 스타일: bounds 제거, x, y만 사용 (메모리 최적화)
+                const centerX = pixel.x || 0;
+                const centerY = pixel.y || 0;
                 return centerX >= minX && centerX <= maxX && 
                        centerY >= minY && centerY <= maxY;
             });
@@ -25660,8 +25770,9 @@ class BillionaireMap {
                 const cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
                 
                 pixelsToProcess = pixelGrid.pixels.filter(pixel => {
-                    const centerX = pixel.x || (pixel.bounds ? (pixel.bounds.minX + pixel.bounds.maxX) / 2 : 0);
-                    const centerY = pixel.y || (pixel.bounds ? (pixel.bounds.minY + pixel.bounds.maxY) / 2 : 0);
+                    // Wplace 스타일: bounds 제거, x, y만 사용 (메모리 최적화)
+                    const centerX = pixel.x || 0;
+                    const centerY = pixel.y || 0;
                     return centerX >= expMinX && centerX <= expMaxX && 
                            centerY >= expMinY && centerY <= expMaxY;
                 });
@@ -25673,8 +25784,8 @@ class BillionaireMap {
         let effectiveMaxPixels = maxPixels;
         if (zoom !== null) {
             if (zoom >= 8) {
-                // 높은 줌 레벨: 모든 픽셀 표시 (뷰포트 필터링으로 이미 줄어듦)
-                effectiveMaxPixels = Infinity;
+                // 높은 줌 레벨: 더 많은 픽셀 허용하되 제한 (Wplace 스타일: 메모리 최적화)
+                effectiveMaxPixels = maxPixels * 3; // Infinity 대신 maxPixels * 3으로 제한
             } else if (zoom >= 6) {
                 // 중간 줌 레벨: 더 많은 픽셀 허용
                 effectiveMaxPixels = maxPixels * 2;
@@ -25712,22 +25823,13 @@ class BillionaireMap {
         for (let i = 0; i < pixelsToProcess.length; i++) {
             const pixel = pixelsToProcess[i];
             
-            // bounds가 있으면 사용, 없으면 x, y, cellSize로 계산
-            let minX, minY, maxX, maxY;
-            if (pixel.bounds) {
-                minX = pixel.bounds.minX;
-                minY = pixel.bounds.minY;
-                maxX = pixel.bounds.maxX;
-                maxY = pixel.bounds.maxY;
-            } else {
-                // x, y, cellSize로 bounds 계산
-                const centerX = pixel.x || 0;
-                const centerY = pixel.y || 0;
-                minX = centerX - halfCell;
-                minY = centerY - halfCell;
-                maxX = centerX + halfCell;
-                maxY = centerY + halfCell;
-            }
+            // Wplace 스타일: bounds 제거, x, y, cellSize로만 계산 (메모리 최적화)
+            const centerX = pixel.x || 0;
+            const centerY = pixel.y || 0;
+            const minX = centerX - halfCell;
+            const minY = centerY - halfCell;
+            const maxX = centerX + halfCell;
+            const maxY = centerY + halfCell;
             
             features[i] = {
                 type: 'Feature',
@@ -26256,7 +26358,8 @@ class BillionaireMap {
         toLoad.forEach(id => this.pixelGridLoadQueue.add(id));
         
         // 배치 단위로 로드 (한 번에 최대 10개)
-        const batchSize = 10;
+        // Wplace 스타일: 배치 단위로 로드 (한 번에 최대 5개로 감소하여 메모리 최적화)
+        const batchSize = 5;
         for (let i = 0; i < toLoad.length; i += batchSize) {
             const batch = toLoad.slice(i, i + batchSize);
             
@@ -27216,7 +27319,7 @@ class BillionaireMap {
                 viewport,
                 zoom,
                 useViewportFilter: zoom >= 4, // 줌 레벨 4 이상에서만 뷰포트 필터링
-                maxPixels: zoom >= 8 ? 500000 : (zoom >= 6 ? 100000 : 50000) // 줌 레벨에 따른 최대 픽셀 수
+                maxPixels: zoom >= 8 ? 100000 : (zoom >= 6 ? 50000 : 25000) // Wplace 스타일: 메모리 최적화를 위해 최대 픽셀 수 감소
             });
             
             if (regionGeoJson && regionGeoJson.features && regionGeoJson.features.length > 0) {
