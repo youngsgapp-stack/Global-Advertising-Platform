@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { SOVEREIGNTY, territoryManager } from '../core/TerritoryManager.js';
+import mapController from '../core/MapController.js';
 import { buffSystem } from '../features/BuffSystem.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
@@ -135,8 +136,36 @@ class TerritoryPanel {
                         t.properties?.sov_a3?.toLowerCase() ||
                         'unknown';
         
+        // 잘못된 값 필터링: "territories", "states", "regions" 등은 무시
+        const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces', 'unknown'];
+        if (invalidCodes.includes(countryCode?.toLowerCase())) {
+            countryCode = null;
+        }
+        
+        // countryCode가 없거나 유효하지 않은 경우, properties에서 다시 시도
+        if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
+            // properties에서 다른 필드 시도
+            const altCode = t.properties?.country_code || 
+                           t.properties?.sov_a3?.toLowerCase() ||
+                           t.properties?.iso_a3?.toLowerCase();
+            
+            if (altCode && !invalidCodes.includes(altCode.toLowerCase()) && CONFIG.COUNTRIES[altCode]) {
+                countryCode = altCode;
+            } else {
+                // mapController의 currentCountry 사용 시도
+                if (mapController && mapController.currentCountry && CONFIG.COUNTRIES[mapController.currentCountry]) {
+                    countryCode = mapController.currentCountry;
+                    log.debug(`[TerritoryPanel] Using mapController.currentCountry: ${countryCode} for territory: ${territoryName}`);
+                } else {
+                    // 여전히 없으면 'unknown'으로 설정하되, 로그 남김
+                    countryCode = 'unknown';
+                    log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, mapController.currentCountry: ${mapController?.currentCountry}`);
+                }
+            }
+        }
+        
         // countryCode가 슬러그 형식이 아닌 경우 변환 시도
-        if (countryCode && !CONFIG.COUNTRIES[countryCode]) {
+        if (countryCode && countryCode !== 'unknown' && !CONFIG.COUNTRIES[countryCode]) {
             // ISO 코드나 다른 형식일 수 있으므로 변환 시도
             const normalizedCode = countryCode.toLowerCase().replace(/\s+/g, '-');
             if (CONFIG.COUNTRIES[normalizedCode]) {

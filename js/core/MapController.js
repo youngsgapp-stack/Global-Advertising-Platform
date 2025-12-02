@@ -651,15 +651,35 @@ class MapController {
             { selected: true }
         );
         
-        // 국가 코드 추출: currentCountry 또는 sourceId에서 추출
-        // sourceId 형식: 'states-usa', 'regions-south-korea', 'prefectures-japan'
+        // 국가 코드 추출: currentCountry > sourceId에서 추출 > feature.properties
+        // sourceId 형식: 'territories-usa', 'states-usa', 'regions-south-korea', 'prefectures-japan'
         let countryCode = this.currentCountry;
+        
+        // sourceId에서 국가 코드 추출
         if (!countryCode && sourceId) {
+            // 'territories-usa' -> 'usa'
+            // 'states-usa' -> 'usa'
+            // 'regions-south-korea' -> 'south-korea'
             const parts = sourceId.split('-');
             if (parts.length >= 2) {
-                // 첫 번째 부분 (states, regions, etc) 제거하고 나머지 합침
+                // 첫 번째 부분 (territories, states, regions, etc) 제거하고 나머지 합침
                 countryCode = parts.slice(1).join('-');
             }
+        }
+        
+        // feature.properties에서 국가 코드 추출 시도
+        if (!countryCode && feature.properties) {
+            countryCode = feature.properties.country || 
+                         feature.properties.country_code ||
+                         feature.properties.sov_a3?.toLowerCase();
+        }
+        
+        // 최종 fallback: 'unknown'
+        if (!countryCode || countryCode === 'unknown') {
+            log.warn(`[MapController] Could not determine country code for sourceId: ${sourceId}, currentCountry: ${this.currentCountry}, feature.properties: ${JSON.stringify(feature.properties)}`);
+            countryCode = 'unknown';
+        } else {
+            log.debug(`[MapController] Determined country code: ${countryCode} from sourceId: ${sourceId}, currentCountry: ${this.currentCountry}`);
         }
         
         eventBus.emit(EVENTS.TERRITORY_SELECT, {

@@ -100,11 +100,17 @@ class TerritoryManager {
                           properties?.country_code ||
                           territory.country;
         
+        // 잘못된 값 필터링: "territories", "states", "regions" 등은 무시
+        const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces', 'unknown'];
+        if (invalidCodes.includes(finalCountry?.toLowerCase())) {
+            finalCountry = null;
+        }
+        
         // country가 슬러그 형식이 아닌 경우 변환 (예: 'United States' -> 'usa')
         if (finalCountry && !CONFIG.COUNTRIES[finalCountry]) {
             // ISO 코드나 국가명일 수 있으므로 변환 시도
             const normalized = finalCountry.toLowerCase().replace(/\s+/g, '-');
-            if (CONFIG.COUNTRIES[normalized]) {
+            if (CONFIG.COUNTRIES[normalized] && !invalidCodes.includes(normalized)) {
                 finalCountry = normalized;
             } else {
                 // 국가명으로 검색
@@ -115,6 +121,12 @@ class TerritoryManager {
                     }
                 }
             }
+        }
+        
+        // 여전히 유효하지 않으면 로그 남기고 null로 설정
+        if (!finalCountry || !CONFIG.COUNTRIES[finalCountry]) {
+            log.warn(`[TerritoryManager] Invalid country code: ${country}, properties: ${JSON.stringify(properties)}`);
+            finalCountry = null; // TerritoryPanel에서 다시 시도하도록
         }
         
         // 국가 코드와 지오메트리 추가
