@@ -59,14 +59,14 @@ body {
     transform: translateX(-50%);
     z-index: var(--z-header);
     background: var(--color-bg-surface);
-    padding: var(--spacing-md) var(--spacing-xl);
+    padding: var(--spacing-sm) var(--spacing-lg);
     border-radius: var(--radius-xl);
     backdrop-filter: var(--blur-lg);
     border: var(--border-light);
     box-shadow: var(--shadow-soft);
     display: flex;
     align-items: center;
-    gap: var(--spacing-lg);
+    gap: var(--spacing-md);
 }
 
 .header-content {
@@ -74,19 +74,23 @@ body {
 }
 
 .header-content h1 {
-    font-size: var(--font-size-3xl);
+    font-size: var(--font-size-sm);
     background: linear-gradient(45deg, var(--color-secondary), var(--color-primary), var(--color-accent));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    font-weight: 700;
-    letter-spacing: 1px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0;
+    line-height: 1.2;
 }
 
 .header-content p {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
+    font-size: var(--font-size-2xl);
+    color: var(--color-text);
     margin-top: var(--spacing-xs);
+    font-weight: 700;
+    line-height: 1.2;
 }
 
 /* === 햄버거 메뉴 버튼 === */

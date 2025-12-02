@@ -592,6 +592,36 @@ class AdminDashboard {
             // 세션 스토리지에 관리자 모드 표시 저장
             sessionStorage.setItem('adminUserMode', 'true');
             
+            // adminAuth가 없으면 현재 세션 인증 정보를 저장
+            const existingAdminAuth = sessionStorage.getItem('adminAuth');
+            if (!existingAdminAuth) {
+                // 기존 세션 인증 확인
+                const sessionAuth = this.checkSessionAuth();
+                if (sessionAuth) {
+                    // 기존 세션 인증이 유효하면 그대로 사용 (이미 sessionStorage에 있음)
+                    // 추가 작업 불필요
+                } else if (this.currentUser) {
+                    // Firebase Auth로 로그인한 경우
+                    let adminId = 'admin';
+                    if (this.currentUser.email) {
+                        adminId = this.currentUser.email.split('@')[0];
+                    }
+                    const adminAuthData = {
+                        id: adminId,
+                        timestamp: Date.now()
+                    };
+                    sessionStorage.setItem('adminAuth', JSON.stringify(adminAuthData));
+                } else {
+                    // 기본 관리자 ID 사용
+                    const adminAuthData = {
+                        id: 'admin',
+                        timestamp: Date.now()
+                    };
+                    sessionStorage.setItem('adminAuth', JSON.stringify(adminAuthData));
+                }
+            }
+            // adminAuth가 이미 있으면 그대로 유지 (로그아웃되지 않음)
+            
             // 메인 페이지로 이동 (새 탭 대신 현재 창)
             window.location.href = 'index.html';
         } else {
