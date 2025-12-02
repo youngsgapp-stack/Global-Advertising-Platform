@@ -128,20 +128,39 @@ class TerritoryPanel {
         const protectionRemaining = territoryManager.getProtectionRemaining(t.id);
         const isProtected = !!protectionRemaining;
         
-        // 국가 코드 결정 (properties에서 추출)
-        const countryCode = t.country || 
-                           t.properties?.country || 
-                           t.properties?.admin?.toLowerCase().replace(/\s+/g, '-') ||
-                           t.properties?.sov_a3?.toLowerCase() ||
-                           'unknown';
+        // 국가 코드 결정 (우선순위: territory.country > properties > fallback)
+        let countryCode = t.country || 
+                        t.properties?.country || 
+                        t.properties?.country_code ||
+                        t.properties?.sov_a3?.toLowerCase() ||
+                        'unknown';
+        
+        // countryCode가 슬러그 형식이 아닌 경우 변환 시도
+        if (countryCode && !CONFIG.COUNTRIES[countryCode]) {
+            // ISO 코드나 다른 형식일 수 있으므로 변환 시도
+            const normalizedCode = countryCode.toLowerCase().replace(/\s+/g, '-');
+            if (CONFIG.COUNTRIES[normalizedCode]) {
+                countryCode = normalizedCode;
+            }
+        }
         
         // Get real country data
         this.countryData = territoryDataService.getCountryStats(countryCode);
         const countryInfo = CONFIG.COUNTRIES[countryCode] || {};
         
         // 인구/면적 데이터 추출 (TerritoryDataService 사용)
+        // countryCode 디버깅: 최종 결정된 countryCode 로그
+        if (!countryInfo.name) {
+            log.warn(`[TerritoryPanel] Country info not found for code: ${countryCode}, territory: ${territoryName}`);
+        }
+        
         const population = territoryDataService.extractPopulation(t, countryCode);
         const area = territoryDataService.extractArea(t, countryCode);
+        
+        // 디버깅: 인구/면적 데이터 확인
+        if (territoryName.toLowerCase() === 'texas') {
+            log.debug(`[TerritoryPanel] Texas - countryCode: ${countryCode}, isoCode: ${territoryDataService.convertToISOCode(countryCode)}, population: ${population}, area: ${area}`);
+        }
         
         // 픽셀 수 계산 (면적 기반)
         const pixelCount = territoryDataService.calculatePixelCount(t, countryCode);
@@ -154,7 +173,9 @@ class TerritoryPanel {
                               this.extractName(t.properties?.name) || 
                               this.extractName(t.properties?.name_en) || 
                               'Unknown Territory';
-        const countryName = countryInfo.name || t.properties?.admin || t.country || 'Unknown';
+        
+        // 국가명: CONFIG에서 가져오거나, 없으면 countryCode를 그대로 사용 (절대 properties.admin 사용 안 함)
+        const countryName = countryInfo.name || countryInfo.nameKo || countryCode || 'Unknown';
         const countryFlag = countryInfo.flag || '🏳️';
         
         // 소유권 상태 텍스트

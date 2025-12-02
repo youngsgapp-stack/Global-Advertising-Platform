@@ -94,9 +94,33 @@ class TerritoryManager {
             this.territories.set(territoryId, territory);
         }
         
+        // 국가 코드 결정: 전달된 country > properties.country > properties.country_code
+        let finalCountry = country || 
+                          properties?.country || 
+                          properties?.country_code ||
+                          territory.country;
+        
+        // country가 슬러그 형식이 아닌 경우 변환 (예: 'United States' -> 'usa')
+        if (finalCountry && !CONFIG.COUNTRIES[finalCountry]) {
+            // ISO 코드나 국가명일 수 있으므로 변환 시도
+            const normalized = finalCountry.toLowerCase().replace(/\s+/g, '-');
+            if (CONFIG.COUNTRIES[normalized]) {
+                finalCountry = normalized;
+            } else {
+                // 국가명으로 검색
+                for (const [key, value] of Object.entries(CONFIG.COUNTRIES)) {
+                    if (value.name === finalCountry || value.nameKo === finalCountry) {
+                        finalCountry = key;
+                        break;
+                    }
+                }
+            }
+        }
+        
         // 국가 코드와 지오메트리 추가
-        territory.country = country;
+        territory.country = finalCountry;
         territory.geometry = geometry;
+        territory.properties = properties; // properties도 저장
         
         this.currentTerritory = territory;
         
