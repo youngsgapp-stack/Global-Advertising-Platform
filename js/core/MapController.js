@@ -178,8 +178,65 @@ class MapController {
             });
             
             // 모든 territory source 찾기
-            const sources = Array.from(this.sourcesLoaded);
-            log.debug(`Checking ${sources.length} sources for territory ${territoryId}`);
+            let sources = Array.from(this.sourcesLoaded);
+            
+            // sourcesLoaded가 비어있으면 맵의 모든 source 확인
+            if (sources.length === 0) {
+                log.warn(`sourcesLoaded is empty, checking all map sources for territory ${territoryId}...`);
+                // 맵에 로드된 모든 GeoJSON source 찾기
+                try {
+                    const mapStyle = this.map.getStyle();
+                    if (mapStyle && mapStyle.sources) {
+                        sources = Object.keys(mapStyle.sources).filter(sourceId => {
+                            try {
+                                const source = this.map.getSource(sourceId);
+                                if (!source || source.type !== 'geojson') return false;
+                                
+                                // 모든 GeoJSON source 포함 (필터 완화)
+                                if (sourceId.startsWith('territories-') || 
+                                    sourceId.startsWith('states-') || 
+                                    sourceId.startsWith('regions-') ||
+                                    sourceId.startsWith('prefectures-')) {
+                                    return true;
+                                }
+                                
+                                // 국가 코드로 매칭
+                                if (territory.country) {
+                                    const countrySlug = territory.country.toLowerCase();
+                                    if (sourceId.includes(countrySlug)) {
+                                        return true;
+                                    }
+                                }
+                                
+                                return false;
+                            } catch (e) {
+                                return false;
+                            }
+                        });
+                        log.info(`✅ Found ${sources.length} geojson sources on map: ${sources.join(', ')}`);
+                        
+                        // 여전히 비어있으면 모든 GeoJSON source 포함
+                        if (sources.length === 0) {
+                            log.warn(`No filtered sources found, checking all geojson sources...`);
+                            sources = Object.keys(mapStyle.sources).filter(sourceId => {
+                                const source = this.map.getSource(sourceId);
+                                return source && source.type === 'geojson';
+                            });
+                            log.info(`✅ Found ${sources.length} total geojson sources: ${sources.join(', ')}`);
+                        }
+                    }
+                } catch (error) {
+                    log.error('Error checking map sources:', error);
+                }
+            }
+            
+            // Territory에 저장된 sourceId가 있으면 우선 사용
+            if (territory.sourceId && !sources.includes(territory.sourceId)) {
+                sources.unshift(territory.sourceId);
+                log.debug(`Using stored sourceId: ${territory.sourceId}`);
+            }
+            
+            log.debug(`Checking ${sources.length} sources for territory ${territoryId}: ${sources.join(', ')}`);
             
             let found = false;
             
@@ -420,32 +477,63 @@ class MapController {
             
             if (!found) {
                 log.error(`❌ Territory ${territoryId} not found in any source!`);
-                log.error(`Available sources: ${sources.join(', ')}`);
+                log.error(`Available sources: ${sources.length > 0 ? sources.join(', ') : '(none)'}`);
                 log.error(`Territory info:`, {
                     id: territory.id,
                     name: territory.name,
+                    country: territory.country,
+                    sourceId: territory.sourceId,
+                    featureId: territory.featureId,
                     pixelCanvas: territory.pixelCanvas
                 });
+                
+                // sourcesLoaded 상태 확인
+                log.warn(`sourcesLoaded set: ${Array.from(this.sourcesLoaded).join(', ') || '(empty)'}`);
                 
                 // 모든 source의 feature ID 목록 출력 (디버깅용)
-                for (const sourceId of sources.slice(0, 3)) { // 처음 3개
-                    const source = this.map.getSource(sourceId);
-                    if (source && source.type === 'geojson' && source._data && source._data.features) {
-                        const featureIds = source._data.features.slice(0, 5).map(f => ({
-                            id: f.id,
-                            propsId: f.properties?.id,
-                            name: f.properties?.name
-                        }));
-                        log.warn(`Sample feature IDs from ${sourceId}:`, featureIds);
+                if (sources.length > 0) {
+                    for (const sourceId of sources.slice(0, 5)) {
+                        const source = this.map.getSource(sourceId);
+                        if (source && source.type === 'geojson' && source._data && source._data.features) {
+                            const featureIds = source._data.features.slice(0, 10).map(f => ({
+                                id: f.id,
+                                propsId: f.properties?.id,
+                                name: f.properties?.name,
+                                originalId: f.properties?.originalId
+                            }));
+                            log.warn(`Sample feature IDs from ${sourceId} (${source._data.features.length} features):`, featureIds);
+                            
+                            // territoryId와 유사한 이름 찾기
+                            const similarFeatures = source._data.features.filter(f => {
+                                const name = String(f.properties?.name || '').toLowerCase();
+                                const id = String(f.properties?.id || f.id || '').toLowerCase();
+                                const territoryIdLower = String(territoryId).toLowerCase();
+                                return name.includes(territoryIdLower) || 
+                                       territoryIdLower.includes(name) ||
+                                       id.includes(territoryIdLower) ||
+                                       territoryIdLower.includes(id);
+                            });
+                            if (similarFeatures.length > 0) {
+                                log.warn(`Similar features in ${sourceId}:`, similarFeatures.slice(0, 3).map(f => ({
+                                    id: f.id,
+                                    propsId: f.properties?.id,
+                                    name: f.properties?.name
+                                })));
+                            }
+                        }
+                    }
+                } else {
+                    // 맵의 모든 source 나열
+                    try {
+                        const mapStyle = this.map.getStyle();
+                        if (mapStyle && mapStyle.sources) {
+                            const allSources = Object.keys(mapStyle.sources);
+                            log.warn(`All sources on map (${allSources.length}):`, allSources);
+                        }
+                    } catch (e) {
+                        log.error('Failed to get map sources:', e);
                     }
                 }
-                
-                // Territory 정보 출력
-                log.warn(`Territory info:`, {
-                    id: territory.id,
-                    name: territory.name,
-                    pixelCanvas: territory.pixelCanvas
-                });
             }
             
         } catch (error) {
@@ -1109,7 +1197,7 @@ class MapController {
             originalId: rawTerritoryId // 원본 ID도 전달
         });
         
-        log.debug(`🗺️ Territory selected: ${emittedTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
+        log.debug(`🗺️ Territory selected: ${normalizedTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
     }
     
     /**
