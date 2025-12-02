@@ -129,10 +129,18 @@ class TerritoryPanel {
         const protectionRemaining = territoryManager.getProtectionRemaining(t.id);
         const isProtected = !!protectionRemaining;
         
+        // 이름 추출 (객체일 수 있으므로 처리) - 먼저 정의 필요
+        const territoryName = this.extractName(t.name) || 
+                              this.extractName(t.properties?.name) || 
+                              this.extractName(t.properties?.name_en) || 
+                              'Unknown Territory';
+        
         // 국가 코드 결정 (우선순위: territory.country > properties > fallback)
+        // properties에서 사용 가능한 필드: adm0_a3 (USA), country (United States of America), countryCode (US1), sov_a3 (US1)
         let countryCode = t.country || 
                         t.properties?.country || 
                         t.properties?.country_code ||
+                        t.properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
                         t.properties?.sov_a3?.toLowerCase() ||
                         'unknown';
         
@@ -142,42 +150,63 @@ class TerritoryPanel {
             countryCode = null;
         }
         
+        // countryCode가 국가명인 경우 슬러그로 변환 시도 (예: "United States of America" -> "usa")
+        if (countryCode && !CONFIG.COUNTRIES[countryCode]) {
+            const normalized = countryCode.toLowerCase().replace(/\s+/g, '-');
+            if (CONFIG.COUNTRIES[normalized]) {
+                countryCode = normalized;
+            } else {
+                // 국가명으로 검색
+                for (const [key, value] of Object.entries(CONFIG.COUNTRIES)) {
+                    if (value.name === countryCode || value.nameKo === countryCode) {
+                        countryCode = key;
+                        break;
+                    }
+                }
+            }
+        }
+        
         // countryCode가 없거나 유효하지 않은 경우, properties에서 다시 시도
         if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
-            // properties에서 다른 필드 시도
-            const altCode = t.properties?.country_code || 
-                           t.properties?.sov_a3?.toLowerCase() ||
-                           t.properties?.iso_a3?.toLowerCase();
+            // properties에서 다른 필드 시도 (adm0_a3 우선)
+            let altCode = t.properties?.adm0_a3 ||  // ISO 코드 (예: "USA")
+                         t.properties?.country_code || 
+                         t.properties?.sov_a3 ||
+                         t.properties?.iso_a3;
             
-            if (altCode && !invalidCodes.includes(altCode.toLowerCase()) && CONFIG.COUNTRIES[altCode]) {
-                countryCode = altCode;
-            } else {
-                // mapController의 currentCountry 사용 시도
+            if (altCode) {
+                altCode = altCode.toString().toLowerCase();
+                
+                // ISO 코드를 슬러그로 변환 시도 (예: "usa" -> "usa", "kor" -> "south-korea")
+                // 대부분의 경우 소문자 변환으로 충분하지만, 일부는 매핑 필요
+                const isoToSlug = {
+                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
+                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
+                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
+                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia'
+                };
+                
+                const slugCode = isoToSlug[altCode] || altCode;
+                
+                if (!invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
+                    countryCode = slugCode;
+                } else if (CONFIG.COUNTRIES[altCode]) {
+                    countryCode = altCode;
+                }
+            }
+            
+            // 여전히 없으면 mapController의 currentCountry 사용 시도
+            if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
                 if (mapController && mapController.currentCountry && CONFIG.COUNTRIES[mapController.currentCountry]) {
                     countryCode = mapController.currentCountry;
                     log.debug(`[TerritoryPanel] Using mapController.currentCountry: ${countryCode} for territory: ${territoryName}`);
                 } else {
                     // 여전히 없으면 'unknown'으로 설정하되, 로그 남김
                     countryCode = 'unknown';
-                    log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, mapController.currentCountry: ${mapController?.currentCountry}`);
+                    log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, mapController.currentCountry: ${mapController?.currentCountry}, properties: ${JSON.stringify(t.properties)}`);
                 }
             }
         }
-        
-        // countryCode가 슬러그 형식이 아닌 경우 변환 시도
-        if (countryCode && countryCode !== 'unknown' && !CONFIG.COUNTRIES[countryCode]) {
-            // ISO 코드나 다른 형식일 수 있으므로 변환 시도
-            const normalizedCode = countryCode.toLowerCase().replace(/\s+/g, '-');
-            if (CONFIG.COUNTRIES[normalizedCode]) {
-                countryCode = normalizedCode;
-            }
-        }
-        
-        // 이름 추출 (객체일 수 있으므로 처리) - 먼저 정의 필요
-        const territoryName = this.extractName(t.name) || 
-                              this.extractName(t.properties?.name) || 
-                              this.extractName(t.properties?.name_en) || 
-                              'Unknown Territory';
         
         // Get real country data
         this.countryData = territoryDataService.getCountryStats(countryCode);
@@ -823,4 +852,5 @@ class TerritoryPanel {
 // 싱글톤 인스턴스
 export const territoryPanel = new TerritoryPanel();
 export default territoryPanel;
+
 

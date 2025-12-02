@@ -94,8 +94,10 @@ class TerritoryManager {
             this.territories.set(territoryId, territory);
         }
         
-        // 국가 코드 결정: 전달된 country > properties.country > properties.country_code
+        // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
+        // adm0_a3는 ISO 3166-1 alpha-3 코드 (예: "USA")를 포함하므로 우선 사용
         let finalCountry = country || 
+                          properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
                           properties?.country || 
                           properties?.country_code ||
                           territory.country;
@@ -123,9 +125,37 @@ class TerritoryManager {
             }
         }
         
+        // 여전히 유효하지 않으면 properties에서 다른 필드 시도
+        if (!finalCountry || !CONFIG.COUNTRIES[finalCountry]) {
+            let altCode = properties?.adm0_a3 ||  // ISO 코드 (예: "USA")
+                         properties?.country_code ||
+                         properties?.sov_a3 ||
+                         properties?.iso_a3;
+            
+            if (altCode) {
+                altCode = altCode.toString().toLowerCase();
+                
+                // ISO 코드를 슬러그로 변환 시도 (예: "usa" -> "usa", "kor" -> "south-korea")
+                const isoToSlug = {
+                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
+                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
+                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
+                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia'
+                };
+                
+                const slugCode = isoToSlug[altCode] || altCode;
+                
+                if (!invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
+                    finalCountry = slugCode;
+                } else if (CONFIG.COUNTRIES[altCode]) {
+                    finalCountry = altCode;
+                }
+            }
+        }
+        
         // 여전히 유효하지 않으면 로그 남기고 null로 설정
         if (!finalCountry || !CONFIG.COUNTRIES[finalCountry]) {
-            log.warn(`[TerritoryManager] Invalid country code: ${country}, properties: ${JSON.stringify(properties)}`);
+            log.warn(`[TerritoryManager] Invalid country code: ${country}, properties.adm0_a3: ${properties?.adm0_a3}, properties.country: ${properties?.country}`);
             finalCountry = null; // TerritoryPanel에서 다시 시도하도록
         }
         
