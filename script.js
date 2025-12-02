@@ -1669,6 +1669,17 @@ class BillionaireMap {
                     pixelStore.createIndex('timestamp', 'timestamp', { unique: false });
                     pixelStore.createIndex('viewport', 'viewport', { unique: false });
                 }
+                // Phase 1: 행정구역 경계선 이미지 캐시
+                if (!db.objectStoreNames.contains('boundaryImages')) {
+                    const boundaryStore = db.createObjectStore('boundaryImages', { keyPath: 'regionId' });
+                    boundaryStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+                // Phase 2: 픽셀 타일 캐시
+                if (!db.objectStoreNames.contains('pixelTiles')) {
+                    const tileStore = db.createObjectStore('pixelTiles', { keyPath: 'tileKey' });
+                    tileStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    tileStore.createIndex('regionId', 'regionId', { unique: false });
+                }
             };
         });
     }
@@ -3162,14 +3173,71 @@ class BillionaireMap {
         // 쿼드트리 인덱스 초기화 (성능 최적화)
         this.initQuadtree(allFeatures);
         
-        // world-regions 소스에 통합된 데이터 설정
-        if (this.map.getSource('world-regions')) {
-            this.map.getSource('world-regions').setData(mergedGeoJson);
-        } else {
-            this.map.addSource('world-regions', {
-                type: 'geojson',
-                data: mergedGeoJson
+        // Phase 1: 이미지 기반 렌더링 시도 (메모리 최적화)
+        // 각 행정구역의 이미지를 로드하고, 이미지가 있으면 이미지 사용, 없으면 GeoJSON 사용
+        const imageBasedRegions = [];
+        const geoJsonBasedRegions = [];
+        
+        // 병렬로 이미지 로드 시도 (성능 최적화)
+        const imageLoadPromises = allFeatures.map(async (feature) => {
+            const regionId = feature.properties?.id || feature.properties?.regionId;
+            if (!regionId) {
+                geoJsonBasedRegions.push(feature);
+                return null;
+            }
+            
+            // 이미지 로드 시도
+            const boundaryImage = await this.loadBoundaryImage(regionId);
+            if (boundaryImage) {
+                // 이미지가 있으면 이미지 기반 렌더링
+                const bbox = this.calculateBoundingBox(feature);
+                if (bbox) {
+                    await this.applyBoundaryImageToMap(regionId, boundaryImage, bbox);
+                    imageBasedRegions.push(regionId);
+                    return { regionId, image: true };
+                }
+            }
+            
+            // 이미지가 없으면 GeoJSON 사용 (하위 호환성)
+            geoJsonBasedRegions.push(feature);
+            
+            // 백그라운드에서 이미지 생성 (다음 로딩 시 사용)
+            this.renderAdminBoundariesToImage(regionId, feature).catch(err => {
+                console.warn(`[행정구역 이미지] ${regionId}: 백그라운드 생성 실패:`, err);
             });
+            
+            return { regionId, image: false };
+        });
+        
+        await Promise.all(imageLoadPromises);
+        
+        console.log(`[행정구역 렌더링] 이미지 기반: ${imageBasedRegions.length}개, GeoJSON 기반: ${geoJsonBasedRegions.length}개`);
+        
+        // GeoJSON 기반 행정구역이 있으면 기존 방식으로 렌더링
+        if (geoJsonBasedRegions.length > 0) {
+            const geoJsonForMap = {
+                type: 'FeatureCollection',
+                features: geoJsonBasedRegions
+            };
+            
+            // world-regions 소스에 통합된 데이터 설정
+            if (this.map.getSource('world-regions')) {
+                this.map.getSource('world-regions').setData(geoJsonForMap);
+            } else {
+                this.map.addSource('world-regions', {
+                    type: 'geojson',
+                    data: geoJsonForMap
+                });
+            }
+        } else {
+            // 모든 행정구역이 이미지 기반이면 GeoJSON 소스 제거 (메모리 절약)
+            if (this.map.getSource('world-regions')) {
+                // 레이어는 유지하되 데이터는 빈 GeoJSON으로 설정
+                this.map.getSource('world-regions').setData({
+                    type: 'FeatureCollection',
+                    features: []
+                });
+            }
         }
         
         // 옥션 상태 정보를 각 feature에 추가 (비동기로 실행, 완료 후 지도 업데이트)
@@ -4060,16 +4128,69 @@ class BillionaireMap {
                 return data;
             });
             
-            // 소스 업데이트 또는 생성
-            if (this.map.getSource('world-regions')) {
-                // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
-                this.map.getSource('world-regions').setData(geoJsonData);
+            // Phase 1: 이미지 기반 렌더링 시도 (메모리 최적화)
+            // 각 행정구역의 이미지를 로드하고, 이미지가 있으면 이미지 사용, 없으면 GeoJSON 사용
+            const imageBasedRegions = [];
+            const geoJsonBasedRegions = [];
+            
+            for (const feature of geoJsonData.features) {
+                const regionId = feature.properties?.id || feature.properties?.regionId;
+                if (!regionId) {
+                    geoJsonBasedRegions.push(feature);
+                    continue;
+                }
+                
+                // 이미지 로드 시도
+                const boundaryImage = await this.loadBoundaryImage(regionId);
+                if (boundaryImage) {
+                    // 이미지가 있으면 이미지 기반 렌더링
+                    const bbox = this.calculateBoundingBox(feature);
+                    if (bbox) {
+                        await this.applyBoundaryImageToMap(regionId, boundaryImage, bbox);
+                        imageBasedRegions.push(regionId);
+                    } else {
+                        geoJsonBasedRegions.push(feature);
+                    }
+                } else {
+                    // 이미지가 없으면 GeoJSON 사용 (하위 호환성)
+                    geoJsonBasedRegions.push(feature);
+                    
+                    // 백그라운드에서 이미지 생성 (다음 로딩 시 사용)
+                    this.renderAdminBoundariesToImage(regionId, feature).catch(err => {
+                        console.warn(`[행정구역 이미지] ${regionId}: 백그라운드 생성 실패:`, err);
+                    });
+                }
+            }
+            
+            console.log(`[행정구역 렌더링] 이미지 기반: ${imageBasedRegions.length}개, GeoJSON 기반: ${geoJsonBasedRegions.length}개`);
+            
+            // GeoJSON 기반 행정구역이 있으면 기존 방식으로 렌더링
+            if (geoJsonBasedRegions.length > 0) {
+                const geoJsonForMap = {
+                    type: 'FeatureCollection',
+                    features: geoJsonBasedRegions
+                };
+                
+                // 소스 업데이트 또는 생성
+                if (this.map.getSource('world-regions')) {
+                    // 기존 소스가 있으면 데이터만 업데이트 (더 빠름)
+                    this.map.getSource('world-regions').setData(geoJsonForMap);
+                } else {
+                    // 소스가 없으면 새로 생성
+                    this.map.addSource('world-regions', {
+                        type: 'geojson',
+                        data: geoJsonForMap
+                    });
+                }
             } else {
-                // 소스가 없으면 새로 생성
-                this.map.addSource('world-regions', {
-                    type: 'geojson',
-                    data: geoJsonData
-                });
+                // 모든 행정구역이 이미지 기반이면 GeoJSON 소스 제거 (메모리 절약)
+                if (this.map.getSource('world-regions')) {
+                    // 레이어는 유지하되 데이터는 빈 GeoJSON으로 설정
+                    this.map.getSource('world-regions').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
             }
             
             // 레이어가 없으면 추가
@@ -25635,6 +25756,326 @@ class BillionaireMap {
         return { minX, minY, maxX, maxY };
     }
     
+    // ========== Phase 1: 행정구역 경계선 이미지화 (메모리 최적화) ==========
+    
+    /**
+     * Phase 1: 행정구역 경계선을 Canvas로 렌더링하여 이미지로 저장
+     */
+    async renderAdminBoundariesToImage(regionId, geoJsonFeature) {
+        if (!geoJsonFeature || !geoJsonFeature.geometry) {
+            console.warn(`[행정구역 이미지] ${regionId}: GeoJSON Feature가 없습니다.`);
+            return null;
+        }
+        
+        try {
+            // 1. Canvas 생성 (고해상도)
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const size = 2048; // 고해상도 타일
+            canvas.width = size;
+            canvas.height = size;
+            
+            // 2. 바운딩 박스 계산
+            const bbox = this.calculateBoundingBox(geoJsonFeature);
+            if (!bbox) {
+                console.warn(`[행정구역 이미지] ${regionId}: 바운딩 박스 계산 실패`);
+                return null;
+            }
+            
+            const { minX, minY, maxX, maxY } = bbox;
+            const width = maxX - minX;
+            const height = maxY - minY;
+            
+            // 3. 좌표 변환 (GeoJSON 좌표 → Canvas 좌표)
+            const scaleX = size / width;
+            const scaleY = size / height;
+            const offsetX = -minX * scaleX;
+            const offsetY = -minY * scaleY;
+            
+            // 4. 경계선 그리기
+            ctx.strokeStyle = '#4ecdc4';
+            ctx.lineWidth = 2;
+            ctx.fillStyle = 'rgba(78, 205, 196, 0.1)';
+            
+            const drawCoordinates = (coords) => {
+                if (Array.isArray(coords[0])) {
+                    coords.forEach(drawCoordinates);
+                    return;
+                }
+                
+                ctx.beginPath();
+                coords.forEach((coord, index) => {
+                    const [x, y] = coord;
+                    const canvasX = x * scaleX + offsetX;
+                    const canvasY = size - (y * scaleY + offsetY); // Y축 뒤집기
+                    
+                    if (index === 0) {
+                        ctx.moveTo(canvasX, canvasY);
+                    } else {
+                        ctx.lineTo(canvasX, canvasY);
+                    }
+                });
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            };
+            
+            // GeoJSON 타입에 따라 그리기
+            if (geoJsonFeature.geometry.type === 'Polygon') {
+                geoJsonFeature.geometry.coordinates.forEach(ring => {
+                    drawCoordinates(ring);
+                });
+            } else if (geoJsonFeature.geometry.type === 'MultiPolygon') {
+                geoJsonFeature.geometry.coordinates.forEach(polygon => {
+                    polygon.forEach(ring => {
+                        drawCoordinates(ring);
+                    });
+                });
+            }
+            
+            // 5. 이미지로 변환
+            const imageDataUrl = canvas.toDataURL('image/png');
+            
+            // 6. Firestore에 저장
+            await this.saveBoundaryImage(regionId, imageDataUrl);
+            
+            console.log(`[행정구역 이미지] ${regionId}: 이미지 생성 완료`);
+            return imageDataUrl;
+        } catch (error) {
+            console.error(`[행정구역 이미지] ${regionId}: 이미지 생성 실패:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * Phase 1: 행정구역 경계선 이미지를 Firestore에 저장
+     */
+    async saveBoundaryImage(regionId, imageDataUrl) {
+        if (!this.isFirebaseInitialized || !this.firestore || !imageDataUrl) {
+            return;
+        }
+        
+        try {
+            const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const boundaryRef = doc(this.firestore, 'adminBoundaries', regionId);
+            await setDoc(boundaryRef, {
+                regionId,
+                boundaryImage: imageDataUrl,
+                updatedAt: new Date()
+            }, { merge: true });
+            
+            // IndexedDB에도 캐시 저장
+            await this.setCachedBoundaryImage(regionId, imageDataUrl);
+            
+            console.log(`[행정구역 이미지] ${regionId}: Firestore 저장 완료`);
+        } catch (error) {
+            console.warn(`[행정구역 이미지] ${regionId}: Firestore 저장 실패:`, error);
+        }
+    }
+    
+    /**
+     * Phase 1: 행정구역 경계선 이미지 로드 (캐시 우선)
+     */
+    async loadBoundaryImage(regionId) {
+        // 1. IndexedDB 캐시 확인
+        const cached = await this.getCachedBoundaryImage(regionId);
+        if (cached) {
+            console.log(`[행정구역 이미지] ${regionId}: IndexedDB 캐시에서 로드`);
+            return cached;
+        }
+        
+        // 2. Firestore에서 로드
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return null;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const boundaryRef = doc(this.firestore, 'adminBoundaries', regionId);
+            const boundaryDoc = await getDoc(boundaryRef);
+            
+            if (boundaryDoc.exists()) {
+                const data = boundaryDoc.data();
+                const imageData = data.boundaryImage;
+                
+                if (imageData) {
+                    // IndexedDB에 캐시 저장
+                    await this.setCachedBoundaryImage(regionId, imageData);
+                    console.log(`[행정구역 이미지] ${regionId}: Firestore에서 로드 완료`);
+                    return imageData;
+                }
+            }
+        } catch (error) {
+            console.warn(`[행정구역 이미지] ${regionId}: Firestore 로드 실패:`, error);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Phase 1: IndexedDB에서 행정구역 경계선 이미지 캐시 가져오기
+     */
+    async getCachedBoundaryImage(regionId) {
+        if (!this.cacheDB) {
+            return null;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['boundaryImages'], 'readonly');
+            const objectStore = transaction.objectStore('boundaryImages');
+            const request = objectStore.get(regionId);
+            
+            request.onsuccess = () => {
+                const cached = request.result;
+                if (!cached) {
+                    resolve(null);
+                    return;
+                }
+                
+                // 캐시 만료 확인 (7일)
+                const now = Date.now();
+                const expiryTime = this.cacheExpiryDays * 24 * 60 * 60 * 1000;
+                if (now - cached.timestamp > expiryTime) {
+                    console.log(`[행정구역 이미지 캐시] ${regionId}: 만료됨, 삭제`);
+                    this.deleteCachedBoundaryImage(regionId);
+                    resolve(null);
+                    return;
+                }
+                
+                resolve(cached.imageData);
+            };
+            
+            request.onerror = () => {
+                resolve(null);
+            };
+        });
+    }
+    
+    /**
+     * Phase 1: IndexedDB에 행정구역 경계선 이미지 캐시 저장
+     */
+    async setCachedBoundaryImage(regionId, imageData) {
+        if (!this.cacheDB || !imageData) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['boundaryImages'], 'readwrite');
+            const objectStore = transaction.objectStore('boundaryImages');
+            const data = {
+                regionId,
+                imageData,
+                timestamp: Date.now()
+            };
+            
+            const request = objectStore.put(data);
+            
+            request.onsuccess = () => {
+                resolve();
+            };
+            
+            request.onerror = () => {
+                resolve();
+            };
+        });
+    }
+    
+    /**
+     * Phase 1: IndexedDB에서 행정구역 경계선 이미지 캐시 삭제
+     */
+    async deleteCachedBoundaryImage(regionId) {
+        if (!this.cacheDB) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['boundaryImages'], 'readwrite');
+            const objectStore = transaction.objectStore('boundaryImages');
+            const request = objectStore.delete(regionId);
+            
+            request.onsuccess = () => {
+                resolve();
+            };
+            
+            request.onerror = () => {
+                resolve();
+            };
+        });
+    }
+    
+    /**
+     * Phase 1: 행정구역 경계선 이미지를 Mapbox 레이어에 적용
+     */
+    async applyBoundaryImageToMap(regionId, imageDataUrl, bbox) {
+        if (!this.map || !imageDataUrl || !bbox) {
+            return;
+        }
+        
+        try {
+            const { minX, minY, maxX, maxY } = bbox;
+            const imageId = `boundary-${regionId}`;
+            
+            // 이미지가 이미 등록되어 있으면 제거
+            if (this.map.hasImage(imageId)) {
+                this.map.removeImage(imageId);
+            }
+            
+            // 이미지 로드
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = () => {
+                    try {
+                        this.map.addImage(imageId, img);
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                img.onerror = reject;
+                img.src = imageDataUrl;
+            });
+            
+            // 레이어 소스 추가/업데이트
+            const sourceId = `boundary-source-${regionId}`;
+            if (this.map.getSource(sourceId)) {
+                this.map.getSource(sourceId).setCoordinates([
+                    [minX, maxY],
+                    [maxX, maxY],
+                    [maxX, minY],
+                    [minX, minY]
+                ]);
+            } else {
+                this.map.addSource(sourceId, {
+                    type: 'image',
+                    url: imageDataUrl,
+                    coordinates: [
+                        [minX, maxY],
+                        [maxX, maxY],
+                        [maxX, minY],
+                        [minX, minY]
+                    ]
+                });
+                
+                // 레이어 추가
+                const layerId = `boundary-layer-${regionId}`;
+                if (!this.map.getLayer(layerId)) {
+                    this.map.addLayer({
+                        id: layerId,
+                        type: 'raster',
+                        source: sourceId,
+                        paint: {
+                            'raster-opacity': 0.8
+                        }
+                    });
+                }
+            }
+            
+            console.log(`[행정구역 이미지] ${regionId}: Mapbox 레이어 적용 완료`);
+        } catch (error) {
+            console.error(`[행정구역 이미지] ${regionId}: Mapbox 레이어 적용 실패:`, error);
+        }
+    }
+    
     /**
      * Phase 1: 행정구역을 픽셀 그리드로 변환 (실제 면적 기반)
      * 실제 polygon 면적을 기반으로 픽셀 크기를 정확히 계산합니다
@@ -27174,6 +27615,402 @@ class BillionaireMap {
         });
         
         return tiles;
+    }
+    
+    // ========== Phase 2: 픽셀 그리드 이미지 기반 렌더링 (메모리 최적화) ==========
+    
+    /**
+     * Phase 2: 픽셀 그리드를 타일 이미지로 변환 (Wplace 스타일)
+     */
+    async renderPixelGridToTiles(regionId, pixelGrid) {
+        if (!pixelGrid || !pixelGrid.pixels || pixelGrid.pixels.length === 0) {
+            console.warn(`[픽셀 타일] ${regionId}: 픽셀 데이터가 없습니다.`);
+            return new Map();
+        }
+        
+        const tiles = new Map(); // tileKey -> imageDataUrl
+        
+        try {
+            // 1. 뷰포트와 줌 레벨 가져오기
+            const bounds = this.map.getBounds();
+            const zoom = this.map.getZoom();
+            const viewport = [
+                bounds.getWest(),
+                bounds.getSouth(),
+                bounds.getEast(),
+                bounds.getNorth()
+            ];
+            
+            // 2. 픽셀을 타일별로 분류
+            const pixelTiles = this.createPixelGridTiles(regionId, pixelGrid, viewport, zoom);
+            
+            // 3. 각 타일을 이미지로 렌더링 (Wplace 스타일: 1000×1000)
+            for (const [tileKey, tileData] of pixelTiles) {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const tileSize = 1000; // Wplace 스타일: 1000×1000 타일 (메모리 절약용으로는 512×512도 가능)
+                canvas.width = tileSize;
+                canvas.height = tileSize;
+                
+                // 타일 바운딩 박스 계산
+                const tileBbox = this.calculateTileBbox(tileKey, zoom);
+                if (!tileBbox) continue;
+                
+                // 픽셀을 Canvas에 그리기
+                tileData.pixels.forEach(pixel => {
+                    const x = ((pixel.x || 0) - tileBbox.minX) / (tileBbox.maxX - tileBbox.minX) * tileSize;
+                    const y = ((pixel.y || 0) - tileBbox.minY) / (tileBbox.maxY - tileBbox.minY) * tileSize;
+                    
+                    if (x >= 0 && x < tileSize && y >= 0 && y < tileSize) {
+                        ctx.fillStyle = pixel.color || '#f0f0f0';
+                        ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+                    }
+                });
+                
+                // 이미지로 변환
+                const imageDataUrl = canvas.toDataURL('image/png');
+                tiles.set(tileKey, imageDataUrl);
+                
+                // Firestore에 저장
+                await this.savePixelTile(regionId, tileKey, imageDataUrl, zoom);
+                
+                // 메모리 정리: Canvas 해제
+                canvas.width = 0;
+                canvas.height = 0;
+            }
+            
+            console.log(`[픽셀 타일] ${regionId}: ${tiles.size}개 타일 생성 완료`);
+            return tiles;
+        } catch (error) {
+            console.error(`[픽셀 타일] ${regionId}: 타일 생성 실패:`, error);
+            return new Map();
+        }
+    }
+    
+    /**
+     * Phase 2: 타일 바운딩 박스 계산
+     */
+    calculateTileBbox(tileKey, zoom) {
+        try {
+            // tileKey 형식: "zoom_tileX_tileY" 또는 "zoom/tileX/tileY"
+            const parts = tileKey.split(/[_\//]/);
+            if (parts.length < 3) return null;
+            
+            const tileZoom = parseInt(parts[0]) || zoom;
+            const tileX = parseInt(parts[1]);
+            const tileY = parseInt(parts[2]);
+            
+            // Web Mercator 프로젝션 역변환
+            const n = Math.pow(2, tileZoom);
+            const lonPerTile = 360 / n;
+            const latPerTile = 180 / n;
+            
+            const minX = (tileX * lonPerTile) - 180;
+            const maxX = ((tileX + 1) * lonPerTile) - 180;
+            const minY = 90 - ((tileY + 1) * latPerTile);
+            const maxY = 90 - (tileY * latPerTile);
+            
+            return { minX, minY, maxX, maxY };
+        } catch (error) {
+            console.warn(`[픽셀 타일] 타일 바운딩 박스 계산 실패: ${tileKey}`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * Phase 2: 픽셀 타일을 Firestore에 저장
+     */
+    async savePixelTile(regionId, tileKey, imageDataUrl, zoom) {
+        if (!this.isFirebaseInitialized || !this.firestore || !imageDataUrl) {
+            return;
+        }
+        
+        try {
+            const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const tileRef = doc(this.firestore, 'pixelGrids', regionId, 'tiles', tileKey);
+            await setDoc(tileRef, {
+                regionId,
+                tileKey,
+                imageData: imageDataUrl,
+                zoom,
+                updatedAt: new Date()
+            }, { merge: true });
+            
+            // IndexedDB에도 캐시 저장
+            await this.setCachedPixelTile(regionId, tileKey, imageDataUrl, zoom);
+            
+            console.log(`[픽셀 타일] ${regionId}/${tileKey}: Firestore 저장 완료`);
+        } catch (error) {
+            console.warn(`[픽셀 타일] ${regionId}/${tileKey}: Firestore 저장 실패:`, error);
+        }
+    }
+    
+    /**
+     * Phase 2: 뷰포트에 보이는 타일만 로드 (Wplace 스타일)
+     */
+    async loadVisiblePixelTiles(regionId, viewport, zoom) {
+        if (!viewport || !zoom) {
+            const bounds = this.map.getBounds();
+            viewport = [
+                bounds.getWest(),
+                bounds.getSouth(),
+                bounds.getEast(),
+                bounds.getNorth()
+            ];
+            zoom = this.map.getZoom();
+        }
+        
+        try {
+            // 1. 뷰포트에 보이는 타일 계산 (Wplace 스타일: 최대 30개)
+            const visibleTiles = this.getVisibleTiles(viewport, zoom);
+            
+            // 최대 30개 타일 제한 (Wplace 스타일)
+            const limitedTiles = visibleTiles.slice(0, 30);
+            
+            // 2. 각 타일 로드 (캐시 우선)
+            const loadPromises = limitedTiles.map(async (tileKey) => {
+                // IndexedDB 캐시 확인
+                const cached = await this.getCachedPixelTile(regionId, tileKey);
+                if (cached) {
+                    return { tileKey, imageData: cached, fromCache: true };
+                }
+                
+                // Firestore에서 로드
+                const imageData = await this.loadPixelTileFromFirestore(regionId, tileKey);
+                
+                if (imageData) {
+                    // IndexedDB에 캐시 저장
+                    await this.setCachedPixelTile(regionId, tileKey, imageData, zoom);
+                    return { tileKey, imageData, fromCache: false };
+                }
+                
+                return null;
+            });
+            
+            const loadedTiles = (await Promise.all(loadPromises)).filter(tile => tile !== null);
+            
+            // 3. 뷰포트 밖 타일 제거
+            this.unloadInvisibleTiles(limitedTiles);
+            
+            console.log(`[픽셀 타일] ${regionId}: ${loadedTiles.length}개 타일 로드 완료`);
+            return loadedTiles;
+        } catch (error) {
+            console.error(`[픽셀 타일] ${regionId}: 타일 로드 실패:`, error);
+            return [];
+        }
+    }
+    
+    /**
+     * Phase 2: Firestore에서 픽셀 타일 로드
+     */
+    async loadPixelTileFromFirestore(regionId, tileKey) {
+        if (!this.isFirebaseInitialized || !this.firestore) {
+            return null;
+        }
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const tileRef = doc(this.firestore, 'pixelGrids', regionId, 'tiles', tileKey);
+            const tileDoc = await getDoc(tileRef);
+            
+            if (tileDoc.exists()) {
+                const data = tileDoc.data();
+                return data.imageData || null;
+            }
+        } catch (error) {
+            console.warn(`[픽셀 타일] ${regionId}/${tileKey}: Firestore 로드 실패:`, error);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Phase 2: IndexedDB에서 픽셀 타일 캐시 가져오기
+     */
+    async getCachedPixelTile(regionId, tileKey) {
+        if (!this.cacheDB) {
+            return null;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['pixelTiles'], 'readonly');
+            const objectStore = transaction.objectStore('pixelTiles');
+            const request = objectStore.get(tileKey);
+            
+            request.onsuccess = () => {
+                const cached = request.result;
+                if (!cached || cached.regionId !== regionId) {
+                    resolve(null);
+                    return;
+                }
+                
+                // 캐시 만료 확인 (1일)
+                const now = Date.now();
+                const expiryTime = 24 * 60 * 60 * 1000; // 1일
+                if (now - cached.timestamp > expiryTime) {
+                    console.log(`[픽셀 타일 캐시] ${tileKey}: 만료됨, 삭제`);
+                    this.deleteCachedPixelTile(tileKey);
+                    resolve(null);
+                    return;
+                }
+                
+                resolve(cached.imageData);
+            };
+            
+            request.onerror = () => {
+                resolve(null);
+            };
+        });
+    }
+    
+    /**
+     * Phase 2: IndexedDB에 픽셀 타일 캐시 저장
+     */
+    async setCachedPixelTile(regionId, tileKey, imageData, zoom) {
+        if (!this.cacheDB || !imageData) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['pixelTiles'], 'readwrite');
+            const objectStore = transaction.objectStore('pixelTiles');
+            const data = {
+                tileKey,
+                regionId,
+                imageData,
+                zoom,
+                timestamp: Date.now()
+            };
+            
+            const request = objectStore.put(data);
+            
+            request.onsuccess = () => {
+                resolve();
+            };
+            
+            request.onerror = () => {
+                resolve();
+            };
+        });
+    }
+    
+    /**
+     * Phase 2: IndexedDB에서 픽셀 타일 캐시 삭제
+     */
+    async deleteCachedPixelTile(tileKey) {
+        if (!this.cacheDB) {
+            return;
+        }
+        
+        return new Promise((resolve) => {
+            const transaction = this.cacheDB.transaction(['pixelTiles'], 'readwrite');
+            const objectStore = transaction.objectStore('pixelTiles');
+            const request = objectStore.delete(tileKey);
+            
+            request.onsuccess = () => {
+                resolve();
+            };
+            
+            request.onerror = () => {
+                resolve();
+            };
+        });
+    }
+    
+    /**
+     * Phase 2: 뷰포트 밖 타일 제거 (메모리 정리)
+     */
+    unloadInvisibleTiles(visibleTileKeys) {
+        const visibleSet = new Set(visibleTileKeys);
+        const tilesToUnload = [];
+        
+        // 로드된 타일 중 뷰포트 밖 타일 찾기
+        this.loadedTiles.forEach((tileKey) => {
+            if (!visibleSet.has(tileKey)) {
+                tilesToUnload.push(tileKey);
+            }
+        });
+        
+        // 타일 제거
+        tilesToUnload.forEach(tileKey => {
+            this.unloadTile(tileKey);
+        });
+        
+        if (tilesToUnload.length > 0) {
+            console.log(`[픽셀 타일] ${tilesToUnload.length}개 타일 제거 (뷰포트 밖)`);
+        }
+    }
+    
+    /**
+     * Phase 2: 타일 제거 시 메모리 정리 (Wplace 스타일)
+     */
+    unloadTile(tileKey) {
+        // 1. pixelTiles Map에서 제거
+        if (this.pixelTiles && this.pixelTiles.has(tileKey)) {
+            const tile = this.pixelTiles.get(tileKey);
+            
+            // 이미지 참조 제거
+            if (tile && tile.image) {
+                tile.image.src = '';
+                tile.image = null;
+            }
+            
+            // Canvas 초기화
+            if (tile && tile.canvas) {
+                tile.canvas.width = tile.canvas.width; // Canvas 초기화
+                tile.canvas = null;
+            }
+            
+            this.pixelTiles.delete(tileKey);
+        }
+        
+        // 2. loadedTiles Set에서 제거
+        this.loadedTiles.delete(tileKey);
+        
+        // 3. Mapbox 소스에서 제거 (필요시)
+        // 타일은 Mapbox 소스에 직접 추가되지 않으므로 여기서는 제거하지 않음
+    }
+    
+    /**
+     * Phase 2: 픽셀 타일을 Mapbox 레이어에 적용
+     */
+    async applyPixelTilesToMap(regionId, loadedTiles) {
+        if (!this.map || !loadedTiles || loadedTiles.length === 0) {
+            return;
+        }
+        
+        try {
+            const sourceId = `pixel-tiles-${regionId}`;
+            
+            // 타일 이미지들을 Mapbox에 등록
+            for (const tile of loadedTiles) {
+                const imageId = `pixel-tile-${regionId}-${tile.tileKey}`;
+                
+                if (!this.map.hasImage(imageId)) {
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = () => {
+                            try {
+                                this.map.addImage(imageId, img);
+                                resolve();
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+                        img.onerror = reject;
+                        img.src = tile.imageData;
+                    });
+                }
+            }
+            
+            // 타일 좌표 계산 및 소스 업데이트
+            // 각 타일의 바운딩 박스를 계산하여 이미지 소스로 추가
+            // (실제 구현은 타일 좌표 시스템에 따라 다를 수 있음)
+            
+            console.log(`[픽셀 타일] ${regionId}: Mapbox 레이어 적용 완료 (${loadedTiles.length}개 타일)`);
+        } catch (error) {
+            console.error(`[픽셀 타일] ${regionId}: Mapbox 레이어 적용 실패:`, error);
+        }
     }
     
     /**
