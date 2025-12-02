@@ -205,73 +205,74 @@ class MapController {
                 // 우선순위 2: 일반 매칭 로직
                 if (!feature) {
                     feature = geoJsonData.features.find(f => {
-                    const props = f.properties || {};
-                    const fid = String(props.id || f.id || '').toLowerCase();
-                    const featureName = String(props.name || props.NAME_1 || props.NAME_2 || '').toLowerCase();
-                    const territoryIdLower = String(territoryId).toLowerCase();
-                    
-                    // 1. ID 직접 매칭 (소문자 변환)
-                    if (fid === territoryIdLower || 
-                        fid === `world-${territoryIdLower}` ||
-                        territoryIdLower === `world-${fid}`) {
-                        log.debug(`✅ Matched by direct ID: ${fid} === ${territoryIdLower}`);
-                        return true;
-                    }
-                    
-                    // 2. ID 부분 매칭
-                    if (fid.includes(territoryIdLower) || territoryIdLower.includes(fid)) {
-                        log.debug(`✅ Matched by partial ID: ${fid} <-> ${territoryIdLower}`);
-                        return true;
-                    }
-                    
-                    // 3. 이름 매칭 (다양한 변형 시도)
-                    if (territory.name) {
-                        const namesToMatch = [
-                            territory.name.en?.toLowerCase(),
-                            territory.name.ko?.toLowerCase(),
-                            territory.name.local?.toLowerCase(),
-                            territoryIdLower.replace(/-/g, ' '),
-                            territoryIdLower
-                        ].filter(Boolean);
+                        const props = f.properties || {};
+                        const fid = String(props.id || f.id || '').toLowerCase();
+                        const featureName = String(props.name || props.NAME_1 || props.NAME_2 || '').toLowerCase();
+                        const territoryIdLower = String(territoryId).toLowerCase();
                         
-                        for (const nameToMatch of namesToMatch) {
-                            if (featureName === nameToMatch || 
-                                featureName.includes(nameToMatch) || 
-                                nameToMatch.includes(featureName)) {
-                                log.debug(`✅ Matched by name: ${featureName} <-> ${nameToMatch}`);
+                        // 1. ID 직접 매칭 (소문자 변환)
+                        if (fid === territoryIdLower || 
+                            fid === `world-${territoryIdLower}` ||
+                            territoryIdLower === `world-${fid}`) {
+                            log.debug(`✅ Matched by direct ID: ${fid} === ${territoryIdLower}`);
+                            return true;
+                        }
+                        
+                        // 2. ID 부분 매칭
+                        if (fid.includes(territoryIdLower) || territoryIdLower.includes(fid)) {
+                            log.debug(`✅ Matched by partial ID: ${fid} <-> ${territoryIdLower}`);
+                            return true;
+                        }
+                        
+                        // 3. 이름 매칭 (다양한 변형 시도)
+                        if (territory.name) {
+                            const namesToMatch = [
+                                territory.name.en?.toLowerCase(),
+                                territory.name.ko?.toLowerCase(),
+                                territory.name.local?.toLowerCase(),
+                                territoryIdLower.replace(/-/g, ' '),
+                                territoryIdLower
+                            ].filter(Boolean);
+                            
+                            for (const nameToMatch of namesToMatch) {
+                                if (featureName === nameToMatch || 
+                                    featureName.includes(nameToMatch) || 
+                                    nameToMatch.includes(featureName)) {
+                                    log.debug(`✅ Matched by name: ${featureName} <-> ${nameToMatch}`);
+                                    return true;
+                                }
+                            }
+                        }
+                        
+                        // 4. properties에 저장된 territoryId와 매칭
+                        if (props.territoryId && String(props.territoryId).toLowerCase() === territoryIdLower) {
+                            log.debug(`✅ Matched by property territoryId: ${props.territoryId}`);
+                            return true;
+                        }
+                        
+                        // 5. originalId와 매칭 (GeoJSON 정규화 시 보존된 원본 ID)
+                        if (props.originalId && String(props.originalId).toLowerCase() === territoryIdLower) {
+                            log.debug(`✅ Matched by originalId: ${props.originalId}`);
+                            return true;
+                        }
+                        
+                        // 6. 이름에서 정규화된 ID 생성하여 매칭
+                        if (featureName) {
+                            const normalizedFromName = featureName
+                                .toLowerCase()
+                                .replace(/[^\w\s-]/g, '')
+                                .replace(/\s+/g, '-')
+                                .replace(/-+/g, '-')
+                                .replace(/^-|-$/g, '');
+                            if (normalizedFromName === territoryIdLower) {
+                                log.debug(`✅ Matched by normalized name: ${normalizedFromName}`);
                                 return true;
                             }
                         }
-                    }
-                    
-                    // 4. properties에 저장된 territoryId와 매칭
-                    if (props.territoryId && String(props.territoryId).toLowerCase() === territoryIdLower) {
-                        log.debug(`✅ Matched by property territoryId: ${props.territoryId}`);
-                        return true;
-                    }
-                    
-                    // 5. originalId와 매칭 (GeoJSON 정규화 시 보존된 원본 ID)
-                    if (props.originalId && String(props.originalId).toLowerCase() === territoryIdLower) {
-                        log.debug(`✅ Matched by originalId: ${props.originalId}`);
-                        return true;
-                    }
-                    
-                    // 6. 이름에서 정규화된 ID 생성하여 매칭
-                    if (featureName) {
-                        const normalizedFromName = featureName
-                            .toLowerCase()
-                            .replace(/[^\w\s-]/g, '')
-                            .replace(/\s+/g, '-')
-                            .replace(/-+/g, '-')
-                            .replace(/^-|-$/g, '');
-                        if (normalizedFromName === territoryIdLower) {
-                            log.debug(`✅ Matched by normalized name: ${normalizedFromName}`);
-                            return true;
-                        }
-                    }
-                    
-                    return false;
-                });
+                        
+                        return false;
+                    });
+                }
                 
                 // Feature를 찾지 못한 경우 디버깅 정보 출력
                 if (!feature && geoJsonData.features.length > 0) {
