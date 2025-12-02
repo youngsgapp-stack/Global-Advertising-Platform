@@ -289,14 +289,14 @@ class MapController {
                     found = true;
                     log.debug(`Found feature for territory ${territoryId} in source ${sourceId}`);
                     
-                    // 픽셀 데이터로 속성 업데이트
+                    // 픽셀 데이터로 속성 업데이트 (변수 범위를 넓게 설정)
+                    const filledPixels = territory.pixelCanvas?.filledPixels || 0;
+                    const width = territory.pixelCanvas?.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                    const height = territory.pixelCanvas?.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                    const totalPixels = width * height;
+                    const pixelFillRatio = totalPixels > 0 ? filledPixels / totalPixels : 0;
+                    
                     if (territory.pixelCanvas) {
-                        const filledPixels = territory.pixelCanvas.filledPixels || 0;
-                        const width = territory.pixelCanvas.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
-                        const height = territory.pixelCanvas.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
-                        const totalPixels = width * height;
-                        const pixelFillRatio = totalPixels > 0 ? filledPixels / totalPixels : 0;
-                        
                         // 속성 업데이트
                         feature.properties.filledPixels = filledPixels;
                         feature.properties.pixelCanvasWidth = width;
@@ -316,19 +316,32 @@ class MapController {
                     feature.properties.id = territoryId;
                     
                     // source 데이터 업데이트 - 깊은 복사로 새 객체 생성
+                    // 모든 feature를 순회하며 매칭되는 feature 업데이트
                     const updatedFeatures = geoJsonData.features.map(f => {
-                        const fid = f.properties?.id || f.id || '';
-                        if (fid === territoryId || 
-                            fid === feature.properties?.id || 
-                            f === feature) {
-                            // 업데이트된 feature 반환
-                            return {
+                        const fid = String(f.properties?.id || f.id || '').toLowerCase();
+                        const fOriginalId = String(f.properties?.originalId || '').toLowerCase();
+                        const fName = String(f.properties?.name || f.properties?.NAME_1 || '').toLowerCase();
+                        const territoryIdLower = String(territoryId).toLowerCase();
+                        
+                        // 여러 방식으로 매칭 시도
+                        const isMatch = fid === territoryIdLower ||
+                                       fOriginalId === territoryIdLower ||
+                                       f === feature ||
+                                       (fName && this.normalizeTerritoryId(fid, fName, '') === territoryIdLower) ||
+                                       (territory.name && fName === String(territory.name.en || territory.name.local || '').toLowerCase());
+                        
+                        if (isMatch) {
+                            // 업데이트된 feature 반환 (완전한 복사)
+                            return JSON.parse(JSON.stringify({
                                 ...f,
                                 properties: {
                                     ...f.properties,
-                                    ...feature.properties
+                                    ...feature.properties,
+                                    id: territoryId, // 정규화된 ID로 통일
+                                    pixelFillRatio: pixelFillRatio,
+                                    filledPixels: filledPixels
                                 }
-                            };
+                            }));
                         }
                         return f;
                     });
@@ -338,7 +351,7 @@ class MapController {
                         features: updatedFeatures
                     };
                     
-                    // source 데이터 업데이트
+                    // source 데이터 업데이트 (완전히 새로운 객체)
                     source.setData(updatedGeoJson);
                     
                     log.info(`✅ Source ${sourceId} data updated for territory ${territoryId} - ${filledPixels} pixels (${(pixelFillRatio * 100).toFixed(1)}% filled)`);
