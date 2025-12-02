@@ -28,7 +28,7 @@ class FirebaseService {
         try {
             // Firebase 모듈 동적 로드
             const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-            const { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
             const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // Firebase 앱 초기화
@@ -44,7 +44,7 @@ class FirebaseService {
             
             // Auth 헬퍼 저장
             this._auth = {
-                signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged
+                signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged
             };
             
             // 인증 상태 감시
@@ -86,6 +86,25 @@ class FirebaseService {
             return result.user;
         } catch (error) {
             log.error('Google sign-in failed:', error);
+            eventBus.emit(EVENTS.AUTH_ERROR, { error });
+            throw error;
+        }
+    }
+    
+    /**
+     * 이메일/비밀번호 로그인
+     */
+    async signInWithEmail(email, password) {
+        if (!this.initialized) {
+            throw new Error('Firebase not initialized');
+        }
+        
+        try {
+            const result = await this._auth.signInWithEmailAndPassword(this.auth, email, password);
+            log.info('Email sign-in successful:', email);
+            return result;
+        } catch (error) {
+            log.error('Email sign-in failed:', error);
             eventBus.emit(EVENTS.AUTH_ERROR, { error });
             throw error;
         }

@@ -430,7 +430,7 @@ class BillionaireApp {
         const modal = document.getElementById('admin-login-modal');
         if (modal) {
             modal.classList.remove('hidden');
-            document.getElementById('admin-id')?.focus();
+            document.getElementById('admin-email')?.focus();
             log.info('Admin modal opened');
         }
     }
@@ -443,36 +443,66 @@ class BillionaireApp {
         if (modal) {
             modal.classList.add('hidden');
             // Clear form
-            document.getElementById('admin-id').value = '';
-            document.getElementById('admin-pwd').value = '';
+            const emailField = document.getElementById('admin-email');
+            const pwdField = document.getElementById('admin-pwd');
+            if (emailField) emailField.value = '';
+            if (pwdField) pwdField.value = '';
             document.getElementById('admin-login-error')?.classList.add('hidden');
         }
     }
     
     /**
-     * Handle Admin Login
+     * Handle Admin Login (Firebase Auth)
      */
     async handleAdminLogin() {
-        const adminId = document.getElementById('admin-id')?.value?.trim();
+        const adminEmail = document.getElementById('admin-email')?.value?.trim();
         const adminPwd = document.getElementById('admin-pwd')?.value;
         const errorEl = document.getElementById('admin-login-error');
+        const submitBtn = document.querySelector('#admin-login-form-main button[type="submit"]');
         
-        // 하드코딩된 관리자 계정 (실제 운영에서는 Firebase Auth 사용 권장)
-        const ADMIN_CREDENTIALS = {
-            'admin': 'billionaire2024!',
-            'young91': 'admin1234!'
-        };
+        // 관리자 이메일 목록
+        const ADMIN_EMAILS = [
+            'admin@billionairemap.com',
+            'young91@naver.com',
+            'q886654@naver.com',
+            'etgbajy@gmail.com'
+        ];
         
-        if (ADMIN_CREDENTIALS[adminId] && ADMIN_CREDENTIALS[adminId] === adminPwd) {
-            // 로그인 성공 - admin.html로 이동
+        if (!adminEmail || !adminPwd) {
+            if (errorEl) {
+                errorEl.textContent = '❌ 이메일과 비밀번호를 입력하세요';
+                errorEl.classList.remove('hidden');
+            }
+            return;
+        }
+        
+        // 로딩 상태
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '🔄 로그인 중...';
+        }
+        
+        try {
+            // Firebase Auth로 로그인
+            const userCredential = await firebaseService.signInWithEmail(adminEmail, adminPwd);
+            const user = userCredential.user;
+            
+            // 관리자 이메일 확인
+            if (!ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+                await firebaseService.signOut();
+                throw new Error('관리자 권한이 없는 계정입니다');
+            }
+            
+            // 로그인 성공
             this.showNotification({
                 type: 'success',
-                message: '✅ Admin login successful!'
+                message: '✅ 관리자 로그인 성공!'
             });
             
             // 세션 스토리지에 관리자 상태 저장
             sessionStorage.setItem('adminAuth', JSON.stringify({
-                id: adminId,
+                id: user.email,
+                uid: user.uid,
                 timestamp: Date.now()
             }));
             
@@ -482,11 +512,33 @@ class BillionaireApp {
             setTimeout(() => {
                 window.location.href = 'admin.html';
             }, 500);
-        } else {
-            // 로그인 실패
+            
+        } catch (error) {
+            console.error('Admin login failed:', error);
+            
+            // 에러 메시지 표시
+            let errorMsg = '❌ 로그인 실패';
+            if (error.code === 'auth/user-not-found') {
+                errorMsg = '❌ 등록되지 않은 이메일입니다';
+            } else if (error.code === 'auth/wrong-password') {
+                errorMsg = '❌ 비밀번호가 틀렸습니다';
+            } else if (error.code === 'auth/invalid-email') {
+                errorMsg = '❌ 유효하지 않은 이메일 형식입니다';
+            } else if (error.code === 'auth/invalid-credential') {
+                errorMsg = '❌ 이메일 또는 비밀번호가 틀렸습니다';
+            } else if (error.message) {
+                errorMsg = `❌ ${error.message}`;
+            }
+            
             if (errorEl) {
-                errorEl.textContent = '❌ Invalid ID or password';
+                errorEl.textContent = errorMsg;
                 errorEl.classList.remove('hidden');
+            }
+        } finally {
+            // 버튼 복구
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🔓 로그인';
             }
         }
     }

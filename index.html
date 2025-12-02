@@ -155,20 +155,20 @@
             <div class="modal-content admin-modal">
                 <button class="modal-close" id="close-admin-modal">&times;</button>
                 <div class="modal-header">
-                    <h2>🔐 Admin Access</h2>
-                    <p>관리자 로그인</p>
+                    <h2>🔐 관리자 로그인</h2>
+                    <p>Firebase 계정으로 로그인</p>
                 </div>
                 <form id="admin-login-form-main">
                     <div class="form-group">
-                        <label for="admin-id">Admin ID</label>
-                        <input type="text" id="admin-id" placeholder="Enter admin ID" required>
+                        <label for="admin-email">이메일</label>
+                        <input type="email" id="admin-email" placeholder="admin@example.com" required>
                     </div>
                     <div class="form-group">
-                        <label for="admin-pwd">Password</label>
-                        <input type="password" id="admin-pwd" placeholder="Enter password" required>
+                        <label for="admin-pwd">비밀번호</label>
+                        <input type="password" id="admin-pwd" placeholder="••••••••" required>
                     </div>
                     <button type="submit" class="btn-primary btn-full">
-                        🔓 Login
+                        🔓 로그인
                     </button>
                     <div id="admin-login-error" class="error-message hidden"></div>
                 </form>
