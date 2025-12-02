@@ -17,6 +17,12 @@
   status = 200
   force = true
 
+[[redirects]]
+  from = "/engines/*"
+  to = "/engines/:splat"
+  status = 200
+  force = true
+
 [[headers]]
   # 모든 파일에 대한 헤더 설정
   for = "/*"

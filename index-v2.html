@@ -19,7 +19,7 @@
     <meta http-equiv="X-XSS-Protection" content="1; mode=block">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    <!-- MapLibre GL CSS는 body 아래에서 로드 -->
     <link rel="stylesheet" href="styles.css">
     <style>
         /* v2 로딩 상태 표시 */
@@ -126,16 +126,17 @@
         </div>
     </div>
     
-    <!-- MapLibre GL JS -->
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <!-- MapLibre GL JS (MapBox 대신 MapLibre 사용) -->
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-        import { getStorage } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
-        
+    <!-- Firebase SDK (전역 변수로 로드) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    <script>
+        // Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyAa0BTlcqX9T1PYaHTiv3CmjmZ6srmdZVY",
             authDomain: "worldad-8be07.firebaseapp.com",
@@ -146,19 +147,15 @@
             measurementId: "G-L2WYZGZK90"
         };
         
-        // Firebase 초기화
-        const app = initializeApp(firebaseConfig);
-        window.firebaseApp = app;
-        window.firebaseAuth = getAuth(app);
-        window.firebaseFirestore = getFirestore(app);
-        window.firebaseStorage = getStorage(app);
+        // Firebase 초기화 (compat 모드)
+        firebase.initializeApp(firebaseConfig);
         
-        // 전역 Firebase 객체 (v2 엔진 호환성)
-        window.firebase = {
-            app: () => app,
-            apps: [app],
-            initializeApp: () => app
-        };
+        // 전역 변수로 설정
+        window.firebaseApp = firebase.app();
+        window.firebaseAuth = firebase.auth();
+        window.firebaseFirestore = firebase.firestore();
+        window.firebaseStorage = firebase.storage();
+        window.firebase = firebase;
     </script>
     
     <!-- v2 엔진 로드 순서 중요! -->
@@ -178,11 +175,44 @@
     <script src="engines/v2-integration.js"></script>
     
     <!-- v2 초기화 스크립트 -->
-    <script type="module">
+    <script>
         // v2 초기화
         async function initializeV2() {
             try {
                 const loadingDiv = document.getElementById('v2-loading');
+                
+                // Firebase가 로드될 때까지 대기
+                let retryCount = 0;
+                while (!window.firebase && retryCount < 50) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    retryCount++;
+                }
+                
+                if (!window.firebase) {
+                    throw new Error('Firebase SDK 로드 실패');
+                }
+                
+                // MapLibre GL이 로드될 때까지 대기
+                retryCount = 0;
+                while (typeof maplibregl === 'undefined' && retryCount < 50) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    retryCount++;
+                }
+                
+                if (typeof maplibregl === 'undefined') {
+                    throw new Error('MapLibre GL JS 로드 실패');
+                }
+                
+                // Event Bus가 로드될 때까지 대기
+                retryCount = 0;
+                while (!window.EventBus && retryCount < 50) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    retryCount++;
+                }
+                
+                if (!window.EventBus) {
+                    throw new Error('Event Bus 로드 실패');
+                }
                 
                 // Firebase 설정
                 const firebaseConfig = {
@@ -220,7 +250,10 @@
                         <div style="color: red; text-align: center;">
                             <h3>초기화 실패</h3>
                             <p>${error.message}</p>
-                            <p style="font-size: 12px; margin-top: 20px;">
+                            <p style="font-size: 12px; margin-top: 20px; color: #ccc;">
+                                브라우저 콘솔을 확인하세요.
+                            </p>
+                            <p style="font-size: 12px; margin-top: 10px;">
                                 <a href="index.html" style="color: white; text-decoration: underline;">v1으로 돌아가기</a>
                             </p>
                         </div>

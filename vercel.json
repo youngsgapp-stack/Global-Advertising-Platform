@@ -5,6 +5,14 @@
       "destination": "/data/$1"
     },
     {
+      "source": "/utils/(.*)",
+      "destination": "/utils/$1"
+    },
+    {
+      "source": "/engines/(.*)",
+      "destination": "/engines/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
