@@ -187,11 +187,6 @@ class BillionaireMap {
             cleanupThreshold: 0.8 // 80% 이상 사용 시 정리
         };
         
-        // 메모리 모니터링 시작
-        if (this.memoryMonitor.enabled) {
-            this.startMemoryMonitoring();
-        }
-        
         // Wplace 스타일: 메모리 모니터링 함수
         this.startMemoryMonitoring = () => {
             if (!this.memoryMonitor.enabled) return;
@@ -233,6 +228,11 @@ class BillionaireMap {
                 checkMemory();
             }, 10000);
         };
+        
+        // 메모리 모니터링 시작
+        if (this.memoryMonitor.enabled) {
+            this.startMemoryMonitoring();
+        }
         
         // Wplace 스타일: 메모리 정리 함수
         this.cleanupMemory = async () => {
