@@ -239,17 +239,17 @@ class AdminDashboard {
     }
     
     /**
-     * 에러 메시지 변환
+     * 에러 메시지 변환 (한글)
      */
     getErrorMessage(code) {
         const messages = {
-            'auth/user-not-found': 'User not found',
-            'auth/wrong-password': 'Incorrect password',
-            'auth/invalid-email': 'Invalid email address',
-            'auth/too-many-requests': 'Too many attempts. Try again later.',
-            'auth/invalid-credential': 'Invalid credentials'
+            'auth/user-not-found': '사용자를 찾을 수 없습니다',
+            'auth/wrong-password': '비밀번호가 틀렸습니다',
+            'auth/invalid-email': '유효하지 않은 이메일 주소입니다',
+            'auth/too-many-requests': '시도 횟수가 너무 많습니다. 나중에 다시 시도해주세요.',
+            'auth/invalid-credential': '인증 정보가 유효하지 않습니다'
         };
-        return messages[code] || 'Login failed. Please try again.';
+        return messages[code] || '로그인에 실패했습니다. 다시 시도해주세요.';
     }
     
     /**
@@ -268,15 +268,15 @@ class AdminDashboard {
             section.classList.toggle('active', section.id === `section-${sectionName}`);
         });
         
-        // 제목 업데이트
+        // 제목 업데이트 (한글)
         const titles = {
-            'overview': 'Overview',
-            'users': 'User Management',
-            'territories': 'Territory Management',
-            'auctions': 'Auction Management',
-            'analytics': 'Analytics',
-            'logs': 'Admin Logs',
-            'settings': 'Settings'
+            'overview': '대시보드',
+            'users': '사용자 관리',
+            'territories': '영토 관리',
+            'auctions': '옥션 관리',
+            'analytics': '분석',
+            'logs': '관리자 로그',
+            'settings': '설정'
         };
         document.getElementById('section-title').textContent = titles[sectionName] || sectionName;
         
@@ -354,7 +354,7 @@ class AdminDashboard {
                 .get();
             
             if (snapshot.empty) {
-                container.innerHTML = '<div class="empty">No recent activity</div>';
+                container.innerHTML = '<div class="empty">최근 활동이 없습니다</div>';
                 return;
             }
             
@@ -372,7 +372,7 @@ class AdminDashboard {
             
         } catch (error) {
             console.error('Failed to load activity:', error);
-            container.innerHTML = '<div class="empty">Failed to load activity</div>';
+            container.innerHTML = '<div class="empty">활동 로딩 실패</div>';
         }
     }
     
@@ -389,7 +389,7 @@ class AdminDashboard {
                 .get();
             
             if (snapshot.empty) {
-                container.innerHTML = '<div class="empty">No users yet</div>';
+                container.innerHTML = '<div class="empty">아직 사용자가 없습니다</div>';
                 return;
             }
             
@@ -408,7 +408,7 @@ class AdminDashboard {
             
         } catch (error) {
             console.error('Failed to load top users:', error);
-            container.innerHTML = '<div class="empty">Failed to load users</div>';
+            container.innerHTML = '<div class="empty">사용자 로딩 실패</div>';
         }
     }
     
@@ -442,26 +442,26 @@ class AdminDashboard {
             const snapshot = await this.db.collection('users').limit(50).get();
             
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">No users</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">사용자 없음</td></tr>';
                 return;
             }
             
             tbody.innerHTML = snapshot.docs.map(doc => {
                 const data = doc.data();
-                const joined = data.createdAt?.toDate()?.toLocaleDateString() || 'N/A';
-                const status = data.banned ? 'Banned' : 'Active';
+                const joined = data.createdAt?.toDate()?.toLocaleDateString('ko-KR') || '-';
+                const status = data.banned ? '차단됨' : '활성';
                 const statusClass = data.banned ? 'status-banned' : 'status-active';
                 
                 return `
                     <tr>
-                        <td>${data.displayName || 'Anonymous'}</td>
+                        <td>${data.displayName || '익명'}</td>
                         <td>${data.email || doc.id}</td>
                         <td>${data.territoryCount || 0}</td>
                         <td>${joined}</td>
                         <td><span class="status ${statusClass}">${status}</span></td>
                         <td>
-                            <button class="btn btn-sm" onclick="adminDashboard.viewUser('${doc.id}')">View</button>
-                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.banUser('${doc.id}')">Ban</button>
+                            <button class="btn btn-sm" onclick="adminDashboard.viewUser('${doc.id}')">보기</button>
+                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.banUser('${doc.id}')">차단</button>
                         </td>
                     </tr>
                 `;
@@ -469,7 +469,7 @@ class AdminDashboard {
             
         } catch (error) {
             console.error('Failed to load users:', error);
-            tbody.innerHTML = '<tr><td colspan="6" class="error">Failed to load users</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="error">사용자 로딩 실패</td></tr>';
         }
     }
     
@@ -483,7 +483,7 @@ class AdminDashboard {
             const snapshot = await this.db.collection('territories').limit(50).get();
             
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">No territories</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">영토 없음</td></tr>';
                 return;
             }
             
@@ -493,13 +493,13 @@ class AdminDashboard {
                 return `
                     <tr>
                         <td>${data.name || doc.id}</td>
-                        <td>${data.country || 'N/A'}</td>
-                        <td>${data.rulerName || 'Unclaimed'}</td>
+                        <td>${data.country || '-'}</td>
+                        <td>${data.rulerName || '미점유'}</td>
                         <td>$${(data.price || 0).toLocaleString()}</td>
                         <td>${(data.pixelCount || 0).toLocaleString()}</td>
                         <td>
-                            <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${doc.id}')">View</button>
-                            <button class="btn btn-sm" onclick="adminDashboard.editTerritory('${doc.id}')">Edit</button>
+                            <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${doc.id}')">보기</button>
+                            <button class="btn btn-sm" onclick="adminDashboard.editTerritory('${doc.id}')">수정</button>
                         </td>
                     </tr>
                 `;
@@ -507,7 +507,7 @@ class AdminDashboard {
             
         } catch (error) {
             console.error('Failed to load territories:', error);
-            tbody.innerHTML = '<tr><td colspan="6" class="error">Failed to load territories</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="error">영토 로딩 실패</td></tr>';
         }
     }
     
@@ -521,13 +521,14 @@ class AdminDashboard {
             const snapshot = await this.db.collection('auctions').limit(50).get();
             
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">No auctions</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">옥션 없음</td></tr>';
                 return;
             }
             
             tbody.innerHTML = snapshot.docs.map(doc => {
                 const data = doc.data();
-                const endsAt = data.endsAt?.toDate()?.toLocaleString() || 'N/A';
+                const endsAt = data.endsAt?.toDate()?.toLocaleString('ko-KR') || '-';
+                const statusText = data.status === 'active' ? '진행중' : '종료됨';
                 const statusClass = data.status === 'active' ? 'status-active' : 'status-ended';
                 
                 return `
@@ -536,11 +537,11 @@ class AdminDashboard {
                         <td>$${(data.currentBid || data.startingPrice || 0).toLocaleString()}</td>
                         <td>${data.bidCount || 0}</td>
                         <td>${endsAt}</td>
-                        <td><span class="status ${statusClass}">${data.status}</span></td>
+                        <td><span class="status ${statusClass}">${statusText}</span></td>
                         <td>
-                            <button class="btn btn-sm" onclick="adminDashboard.viewAuction('${doc.id}')">View</button>
+                            <button class="btn btn-sm" onclick="adminDashboard.viewAuction('${doc.id}')">보기</button>
                             ${data.status === 'active' ? 
-                                `<button class="btn btn-sm btn-danger" onclick="adminDashboard.endAuction('${doc.id}')">End</button>` 
+                                `<button class="btn btn-sm btn-danger" onclick="adminDashboard.endAuction('${doc.id}')">종료</button>` 
                                 : ''
                             }
                         </td>
@@ -550,7 +551,7 @@ class AdminDashboard {
             
         } catch (error) {
             console.error('Failed to load auctions:', error);
-            tbody.innerHTML = '<tr><td colspan="6" class="error">Failed to load auctions</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="error">옥션 로딩 실패</td></tr>';
         }
     }
     
@@ -620,7 +621,7 @@ class AdminDashboard {
     }
     
     async banUser(userId) {
-        if (confirm('Are you sure you want to ban this user?')) {
+        if (confirm('정말 이 사용자를 차단하시겠습니까?')) {
             try {
                 await this.db.collection('users').doc(userId).update({
                     banned: true,
@@ -629,10 +630,10 @@ class AdminDashboard {
                 });
                 this.logAdminAction('BAN_USER', { userId });
                 this.loadUsersTable(); // Refresh
-                alert('User has been banned.');
+                alert('사용자가 차단되었습니다.');
             } catch (error) {
                 console.error('Failed to ban user:', error);
-                alert('Failed to ban user.');
+                alert('사용자 차단에 실패했습니다.');
             }
         }
     }
@@ -643,7 +644,7 @@ class AdminDashboard {
     }
     
     async editTerritory(territoryId) {
-        const newPrice = prompt('Enter new price (leave empty to cancel):');
+        const newPrice = prompt('새 가격을 입력하세요 (취소하려면 빈칸):');
         if (newPrice !== null && newPrice !== '') {
             try {
                 await this.db.collection('territories').doc(territoryId).update({
@@ -653,10 +654,10 @@ class AdminDashboard {
                 });
                 this.logAdminAction('EDIT_TERRITORY', { territoryId, newPrice });
                 this.loadTerritoriesTable(); // Refresh
-                alert('Territory updated.');
+                alert('영토가 수정되었습니다.');
             } catch (error) {
                 console.error('Failed to edit territory:', error);
-                alert('Failed to update territory.');
+                alert('영토 수정에 실패했습니다.');
             }
         }
     }
@@ -667,20 +668,20 @@ class AdminDashboard {
     }
     
     async endAuction(auctionId) {
-        if (confirm('Are you sure you want to end this auction?')) {
+        if (confirm('정말 이 옥션을 종료하시겠습니까?')) {
             try {
                 await this.db.collection('auctions').doc(auctionId).update({
                     status: 'ended',
                     endedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     endedBy: this.currentUser.email,
-                    reason: 'Manually ended by admin'
+                    reason: '관리자에 의해 수동 종료됨'
                 });
                 this.logAdminAction('END_AUCTION', { auctionId });
                 this.loadAuctionsTable(); // Refresh
-                alert('Auction has been ended.');
+                alert('옥션이 종료되었습니다.');
             } catch (error) {
                 console.error('Failed to end auction:', error);
-                alert('Failed to end auction.');
+                alert('옥션 종료에 실패했습니다.');
             }
         }
     }
@@ -721,7 +722,7 @@ class AdminDashboard {
                 .get();
             
             if (snapshot.empty) {
-                container.innerHTML = '<div class="empty">No admin logs</div>';
+                container.innerHTML = '<div class="empty">관리자 로그가 없습니다</div>';
                 return;
             }
             
@@ -729,20 +730,20 @@ class AdminDashboard {
                 <table class="admin-table">
                     <thead>
                         <tr>
-                            <th>Time</th>
-                            <th>Admin</th>
-                            <th>Action</th>
-                            <th>Details</th>
+                            <th>시간</th>
+                            <th>관리자</th>
+                            <th>작업</th>
+                            <th>상세</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${snapshot.docs.map(doc => {
                             const data = doc.data();
-                            const time = data.timestamp?.toDate()?.toLocaleString() || 'N/A';
+                            const time = data.timestamp?.toDate()?.toLocaleString('ko-KR') || '-';
                             return `
                                 <tr>
                                     <td>${time}</td>
-                                    <td>${data.adminEmail || 'Unknown'}</td>
+                                    <td>${data.adminEmail || '알 수 없음'}</td>
                                     <td><span class="log-action">${data.action}</span></td>
                                     <td><code>${JSON.stringify(data.details)}</code></td>
                                 </tr>
@@ -753,7 +754,7 @@ class AdminDashboard {
             `;
         } catch (error) {
             console.error('Failed to load admin logs:', error);
-            container.innerHTML = '<div class="error">Failed to load logs</div>';
+            container.innerHTML = '<div class="error">로그 로딩 실패</div>';
         }
     }
     
@@ -763,7 +764,7 @@ class AdminDashboard {
      * 데이터 백업 (JSON 다운로드)
      */
     async backupData() {
-        if (!confirm('Download a backup of all data?')) return;
+        if (!confirm('모든 데이터의 백업을 다운로드하시겠습니까?')) return;
         
         try {
             const backup = {
@@ -795,11 +796,11 @@ class AdminDashboard {
             URL.revokeObjectURL(url);
             
             this.logAdminAction('BACKUP_DATA', { collections });
-            alert('Backup downloaded successfully!');
+            alert('백업이 성공적으로 다운로드되었습니다!');
             
         } catch (error) {
             console.error('Failed to backup data:', error);
-            alert('Failed to backup data. Check console for details.');
+            alert('백업 실패. 콘솔에서 상세 정보를 확인하세요.');
         }
     }
     
@@ -807,7 +808,7 @@ class AdminDashboard {
      * 데이터 복원 (JSON 업로드)
      */
     async restoreData() {
-        if (!confirm('WARNING: This will overwrite existing data. Are you sure?')) return;
+        if (!confirm('⚠️ 경고: 기존 데이터가 덮어쓰기 됩니다. 계속하시겠습니까?')) return;
         
         const input = document.createElement('input');
         input.type = 'file';
@@ -822,7 +823,7 @@ class AdminDashboard {
                 const backup = JSON.parse(text);
                 
                 if (!backup.data) {
-                    throw new Error('Invalid backup file format');
+                    throw new Error('유효하지 않은 백업 파일 형식');
                 }
                 
                 // 각 컬렉션 복원
@@ -851,12 +852,12 @@ class AdminDashboard {
                     collections: Object.keys(backup.data)
                 });
                 
-                alert('Data restored successfully! Refreshing...');
+                alert('데이터가 성공적으로 복원되었습니다! 새로고침 중...');
                 location.reload();
                 
             } catch (error) {
                 console.error('Failed to restore data:', error);
-                alert('Failed to restore data: ' + error.message);
+                alert('데이터 복원 실패: ' + error.message);
             }
         };
         

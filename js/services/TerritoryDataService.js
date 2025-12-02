@@ -216,29 +216,56 @@ class TerritoryDataService {
     }
     
     /**
-     * 영토에서 면적 추출
+     * 영토에서 면적 추출 (km² 단위)
      */
     extractArea(territory, countryCode) {
         const props = territory.properties || territory;
         
-        // Natural Earth 속성에서 면적 추출 시도
-        const area = props.area_sqkm || 
-                    props.AREA ||
-                    props.area ||
-                    props.Shape_Area ||  // ESRI shapefile 형식
-                    props.arealand ||
-                    null;
+        // 1. Natural Earth Admin 1 데이터 속성 시도
+        // Natural Earth 10m admin_1 데이터의 면적 관련 필드들
+        let area = null;
         
-        if (area) return area;
+        // 직접적인 면적 속성
+        const areaFields = [
+            'area_sqkm', 'AREA', 'area', 'Shape_Area', 'arealand',
+            'areakm2', 'area_km2', 'AREA_KM2', 'region_area'
+        ];
         
-        // 국가 데이터에서 평균 면적 추정
-        const countryData = this.getCountryStats(countryCode);
-        if (countryData && countryData.area) {
-            // 국가 면적을 대략적인 행정구역 수로 나눔
-            return countryData.area / 50;
+        for (const field of areaFields) {
+            if (props[field] && typeof props[field] === 'number' && props[field] > 0) {
+                area = props[field];
+                break;
+            }
         }
         
-        return 10000; // 기본값: 10,000 km²
+        // 2. Shape_Area가 있으면 제곱미터에서 km²로 변환 (일부 GeoJSON)
+        if (!area && props.Shape_Area) {
+            // Shape_Area는 보통 제곱미터 또는 제곱도
+            const shapeArea = parseFloat(props.Shape_Area);
+            if (shapeArea > 0) {
+                // 값이 매우 작으면 제곱도, 크면 제곱미터로 추정
+                area = shapeArea > 1000 ? shapeArea / 1000000 : shapeArea * 12365; // 1 sq deg ≈ 12365 km²
+            }
+        }
+        
+        // 3. 지오메트리에서 면적 계산 시도 (대략적)
+        if (!area && territory.geometry) {
+            area = this.calculateGeometryArea(territory.geometry);
+        }
+        
+        // 4. 고유 ID 기반 해시로 변형 (각 지역마다 다른 값을 갖도록)
+        if (!area) {
+            const id = props.id || props.name || props.fid || Math.random();
+            const hash = this.hashString(String(id));
+            
+            // 국가 데이터에서 평균 면적을 기반으로 ±50% 변동
+            const countryData = this.getCountryStats(countryCode);
+            const baseArea = countryData?.area ? countryData.area / 50 : 10000;
+            const variation = 0.5 + (hash % 100) / 100; // 0.5 ~ 1.5
+            area = baseArea * variation;
+        }
+        
+        return Math.round(area);
     }
     
     /**
@@ -247,24 +274,97 @@ class TerritoryDataService {
     extractPopulation(territory, countryCode) {
         const props = territory.properties || territory;
         
-        // Natural Earth 속성에서 인구 추출 시도
-        const population = props.pop_est ||
-                          props.population ||
-                          props.POP_EST ||
-                          props.POPULATION ||
-                          props.pop ||
-                          null;
+        // 1. Natural Earth Admin 1 데이터의 인구 관련 필드들
+        const popFields = [
+            'pop_est', 'population', 'POP_EST', 'POPULATION', 'pop',
+            'pop2020', 'pop2019', 'pop2015', 'census_pop', 'region_pop'
+        ];
         
-        if (population) return population;
-        
-        // 국가 데이터에서 평균 인구 추정
-        const countryData = this.getCountryStats(countryCode);
-        if (countryData && countryData.population) {
-            // 국가 인구를 대략적인 행정구역 수로 나눔
-            return Math.round(countryData.population / 50);
+        for (const field of popFields) {
+            const val = props[field];
+            if (val && typeof val === 'number' && val > 0) {
+                return Math.round(val);
+            }
         }
         
-        return 1000000; // 기본값: 100만
+        // 2. 문자열로 저장된 인구 처리
+        for (const field of popFields) {
+            const val = props[field];
+            if (val && typeof val === 'string') {
+                const parsed = parseInt(val.replace(/,/g, ''), 10);
+                if (!isNaN(parsed) && parsed > 0) {
+                    return parsed;
+                }
+            }
+        }
+        
+        // 3. 고유 ID 기반 해시로 변형 (각 지역마다 다른 값을 갖도록)
+        const id = props.id || props.name || props.fid || Math.random();
+        const hash = this.hashString(String(id));
+        
+        // 국가 데이터에서 평균 인구를 기반으로 ±50% 변동
+        const countryData = this.getCountryStats(countryCode);
+        const basePop = countryData?.population ? countryData.population / 50 : 1000000;
+        const variation = 0.3 + (hash % 140) / 100; // 0.3 ~ 1.7
+        
+        return Math.round(basePop * variation);
+    }
+    
+    /**
+     * 문자열 해시 생성 (일관된 랜덤값을 위해)
+     */
+    hashString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // 32비트 정수로 변환
+        }
+        return Math.abs(hash);
+    }
+    
+    /**
+     * 지오메트리에서 대략적인 면적 계산 (km²)
+     */
+    calculateGeometryArea(geometry) {
+        try {
+            if (!geometry || !geometry.coordinates) return null;
+            
+            // Polygon 또는 MultiPolygon의 바운딩 박스로 대략적 면적 추정
+            let minLng = Infinity, maxLng = -Infinity;
+            let minLat = Infinity, maxLat = -Infinity;
+            
+            const processCoords = (coords) => {
+                if (typeof coords[0] === 'number') {
+                    const [lng, lat] = coords;
+                    minLng = Math.min(minLng, lng);
+                    maxLng = Math.max(maxLng, lng);
+                    minLat = Math.min(minLat, lat);
+                    maxLat = Math.max(maxLat, lat);
+                } else {
+                    coords.forEach(processCoords);
+                }
+            };
+            
+            processCoords(geometry.coordinates);
+            
+            if (minLng === Infinity) return null;
+            
+            // 위경도 차이로 면적 추정 (1도 ≈ 111km)
+            const lngDiff = maxLng - minLng;
+            const latDiff = maxLat - minLat;
+            const midLat = (minLat + maxLat) / 2;
+            
+            // 위도에 따른 경도 보정
+            const lngKm = lngDiff * 111 * Math.cos(midLat * Math.PI / 180);
+            const latKm = latDiff * 111;
+            
+            // 바운딩 박스의 약 60% 정도가 실제 영역 (불규칙한 모양 보정)
+            return lngKm * latKm * 0.6;
+            
+        } catch (e) {
+            return null;
+        }
     }
     
     /**
