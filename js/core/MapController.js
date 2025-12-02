@@ -82,14 +82,15 @@ class MapController {
     
     /**
      * 지구본 분위기 효과 설정
+     * 위성 스타일에 맞게 밝고 자연스러운 우주 분위기
      */
     setupGlobeAtmosphere() {
         this.map.setFog({
-            color: 'rgb(10, 10, 26)',        // 우주 배경색
-            'high-color': 'rgb(30, 30, 60)', // 고도 색상
-            'horizon-blend': 0.02,           // 지평선 블렌드
-            'space-color': 'rgb(10, 10, 26)', // 우주 색상
-            'star-intensity': 0.6            // 별 강도
+            color: 'rgb(186, 210, 235)',      // 대기권 색상 (밝은 하늘색)
+            'high-color': 'rgb(36, 92, 223)', // 고도 색상 (파란색)
+            'horizon-blend': 0.02,            // 지평선 블렌드
+            'space-color': 'rgb(11, 11, 25)', // 우주 색상 (어두운 남색)
+            'star-intensity': 0.8             // 별 강도 (더 밝게)
         });
     }
     
@@ -478,14 +479,14 @@ class MapController {
                 ],
                 'fill-opacity': [
                     'case',
-                    ['boolean', ['feature-state', 'hover'], false], 0.8,
-                    ['boolean', ['feature-state', 'selected'], false], 0.9,
-                    0.6
+                    ['boolean', ['feature-state', 'hover'], false], 0.7,
+                    ['boolean', ['feature-state', 'selected'], false], 0.8,
+                    0.5  // 위성 배경이 살짝 비치도록 투명도 낮춤
                 ]
             }
         });
         
-        // Border layer (기본)
+        // Border layer (기본) - 위성 배경에서 더 잘 보이도록 테두리 강화
         this.map.addLayer({
             id: `${sourceId}-line`,
             type: 'line',
@@ -494,8 +495,8 @@ class MapController {
                 'line-color': '#ffffff',
                 'line-width': [
                     'case',
-                    ['boolean', ['feature-state', 'selected'], false], 3,
-                    ['boolean', ['feature-state', 'hover'], false], 2,
+                    ['boolean', ['feature-state', 'selected'], false], 4,
+                    ['boolean', ['feature-state', 'hover'], false], 3,
                     1
                 ],
                 'line-opacity': 0.8
@@ -851,6 +852,7 @@ class MapController {
                     generateId: true
                 });
                 
+                // 월드뷰 영토 레이어 - 위성 배경이 비치도록 투명도 조정
                 this.map.addLayer({
                     id: 'world-territories-fill',
                     type: 'fill',
@@ -859,9 +861,9 @@ class MapController {
                         'fill-color': ['get', 'countryColor'],
                         'fill-opacity': [
                             'case',
-                            ['boolean', ['feature-state', 'hover'], false], 0.85,
-                            ['boolean', ['feature-state', 'selected'], false], 0.9,
-                            0.65
+                            ['boolean', ['feature-state', 'hover'], false], 0.7,
+                            ['boolean', ['feature-state', 'selected'], false], 0.8,
+                            0.5  // 위성 배경이 살짝 비치도록
                         ]
                     }
                 });
@@ -874,10 +876,10 @@ class MapController {
                         'line-color': '#ffffff',
                         'line-width': [
                             'case',
-                            ['boolean', ['feature-state', 'hover'], false], 1.5,
-                            0.5
+                            ['boolean', ['feature-state', 'hover'], false], 2,
+                            1  // 테두리 더 두껍게
                         ],
-                        'line-opacity': 0.7
+                        'line-opacity': 0.85  // 테두리 더 선명하게
                     }
                 });
                 

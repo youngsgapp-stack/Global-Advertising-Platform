@@ -11,7 +11,8 @@ export const CONFIG = {
     // Mapbox 설정
     MAPBOX: {
         ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.dIefOUuYqwYtl8MwXbpJuw',
-        STYLE: 'mapbox://styles/mapbox/dark-v11',
+        // satellite-streets: 실제 위성 사진 + 도로/지명 표시 (바다/대지 선명)
+        STYLE: 'mapbox://styles/mapbox/satellite-streets-v12',
         DEFAULT_CENTER: [0, 20],
         DEFAULT_ZOOM: 2,
         MAX_ZOOM: 12,
@@ -29,7 +30,7 @@ export const CONFIG = {
         measurementId: "G-L2WYZGZK90"
     },
     
-    // PayPal 설정
+    // PayPal 설정 (Live - World Map Advertising 앱)
     PAYPAL: {
         CLIENT_ID: 'AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp',
         CURRENCY: 'USD'
