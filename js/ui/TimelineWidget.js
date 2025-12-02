@@ -61,37 +61,37 @@ class TimelineWidget {
      * 이벤트 구독
      */
     subscribeToEvents() {
-        // 영토 정복
+        // Territory claimed
         eventBus.on(EVENTS.TERRITORY_CONQUERED, (data) => {
             this.addEvent({
                 type: HISTORY_EVENT_TYPE.CONQUERED,
                 icon: '⚔️',
-                text: `${data.userName}이(가) 영토를 정복했습니다!`,
+                text: `${data.userName} claimed a spot!`,
                 className: 'conquered'
             });
         });
         
-        // 옥션 입찰
+        // Auction bid
         eventBus.on(EVENTS.AUCTION_BID, (data) => {
             this.addEvent({
                 type: HISTORY_EVENT_TYPE.AUCTION_BID,
                 icon: '💰',
-                text: `${data.userName}이(가) $${data.bidAmount}에 입찰했습니다`,
+                text: `${data.userName} bid $${data.bidAmount}`,
                 className: 'auction'
             });
         });
         
-        // 옥션 시작
+        // Auction start
         eventBus.on(EVENTS.AUCTION_START, (data) => {
             this.addEvent({
                 type: HISTORY_EVENT_TYPE.AUCTION_STARTED,
                 icon: '🏷️',
-                text: `새 옥션이 시작되었습니다`,
+                text: `New auction started`,
                 className: 'auction'
             });
         });
         
-        // 픽셀 마일스톤
+        // Pixel milestone
         eventBus.on(EVENTS.PIXEL_VALUE_CHANGE, (data) => {
             const milestones = [1000, 2500, 5000, 7500, 10000];
             for (const milestone of milestones) {
@@ -99,26 +99,26 @@ class TimelineWidget {
                     this.addEvent({
                         type: HISTORY_EVENT_TYPE.PIXEL_MILESTONE,
                         icon: '🎨',
-                        text: `${milestone} 픽셀 마일스톤 달성!`,
+                        text: `${milestone} pixel milestone reached!`,
                         className: 'pixel'
                     });
                 }
             }
         });
         
-        // 협업 참여
+        // Collaboration join
         eventBus.on(EVENTS.COLLAB_JOIN, (data) => {
             this.addEvent({
                 type: HISTORY_EVENT_TYPE.COLLAB_JOINED,
                 icon: '👋',
-                text: `${data.userName}이(가) 협업에 참여했습니다`,
+                text: `${data.userName} joined collaboration`,
                 className: 'collab'
             });
         });
         
-        // 랭킹 변경
+        // Ranking change
         eventBus.on(EVENTS.RANKING_UPDATE, () => {
-            // 랭킹 변경은 너무 자주 발생하므로 중요한 것만 표시
+            // Ranking changes happen too often, only show important ones
         });
     }
     
@@ -202,8 +202,8 @@ class TimelineWidget {
         
         this.contentEl.innerHTML = `
             <div class="timeline-empty">
-                아직 이벤트가 없습니다.<br>
-                영토를 정복하면 여기에 표시됩니다!
+                No events yet.<br>
+                Claim a spot to see activity here!
             </div>
         `;
     }
@@ -214,10 +214,10 @@ class TimelineWidget {
     formatTime(timestamp) {
         const seconds = Math.floor((Date.now() - timestamp) / 1000);
         
-        if (seconds < 60) return '방금 전';
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}분 전`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}시간 전`;
-        return `${Math.floor(seconds / 86400)}일 전`;
+        if (seconds < 60) return 'Just now';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
     }
     
     /**

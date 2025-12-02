@@ -1,6 +1,6 @@
 /**
  * Billionaire Homepage v2 - Main Application
- * 앱 진입점 및 초기화
+ * App Entry Point & Initialization
  */
 
 import { CONFIG, log } from './config.js';
@@ -26,25 +26,25 @@ class BillionaireApp {
     }
     
     /**
-     * 앱 초기화
+     * App Initialization
      */
     async init() {
         try {
-            log.info(`${CONFIG.APP_NAME} v${CONFIG.VERSION} 초기화 시작...`);
+            log.info(`${CONFIG.APP_NAME} v${CONFIG.VERSION} initializing...`);
             
-            // 1. 로딩 표시
+            // 1. Show loading
             this.showLoading();
             
-            // 2. Firebase 초기화
+            // 2. Initialize Firebase
             await firebaseService.initialize();
             
-            // 3. 지도 초기화
+            // 3. Initialize Map
             await mapController.initialize('map');
             
-            // 4. 영토 관리자 초기화
+            // 4. Initialize Territory Manager
             await territoryManager.initialize();
             
-            // 5. 기능 시스템 초기화
+            // 5. Initialize Feature Systems
             await Promise.all([
                 auctionSystem.initialize(),
                 rankingSystem.initialize(),
@@ -53,66 +53,97 @@ class BillionaireApp {
                 historyLogger.initialize()
             ]);
             
-            // 6. UI 초기화
+            // 6. Initialize UI
             territoryPanel.initialize();
             pixelEditor.initialize();
             rankingBoard.initialize();
             timelineWidget.initialize();
             this.initializeUI();
             
-            // 7. 이벤트 리스너 설정
+            // 7. Setup Event Listeners
             this.setupEventListeners();
             
-            // 8. 초기 데이터 로드
+            // 8. Load Initial Data
             await this.loadInitialData();
             
-            // 9. 로딩 숨김
+            // 9. Hide loading
             this.hideLoading();
             
             this.initialized = true;
-            log.info('앱 초기화 완료!');
+            log.info('App initialized successfully!');
             eventBus.emit(EVENTS.APP_READY, {});
             
         } catch (error) {
-            log.error('앱 초기화 실패:', error);
-            this.showError('앱을 시작할 수 없습니다. 페이지를 새로고침 해주세요.');
+            log.error('App initialization failed:', error);
+            this.showError('Failed to start the app. Please refresh the page.');
             eventBus.emit(EVENTS.APP_ERROR, { error });
         }
     }
     
     /**
-     * UI 초기화
+     * UI Initialization
      */
     initializeUI() {
-        // 국가 선택 드롭다운 초기화
+        // Initialize country selector
         this.initCountrySelector();
         
-        // 햄버거 메뉴 초기화
+        // Initialize hamburger menu
         this.initHamburgerMenu();
         
-        // 별 배경 초기화
+        // Initialize stars background
         this.initStarsBackground();
         
-        // 키보드 단축키 설정
+        // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
     }
     
     /**
-     * 국가 선택 드롭다운 초기화
+     * Country Selector Initialization - Grouped by Continent
      */
     initCountrySelector() {
         const selector = document.getElementById('country-selector');
         if (!selector) return;
         
-        // G20 국가 옵션 추가
-        for (const [code, country] of Object.entries(CONFIG.G20_COUNTRIES)) {
-            const option = document.createElement('option');
-            option.value = code;
-            option.textContent = `${country.flag} ${country.nameKo}`;
-            selector.appendChild(option);
+        // Group definitions
+        const groups = {
+            'asia': { label: '🌏 Asia', countries: [] },
+            'middle-east': { label: '🏜️ Middle East', countries: [] },
+            'europe': { label: '🇪🇺 Europe', countries: [] },
+            'north-america': { label: '🌎 North America', countries: [] },
+            'south-america': { label: '🌎 South America', countries: [] },
+            'africa': { label: '🌍 Africa', countries: [] },
+            'oceania': { label: '🌏 Oceania', countries: [] }
+        };
+        
+        // Group countries by continent
+        for (const [code, country] of Object.entries(CONFIG.COUNTRIES)) {
+            const group = country.group || country.continent || 'asia';
+            if (groups[group]) {
+                groups[group].countries.push({ code, ...country });
+            }
         }
         
-        // 변경 이벤트
+        // Create optgroups
+        for (const [groupKey, group] of Object.entries(groups)) {
+            if (group.countries.length === 0) continue;
+            
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = group.label;
+            
+            // Sort by name
+            group.countries.sort((a, b) => a.name.localeCompare(b.name));
+            
+            for (const country of group.countries) {
+                const option = document.createElement('option');
+                option.value = country.code;
+                option.textContent = `${country.flag} ${country.name}`;
+                optgroup.appendChild(option);
+            }
+            
+            selector.appendChild(optgroup);
+        }
+        
+        // Change event
         selector.addEventListener('change', (e) => {
             const countryCode = e.target.value;
             if (countryCode) {
@@ -122,7 +153,7 @@ class BillionaireApp {
     }
     
     /**
-     * 햄버거 메뉴 초기화
+     * Hamburger Menu Initialization
      */
     initHamburgerMenu() {
         const menuBtn = document.getElementById('hamburger-menu-btn');
@@ -141,7 +172,7 @@ class BillionaireApp {
             });
         }
         
-        // 로그인/로그아웃 버튼
+        // Login/Logout buttons
         const loginBtn = document.getElementById('side-user-login-btn');
         const logoutBtn = document.getElementById('side-user-logout-btn');
         
@@ -159,7 +190,7 @@ class BillionaireApp {
     }
     
     /**
-     * 별 배경 초기화
+     * Stars Background Initialization
      */
     initStarsBackground() {
         const canvas = document.getElementById('stars-canvas');
@@ -169,7 +200,7 @@ class BillionaireApp {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         
-        // 별 생성
+        // Create stars
         const stars = [];
         const numStars = 200;
         
@@ -183,7 +214,7 @@ class BillionaireApp {
             });
         }
         
-        // 애니메이션
+        // Animation
         const animate = () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
@@ -204,7 +235,7 @@ class BillionaireApp {
         
         animate();
         
-        // 리사이즈 대응
+        // Handle resize
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -212,20 +243,20 @@ class BillionaireApp {
     }
     
     /**
-     * 이벤트 리스너 설정
+     * Setup Event Listeners
      */
     setupEventListeners() {
-        // 인증 상태 변경
+        // Auth state change
         eventBus.on(EVENTS.AUTH_STATE_CHANGED, ({ user }) => {
             this.updateAuthUI(user);
         });
         
-        // 알림 이벤트
+        // Notification event
         eventBus.on(EVENTS.UI_NOTIFICATION, (data) => {
             this.showNotification(data);
         });
         
-        // 결제 성공
+        // Payment success
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
             const user = firebaseService.getCurrentUser();
             if (user) {
@@ -239,24 +270,24 @@ class BillionaireApp {
     }
     
     /**
-     * 키보드 단축키 설정
+     * Keyboard Shortcuts Setup
      */
     setupKeyboardShortcuts() {
         let pKeyCount = 0;
         let pKeyTimer = null;
         
         document.addEventListener('keydown', (e) => {
-            // ESC: 패널 닫기
+            // ESC: Close panel
             if (e.key === 'Escape') {
                 eventBus.emit(EVENTS.UI_PANEL_CLOSE, { type: 'territory' });
             }
             
-            // H: 도움말
+            // H: Help
             if (e.key === 'h' || e.key === 'H') {
                 eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'help' });
             }
             
-            // P 5회 연타: 관리자 모드
+            // P 5x tap: Admin mode
             if (e.key === 'p' || e.key === 'P') {
                 pKeyCount++;
                 clearTimeout(pKeyTimer);
@@ -268,7 +299,7 @@ class BillionaireApp {
                 }
             }
             
-            // 1,2,3: 줌 레벨
+            // 1,2,3: Zoom levels
             if (e.key === '1') mapController.flyTo([0, 20], 2);
             if (e.key === '2') mapController.flyTo([0, 20], 4);
             if (e.key === '3') mapController.flyTo([0, 20], 6);
@@ -276,27 +307,27 @@ class BillionaireApp {
     }
     
     /**
-     * 초기 데이터 로드
+     * Load Initial Data
      */
     async loadInitialData() {
-        // 미국을 기본으로 로드
+        // Load USA as default
         await this.loadCountry('usa');
     }
     
     /**
-     * 국가 로드
+     * Load Country
      */
     async loadCountry(countryCode) {
         try {
             log.info(`Loading country: ${countryCode}`);
             
-            // 로딩 표시
+            // Show loading notification
             this.showNotification({
                 type: 'info',
                 message: `Loading ${countryCode}...`
             });
             
-            // GeoJSON 데이터 로드
+            // Load GeoJSON data
             const geoJson = await mapController.loadGeoJsonData(countryCode);
             
             if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
@@ -304,20 +335,20 @@ class BillionaireApp {
                     type: 'warning',
                     message: `No region data available for this country yet.`
                 });
-                // 카메라는 이동
+                // Still move camera
                 mapController.flyToCountry(countryCode);
                 return;
             }
             
-            // 레이어 추가
+            // Add territory layer
             mapController.addTerritoryLayer(`territories-${countryCode}`, geoJson);
             
-            // 국가로 이동
+            // Fly to country
             mapController.flyToCountry(countryCode);
             
             this.currentCountry = countryCode;
             
-            // 성공 알림
+            // Success notification
             this.showNotification({
                 type: 'success',
                 message: `Loaded ${geoJson.features.length} regions`
@@ -333,7 +364,7 @@ class BillionaireApp {
     }
     
     /**
-     * 인증 UI 업데이트
+     * Update Auth UI
      */
     updateAuthUI(user) {
         const loginBtn = document.getElementById('side-user-login-btn');
@@ -355,7 +386,7 @@ class BillionaireApp {
     }
     
     /**
-     * 로딩 표시
+     * Show Loading
      */
     showLoading() {
         const loading = document.getElementById('loading');
@@ -365,7 +396,7 @@ class BillionaireApp {
     }
     
     /**
-     * 로딩 숨김
+     * Hide Loading
      */
     hideLoading() {
         const loading = document.getElementById('loading');
@@ -375,7 +406,7 @@ class BillionaireApp {
     }
     
     /**
-     * 에러 표시
+     * Show Error
      */
     showError(message) {
         const loading = document.getElementById('loading');
@@ -383,13 +414,13 @@ class BillionaireApp {
             loading.innerHTML = `
                 <div class="error-icon">❌</div>
                 <p>${message}</p>
-                <button onclick="location.reload()">새로고침</button>
+                <button onclick="location.reload()">Refresh</button>
             `;
         }
     }
     
     /**
-     * 알림 표시
+     * Show Notification
      */
     showNotification({ type, message, duration = 3000 }) {
         const container = document.getElementById('notification-container') || this.createNotificationContainer();
@@ -406,7 +437,7 @@ class BillionaireApp {
         
         container.appendChild(notification);
         
-        // 닫기 버튼
+        // Close button
         notification.querySelector('.notification-close').addEventListener('click', () => {
             notification.remove();
         });
@@ -435,10 +466,10 @@ class BillionaireApp {
     }
 }
 
-// 앱 인스턴스 생성 및 초기화
+// Create and initialize app instance
 const app = new BillionaireApp();
 
-// DOM 로드 후 초기화
+// Initialize after DOM load
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => app.init());
 } else {

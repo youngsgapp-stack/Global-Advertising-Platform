@@ -54,15 +54,15 @@ class RankingBoard {
         
         this.container.innerHTML = `
             <div class="ranking-header">
-                <h3>🏆 세계 패권 보드</h3>
+                <h3>🏆 Global Rankings</h3>
                 <button class="ranking-refresh-btn" id="ranking-refresh">🔄</button>
             </div>
             
             <div class="ranking-tabs">
-                <button class="ranking-tab active" data-tab="hegemony">패권</button>
-                <button class="ranking-tab" data-tab="territories">영토</button>
-                <button class="ranking-tab" data-tab="pixels">픽셀</button>
-                <button class="ranking-tab" data-tab="countries">국가</button>
+                <button class="ranking-tab active" data-tab="hegemony">Score</button>
+                <button class="ranking-tab" data-tab="territories">Spots</button>
+                <button class="ranking-tab" data-tab="pixels">Pixels</button>
+                <button class="ranking-tab" data-tab="countries">Countries</button>
             </div>
             
             <div class="ranking-content">
@@ -127,7 +127,7 @@ class RankingBoard {
         const hegemonyBoard = rankingSystem.getHegemonyBoard();
         
         if (hegemonyBoard.length === 0) {
-            return '<div class="ranking-empty">아직 정복된 영토가 없습니다.</div>';
+            return '<div class="ranking-empty">No claimed spots yet.</div>';
         }
         
         return hegemonyBoard.map((entry, index) => `
@@ -136,7 +136,7 @@ class RankingBoard {
                 <div class="rank-info">
                     <span class="rank-user">${entry.userName || entry.userId}</span>
                     <span class="rank-details">
-                        ${entry.territoryCount}개 영토 · ${entry.countryCount}개국
+                        ${entry.territoryCount} spots · ${entry.countryCount} countries
                     </span>
                 </div>
                 <div class="rank-score">${this.formatScore(entry.hegemonyScore)}</div>
@@ -151,7 +151,7 @@ class RankingBoard {
         const rankings = rankingSystem.getRankingByType(RANKING_TYPE.TERRITORY_COUNT, 10);
         
         if (rankings.length === 0) {
-            return '<div class="ranking-empty">데이터가 없습니다.</div>';
+            return '<div class="ranking-empty">No data available.</div>';
         }
         
         return rankings.map((entry, index) => `
@@ -160,7 +160,7 @@ class RankingBoard {
                 <div class="rank-info">
                     <span class="rank-user">${entry.userName || entry.userId}</span>
                 </div>
-                <div class="rank-score">${entry.territoryCount}개 🗺️</div>
+                <div class="rank-score">${entry.territoryCount} 🗺️</div>
             </div>
         `).join('');
     }
@@ -172,7 +172,7 @@ class RankingBoard {
         const rankings = rankingSystem.getRankingByType(RANKING_TYPE.PIXEL_COVERAGE, 10);
         
         if (rankings.length === 0) {
-            return '<div class="ranking-empty">데이터가 없습니다.</div>';
+            return '<div class="ranking-empty">No data available.</div>';
         }
         
         return rankings.map((entry, index) => `
@@ -197,17 +197,17 @@ class RankingBoard {
             .slice(0, 10);
         
         if (countries.length === 0) {
-            return '<div class="ranking-empty">점령된 국가가 없습니다.</div>';
+            return '<div class="ranking-empty">No countries claimed yet.</div>';
         }
         
         return countries.map(([code, data]) => {
-            const countryInfo = CONFIG.G20_COUNTRIES[code] || { flag: '🏳️', nameKo: code };
+            const countryInfo = CONFIG.COUNTRIES[code] || { flag: '🏳️', name: code };
             
             return `
                 <div class="country-occupation-item">
                     <div class="country-info">
                         <span class="country-flag">${countryInfo.flag}</span>
-                        <span class="country-name">${countryInfo.nameKo}</span>
+                        <span class="country-name">${countryInfo.name}</span>
                     </div>
                     <div class="occupation-bar-container">
                         <div class="occupation-bar" style="width: ${data.percentage}%"></div>
@@ -229,7 +229,7 @@ class RankingBoard {
         if (!user) {
             return `
                 <div class="my-ranking-login">
-                    <span>로그인하여 내 랭킹 확인</span>
+                    <span>Sign in to see your ranking</span>
                 </div>
             `;
         }
@@ -240,8 +240,8 @@ class RankingBoard {
         if (!myRanking) {
             return `
                 <div class="my-ranking-empty">
-                    <span>아직 영토가 없습니다</span>
-                    <span>첫 영토를 정복해보세요! ⚔️</span>
+                    <span>No spots owned yet</span>
+                    <span>Claim your first spot! 📍</span>
                 </div>
             `;
         }
@@ -249,21 +249,21 @@ class RankingBoard {
         return `
             <div class="my-ranking-card">
                 <div class="my-rank-header">
-                    <span class="my-rank-label">내 순위</span>
-                    <span class="my-rank-number">${globalRank || '-'}위</span>
+                    <span class="my-rank-label">My Rank</span>
+                    <span class="my-rank-number">#${globalRank || '-'}</span>
                 </div>
                 <div class="my-rank-stats">
                     <div class="my-stat">
                         <span class="stat-value">${myRanking.territoryCount}</span>
-                        <span class="stat-label">영토</span>
+                        <span class="stat-label">Spots</span>
                     </div>
                     <div class="my-stat">
                         <span class="stat-value">${this.formatNumber(myRanking.totalPixels)}</span>
-                        <span class="stat-label">픽셀</span>
+                        <span class="stat-label">Pixels</span>
                     </div>
                     <div class="my-stat">
                         <span class="stat-value">${this.formatScore(myRanking.hegemonyScore)}</span>
-                        <span class="stat-label">패권점수</span>
+                        <span class="stat-label">Score</span>
                     </div>
                 </div>
             </div>
@@ -329,7 +329,7 @@ class RankingBoard {
         modal.innerHTML = `
             <div class="modal-content ranking-modal-content">
                 <div class="modal-header">
-                    <h2>🏆 세계 패권 보드</h2>
+                    <h2>🏆 Global Rankings</h2>
                     <button class="close-btn" id="close-ranking-modal">&times;</button>
                 </div>
                 <div class="modal-body">

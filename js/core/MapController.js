@@ -530,7 +530,7 @@ class MapController {
      * 국가로 이동
      */
     flyToCountry(countryCode) {
-        const country = CONFIG.G20_COUNTRIES[countryCode];
+        const country = CONFIG.COUNTRIES[countryCode];
         if (country) {
             this.flyTo(country.center, country.zoom);
             this.currentCountry = countryCode;
