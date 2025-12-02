@@ -25798,26 +25798,52 @@ class BillionaireMap {
             ctx.fillStyle = 'rgba(78, 205, 196, 0.1)';
             
             const drawCoordinates = (coords) => {
-                if (Array.isArray(coords[0])) {
+                // 입력 검증
+                if (!coords || !Array.isArray(coords) || coords.length === 0) {
+                    return;
+                }
+                
+                // 중첩 배열인 경우 재귀 호출
+                if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
                     coords.forEach(drawCoordinates);
                     return;
                 }
                 
-                ctx.beginPath();
-                coords.forEach((coord, index) => {
-                    const [x, y] = coord;
-                    const canvasX = x * scaleX + offsetX;
-                    const canvasY = size - (y * scaleY + offsetY); // Y축 뒤집기
+                // 좌표 배열인 경우 (예: [[lng, lat], [lng, lat], ...])
+                if (Array.isArray(coords[0]) && typeof coords[0][0] === 'number') {
+                    ctx.beginPath();
+                    let hasValidPoint = false;
                     
-                    if (index === 0) {
-                        ctx.moveTo(canvasX, canvasY);
-                    } else {
-                        ctx.lineTo(canvasX, canvasY);
+                    coords.forEach((coord, index) => {
+                        // 각 좌표 검증
+                        if (!coord || !Array.isArray(coord) || coord.length < 2) {
+                            return;
+                        }
+                        
+                        const [x, y] = coord;
+                        if (typeof x !== 'number' || typeof y !== 'number' || 
+                            !isFinite(x) || !isFinite(y)) {
+                            return;
+                        }
+                        
+                        const canvasX = x * scaleX + offsetX;
+                        const canvasY = size - (y * scaleY + offsetY); // Y축 뒤집기
+                        
+                        if (index === 0 || !hasValidPoint) {
+                            ctx.moveTo(canvasX, canvasY);
+                            hasValidPoint = true;
+                        } else {
+                            ctx.lineTo(canvasX, canvasY);
+                        }
+                    });
+                    
+                    if (hasValidPoint) {
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
                     }
-                });
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
+                    return;
+                }
             };
             
             // GeoJSON 타입에 따라 그리기
@@ -25869,6 +25895,11 @@ class BillionaireMap {
             
             console.log(`[행정구역 이미지] ${regionId}: Firestore 저장 완료`);
         } catch (error) {
+            // Firestore 권한 오류는 조용히 처리 (많은 오류 로그 방지)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                // 권한 오류는 조용히 무시 (IndexedDB 캐시는 이미 저장됨)
+                return;
+            }
             console.warn(`[행정구역 이미지] ${regionId}: Firestore 저장 실패:`, error);
         }
     }
@@ -25906,6 +25937,11 @@ class BillionaireMap {
                 }
             }
         } catch (error) {
+            // Firestore 권한 오류는 조용히 처리 (많은 오류 로그 방지)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                // 권한 오류는 조용히 무시 (캐시에서 로드 시도했으므로)
+                return null;
+            }
             console.warn(`[행정구역 이미지] ${regionId}: Firestore 로드 실패:`, error);
         }
         
