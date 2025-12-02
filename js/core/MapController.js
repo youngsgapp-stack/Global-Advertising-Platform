@@ -164,12 +164,39 @@ class MapController {
             this.updateTerritoryLayerVisual(targetTerritory);
             
             // source를 찾지 못한 경우 재시도 (맵이 로드될 때까지 기다림)
-            if (this.sourcesLoaded.size === 0) {
-                log.warn(`⚠️ No sources loaded yet. Will retry map update after delay...`);
-                setTimeout(() => {
-                    log.info(`🔄 Retrying map update for territory ${territoryId} after delay...`);
+            // sourcesLoaded가 비어있거나, Territory에 sourceId가 없으면 재시도
+            const needsRetry = this.sourcesLoaded.size === 0 || !targetTerritory.sourceId;
+            if (needsRetry) {
+                log.warn(`⚠️ No sources loaded yet or sourceId missing. Will retry map update after delay...`, {
+                    sourcesLoadedSize: this.sourcesLoaded.size,
+                    hasSourceId: !!targetTerritory.sourceId,
+                    country: targetTerritory.country
+                });
+                
+                // 재시도 로직 (최대 3번, 1초 간격)
+                let retryCount = 0;
+                const maxRetries = 3;
+                const retryInterval = 1000;
+                
+                const retryUpdate = () => {
+                    retryCount++;
+                    log.info(`🔄 Retrying map update for territory ${territoryId} (attempt ${retryCount}/${maxRetries})...`);
+                    
+                    // sourcesLoaded 동기화 시도
+                    this.syncSourcesLoaded();
+                    
+                    // 업데이트 다시 시도
                     this.updateTerritoryLayerVisual(targetTerritory);
-                }, 1000);
+                    
+                    // 아직도 실패하고 재시도 횟수가 남아있으면 계속
+                    if (retryCount < maxRetries && this.sourcesLoaded.size === 0) {
+                        setTimeout(retryUpdate, retryInterval);
+                    } else if (this.sourcesLoaded.size === 0) {
+                        log.error(`❌ Failed to find sources after ${maxRetries} retries`);
+                    }
+                };
+                
+                setTimeout(retryUpdate, retryInterval);
             }
         } else {
             log.error(`❌ Territory ${territoryId} not found in TerritoryManager`);
@@ -191,6 +218,12 @@ class MapController {
                 pixelCanvas: territory.pixelCanvas,
                 filledPixels: territory.pixelCanvas?.filledPixels
             });
+            
+            // sourcesLoaded 동기화 (맵에 실제로 로드된 source 확인)
+            if (this.sourcesLoaded.size === 0) {
+                log.debug('sourcesLoaded is empty, syncing with map sources...');
+                this.syncSourcesLoaded();
+            }
             
             // 모든 territory source 찾기 (다양한 방법으로)
             let sources = Array.from(this.sourcesLoaded);
@@ -1002,6 +1035,11 @@ class MapController {
         // If source already exists, update it
         if (this.map.getSource(sourceId)) {
             this.map.getSource(sourceId).setData(geoJsonData);
+            // source가 이미 존재해도 sourcesLoaded에 추가 (중요!)
+            if (!this.sourcesLoaded.has(sourceId)) {
+                this.sourcesLoaded.add(sourceId);
+                log.debug(`Added existing source to sourcesLoaded: ${sourceId}`);
+            }
             return;
         }
         
@@ -1144,6 +1182,40 @@ class MapController {
         this.sourcesLoaded.add(sourceId);
         this.activeLayerIds.add(sourceId);
         log.info(`Territory layer added: ${sourceId}`);
+    }
+    
+    /**
+     * 맵에서 실제로 로드된 source들을 sourcesLoaded에 동기화
+     */
+    syncSourcesLoaded() {
+        if (!this.map) return;
+        
+        try {
+            const mapStyle = this.map.getStyle();
+            if (!mapStyle || !mapStyle.sources) return;
+            
+            // 모든 GeoJSON source 찾기
+            const allGeojsonSources = Object.keys(mapStyle.sources).filter(sourceId => {
+                try {
+                    const source = this.map.getSource(sourceId);
+                    return source && source.type === 'geojson';
+                } catch (e) {
+                    return false;
+                }
+            });
+            
+            // sourcesLoaded에 추가
+            allGeojsonSources.forEach(sourceId => {
+                if (!this.sourcesLoaded.has(sourceId)) {
+                    this.sourcesLoaded.add(sourceId);
+                    log.debug(`Synced source to sourcesLoaded: ${sourceId}`);
+                }
+            });
+            
+            log.info(`✅ Synced ${allGeojsonSources.length} sources to sourcesLoaded`);
+        } catch (error) {
+            log.error('Failed to sync sourcesLoaded:', error);
+        }
     }
     
     /**
