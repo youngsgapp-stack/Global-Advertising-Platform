@@ -9,6 +9,8 @@ import { mapController } from './core/MapController.js';
 import { territoryManager } from './core/TerritoryManager.js';
 import { pixelCanvas } from './core/PixelCanvas.js';
 import { firebaseService } from './services/FirebaseService.js';
+import { walletService, WALLET_EVENTS } from './services/WalletService.js';
+import { paymentService } from './services/PaymentService.js';
 import { auctionSystem } from './features/AuctionSystem.js';
 import { rankingSystem } from './features/RankingSystem.js';
 import { buffSystem } from './features/BuffSystem.js';
@@ -41,6 +43,10 @@ class BillionaireApp {
             // 2. Initialize Firebase & Data Services
             await firebaseService.initialize();
             await territoryDataService.initialize();
+            
+            // 2.5. Initialize Wallet & Payment Services
+            await walletService.initialize();
+            await paymentService.initialize();
             
             // 3. Initialize Map
             await mapController.initialize('map');
@@ -272,6 +278,23 @@ class BillionaireApp {
                 firebaseService.signOut();
             });
         }
+        
+        // Wallet button
+        const walletBtn = document.getElementById('open-wallet-modal');
+        if (walletBtn) {
+            walletBtn.addEventListener('click', () => {
+                const user = firebaseService.getCurrentUser();
+                if (user) {
+                    paymentService.openChargeModal();
+                } else {
+                    this.showNotification({
+                        type: 'warning',
+                        message: 'Please sign in to access your wallet'
+                    });
+                    firebaseService.signInWithGoogle();
+                }
+            });
+        }
     }
     
     /**
@@ -341,10 +364,15 @@ class BillionaireApp {
             this.showNotification(data);
         });
         
-        // Payment success
+        // Wallet balance update
+        eventBus.on(WALLET_EVENTS.BALANCE_UPDATED, ({ balance }) => {
+            this.updateWalletUI(balance);
+        });
+        
+        // Payment success - handle territory conquest
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
             const user = firebaseService.getCurrentUser();
-            if (user) {
+            if (user && data.territoryId) {
                 await auctionSystem.instantConquest(
                     data.territoryId,
                     user.uid,
@@ -352,6 +380,30 @@ class BillionaireApp {
                 );
             }
         });
+        
+        // Insufficient balance - open charge modal
+        eventBus.on(WALLET_EVENTS.INSUFFICIENT_BALANCE, ({ required, current }) => {
+            this.showNotification({
+                type: 'warning',
+                message: `Insufficient balance. Need $${required}, have $${current}`
+            });
+            paymentService.openChargeModal(required);
+        });
+    }
+    
+    /**
+     * Update Wallet UI
+     */
+    updateWalletUI(balance) {
+        const walletDisplay = document.getElementById('wallet-balance');
+        if (walletDisplay) {
+            walletDisplay.textContent = `$${balance.toLocaleString()}`;
+        }
+        
+        const headerWallet = document.getElementById('header-wallet-balance');
+        if (headerWallet) {
+            headerWallet.textContent = `$${balance.toLocaleString()}`;
+        }
     }
     
     /**

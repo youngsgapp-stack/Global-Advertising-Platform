@@ -10,6 +10,7 @@ import { buffSystem } from '../features/BuffSystem.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
+import { walletService } from '../services/WalletService.js';
 
 class TerritoryPanel {
     constructor() {
@@ -419,21 +420,47 @@ class TerritoryPanel {
      */
     async handleInstantConquest() {
         const user = firebaseService.getCurrentUser();
-        if (!user || !this.currentTerritory) return;
+        
+        // 로그인 체크
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to claim this territory'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!this.currentTerritory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No territory selected'
+            });
+            return;
+        }
+        
+        // 가격 가져오기
+        const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.country || 
+                           'unknown';
+        const price = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
         try {
-            // 결제 시작 이벤트
+            // 결제 시작 이벤트 (PaymentService에서 처리)
             eventBus.emit(EVENTS.PAYMENT_START, {
                 type: 'conquest',
                 territoryId: this.currentTerritory.id,
-                amount: this.currentTerritory.tribute
+                territoryName: this.extractName(this.currentTerritory.name) || 
+                              this.extractName(this.currentTerritory.properties?.name) ||
+                              this.currentTerritory.id,
+                amount: price
             });
             
         } catch (error) {
             log.error('Conquest failed:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '정복에 실패했습니다.'
+                message: 'Failed to process purchase. Please try again.'
             });
         }
     }
@@ -442,14 +469,33 @@ class TerritoryPanel {
      * 옥션 시작 처리
      */
     async handleStartAuction() {
-        if (!this.currentTerritory) return;
+        const user = firebaseService.getCurrentUser();
+        
+        // 로그인 체크
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to start an auction'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!this.currentTerritory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No territory selected'
+            });
+            return;
+        }
         
         try {
+            // 옥션 생성
             await auctionSystem.createAuction(this.currentTerritory.id);
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: 'Auction has started!'
+                message: '🎯 Auction started! Place your bids!'
             });
             
             // 패널 갱신
@@ -458,9 +504,20 @@ class TerritoryPanel {
             
         } catch (error) {
             log.error('Auction start failed:', error);
+            
+            // 사용자 친화적 에러 메시지
+            let errorMessage = 'Failed to start auction';
+            if (error.message.includes('Authentication')) {
+                errorMessage = 'Please sign in first';
+            } else if (error.message.includes('not found')) {
+                errorMessage = 'Territory not found';
+            } else if (error.message.includes('in progress')) {
+                errorMessage = 'An auction is already in progress';
+            }
+            
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: error.message
+                message: errorMessage
             });
         }
     }
@@ -476,7 +533,56 @@ class TerritoryPanel {
         const user = firebaseService.getCurrentUser();
         const auction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
         
-        if (!user || !auction) return;
+        // 로그인 체크
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to place a bid'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!auction) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No active auction found'
+            });
+            return;
+        }
+        
+        // 입찰 금액 검증
+        if (!bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please enter a valid bid amount'
+            });
+            return;
+        }
+        
+        const minBid = auction.currentBid + auction.minIncrement;
+        if (bidAmount < minBid) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: `Minimum bid is $${this.formatNumber(minBid)}`
+            });
+            return;
+        }
+        
+        // 잔액 체크
+        const currentBalance = walletService.getBalance();
+        if (currentBalance < bidAmount) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: `Insufficient balance. You have $${this.formatNumber(currentBalance)}`
+            });
+            // PaymentService의 충전 모달 열기
+            eventBus.emit(EVENTS.PAYMENT_START, {
+                type: 'bid',
+                amount: bidAmount
+            });
+            return;
+        }
         
         try {
             await auctionSystem.handleBid({
@@ -488,8 +594,11 @@ class TerritoryPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: `$${this.formatNumber(bidAmount)} 입찰 완료!`
+                message: `🎯 Bid placed: $${this.formatNumber(bidAmount)}`
             });
+            
+            // 입력 필드 초기화
+            input.value = '';
             
             // 패널 갱신
             this.render();
@@ -497,9 +606,17 @@ class TerritoryPanel {
             
         } catch (error) {
             log.error('Bid failed:', error);
+            
+            let errorMessage = 'Failed to place bid';
+            if (error.message.includes('Minimum')) {
+                errorMessage = error.message;
+            } else if (error.message.includes('not active')) {
+                errorMessage = 'Auction has ended';
+            }
+            
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: error.message
+                message: errorMessage
             });
         }
     }
