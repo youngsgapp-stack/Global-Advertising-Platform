@@ -24279,33 +24279,54 @@ class BillionaireMap {
             await this.setupPixelGridLayer({ type: 'FeatureCollection', features: [] });
         }
         
-        // 해당 지역의 픽셀 그리드 로드
-        let pixelGrid = this.pixelGrids.get(regionId);
-        if (!pixelGrid) {
-            // GeoJSON에서 해당 지역 찾기
-            const source = this.map.getSource('world-regions');
-            if (source && source._data) {
-                const feature = source._data.features.find(f => 
-                    (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
-                );
-                if (feature) {
-                    pixelGrid = this.createPixelGrid(feature, this.pixelGridGridSize);
-                    if (pixelGrid) {
-                        await this.savePixelGrid(regionId, pixelGrid);
-                        this.pixelGrids.set(regionId, pixelGrid);
+        // 메모리 최적화: 메타데이터만 저장 (픽셀 배열은 메모리에 저장하지 않음)
+        let pixelGridMeta = this.pixelGrids.get(regionId);
+        if (!pixelGridMeta) {
+            // Firestore에서 메타데이터만 로드 (픽셀 배열은 로드하지 않음)
+            const gridDoc = await this.loadPixelGridMetadata(regionId);
+            if (gridDoc) {
+                pixelGridMeta = {
+                    regionId: gridDoc.regionId,
+                    bbox: gridDoc.bbox,
+                    cellSize: gridDoc.cellSize || gridDoc.cellWidth || 0.001,
+                    cellWidth: gridDoc.cellWidth,
+                    cellHeight: gridDoc.cellHeight,
+                    gridSize: gridDoc.gridSize,
+                    gridHeight: gridDoc.gridHeight,
+                    pixelCount: gridDoc.pixelCount,
+                    // pixels 배열은 저장하지 않음 (메모리 절약)
+                };
+                this.pixelGrids.set(regionId, pixelGridMeta);
+            } else {
+                // GeoJSON에서 해당 지역 찾기 (메타데이터만 생성)
+                const source = this.map.getSource('world-regions');
+                if (source && source._data) {
+                    const feature = source._data.features.find(f => 
+                        (f.properties?.id === regionId) || (f.properties?.regionId === regionId)
+                    );
+                    if (feature) {
+                        // 메타데이터만 생성 (픽셀 배열은 생성하지 않음)
+                        pixelGridMeta = this.createPixelGridMetadata(feature, this.pixelGridGridSize);
+                        if (pixelGridMeta) {
+                            // Firestore에 저장 (백그라운드)
+                            this.savePixelGridMetadata(regionId, pixelGridMeta).catch(err => {
+                                console.warn(`[픽셀 그리드] 메타데이터 저장 실패:`, err);
+                            });
+                            this.pixelGrids.set(regionId, pixelGridMeta);
+                        }
                     }
                 }
             }
         }
         
-        if (!pixelGrid) {
-            console.error('[픽셀 그리드] pixelGrid를 찾을 수 없습니다:', regionId);
+        if (!pixelGridMeta) {
+            console.error('[픽셀 그리드] pixelGrid 메타데이터를 찾을 수 없습니다:', regionId);
             return;
         }
         
         // 먼저 해당 지역으로 지도 이동 (이동 후 픽셀 표시)
-        if (pixelGrid.bbox) {
-            const { minX, minY, maxX, maxY } = pixelGrid.bbox;
+        if (pixelGridMeta.bbox) {
+            const { minX, minY, maxX, maxY } = pixelGridMeta.bbox;
             
             // 지도 이동 완료 후 픽셀 표시
             this.map.fitBounds(
@@ -24314,7 +24335,7 @@ class BillionaireMap {
             );
             
             // 지도 이동 완료 후 픽셀 렌더링
-            const renderPixelsAfterMove = () => {
+            const renderPixelsAfterMove = async () => {
                 // 현재 뷰포트와 줌 레벨 가져오기
                 const bounds = this.map.getBounds();
                 const zoom = this.map.getZoom();
@@ -24325,24 +24346,22 @@ class BillionaireMap {
                     bounds.getNorth()
                 ];
                 
-                // 편집 모드일 때는 뷰포트 필터링을 완화 (최소한의 픽셀은 항상 표시)
+                // 편집 모드일 때도 뷰포트 필터링 활성화 (메모리 최적화)
                 // 해당 지역의 픽셀만 필터링하여 표시 (뷰포트와 줌 레벨 고려)
-                // 메모리 최적화: maxPixels를 줌 레벨에 따라 동적으로 조정
-                let maxPixelsForEdit = 200000; // 기본값 (메모리 최적화)
-                if (zoom >= 8) {
-                    maxPixelsForEdit = 300000; // 높은 줌 레벨
+                // 메모리 최적화: maxPixels를 줌 레벨에 따라 동적으로 조정 (더 엄격한 제한)
+                let maxPixelsForEdit = 50000; // 기본값 (메모리 최적화 강화)
+                if (zoom >= 10) {
+                    maxPixelsForEdit = 100000; // 매우 높은 줌 레벨 (10 이상)
+                } else if (zoom >= 8) {
+                    maxPixelsForEdit = 80000; // 높은 줌 레벨
                 } else if (zoom >= 6) {
-                    maxPixelsForEdit = 200000; // 중간 줌 레벨
+                    maxPixelsForEdit = 50000; // 중간 줌 레벨
                 } else {
-                    maxPixelsForEdit = 100000; // 낮은 줌 레벨
+                    maxPixelsForEdit = 30000; // 낮은 줌 레벨
                 }
                 
-                const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
-                    viewport,
-                    zoom,
-                    useViewportFilter: false, // 편집 모드에서는 뷰포트 필터링 비활성화
-                    maxPixels: maxPixelsForEdit // 메모리 최적화된 값 사용
-                });
+                // 이미지 기반 렌더링 (메모리 최적화)
+                await this.renderPixelGridAsImage(regionId, pixelGridMeta, viewport, zoom);
                 
                 if (regionGeoJson && this.map.getSource('pixel-grids')) {
                     // 기존 소스에 해당 지역 픽셀만 추가/업데이트
@@ -24397,38 +24416,20 @@ class BillionaireMap {
                 bounds.getNorth()
             ];
             
-            const regionGeoJson = this.pixelGridToGeoJson(pixelGrid, {
-                viewport,
-                zoom,
-                useViewportFilter: false,
-                maxPixels: 1000000
-            });
-            
-            if (regionGeoJson && this.map.getSource('pixel-grids')) {
-                const currentSource = this.map.getSource('pixel-grids');
-                const currentData = currentSource._data;
-                
-                let filteredFeatures = (currentData && currentData.features) 
-                    ? currentData.features.filter(f => 
-                        f.properties && f.properties.regionId === regionId
-                    )
-                    : [];
-                
-                if (regionGeoJson.features && regionGeoJson.features.length > 0) {
-                    if (regionGeoJson.features.length > 100000) {
-                        filteredFeatures = filteredFeatures.concat(regionGeoJson.features);
-                    } else {
-                        filteredFeatures.push(...regionGeoJson.features);
-                    }
-                }
-                
-                const filteredGeoJson = {
-                    type: 'FeatureCollection',
-                    features: filteredFeatures
-                };
-                
-                currentSource.setData(filteredGeoJson);
+            // 메모리 최적화: maxPixels를 줌 레벨에 따라 동적으로 조정
+            let maxPixelsForEdit = 50000; // 기본값 (메모리 최적화 강화)
+            if (zoom >= 10) {
+                maxPixelsForEdit = 100000; // 매우 높은 줌 레벨 (10 이상)
+            } else if (zoom >= 8) {
+                maxPixelsForEdit = 80000; // 높은 줌 레벨
+            } else if (zoom >= 6) {
+                maxPixelsForEdit = 50000; // 중간 줌 레벨
+            } else {
+                maxPixelsForEdit = 30000; // 낮은 줌 레벨
             }
+            
+            // 이미지 기반 렌더링 (메모리 최적화)
+            await this.renderPixelGridAsImage(regionId, pixelGridMeta, viewport, zoom);
         }
         
         // 지도 이동/줌 시 픽셀 동적 업데이트 (1단계: 메모리 정리 강화 - 즉시 정리)
@@ -24447,8 +24448,16 @@ class BillionaireMap {
                 }, 100); // 100ms 후 즉시 정리
                     
                 // 뷰포트 업데이트는 디바운싱 적용
-                updateTimeout = setTimeout(() => {
-                    this.updatePixelsForViewport(regionId, pixelGrid);
+                updateTimeout = setTimeout(async () => {
+                    const bounds = this.map.getBounds();
+                    const zoom = this.map.getZoom();
+                    const viewport = [
+                        bounds.getWest(),
+                        bounds.getSouth(),
+                        bounds.getEast(),
+                        bounds.getNorth()
+                    ];
+                    await this.renderPixelGridAsImage(regionId, pixelGridMeta, viewport, zoom);
                 }, 200); // 200ms 디바운싱
             };
             
@@ -24477,14 +24486,16 @@ class BillionaireMap {
             bounds.getNorth()
         ];
         
-        // 메모리 최적화: 줌 레벨에 따라 maxPixels 동적 조정
-        let maxPixelsForViewport = 100000; // 기본값 (메모리 최적화)
-        if (zoom >= 8) {
-            maxPixelsForViewport = 200000; // 높은 줌 레벨
+        // 메모리 최적화: 줌 레벨에 따라 maxPixels 동적 조정 (더 엄격한 제한)
+        let maxPixelsForViewport = 30000; // 기본값 (메모리 최적화 강화)
+        if (zoom >= 10) {
+            maxPixelsForViewport = 80000; // 매우 높은 줌 레벨 (10 이상)
+        } else if (zoom >= 8) {
+            maxPixelsForViewport = 60000; // 높은 줌 레벨
         } else if (zoom >= 6) {
-            maxPixelsForViewport = 150000; // 중간 줌 레벨
+            maxPixelsForViewport = 40000; // 중간 줌 레벨
         } else {
-            maxPixelsForViewport = 50000; // 낮은 줌 레벨
+            maxPixelsForViewport = 20000; // 낮은 줌 레벨
         }
         
         // 뷰포트와 줌 레벨을 고려하여 픽셀 업데이트
@@ -25876,15 +25887,18 @@ class BillionaireMap {
             console.log(`[픽셀 그리드 최적화] 뷰포트 필터링: ${totalPixels} → ${pixelsToProcess.length} (줌: ${zoom.toFixed(1)})`);
         }
         
-        // 2단계: 줌 레벨에 따른 동적 maxPixels 조정
+        // 2단계: 줌 레벨에 따른 동적 maxPixels 조정 (더 엄격한 제한)
         let effectiveMaxPixels = maxPixels;
         if (zoom !== null) {
-            if (zoom >= 8) {
-                // 높은 줌 레벨: 더 많은 픽셀 허용하되 제한 (Wplace 스타일: 메모리 최적화)
-                effectiveMaxPixels = maxPixels * 3; // Infinity 대신 maxPixels * 3으로 제한
+            if (zoom >= 10) {
+                // 매우 높은 줌 레벨: maxPixels 그대로 사용 (메모리 최적화 강화)
+                effectiveMaxPixels = maxPixels;
+            } else if (zoom >= 8) {
+                // 높은 줌 레벨: 약간만 증가 (메모리 최적화)
+                effectiveMaxPixels = Math.min(maxPixels * 1.5, maxPixels + 20000);
             } else if (zoom >= 6) {
-                // 중간 줌 레벨: 더 많은 픽셀 허용
-                effectiveMaxPixels = maxPixels * 2;
+                // 중간 줌 레벨: 약간 증가
+                effectiveMaxPixels = Math.min(maxPixels * 1.2, maxPixels + 10000);
             } else {
                 // 낮은 줌 레벨: 샘플링 적용
                 effectiveMaxPixels = maxPixels;
@@ -25913,7 +25927,26 @@ class BillionaireMap {
         const features = new Array(pixelsToProcess.length);
         
         // cellSize를 사용하여 bounds 계산 (메모리 최적화)
-        const cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
+        let cellSize = pixelGrid.cellSize || pixelGrid.cellWidth || 0.001;
+        
+        // cellSize가 0이거나 너무 작으면 기본값 사용 (픽셀이 선처럼 보이는 문제 방지)
+        if (!cellSize || cellSize <= 0 || cellSize < 0.0001) {
+            // bbox를 기반으로 cellSize 추정
+            if (pixelGrid.bbox) {
+                const { minX, minY, maxX, maxY } = pixelGrid.bbox;
+                const width = maxX - minX;
+                const height = maxY - minY;
+                const avgSize = Math.max(width, height);
+                // 그리드 크기를 기반으로 cellSize 추정
+                const gridSize = pixelGrid.gridSize || 100;
+                cellSize = avgSize / gridSize;
+            }
+            // 여전히 유효하지 않으면 기본값 사용
+            if (!cellSize || cellSize <= 0) {
+                cellSize = 0.001;
+            }
+        }
+        
         const halfCell = cellSize / 2;
         
         for (let i = 0; i < pixelsToProcess.length; i++) {
@@ -25922,6 +25955,47 @@ class BillionaireMap {
             // Wplace 스타일: bounds 제거, x, y, cellSize로만 계산 (메모리 최적화)
             const centerX = pixel.x || 0;
             const centerY = pixel.y || 0;
+            
+            // x, y 값이 유효한지 확인 (0이면 계산 불가)
+            if (!centerX || !centerY || centerX === 0 || centerY === 0) {
+                // row, col을 기반으로 x, y 계산
+                if (pixel.row !== undefined && pixel.col !== undefined && pixelGrid.bbox) {
+                    const { minX, minY, maxX, maxY } = pixelGrid.bbox;
+                    const gridWidth = pixelGrid.gridSize || 100;
+                    const gridHeight = pixelGrid.gridHeight || 100;
+                    const cellWidth = (maxX - minX) / gridWidth;
+                    const cellHeight = (maxY - minY) / gridHeight;
+                    const calculatedX = minX + (pixel.col + 0.5) * cellWidth;
+                    const calculatedY = minY + (pixel.row + 0.5) * cellHeight;
+                    const minX_coord = calculatedX - cellWidth / 2;
+                    const minY_coord = calculatedY - cellHeight / 2;
+                    const maxX_coord = calculatedX + cellWidth / 2;
+                    const maxY_coord = calculatedY + cellHeight / 2;
+                    
+                    features[i] = {
+                        type: 'Feature',
+                        properties: {
+                            id: pixel.id || `${pixel.row}-${pixel.col}`,
+                            regionId: pixelGrid.regionId,
+                            color: pixel.color || '#f0f0f0',
+                            row: pixel.row,
+                            col: pixel.col
+                        },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                                [minX_coord, minY_coord],
+                                [maxX_coord, minY_coord],
+                                [maxX_coord, maxY_coord],
+                                [minX_coord, maxY_coord],
+                                [minX_coord, minY_coord]
+                            ]]
+                        }
+                    };
+                    continue;
+                }
+            }
+            
             const minX = centerX - halfCell;
             const minY = centerY - halfCell;
             const maxX = centerX + halfCell;
@@ -25953,6 +26027,311 @@ class BillionaireMap {
             type: 'FeatureCollection',
             features
         };
+    }
+    
+    /**
+     * 메모리 최적화: 픽셀 그리드 메타데이터만 로드 (픽셀 배열은 로드하지 않음)
+     */
+    async loadPixelGridMetadata(regionId) {
+        if (!this.isFirebaseInitialized || !this.firestore) return null;
+        
+        try {
+            const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
+            const gridDoc = await getDoc(gridRef);
+            
+            if (!gridDoc.exists()) return null;
+            
+            const gridData = gridDoc.data();
+            return {
+                regionId,
+                bbox: gridData.bbox,
+                cellSize: gridData.cellSize || gridData.cellWidth || 0.001,
+                cellWidth: gridData.cellWidth,
+                cellHeight: gridData.cellHeight,
+                gridSize: gridData.gridSize,
+                gridHeight: gridData.gridHeight,
+                pixelCount: gridData.pixelCount,
+            };
+        } catch (error) {
+            console.warn(`[픽셀 그리드 메타데이터 로드 실패] ${regionId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 메모리 최적화: 픽셀 그리드 메타데이터만 생성 (픽셀 배열은 생성하지 않음)
+     */
+    createPixelGridMetadata(feature, gridSize = 128) {
+        if (!feature || !feature.geometry) return null;
+        
+        const bbox = this.calculateBoundingBox(feature);
+        if (!bbox) return null;
+        
+        const { minX, minY, maxX, maxY } = bbox;
+        
+        // 실제 polygon 면적 계산
+        let actualAreaKm2 = 0;
+        if (feature.properties && feature.properties.area && feature.properties.area > 0) {
+            actualAreaKm2 = feature.properties.area;
+        } else {
+            actualAreaKm2 = this.calculatePolygonArea(feature);
+        }
+        
+        if (actualAreaKm2 <= 0) {
+            const bboxWidth = maxX - minX;
+            const bboxHeight = maxY - minY;
+            const EARTH_RADIUS_KM = 6371;
+            const avgLat = (minY + maxY) / 2;
+            const latRad = avgLat * Math.PI / 180;
+            const latCorrection = Math.cos(latRad);
+            const widthKm = (bboxWidth * Math.PI / 180) * EARTH_RADIUS_KM * latCorrection;
+            const heightKm = (bboxHeight * Math.PI / 180) * EARTH_RADIUS_KM;
+            actualAreaKm2 = widthKm * heightKm * 0.8;
+        }
+        
+        // 픽셀 크기 계산
+        const targetPixelAreaKm2 = actualAreaKm2 / (gridSize * gridSize);
+        const pixelSideLengthKm = Math.sqrt(targetPixelAreaKm2);
+        const avgLat = (minY + maxY) / 2;
+        const latRad = avgLat * Math.PI / 180;
+        const latCorrection = Math.cos(latRad);
+        const degreesPerKmLon = 1 / (111 * latCorrection);
+        const degreesPerKmLAT = 1 / 111;
+        const cellSizeLon = pixelSideLengthKm * degreesPerKmLon;
+        const cellSizeLat = pixelSideLengthKm * degreesPerKmLAT;
+        const cellSize = Math.min(cellSizeLon, cellSizeLat);
+        
+        const bboxWidth = maxX - minX;
+        const bboxHeight = maxY - minY;
+        const adjustedGridWidth = Math.ceil(bboxWidth / cellSize);
+        const adjustedGridHeight = Math.ceil(bboxHeight / cellSize);
+        
+        // 픽셀 수 추정 (정확한 계산은 하지 않음 - 메모리 절약)
+        const estimatedPixelCount = Math.floor(adjustedGridWidth * adjustedGridHeight * 0.7); // 대략 70%가 내부
+        
+        const regionId = feature.properties?.id || feature.properties?.regionId;
+        
+        return {
+            regionId,
+            gridSize: adjustedGridWidth,
+            gridHeight: adjustedGridHeight,
+            bbox,
+            pixelCount: estimatedPixelCount,
+            actualAreaKm2,
+            cellSize,
+            cellWidth: cellSize,
+            cellHeight: cellSize
+        };
+    }
+    
+    /**
+     * 메모리 최적화: 픽셀 그리드 메타데이터만 Firestore에 저장
+     */
+    async savePixelGridMetadata(regionId, metadata) {
+        if (!this.isFirebaseInitialized || !this.firestore) return;
+        
+        try {
+            const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const gridRef = doc(this.firestore, 'pixelGrids', regionId);
+            await setDoc(gridRef, {
+                regionId: metadata.regionId,
+                bbox: metadata.bbox,
+                cellSize: metadata.cellSize,
+                cellWidth: metadata.cellWidth,
+                cellHeight: metadata.cellHeight,
+                gridSize: metadata.gridSize,
+                gridHeight: metadata.gridHeight,
+                pixelCount: metadata.pixelCount,
+                dataFormat: 'metadata_only', // 메타데이터만 저장
+                updatedAt: new Date()
+            }, { merge: true });
+        } catch (error) {
+            console.warn(`[픽셀 그리드 메타데이터 저장 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * Wplace 방식: 이미지 기반 렌더링 (메모리 최적화)
+     * Canvas로 픽셀을 이미지로 변환하여 Mapbox에 이미지 소스로 추가
+     */
+    async renderPixelGridAsImage(regionId, pixelGridMeta, viewport, zoom) {
+        if (!this.map || !pixelGridMeta) return;
+        
+        try {
+            // 뷰포트에 해당하는 픽셀만 Firestore에서 로드
+            const pixels = await this.loadPixelsForViewport(regionId, pixelGridMeta, viewport, zoom);
+            if (!pixels || pixels.length === 0) return;
+            
+            // Canvas로 이미지 생성
+            const imageDataUrl = await this.createPixelGridImage(pixels, pixelGridMeta, viewport);
+            if (!imageDataUrl) return;
+            
+            // Mapbox 이미지 소스로 추가/업데이트
+            const sourceId = `pixel-grid-image-${regionId}`;
+            if (this.map.getSource(sourceId)) {
+                // 기존 소스 업데이트
+                this.map.getSource(sourceId).updateImage({
+                    url: imageDataUrl,
+                    coordinates: [
+                        [pixelGridMeta.bbox.minX, pixelGridMeta.bbox.maxY], // top-left
+                        [pixelGridMeta.bbox.maxX, pixelGridMeta.bbox.maxY], // top-right
+                        [pixelGridMeta.bbox.maxX, pixelGridMeta.bbox.minY], // bottom-right
+                        [pixelGridMeta.bbox.minX, pixelGridMeta.bbox.minY]  // bottom-left
+                    ]
+                });
+            } else {
+                // 새 소스 추가
+                this.map.addSource(sourceId, {
+                    type: 'image',
+                    url: imageDataUrl,
+                    coordinates: [
+                        [pixelGridMeta.bbox.minX, pixelGridMeta.bbox.maxY],
+                        [pixelGridMeta.bbox.maxX, pixelGridMeta.bbox.maxY],
+                        [pixelGridMeta.bbox.maxX, pixelGridMeta.bbox.minY],
+                        [pixelGridMeta.bbox.minX, pixelGridMeta.bbox.minY]
+                    ]
+                });
+                
+                // 레이어 추가
+                if (!this.map.getLayer(`pixel-grid-image-layer-${regionId}`)) {
+                    this.map.addLayer({
+                        id: `pixel-grid-image-layer-${regionId}`,
+                        type: 'raster',
+                        source: sourceId,
+                        paint: {
+                            'raster-opacity': 0.9
+                        }
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`[픽셀 그리드 이미지 렌더링 실패] ${regionId}:`, error);
+        }
+    }
+    
+    /**
+     * 뷰포트에 해당하는 픽셀만 Firestore에서 로드
+     */
+    async loadPixelsForViewport(regionId, pixelGridMeta, viewport, zoom) {
+        if (!this.isFirebaseInitialized || !this.firestore) return [];
+        
+        try {
+            const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const [minX, minY, maxX, maxY] = viewport;
+            
+            // 뷰포트를 약간 확장하여 경계 픽셀 포함
+            const padding = 0.1;
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const expandedViewport = [
+                minX - width * padding,
+                minY - height * padding,
+                maxX + width * padding,
+                maxY + height * padding
+            ];
+            
+            // Firestore에서 뷰포트에 해당하는 픽셀만 쿼리
+            // 주의: Firestore는 공간 쿼리가 제한적이므로, 타일 기반으로 쿼리하거나
+            // 모든 픽셀을 로드한 후 필터링해야 함 (임시 해결책)
+            const pixelsRef = collection(this.firestore, 'pixelGrids', regionId, 'pixels');
+            
+            // 메모리 최적화: 샘플링 (줌 레벨에 따라)
+            const maxPixels = zoom >= 10 ? 50000 : zoom >= 8 ? 30000 : zoom >= 6 ? 20000 : 10000;
+            
+            // IndexedDB 캐시에서 먼저 확인
+            const cached = await this.getCachedPixelGrid(regionId, viewport);
+            if (cached && cached.pixels) {
+                // 캐시된 픽셀 중 뷰포트에 해당하는 것만 필터링
+                const filteredPixels = cached.pixels.filter(pixel => {
+                    const x = pixel.x || 0;
+                    const y = pixel.y || 0;
+                    return x >= expandedViewport[0] && x <= expandedViewport[2] &&
+                           y >= expandedViewport[1] && y <= expandedViewport[3];
+                });
+                
+                if (filteredPixels.length > 0) {
+                    // 샘플링
+                    if (filteredPixels.length > maxPixels) {
+                        const step = Math.ceil(filteredPixels.length / maxPixels);
+                        return filteredPixels.filter((_, index) => index % step === 0);
+                    }
+                    return filteredPixels;
+                }
+            }
+            
+            // 캐시가 없으면 Firestore에서 로드 (메모리 최적화: 필요한 부분만)
+            // 주의: Firestore는 공간 쿼리가 제한적이므로, 타일 기반 접근 필요
+            // 임시 해결책: 전체 로드 후 필터링 (향후 타일 기반으로 개선)
+            const allPixels = await this.loadPixelGrid(regionId);
+            if (!allPixels || !allPixels.pixels) return [];
+            
+            // 뷰포트 필터링
+            const filteredPixels = allPixels.pixels.filter(pixel => {
+                const x = pixel.x || 0;
+                const y = pixel.y || 0;
+                return x >= expandedViewport[0] && x <= expandedViewport[2] &&
+                       y >= expandedViewport[1] && y <= expandedViewport[3];
+            });
+            
+            // 샘플링
+            if (filteredPixels.length > maxPixels) {
+                const step = Math.ceil(filteredPixels.length / maxPixels);
+                return filteredPixels.filter((_, index) => index % step === 0);
+            }
+            
+            return filteredPixels;
+        } catch (error) {
+            console.warn(`[픽셀 뷰포트 로드 실패] ${regionId}:`, error);
+            return [];
+        }
+    }
+    
+    /**
+     * Canvas로 픽셀 그리드 이미지 생성
+     */
+    async createPixelGridImage(pixels, pixelGridMeta, viewport) {
+        if (!pixels || pixels.length === 0) return null;
+        
+        try {
+            const canvas = document.createElement('canvas');
+            const [minX, minY, maxX, maxY] = viewport;
+            const width = maxX - minX;
+            const height = maxY - minY;
+            
+            // Canvas 크기 계산 (픽셀 해상도)
+            const cellSize = pixelGridMeta.cellSize || 0.001;
+            const canvasWidth = Math.ceil(width / cellSize);
+            const canvasHeight = Math.ceil(height / cellSize);
+            
+            // Canvas 크기 제한 (메모리 최적화)
+            const maxCanvasSize = 4096;
+            const scale = Math.min(1, maxCanvasSize / Math.max(canvasWidth, canvasHeight));
+            canvas.width = Math.min(canvasWidth * scale, maxCanvasSize);
+            canvas.height = Math.min(canvasHeight * scale, maxCanvasSize);
+            
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false; // 픽셀 아트에 적합
+            
+            // 배경색
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 픽셀 그리기
+            pixels.forEach(pixel => {
+                const x = ((pixel.x - minX) / width) * canvas.width;
+                const y = ((pixel.y - minY) / height) * canvas.height;
+                const pixelSize = Math.max(1, cellSize / width * canvas.width * scale);
+                
+                ctx.fillStyle = pixel.color || '#f0f0f0';
+                ctx.fillRect(Math.floor(x), Math.floor(y), pixelSize, pixelSize);
+            });
+            
+            return canvas.toDataURL('image/png');
+        } catch (error) {
+            console.error('[픽셀 그리드 이미지 생성 실패]:', error);
+            return null;
+        }
     }
     
     /**
