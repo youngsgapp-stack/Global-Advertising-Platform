@@ -576,15 +576,27 @@ class PixelCanvas {
             if (!territoryManager.territories.has(this.territoryId)) {
                 territoryManager.territories.set(this.territoryId, territory);
             }
+            
+            // TerritoryManager의 territory 객체도 업데이트
+            const managedTerritory = territoryManager.territories.get(this.territoryId);
+            if (managedTerritory) {
+                managedTerritory.pixelCanvas = pixelCanvasMeta;
+                managedTerritory.territoryValue = territory.territoryValue;
+            }
+            
+            // 로컬 territory 객체도 업데이트
             territory.pixelCanvas = pixelCanvasMeta;
             territory.territoryValue = this.calculateValue();
             
-            // 5. 이벤트 발행 (맵 반영용)
+            // 6. 이벤트 발행 (맵 반영용) - 최신 territory 객체 포함
+            const updatedTerritory = {
+                ...territory,
+                pixelCanvas: pixelCanvasMeta,
+                territoryValue: territory.territoryValue
+            };
+            
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
-                territory: {
-                    ...territory,
-                    pixelCanvas: pixelCanvasMeta
-                }
+                territory: updatedTerritory
             });
             
             eventBus.emit(EVENTS.PIXEL_VALUE_CHANGE, {
@@ -596,7 +608,8 @@ class PixelCanvas {
             eventBus.emit(EVENTS.PIXEL_CANVAS_SAVED, {
                 territoryId: this.territoryId,
                 filledPixels: this.pixels.size,
-                value: territory.territoryValue
+                value: territory.territoryValue,
+                territory: updatedTerritory
             });
             
             log.info(`✅ Pixels saved successfully for territory ${this.territoryId} (${this.pixels.size} pixels)`);

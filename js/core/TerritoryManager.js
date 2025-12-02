@@ -85,13 +85,35 @@ class TerritoryManager {
     async handleTerritorySelect(data) {
         const { territoryId, properties, country, geometry } = data;
         
-        // Firestore에서 최신 데이터 가져오기
+        // Firestore에서 최신 데이터 가져오기 (pixelCanvas 정보 포함)
         let territory = this.territories.get(territoryId);
         
         if (!territory) {
             // 새 영토 데이터 생성 (GeoJSON 속성 기반)
             territory = this.createTerritoryFromProperties(territoryId, properties);
             this.territories.set(territoryId, territory);
+        }
+        
+        // Firestore에서 최신 픽셀 정보 로드
+        try {
+            const firestoreData = await firebaseService.getDocument('territories', territoryId);
+            if (firestoreData) {
+                // pixelCanvas 정보 병합
+                if (firestoreData.pixelCanvas) {
+                    territory.pixelCanvas = {
+                        ...territory.pixelCanvas,
+                        ...firestoreData.pixelCanvas
+                    };
+                }
+                // 기타 최신 정보 병합
+                if (firestoreData.ruler) territory.ruler = firestoreData.ruler;
+                if (firestoreData.rulerName) territory.rulerName = firestoreData.rulerName;
+                if (firestoreData.sovereignty) territory.sovereignty = firestoreData.sovereignty;
+                if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
+                log.debug(`Updated territory ${territoryId} from Firestore with pixelCanvas data`);
+            }
+        } catch (error) {
+            log.warn(`Failed to load territory ${territoryId} from Firestore:`, error);
         }
         
         // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
@@ -171,6 +193,13 @@ class TerritoryManager {
             type: 'territory',
             data: territory
         });
+        
+        // 픽셀 데이터가 있으면 맵 업데이트 트리거
+        if (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0) {
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+                territory: territory 
+            });
+        }
     }
     
     /**
