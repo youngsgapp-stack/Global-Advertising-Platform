@@ -4,7 +4,7 @@
  */
 
 import { CONFIG, log, SOVEREIGNTY } from '../config.js';
-import { eventBus, EVENTS } from '../services/EventBus.js';
+import { eventBus, EVENTS } from '../core/EventBus.js';
 import territoryManager from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
 

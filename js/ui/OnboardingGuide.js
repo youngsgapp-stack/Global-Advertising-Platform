@@ -4,7 +4,7 @@
  */
 
 import { log } from '../config.js';
-import { eventBus, EVENTS } from '../services/EventBus.js';
+import { eventBus, EVENTS } from '../core/EventBus.js';
 
 const STORAGE_KEY = 'billionaire_map_onboarding_completed';
 
