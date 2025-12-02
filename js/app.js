@@ -290,8 +290,28 @@ class BillionaireApp {
         try {
             log.info(`국가 로드: ${countryCode}`);
             
+            // 지원 국가 확인
+            if (!mapController.isCountrySupported(countryCode)) {
+                const countryName = CONFIG.G20_COUNTRIES[countryCode]?.nameKo || countryCode;
+                this.showNotification({
+                    type: 'warning',
+                    message: `${countryName}은(는) 아직 준비 중입니다.`
+                });
+                // 카메라는 이동하되 영토 레이어는 추가하지 않음
+                mapController.flyToCountry(countryCode);
+                return;
+            }
+            
             // GeoJSON 데이터 로드
             const geoJson = await mapController.loadGeoJsonData(countryCode);
+            
+            if (!geoJson) {
+                this.showNotification({
+                    type: 'warning',
+                    message: '지도 데이터를 불러올 수 없습니다.'
+                });
+                return;
+            }
             
             // 레이어 추가
             mapController.addTerritoryLayer(`territories-${countryCode}`, geoJson);
