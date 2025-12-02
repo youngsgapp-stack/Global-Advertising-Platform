@@ -29,7 +29,7 @@ class FirebaseService {
             // Firebase 모듈 동적 로드
             const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
             const { getAuth, onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // Firebase 앱 초기화
             this.app = initializeApp(CONFIG.FIREBASE);
@@ -39,7 +39,7 @@ class FirebaseService {
             // Firestore 헬퍼 저장
             this._firestore = {
                 collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-                query, where, orderBy, limit, onSnapshot, Timestamp
+                query, where, orderBy, limit, onSnapshot, Timestamp, deleteField
             };
             
             // Auth 헬퍼 저장
@@ -184,6 +184,29 @@ class FirebaseService {
             return true;
         } catch (error) {
             log.error(`Failed to save document ${collectionName}/${docId}:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 문서 필드 업데이트 (특정 필드만 업데이트)
+     */
+    async updateDocument(collectionName, docId, data) {
+        if (!this.initialized) {
+            throw new Error('Firebase not initialized');
+        }
+        
+        try {
+            const docRef = this._firestore.doc(this.db, collectionName, docId);
+            await this._firestore.updateDoc(docRef, {
+                ...data,
+                updatedAt: this._firestore.Timestamp.now()
+            });
+            
+            log.debug(`Document updated: ${collectionName}/${docId}`);
+            return true;
+        } catch (error) {
+            log.error(`Failed to update document ${collectionName}/${docId}:`, error);
             throw error;
         }
     }

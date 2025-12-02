@@ -486,23 +486,38 @@ class PixelCanvas {
             // 영토 문서의 픽셀 정보 업데이트 (메타데이터만)
             const territory = territoryManager.getTerritory(this.territoryId);
             if (territory) {
-                territory.pixelCanvas = territory.pixelCanvas || {};
-                territory.pixelCanvas.filledPixels = this.pixels.size;
-                territory.pixelCanvas.lastUpdated = Date.now();
                 territory.territoryValue = this.calculateValue();
                 
                 // 영토 문서 업데이트 (픽셀 메타데이터만, pixels 배열 제외)
                 // Firestore는 중첩 배열을 지원하지 않으므로 메타데이터만 저장
-                await firebaseService.setDocument('territories', this.territoryId, {
-                    pixelCanvas: {
-                        width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                        height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                        filledPixels: this.pixels.size,
-                        lastUpdated: Date.now()
-                        // pixels 배열은 저장하지 않음 - pixelCanvases 컬렉션에만 저장
-                    },
-                    territoryValue: territory.territoryValue
-                }, true); // merge: true
+                
+                // pixelCanvas 객체를 명시적으로 재생성하여 pixels 배열이 포함되지 않도록 함
+                // updateDocument를 사용하여 pixelCanvas 필드를 완전히 교체
+                // 이렇게 하면 기존 pixelCanvas 객체 전체가 새 객체로 교체됨
+                const newPixelCanvas = {
+                    width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    filledPixels: this.pixels.size,
+                    lastUpdated: Date.now()
+                    // pixels 배열은 명시적으로 제외 - pixelCanvases 컬렉션에만 저장
+                };
+                
+                const updateData = {
+                    'pixelCanvas': newPixelCanvas,
+                    'territoryValue': territory.territoryValue
+                };
+                
+                // updateDocument를 사용하여 pixelCanvas 필드를 완전히 교체
+                // 중첩 배열 문제를 방지하기 위해 pixelCanvas 객체를 완전히 새로 만듦
+                await firebaseService.updateDocument('territories', this.territoryId, updateData);
+                
+                // 로컬 territory 객체도 업데이트 (배열 제외)
+                territory.pixelCanvas = {
+                    width: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    height: CONFIG.TERRITORY.PIXEL_GRID_SIZE,
+                    filledPixels: this.pixels.size,
+                    lastUpdated: Date.now()
+                };
                 
                 // 영토 업데이트 이벤트 발행 (맵 반영용)
                 eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
