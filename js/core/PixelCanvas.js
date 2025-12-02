@@ -508,13 +508,26 @@ class PixelCanvas {
      * Firestore에 저장 (완전히 재작성된 버전)
      */
     async saveToFirestore() {
+        console.log('🔥🔥🔥 saveToFirestore() CALLED! 🔥🔥🔥');
+        console.log('Territory ID:', this.territoryId);
+        console.log('Filled pixels:', this.pixels.size);
+        log.info('💾 ===== saveToFirestore() CALLED =====');
+        log.info(`Territory ID: ${this.territoryId}, Filled pixels: ${this.pixels.size}`);
+        
         if (!this.territoryId) {
+            console.error('❌ Cannot save: territoryId is not set!');
             log.warn('Cannot save: territoryId is not set');
             return;
         }
         
         try {
+            console.log('🔥 Starting save process...');
+            log.info('💾 Starting save process...');
+            
             // 1. 픽셀 캔버스 데이터 저장 (pixelCanvases 컬렉션)
+            console.log('🔥 Step 1: Encoding pixels...');
+            log.info('💾 Step 1: Encoding pixels...');
+            
             const pixelCanvasData = {
                 territoryId: this.territoryId,
                 pixels: this.encodePixels(), // 배열이지만 pixelCanvases 컬렉션에는 문제 없음
@@ -522,8 +535,18 @@ class PixelCanvas {
                 lastUpdated: Date.now()
             };
             
+            console.log('🔥 Step 2: Saving to pixelCanvases collection...');
+            console.log('Pixel canvas data:', { 
+                territoryId: pixelCanvasData.territoryId,
+                filledPixels: pixelCanvasData.filledPixels,
+                pixelsLength: pixelCanvasData.pixels?.length || 0
+            });
+            log.info('💾 Step 2: Saving to pixelCanvases collection...');
+            
             await firebaseService.setDocument('pixelCanvases', this.territoryId, pixelCanvasData);
-            log.debug('✅ Pixel canvas data saved to pixelCanvases collection');
+            
+            console.log('✅ Step 2 Complete: Pixel canvas data saved to pixelCanvases collection');
+            log.info('✅ Pixel canvas data saved to pixelCanvases collection');
             
             // 2. 영토 문서 확인 및 업데이트
             let territory = territoryManager.getTerritory(this.territoryId);
@@ -629,13 +652,30 @@ class PixelCanvas {
                 value: territory.territoryValue
             });
             
+            console.log('🔥 Step 6: Emitting events...');
+            log.info('💾 Step 6: Emitting events...');
+            
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+                territory: updatedTerritory
+            });
+            console.log('✅ TERRITORY_UPDATE event emitted');
+            
+            eventBus.emit(EVENTS.PIXEL_VALUE_CHANGE, {
+                territoryId: this.territoryId,
+                filledPixels: this.pixels.size,
+                value: territory.territoryValue
+            });
+            console.log('✅ PIXEL_VALUE_CHANGE event emitted');
+            
             eventBus.emit(EVENTS.PIXEL_CANVAS_SAVED, {
                 territoryId: this.territoryId,
                 filledPixels: this.pixels.size,
                 value: territory.territoryValue,
                 territory: updatedTerritory
             });
+            console.log('✅ PIXEL_CANVAS_SAVED event emitted');
             
+            console.log('🎉🎉🎉 ALL EVENTS EMITTED SUCCESSFULLY! 🎉🎉🎉');
             log.info(`✅ Pixels saved successfully for territory ${this.territoryId} (${this.pixels.size} pixels)`);
             
             // 성공 알림
@@ -643,8 +683,12 @@ class PixelCanvas {
                 type: 'success',
                 message: `픽셀 저장 완료! (${this.pixels.size}개 픽셀)`
             });
+            console.log('✅ UI_NOTIFICATION event emitted');
             
         } catch (error) {
+            console.error('❌❌❌ ERROR IN saveToFirestore() ❌❌❌');
+            console.error('Error details:', error);
+            console.error('Error stack:', error.stack);
             log.error('❌ Failed to save pixels:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',

@@ -249,6 +249,9 @@ class PixelEditor {
      * UI 이벤트 바인딩
      */
     bindUIEvents() {
+        console.log('🔥🔥🔥 bindUIEvents() CALLED! 🔥🔥🔥');
+        log.info('🔧 Binding UI events in PixelEditor...');
+        
         // 닫기 버튼
         document.getElementById('close-pixel-editor')?.addEventListener('click', () => this.close());
         
@@ -298,13 +301,48 @@ class PixelEditor {
         });
         
         // 저장
-        document.getElementById('pixel-save')?.addEventListener('click', async () => {
-            await pixelCanvas.saveToFirestore();
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'success',
-                message: '저장되었습니다!'
+        const saveButton = document.getElementById('pixel-save');
+        console.log('🔥 Checking save button:', saveButton);
+        if (saveButton) {
+            console.log('✅ Save button found! Adding event listener...');
+            saveButton.addEventListener('click', async () => {
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                console.log('🔥🔥🔥 SAVE BUTTON CLICKED! 🔥🔥🔥');
+                console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
+                alert('💾 저장 버튼이 클릭되었습니다! 콘솔을 확인하세요.');
+                log.info('💾 Save button clicked in PixelEditor');
+                
+                try {
+                    console.log('🔥 Step 1: Calling saveToFirestore...');
+                    log.info('💾 Calling saveToFirestore...');
+                    
+                    await pixelCanvas.saveToFirestore();
+                    
+                    console.log('✅ Step 2: saveToFirestore completed successfully!');
+                    log.info('✅ saveToFirestore completed successfully!');
+                    
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'success',
+                        message: '저장되었습니다!'
+                    });
+                    
+                    console.log('✅ Step 3: All done!');
+                } catch (error) {
+                    console.error('❌❌❌ ERROR in save button handler ❌❌❌');
+                    console.error('Error:', error);
+                    console.error('Error message:', error.message);
+                    console.error('Error stack:', error.stack);
+                    log.error('❌ ERROR in save button handler:', error);
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: '저장 실패: ' + (error.message || '알 수 없는 오류')
+                    });
+                }
             });
-        });
+            console.log('✅ Save button event listener added successfully!');
+        } else {
+            console.error('❌ Save button NOT FOUND! ID: pixel-save');
+        }
         
         // 내보내기
         document.getElementById('export-png')?.addEventListener('click', () => {
