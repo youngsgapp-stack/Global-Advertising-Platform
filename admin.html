@@ -1,266 +1,367 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>World Ad Admin Console</title>
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
-    <link rel="stylesheet" href="admin.css">
+    <title>Admin Dashboard - Billionaire Map</title>
+    <meta name="robots" content="noindex, nofollow">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    
+    <!-- Admin CSS -->
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
-    <div class="admin-app">
-        <aside class="admin-sidebar">
-            <div class="brand">
-                <p class="eyebrow">Mr.Young Map</p>
-                <h2>Ops Command</h2>
-                <span class="beta-pill">live</span>
-            </div>
-            <nav class="sidebar-nav">
-                <a href="#overview" class="active">📊 운영 현황</a>
-                <a href="#regions-panel">🗺️ 지역 관리</a>
-                <a href="#auctions-panel">🔨 옥션 추적</a>
-                <a href="#auction-management-panel">🔄 경매 관리</a>
-                <a href="#purchases-panel">💸 결제 기록</a>
-                <a href="#reports-panel">🛡️ 모더레이션</a>
-                <a href="#system-management-panel">⚙️ 시스템 관리</a>
-                <a href="#logs-panel">📡 시스템 로그</a>
-            </nav>
-            <div class="session-summary">
-                <p>세션 만료</p>
-                <strong id="admin-session-expiry">-</strong>
-                <small>만료 시 자동으로 로그아웃됩니다.</small>
-            </div>
-            <button id="return-to-map-btn" class="secondary-btn">🌍 라이브 맵 열기</button>
-        </aside>
-        <main class="admin-main">
-            <header class="admin-header" id="overview">
-                <div>
-                    <p class="eyebrow">GLOBAL AD operations</p>
-                    <h1>관리자 콘솔</h1>
-                    <p class="subtitle">실시간 점유 현황과 커뮤니티 품질을 한눈에 확인하세요.</p>
+    <div id="admin-app">
+        <!-- Login Screen -->
+        <div id="login-screen" class="login-screen">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>🔐 Admin Access</h1>
+                    <p>Billionaire Map Control Center</p>
                 </div>
-                <div class="header-actions">
-                    <span class="live-indicator">
-                        <span class="dot"></span>
-                        <span id="last-refresh-at">-</span>
-                    </span>
-                    <button id="admin-refresh-btn" class="ghost-btn">데이터 새로고침</button>
-                    <button id="admin-logout-btn" class="primary-btn">세션 종료</button>
+                <form id="admin-login-form">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="admin-email" required placeholder="admin@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="admin-password" required placeholder="••••••••">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">
+                        Sign In
+                    </button>
+                    <div id="login-error" class="error-message hidden"></div>
+                </form>
+                <div class="login-footer">
+                    <a href="index.html">← Back to Map</a>
                 </div>
-            </header>
-
-            <section class="stat-grid">
-                <article class="stat-card">
-                    <div class="stat-label">총 지역</div>
-                    <div class="stat-value" data-stat="total-regions">--</div>
-                    <div class="stat-sub" data-stat="occupancy-rate">점유율 --%</div>
-                </article>
-                <article class="stat-card">
-                    <div class="stat-label">광고 진행 중</div>
-                    <div class="stat-value" data-stat="occupied-regions">--</div>
-                    <div class="stat-sub" data-stat="available-regions">가용 지역 --</div>
-                </article>
-                <article class="stat-card">
-                    <div class="stat-label">누적 수익</div>
-                    <div class="stat-value" data-stat="total-revenue">$0</div>
-                    <div class="stat-sub">PayPal completed</div>
-                </article>
-                <article class="stat-card">
-                    <div class="stat-label">진행 중 옥션</div>
-                    <div class="stat-value" data-stat="active-auctions">--</div>
-                    <div class="stat-sub" data-stat="pending-bids">최근 입찰 --건</div>
-                </article>
-                <article class="stat-card">
-                    <div class="stat-label">커뮤니티 상금</div>
-                    <div class="stat-value" data-stat="community-reward">$0</div>
-                    <div class="stat-sub" data-stat="free-pixels">무료 픽셀 풀 0px</div>
-                </article>
-                <article class="stat-card">
-                    <div class="stat-label">처리 대기 신고</div>
-                    <div class="stat-value" data-stat="pending-reports">--</div>
-                    <div class="stat-sub">Pixel Studio / 콘텐츠 신고</div>
-                </article>
-            </section>
-
-            <section class="panel-grid">
-                <article class="panel" id="regions-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Region control</p>
-                            <h2>최우선 관리 지역</h2>
-                        </div>
-                        <button class="ghost-btn small" id="download-region-csv-btn">CSV 내보내기</button>
+            </div>
+        </div>
+        
+        <!-- Admin Dashboard -->
+        <div id="admin-dashboard" class="admin-dashboard hidden">
+            <!-- Sidebar -->
+            <aside class="admin-sidebar">
+                <div class="sidebar-header">
+                    <h2>⚙️ Admin</h2>
+                    <span class="admin-badge">v2.0</span>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <button class="nav-item active" data-section="overview">
+                        📊 Overview
+                    </button>
+                    <button class="nav-item" data-section="users">
+                        👥 Users
+                    </button>
+                    <button class="nav-item" data-section="territories">
+                        🗺️ Territories
+                    </button>
+                    <button class="nav-item" data-section="auctions">
+                        💰 Auctions
+                    </button>
+                    <button class="nav-item" data-section="analytics">
+                        📈 Analytics
+                    </button>
+                    <button class="nav-item" data-section="logs">
+                        📝 Logs
+                    </button>
+                    <button class="nav-item" data-section="settings">
+                        ⚙️ Settings
+                    </button>
+                </nav>
+                
+                <div class="sidebar-footer">
+                    <button id="user-mode-btn" class="btn btn-secondary btn-full">
+                        🎭 User Mode
+                    </button>
+                    <button id="admin-logout-btn" class="btn btn-outline btn-full">
+                        🚪 Logout
+                    </button>
+                </div>
+            </aside>
+            
+            <!-- Main Content -->
+            <main class="admin-main">
+                <header class="admin-header">
+                    <div class="header-left">
+                        <h1 id="section-title">Overview</h1>
+                        <span class="last-updated">Last updated: <span id="last-update-time">--</span></span>
                     </div>
-                    <div class="table-wrapper">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>지역</th>
-                                    <th>국가</th>
-                                    <th>단가 (USD)</th>
-                                    <th>상태</th>
-                                    <th>업데이트</th>
-                                </tr>
-                            </thead>
-                            <tbody id="region-table-body">
-                                <tr>
-                                    <td colspan="5">데이터를 불러오는 중입니다...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </article>
-
-                <article class="panel" id="auctions-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Auction monitor</p>
-                            <h2>진행 중 옥션</h2>
-                        </div>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <button class="ghost-btn small" id="view-sold-auctions-btn">완료된 옥션 보기</button>
-                            <span class="chip" id="auction-health-chip">-</span>
+                    <div class="header-right">
+                        <button id="refresh-btn" class="btn btn-icon" title="Refresh">
+                            🔄
+                        </button>
+                        <div class="admin-user">
+                            <span id="admin-name">Admin</span>
+                            <span class="admin-role">Super Admin</span>
                         </div>
                     </div>
-                    <ul class="item-list" id="auction-list">
-                        <li class="empty">옥션 데이터를 불러오는 중입니다...</li>
-                    </ul>
-                </article>
-            </section>
-
-            <section class="panel-grid three">
-                <article class="panel" id="purchases-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Settlement</p>
-                            <h2>최근 결제</h2>
-                        </div>
-                    </div>
-                    <ul class="item-list timeline" id="purchase-list">
-                        <li class="empty">결제 기록을 불러오는 중입니다...</li>
-                    </ul>
-                </article>
-
-                <article class="panel" id="reports-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Moderation</p>
-                            <h2>신고 / 검토</h2>
-                        </div>
-                        <button class="ghost-btn small" id="open-map-moderation-btn">모더레이션 패널</button>
-                    </div>
-                    <ul class="item-list" id="report-list">
-                        <li class="empty">신고 데이터를 불러오는 중입니다...</li>
-                    </ul>
-                </article>
-
-                <article class="panel" id="logs-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Telemetry</p>
-                            <h2>실시간 로그</h2>
-                        </div>
-                        <button class="ghost-btn small" id="copy-log-btn">내보내기</button>
-                    </div>
-                    <div class="log-section">
-                        <h3>시스템 로그</h3>
-                        <ul class="log-list" id="log-list">
-                            <li class="empty">로그를 불러오는 중입니다...</li>
-                        </ul>
-                    </div>
-                    <div class="log-section">
-                        <h3>감사 로그</h3>
-                        <ul class="log-list" id="audit-log-list">
-                            <li class="empty">감사 로그를 불러오는 중입니다...</li>
-                        </ul>
-                    </div>
-                </article>
-            </section>
-
-            <section class="panel-grid">
-                <article class="panel" id="auction-management-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">Auction control</p>
-                            <h2>경매 관리</h2>
-                        </div>
-                    </div>
-                    <div class="panel-content">
-                        <div class="admin-action-group">
-                            <h3>경매 리셋</h3>
-                            <p class="admin-description">완료된 경매(sold 상태)를 초기화하여 다시 경매 가능한 상태로 만듭니다.</p>
-                            <div class="admin-actions">
-                                <button class="primary-btn" id="reset-sold-auctions-btn">완료된 경매 일괄 리셋</button>
-                                <button class="secondary-btn" id="view-sold-auctions-detail-btn">완료된 경매 목록 보기</button>
+                </header>
+                
+                <div class="admin-content">
+                    <!-- Overview Section -->
+                    <section id="section-overview" class="admin-section active">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">👥</div>
+                                <div class="stat-info">
+                                    <span class="stat-value" id="stat-users">--</span>
+                                    <span class="stat-label">Total Users</span>
+                                </div>
                             </div>
-                            <div id="sold-auctions-list" class="sold-auctions-list hidden" style="margin-top: 20px;">
-                                <h4>완료된 경매 목록</h4>
-                                <ul class="item-list" id="sold-auctions-list-items">
-                                    <li class="empty">로딩 중...</li>
-                                </ul>
+                            <div class="stat-card">
+                                <div class="stat-icon">🗺️</div>
+                                <div class="stat-info">
+                                    <span class="stat-value" id="stat-territories">--</span>
+                                    <span class="stat-label">Owned Territories</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">💰</div>
+                                <div class="stat-info">
+                                    <span class="stat-value" id="stat-revenue">--</span>
+                                    <span class="stat-label">Total Revenue</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">⚡</div>
+                                <div class="stat-info">
+                                    <span class="stat-value" id="stat-active">--</span>
+                                    <span class="stat-label">Active Auctions</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </article>
-
-                <article class="panel" id="system-management-panel">
-                    <div class="panel-header">
-                        <div>
-                            <p class="eyebrow">System control</p>
-                            <h2>시스템 관리</h2>
-                        </div>
-                    </div>
-                    <div class="panel-content">
-                        <div class="admin-action-group">
-                            <h3>지역 관리</h3>
-                            <div class="admin-actions">
-                                <button class="secondary-btn" id="reset-region-status-btn">특정 지역 상태 리셋</button>
-                                <button class="secondary-btn" id="bulk-update-regions-btn">지역 일괄 업데이트</button>
+                        
+                        <div class="dashboard-grid">
+                            <div class="dashboard-card">
+                                <h3>📈 Recent Activity</h3>
+                                <div id="recent-activity" class="activity-list">
+                                    <div class="loading">Loading...</div>
+                                </div>
+                            </div>
+                            <div class="dashboard-card">
+                                <h3>🏆 Top Users</h3>
+                                <div id="top-users" class="user-list">
+                                    <div class="loading">Loading...</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="admin-action-group" style="margin-top: 24px;">
-                            <h3>데이터 관리</h3>
-                            <div class="admin-actions">
-                                <button class="secondary-btn" id="export-all-data-btn">전체 데이터 내보내기</button>
-                                <button class="secondary-btn" id="clear-cache-btn">캐시 초기화</button>
+                    </section>
+                    
+                    <!-- Users Section -->
+                    <section id="section-users" class="admin-section">
+                        <div class="section-header">
+                            <div class="search-box">
+                                <input type="text" id="user-search" placeholder="Search users...">
+                            </div>
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-filter="all">All</button>
+                                <button class="filter-btn" data-filter="active">Active</button>
+                                <button class="filter-btn" data-filter="banned">Banned</button>
                             </div>
                         </div>
-                        <div class="admin-action-group" style="margin-top: 24px;">
-                            <h3>통계 및 분석</h3>
-                            <div class="admin-actions">
-                                <button class="secondary-btn" id="view-detailed-stats-btn">상세 통계 보기</button>
-                                <button class="secondary-btn" id="generate-report-btn">리포트 생성</button>
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Email</th>
+                                        <th>Territories</th>
+                                        <th>Joined</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="6" class="loading">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- Territories Section -->
+                    <section id="section-territories" class="admin-section">
+                        <div class="section-header">
+                            <div class="search-box">
+                                <input type="text" id="territory-search" placeholder="Search territories...">
+                            </div>
+                            <select id="country-filter">
+                                <option value="">All Countries</option>
+                            </select>
+                        </div>
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="territories-table">
+                                <thead>
+                                    <tr>
+                                        <th>Territory</th>
+                                        <th>Country</th>
+                                        <th>Owner</th>
+                                        <th>Price</th>
+                                        <th>Pixels</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="6" class="loading">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- Auctions Section -->
+                    <section id="section-auctions" class="admin-section">
+                        <div class="section-header">
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-filter="active">Active</button>
+                                <button class="filter-btn" data-filter="ended">Ended</button>
+                                <button class="filter-btn" data-filter="all">All</button>
                             </div>
                         </div>
-                    </div>
-                </article>
-            </section>
-        </main>
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="auctions-table">
+                                <thead>
+                                    <tr>
+                                        <th>Territory</th>
+                                        <th>Current Bid</th>
+                                        <th>Bidders</th>
+                                        <th>Ends At</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="6" class="loading">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- Analytics Section -->
+                    <section id="section-analytics" class="admin-section">
+                        <div class="analytics-grid">
+                            <div class="analytics-card">
+                                <h3>📊 Revenue Over Time</h3>
+                                <div class="chart-placeholder">
+                                    <p>📈 Chart coming soon</p>
+                                </div>
+                            </div>
+                            <div class="analytics-card">
+                                <h3>🌍 Territory Distribution</h3>
+                                <div class="chart-placeholder">
+                                    <p>🗺️ Map chart coming soon</p>
+                                </div>
+                            </div>
+                            <div class="analytics-card">
+                                <h3>👥 User Growth</h3>
+                                <div class="chart-placeholder">
+                                    <p>📈 Growth chart coming soon</p>
+                                </div>
+                            </div>
+                            <div class="analytics-card">
+                                <h3>💰 Auction Stats</h3>
+                                <div class="chart-placeholder">
+                                    <p>📊 Stats coming soon</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <!-- Logs Section (NEW) -->
+                    <section id="section-logs" class="admin-section">
+                        <div class="section-header">
+                            <h3>📝 Admin Activity Logs</h3>
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-filter="all">All</button>
+                                <button class="filter-btn" data-filter="user">User Actions</button>
+                                <button class="filter-btn" data-filter="territory">Territory</button>
+                                <button class="filter-btn" data-filter="auction">Auction</button>
+                            </div>
+                        </div>
+                        <div id="admin-logs" class="logs-container">
+                            <div class="loading">Loading logs...</div>
+                        </div>
+                    </section>
+                    
+                    <!-- Settings Section -->
+                    <section id="section-settings" class="admin-section">
+                        <div class="settings-grid">
+                            <div class="settings-card">
+                                <h3>⚙️ General Settings</h3>
+                                <div class="settings-form">
+                                    <div class="form-group">
+                                        <label>Site Name</label>
+                                        <input type="text" value="Billionaire Map" id="setting-site-name">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Default Currency</label>
+                                        <select id="setting-currency">
+                                            <option value="USD">USD ($)</option>
+                                            <option value="EUR">EUR (€)</option>
+                                            <option value="KRW">KRW (₩)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Minimum Bid Increment (%)</label>
+                                        <input type="number" value="5" id="setting-bid-increment">
+                                    </div>
+                                    <button class="btn btn-primary">Save Settings</button>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-card">
+                                <h3>🔐 Admin Accounts</h3>
+                                <div id="admin-list" class="admin-list">
+                                    <div class="admin-item">
+                                        <span>admin@billionairemap.com</span>
+                                        <span class="badge">Super Admin</span>
+                                    </div>
+                                </div>
+                                <button class="btn btn-secondary">+ Add Admin</button>
+                            </div>
+                            
+                            <div class="settings-card">
+                                <h3>💾 Data Management</h3>
+                                <p class="card-description">Backup and restore your Firestore data</p>
+                                <div class="data-actions">
+                                    <button id="backup-btn" class="btn btn-secondary" onclick="adminDashboard.backupData()">
+                                        📥 Backup Data
+                                    </button>
+                                    <button id="restore-btn" class="btn btn-secondary" onclick="adminDashboard.restoreData()">
+                                        📤 Restore Data
+                                    </button>
+                                    <button class="btn btn-danger">🗑️ Clear Cache</button>
+                                </div>
+                                <p class="data-warning">⚠️ Restore will overwrite existing data. Use with caution.</p>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+        
+        <!-- User Mode Banner -->
+        <div id="user-mode-banner" class="user-mode-banner hidden">
+            <span>🎭 You are viewing as a regular user</span>
+            <button id="exit-user-mode" class="btn btn-sm">Exit User Mode</button>
+        </div>
     </div>
-
-    <div id="admin-toast" class="toast hidden"></div>
-
-    <script src="cache-utils.js"></script>
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyAa0BTlcqX9T1PYaHTiv3CmjmZ6srmdZVY",
-            authDomain: "worldad-8be07.firebaseapp.com",
-            projectId: "worldad-8be07",
-            storageBucket: "worldad-8be07.firebasestorage.app",
-            messagingSenderId: "460480155784",
-            appId: "1:460480155784:web:68e6cea86cf492b3b64f3d",
-            measurementId: "G-L2WYZGZK90"
-        };
-
-        window.firebaseModules = { initializeApp, getAuth, getFirestore, firebaseConfig };
-    </script>
-    <script type="module" src="admin.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Admin Module -->
+    <script type="module" src="js/admin.js"></script>
 </body>
 </html>
 

@@ -272,7 +272,13 @@ class TerritoryDataService {
      */
     getRegionMultiplier(territory) {
         const props = territory.properties || territory;
-        const name = (props.name || props.name_en || '').toLowerCase();
+        
+        // name이 객체일 수 있음 (예: {en: "...", ko: "..."})
+        let rawName = props.name || props.name_en || '';
+        if (typeof rawName === 'object') {
+            rawName = rawName.en || rawName.ko || Object.values(rawName)[0] || '';
+        }
+        const name = String(rawName).toLowerCase();
         
         // 수도 지역
         const capitals = ['seoul', 'tokyo', 'washington', 'london', 'paris', 'berlin', 

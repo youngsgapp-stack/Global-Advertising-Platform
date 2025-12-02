@@ -38,6 +38,15 @@ class AdminDashboard {
      */
     async init() {
         try {
+            // Firebase 앱 초기화 (중복 초기화 방지)
+            if (!firebase.apps.length) {
+                this.firebase = firebase.initializeApp(firebaseConfig);
+            } else {
+                this.firebase = firebase.app();
+            }
+            this.db = firebase.firestore();
+            this.auth = firebase.auth();
+            
             // 1. 먼저 세션 인증 확인 (P키 5번 로그인)
             const sessionAuth = this.checkSessionAuth();
             if (sessionAuth) {
@@ -45,22 +54,14 @@ class AdminDashboard {
                 this.currentUser = { email: sessionAuth.id, uid: 'local-' + sessionAuth.id };
                 this.isLocalAuth = true;
                 
-                // Firebase 초기화 (Firestore 사용을 위해)
-                this.firebase = firebase.initializeApp(firebaseConfig);
-                this.db = firebase.firestore();
-                
                 this.showDashboard();
                 this.loadDashboardData();
                 this.setupEventListeners();
                 return;
             }
             
-            // 2. Firebase 초기화 및 Auth
-            this.firebase = firebase.initializeApp(firebaseConfig);
-            this.auth = firebase.auth();
-            this.db = firebase.firestore();
-            
-            // 인증 상태 감시
+            // 2. Firebase Auth 상태 감시 (세션 인증이 없는 경우만)
+            this.isLocalAuth = false;
             this.auth.onAuthStateChanged((user) => {
                 this.handleAuthChange(user);
             });
@@ -109,6 +110,11 @@ class AdminDashboard {
      * 인증 상태 변경 핸들러
      */
     handleAuthChange(user) {
+        // 로컬 세션 인증이 이미 완료된 경우 무시
+        if (this.isLocalAuth) {
+            return;
+        }
+        
         if (user) {
             // 관리자 확인
             if (this.isAdmin(user.email)) {
@@ -120,7 +126,11 @@ class AdminDashboard {
                 this.auth.signOut();
             }
         } else {
-            this.showLoginScreen();
+            // 세션 인증도 없고 Firebase 인증도 없으면 로그인 화면
+            const sessionAuth = this.checkSessionAuth();
+            if (!sessionAuth) {
+                this.showLoginScreen();
+            }
         }
     }
     

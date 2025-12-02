@@ -134,7 +134,11 @@ class TerritoryPanel {
         // 가격 계산 (픽셀 수 기반)
         const realPrice = territoryDataService.calculateTerritoryPrice(t, countryCode);
         
-        const territoryName = t.name?.en || t.name || t.properties?.name || t.properties?.name_en || 'Unknown Territory';
+        // 이름 추출 (객체일 수 있으므로 처리)
+        const territoryName = this.extractName(t.name) || 
+                              this.extractName(t.properties?.name) || 
+                              this.extractName(t.properties?.name_en) || 
+                              'Unknown Territory';
         const countryName = countryInfo.name || t.properties?.admin || t.country || 'Unknown';
         const countryFlag = countryInfo.flag || '🏳️';
         
@@ -501,6 +505,18 @@ class TerritoryPanel {
     }
     
     // ==================== 헬퍼 메서드 ====================
+    
+    /**
+     * 이름 추출 (객체일 수 있으므로 문자열로 변환)
+     */
+    extractName(name) {
+        if (!name) return null;
+        if (typeof name === 'string') return name;
+        if (typeof name === 'object') {
+            return name.en || name.ko || name.local || Object.values(name)[0] || null;
+        }
+        return String(name);
+    }
     
     getTerritoryIcon(sovereignty) {
         const icons = {
