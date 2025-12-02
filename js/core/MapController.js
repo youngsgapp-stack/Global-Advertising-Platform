@@ -144,13 +144,20 @@ class MapController {
      * 픽셀 캔버스 업데이트 처리
      */
     handlePixelCanvasUpdate(data) {
-        const { territoryId, filledPixels } = data;
-        log.debug(`Pixel canvas updated for territory ${territoryId}: ${filledPixels} pixels`);
+        const { territoryId, filledPixels, territory } = data;
+        log.info(`🎨 Pixel canvas updated for territory ${territoryId}: ${filledPixels} pixels`);
         
-        // 영토 레이어 시각적 업데이트
-        const territory = territoryManager.getTerritory(territoryId);
-        if (territory) {
-            this.updateTerritoryLayerVisual(territory);
+        // territory 객체가 직접 전달되면 사용, 없으면 TerritoryManager에서 가져오기
+        let targetTerritory = territory;
+        if (!targetTerritory) {
+            targetTerritory = territoryManager.getTerritory(territoryId);
+        }
+        
+        if (targetTerritory) {
+            log.info(`📍 Updating map visual for territory ${territoryId}`);
+            this.updateTerritoryLayerVisual(targetTerritory);
+        } else {
+            log.error(`❌ Territory ${territoryId} not found in TerritoryManager`);
         }
     }
     
@@ -184,39 +191,99 @@ class MapController {
                 let geoJsonData = source._data;
                 if (!geoJsonData || !geoJsonData.features) continue;
                 
-                // 해당 territory feature 찾기 (다양한 ID 형식 시도)
-                const feature = geoJsonData.features.find(f => {
+                // 해당 territory feature 찾기 (다양한 ID 형식 시도) - 강화된 매칭
+                let feature = null;
+                
+                // 우선순위 1: 저장된 featureId와 sourceId로 직접 찾기 (가장 정확하고 빠름)
+                if (territory.featureId && territory.sourceId === sourceId) {
+                    feature = geoJsonData.features.find(f => String(f.id) === String(territory.featureId));
+                    if (feature) {
+                        log.info(`✅ Found feature by stored featureId: ${territory.featureId} in source ${sourceId}`);
+                    }
+                }
+                
+                // 우선순위 2: 일반 매칭 로직
+                if (!feature) {
+                    feature = geoJsonData.features.find(f => {
                     const props = f.properties || {};
-                    const fid = props.id || f.id || '';
-                    const featureName = props.name || props.NAME_1 || props.NAME_2 || '';
+                    const fid = String(props.id || f.id || '').toLowerCase();
+                    const featureName = String(props.name || props.NAME_1 || props.NAME_2 || '').toLowerCase();
+                    const territoryIdLower = String(territoryId).toLowerCase();
                     
-                    // 1. ID 직접 매칭
-                    if (fid === territoryId || 
-                        fid === `world-${territoryId}` ||
-                        fid === `${territoryId}`) {
+                    // 1. ID 직접 매칭 (소문자 변환)
+                    if (fid === territoryIdLower || 
+                        fid === `world-${territoryIdLower}` ||
+                        territoryIdLower === `world-${fid}`) {
+                        log.debug(`✅ Matched by direct ID: ${fid} === ${territoryIdLower}`);
                         return true;
                     }
                     
                     // 2. ID 부분 매칭
-                    if (fid.endsWith(territoryId) || territoryId.endsWith(fid)) {
+                    if (fid.includes(territoryIdLower) || territoryIdLower.includes(fid)) {
+                        log.debug(`✅ Matched by partial ID: ${fid} <-> ${territoryIdLower}`);
                         return true;
                     }
                     
-                    // 3. 이름 매칭
+                    // 3. 이름 매칭 (다양한 변형 시도)
                     if (territory.name) {
-                        const nameMatch = featureName.toLowerCase() === territory.name.en?.toLowerCase() ||
-                                        featureName.toLowerCase() === territory.name.ko?.toLowerCase() ||
-                                        featureName.toLowerCase() === territory.name.local?.toLowerCase();
-                        if (nameMatch) return true;
+                        const namesToMatch = [
+                            territory.name.en?.toLowerCase(),
+                            territory.name.ko?.toLowerCase(),
+                            territory.name.local?.toLowerCase(),
+                            territoryIdLower.replace(/-/g, ' '),
+                            territoryIdLower
+                        ].filter(Boolean);
+                        
+                        for (const nameToMatch of namesToMatch) {
+                            if (featureName === nameToMatch || 
+                                featureName.includes(nameToMatch) || 
+                                nameToMatch.includes(featureName)) {
+                                log.debug(`✅ Matched by name: ${featureName} <-> ${nameToMatch}`);
+                                return true;
+                            }
+                        }
                     }
                     
                     // 4. properties에 저장된 territoryId와 매칭
-                    if (props.territoryId === territoryId) {
+                    if (props.territoryId && String(props.territoryId).toLowerCase() === territoryIdLower) {
+                        log.debug(`✅ Matched by property territoryId: ${props.territoryId}`);
                         return true;
+                    }
+                    
+                    // 5. originalId와 매칭 (GeoJSON 정규화 시 보존된 원본 ID)
+                    if (props.originalId && String(props.originalId).toLowerCase() === territoryIdLower) {
+                        log.debug(`✅ Matched by originalId: ${props.originalId}`);
+                        return true;
+                    }
+                    
+                    // 6. 이름에서 정규화된 ID 생성하여 매칭
+                    if (featureName) {
+                        const normalizedFromName = featureName
+                            .toLowerCase()
+                            .replace(/[^\w\s-]/g, '')
+                            .replace(/\s+/g, '-')
+                            .replace(/-+/g, '-')
+                            .replace(/^-|-$/g, '');
+                        if (normalizedFromName === territoryIdLower) {
+                            log.debug(`✅ Matched by normalized name: ${normalizedFromName}`);
+                            return true;
+                        }
                     }
                     
                     return false;
                 });
+                
+                // Feature를 찾지 못한 경우 디버깅 정보 출력
+                if (!feature && geoJsonData.features.length > 0) {
+                    const sampleFeature = geoJsonData.features[0];
+                    log.warn(`🔍 Feature not found for ${territoryId}. Sample feature:`, {
+                        id: sampleFeature.id,
+                        propertiesId: sampleFeature.properties?.id,
+                        name: sampleFeature.properties?.name,
+                        searchingFor: territoryId,
+                        territoryName: territory.name
+                    });
+                }
                 
                 if (feature) {
                     found = true;
@@ -276,30 +343,60 @@ class MapController {
                     
                     log.info(`✅ Source ${sourceId} data updated for territory ${territoryId} - ${filledPixels} pixels (${(pixelFillRatio * 100).toFixed(1)}% filled)`);
                     
-                    // 맵 강제 새로고침 (즉시 + 여러 방법)
+                    // 맵 레이어 강제 업데이트 (다중 방법 시도)
+                    const fillLayerId = `${sourceId}-fill`;
+                    
+                    // 방법 1: Mapbox setFeatureState로 직접 업데이트
+                    try {
+                        const featureId = feature.id || feature.properties.id || feature.properties.originalId || territoryId;
+                        
+                        // 여러 ID 형식으로 시도
+                        const idsToTry = [feature.id, feature.properties.id, feature.properties.originalId, territoryId].filter(Boolean);
+                        for (const idToTry of idsToTry) {
+                            try {
+                                this.map.setFeatureState(
+                                    { source: sourceId, id: idToTry },
+                                    {
+                                        pixelFillRatio: pixelFillRatio,
+                                        filledPixels: filledPixels,
+                                        updated: Date.now()
+                                    }
+                                );
+                                log.debug(`✅ Feature state set for ${territoryId} using ID: ${idToTry}`);
+                                break; // 성공하면 중단
+                            } catch (e) {
+                                // 다음 ID 시도
+                            }
+                        }
+                    } catch (e) {
+                        log.warn(`Failed to set feature state:`, e);
+                    }
+                    
+                    // 방법 2: 맵 강제 새로고침 (즉시)
                     this.map.triggerRepaint();
                     
-                    // 레이어 paint 속성 강제 업데이트
-                    const fillLayerId = `${sourceId}-fill`;
+                    // 방법 3: 레이어 paint 속성 직접 업데이트 (pixelFillRatio 기반 색상)
                     if (this.map.getLayer(fillLayerId)) {
-                        // 현재 paint 속성 가져오기 (새로고침 유도)
+                        // paint 속성 다시 읽어서 강제 재계산
                         const currentPaint = this.map.getPaintProperty(fillLayerId, 'fill-color');
                         
-                        // 약간의 지연 후 다시 리페인트
+                        // 약간의 지연 후 강제 새로고침
                         setTimeout(() => {
-                            // 맵 줌을 0.01도 변경했다가 되돌려서 강제 새로고침
-                            const currentZoom = this.map.getZoom();
-                            this.map.zoomTo(currentZoom + 0.001, { duration: 0 });
-                            setTimeout(() => {
-                                this.map.zoomTo(currentZoom, { duration: 0 });
-                                this.map.triggerRepaint();
-                                log.debug(`Map force refreshed for territory ${territoryId}`);
-                            }, 50);
-                        }, 100);
-                    } else {
-                        // 레이어가 없으면 그냥 리페인트
-                        setTimeout(() => {
-                            this.map.triggerRepaint();
+                            // 레이어를 일시적으로 제거 후 다시 추가하여 강제 새로고침
+                            const layerDef = this.map.getLayer(fillLayerId);
+                            if (layerDef) {
+                                // paint 속성 다시 설정
+                                this.map.setPaintProperty(fillLayerId, 'fill-color', currentPaint);
+                                
+                                // 맵 줌을 미세하게 변경하여 강제 새로고침
+                                const currentZoom = this.map.getZoom();
+                                this.map.zoomTo(currentZoom + 0.0001, { duration: 0 });
+                                setTimeout(() => {
+                                    this.map.zoomTo(currentZoom, { duration: 0 });
+                                    this.map.triggerRepaint();
+                                    log.info(`🔄 Map fully refreshed for territory ${territoryId}`);
+                                }, 50);
+                            }
                         }, 100);
                     }
                     
@@ -308,7 +405,33 @@ class MapController {
             }
             
             if (!found) {
-                log.warn(`Territory ${territoryId} not found in any source. Available sources: ${sources.join(', ')}`);
+                log.error(`❌ Territory ${territoryId} not found in any source!`);
+                log.error(`Available sources: ${sources.join(', ')}`);
+                log.error(`Territory info:`, {
+                    id: territory.id,
+                    name: territory.name,
+                    pixelCanvas: territory.pixelCanvas
+                });
+                
+                // 모든 source의 feature ID 목록 출력 (디버깅용)
+                for (const sourceId of sources.slice(0, 3)) { // 처음 3개
+                    const source = this.map.getSource(sourceId);
+                    if (source && source.type === 'geojson' && source._data && source._data.features) {
+                        const featureIds = source._data.features.slice(0, 5).map(f => ({
+                            id: f.id,
+                            propsId: f.properties?.id,
+                            name: f.properties?.name
+                        }));
+                        log.warn(`Sample feature IDs from ${sourceId}:`, featureIds);
+                    }
+                }
+                
+                // Territory 정보 출력
+                log.warn(`Territory info:`, {
+                    id: territory.id,
+                    name: territory.name,
+                    pixelCanvas: territory.pixelCanvas
+                });
             }
             
         } catch (error) {
@@ -514,6 +637,29 @@ class MapController {
     }
     
     /**
+     * Territory ID 정규화 - 이름 기반으로 일관된 ID 생성
+     */
+    normalizeTerritoryId(rawId, name, countryCode) {
+        // 이름이 있으면 이름 기반 ID 생성
+        if (name) {
+            const normalizedName = String(name)
+                .toLowerCase()
+                .trim()
+                .replace(/[^\w\s-]/g, '') // 특수문자 제거
+                .replace(/\s+/g, '-')     // 공백을 하이픈으로
+                .replace(/-+/g, '-')      // 연속 하이픈 제거
+                .replace(/^-|-$/g, '');   // 시작/끝 하이픈 제거
+            
+            if (normalizedName) {
+                return normalizedName;
+            }
+        }
+        
+        // 이름이 없거나 숫자 ID인 경우 원본 반환 (하지만 문자열로)
+        return String(rawId || 'unknown');
+    }
+    
+    /**
      * GeoJSON 데이터 정규화
      */
     normalizeGeoJson(data, country) {
@@ -525,17 +671,24 @@ class MapController {
         }
         
         if (data.features) {
-            data.features = data.features.map((feature, index) => ({
-                ...feature,
-                id: feature.id ?? index,
-                properties: {
-                    ...feature.properties,
-                    id: feature.properties?.id || `${country}-${index}`,
-                    name: feature.properties?.name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`,
-                    country: country,
-                    sovereignty: 'unconquered'
-                }
-            }));
+            data.features = data.features.map((feature, index) => {
+                const rawId = feature.properties?.id || feature.id || `${country}-${index}`;
+                const name = feature.properties?.name || feature.properties?.NAME || feature.properties?.name_en || feature.properties?.NAME_1;
+                const normalizedId = this.normalizeTerritoryId(rawId, name, country);
+                
+                return {
+                    ...feature,
+                    id: feature.id ?? index,
+                    properties: {
+                        ...feature.properties,
+                        id: normalizedId,  // 정규화된 ID 사용
+                        originalId: rawId, // 원본 ID 보존
+                        name: name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`,
+                        country: country,
+                        sovereignty: feature.properties?.sovereignty || 'unconquered'
+                    }
+                };
+            });
         }
         
         return data;
@@ -923,12 +1076,26 @@ class MapController {
             log.debug(`[MapController] Determined country code: ${countryCode} from sourceId: ${sourceId}, currentCountry: ${this.currentCountry}`);
         }
         
+        // Territory ID 정규화 - 이름 기반으로 일관된 ID 생성
+        const rawTerritoryId = feature.properties.id || feature.id;
+        const territoryName = feature.properties.name || feature.properties.NAME_1 || feature.properties.NAME_2;
+        const normalizedTerritoryId = this.normalizeTerritoryId(rawTerritoryId, territoryName, countryCode);
+        
+        // properties.id에 정규화된 ID 저장 (일관성 유지)
+        feature.properties.id = normalizedTerritoryId;
+        feature.properties.originalId = rawTerritoryId; // 원본 ID 보존
+        
         eventBus.emit(EVENTS.TERRITORY_SELECT, {
-            territoryId: feature.properties.id || feature.id,
+            territoryId: normalizedTerritoryId,
             properties: feature.properties,
             geometry: feature.geometry,
-            country: countryCode
+            country: countryCode,
+            featureId: feature.id,  // 원본 feature ID도 함께 전달
+            sourceId: sourceId,     // source ID도 함께 전달
+            originalId: rawTerritoryId // 원본 ID도 전달
         });
+        
+        log.debug(`🗺️ Territory selected: ${emittedTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
     }
     
     /**
@@ -942,8 +1109,7 @@ class MapController {
             essential: true,
             ...options
         });
-    }
-    
+    }    
     /**
      * 국가로 이동
      */
@@ -1193,4 +1359,5 @@ class MapController {
 // 싱글톤 인스턴스
 export const mapController = new MapController();
 export default mapController;
+
 

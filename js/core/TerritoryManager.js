@@ -83,7 +83,7 @@ class TerritoryManager {
      * 영토 선택 처리
      */
     async handleTerritorySelect(data) {
-        const { territoryId, properties, country, geometry } = data;
+        const { territoryId, properties, country, geometry, featureId, sourceId } = data;
         
         // Firestore에서 최신 데이터 가져오기 (pixelCanvas 정보 포함)
         let territory = this.territories.get(territoryId);
@@ -185,6 +185,10 @@ class TerritoryManager {
         territory.country = finalCountry;
         territory.geometry = geometry;
         territory.properties = properties; // properties도 저장
+        
+        // Feature ID와 Source ID도 저장 (맵 업데이트 시 사용)
+        territory.featureId = featureId;
+        territory.sourceId = sourceId;
         
         this.currentTerritory = territory;
         
