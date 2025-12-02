@@ -154,8 +154,23 @@ class MapController {
         }
         
         if (targetTerritory) {
-            log.info(`📍 Updating map visual for territory ${territoryId}`);
+            log.info(`📍 Updating map visual for territory ${territoryId}`, {
+                hasSourceId: !!targetTerritory.sourceId,
+                hasFeatureId: !!targetTerritory.featureId,
+                country: targetTerritory.country
+            });
+            
+            // 즉시 업데이트 시도
             this.updateTerritoryLayerVisual(targetTerritory);
+            
+            // source를 찾지 못한 경우 재시도 (맵이 로드될 때까지 기다림)
+            if (this.sourcesLoaded.size === 0) {
+                log.warn(`⚠️ No sources loaded yet. Will retry map update after delay...`);
+                setTimeout(() => {
+                    log.info(`🔄 Retrying map update for territory ${territoryId} after delay...`);
+                    this.updateTerritoryLayerVisual(targetTerritory);
+                }, 1000);
+            }
         } else {
             log.error(`❌ Territory ${territoryId} not found in TerritoryManager`);
         }
@@ -177,63 +192,108 @@ class MapController {
                 filledPixels: territory.pixelCanvas?.filledPixels
             });
             
-            // 모든 territory source 찾기
+            // 모든 territory source 찾기 (다양한 방법으로)
             let sources = Array.from(this.sourcesLoaded);
             
-            // sourcesLoaded가 비어있으면 맵의 모든 source 확인
+            // 방법 1: 맵의 모든 레이어에서 source 추출
+            if (sources.length === 0) {
+                try {
+                    const mapStyle = this.map.getStyle();
+                    if (mapStyle && mapStyle.layers) {
+                        const sourceIdsFromLayers = new Set();
+                        mapStyle.layers.forEach(layer => {
+                            if (layer.source && layer.type === 'fill') {
+                                sourceIdsFromLayers.add(layer.source);
+                            }
+                        });
+                        sources = Array.from(sourceIdsFromLayers);
+                        log.info(`✅ Found ${sources.length} sources from map layers: ${sources.join(', ')}`);
+                    }
+                } catch (e) {
+                    log.warn('Failed to extract sources from layers:', e);
+                }
+            }
+            
+            // 방법 2: 맵 style의 모든 source 확인
             if (sources.length === 0) {
                 log.warn(`sourcesLoaded is empty, checking all map sources for territory ${territoryId}...`);
-                // 맵에 로드된 모든 GeoJSON source 찾기
                 try {
                     const mapStyle = this.map.getStyle();
                     if (mapStyle && mapStyle.sources) {
+                        // 모든 GeoJSON source 찾기
                         sources = Object.keys(mapStyle.sources).filter(sourceId => {
                             try {
                                 const source = this.map.getSource(sourceId);
-                                if (!source || source.type !== 'geojson') return false;
-                                
-                                // 모든 GeoJSON source 포함 (필터 완화)
-                                if (sourceId.startsWith('territories-') || 
-                                    sourceId.startsWith('states-') || 
-                                    sourceId.startsWith('regions-') ||
-                                    sourceId.startsWith('prefectures-')) {
-                                    return true;
-                                }
-                                
-                                // 국가 코드로 매칭
-                                if (territory.country) {
-                                    const countrySlug = territory.country.toLowerCase();
-                                    if (sourceId.includes(countrySlug)) {
-                                        return true;
-                                    }
-                                }
-                                
-                                return false;
+                                return source && source.type === 'geojson';
                             } catch (e) {
                                 return false;
                             }
                         });
-                        log.info(`✅ Found ${sources.length} geojson sources on map: ${sources.join(', ')}`);
-                        
-                        // 여전히 비어있으면 모든 GeoJSON source 포함
-                        if (sources.length === 0) {
-                            log.warn(`No filtered sources found, checking all geojson sources...`);
-                            sources = Object.keys(mapStyle.sources).filter(sourceId => {
-                                const source = this.map.getSource(sourceId);
-                                return source && source.type === 'geojson';
-                            });
-                            log.info(`✅ Found ${sources.length} total geojson sources: ${sources.join(', ')}`);
-                        }
+                        log.info(`✅ Found ${sources.length} geojson sources from map style: ${sources.join(', ')}`);
                     }
                 } catch (error) {
                     log.error('Error checking map sources:', error);
                 }
             }
             
-            // Territory에 저장된 sourceId가 있으면 우선 사용
-            if (territory.sourceId && !sources.includes(territory.sourceId)) {
-                sources.unshift(territory.sourceId);
-                log.debug(`Using stored sourceId: ${territory.sourceId}`);
+            // 방법 3: 현재 국가 기반 source ID 예측
+            if (sources.length === 0 && territory.country) {
+                const countrySlug = territory.country.toLowerCase();
+                const possibleSourceIds = [
+                    `territories-${countrySlug}`,
+                    `states-${countrySlug}`,
+                    `regions-${countrySlug}`,
+                    `prefectures-${countrySlug}`
+                ];
+                
+                for (const possibleId of possibleSourceIds) {
+                    try {
+                        const source = this.map.getSource(possibleId);
+                        if (source && source.type === 'geojson') {
+                            sources.push(possibleId);
+                            log.info(`✅ Found source by prediction: ${possibleId}`);
+                        }
+                    } catch (e) {
+                        // Source가 없으면 무시
+                    }
+                }
+            }
+            
+            // 방법 4: currentCountry 기반 source ID 예측
+            if (sources.length === 0 && this.currentCountry) {
+                const countrySlug = this.currentCountry.toLowerCase();
+                const possibleSourceIds = [
+                    `territories-${countrySlug}`,
+                    `states-${countrySlug}`,
+                    `regions-${countrySlug}`
+                ];
+                
+                for (const possibleId of possibleSourceIds) {
+                    try {
+                        const source = this.map.getSource(possibleId);
+                        if (source && source.type === 'geojson') {
+                            sources.push(possibleId);
+                            log.info(`✅ Found source by currentCountry: ${possibleId}`);
+                        }
+                    } catch (e) {
+                        // Source가 없으면 무시
+                    }
+                }
+            }
+            
+            // 방법 5: Territory에 저장된 sourceId 사용
+            if (territory.sourceId) {
+                try {
+                    const source = this.map.getSource(territory.sourceId);
+                    if (source && source.type === 'geojson') {
+                        if (!sources.includes(territory.sourceId)) {
+                            sources.unshift(territory.sourceId);
+                        }
+                        log.debug(`✅ Using stored sourceId: ${territory.sourceId}`);
+                    }
+                } catch (e) {
+                    log.warn(`Stored sourceId ${territory.sourceId} not found on map`);
+                }
             }
             
             log.debug(`Checking ${sources.length} sources for territory ${territoryId}: ${sources.join(', ')}`);
@@ -489,6 +549,7 @@ class MapController {
                 
                 // sourcesLoaded 상태 확인
                 log.warn(`sourcesLoaded set: ${Array.from(this.sourcesLoaded).join(', ') || '(empty)'}`);
+                log.warn(`currentCountry: ${this.currentCountry}`);
                 
                 // 모든 source의 feature ID 목록 출력 (디버깅용)
                 if (sources.length > 0) {
@@ -523,12 +584,30 @@ class MapController {
                         }
                     }
                 } else {
+                    // source가 없으면 재시도 로직
+                    log.warn(`⚠️ No sources found. Will retry in 2 seconds...`);
+                    setTimeout(() => {
+                        log.info(`🔄 Retrying map update for territory ${territoryId}...`);
+                        this.updateTerritoryLayerVisual(territory);
+                    }, 2000);
+                    
                     // 맵의 모든 source 나열
                     try {
                         const mapStyle = this.map.getStyle();
                         if (mapStyle && mapStyle.sources) {
                             const allSources = Object.keys(mapStyle.sources);
                             log.warn(`All sources on map (${allSources.length}):`, allSources);
+                            
+                            // 모든 레이어에서 source 추출
+                            if (mapStyle.layers) {
+                                const layerSources = new Set();
+                                mapStyle.layers.forEach(layer => {
+                                    if (layer.source) {
+                                        layerSources.add(layer.source);
+                                    }
+                                });
+                                log.warn(`All sources from layers (${layerSources.size}):`, Array.from(layerSources));
+                            }
                         }
                     } catch (e) {
                         log.error('Failed to get map sources:', e);
