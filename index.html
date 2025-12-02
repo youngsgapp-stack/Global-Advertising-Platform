@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mr.Young's Billionaire Homepage v2 - 영토 패권 전쟁</title>
-    <meta name="description" content="전 세계 영토를 정복하고, 픽셀로 꾸미고, 패권을 차지하세요!">
+    <title>Billionaire Map - Own a Piece of Earth</title>
+    <meta name="description" content="Claim your spot on the world map, decorate with pixels, and climb the rankings!">
     
     <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
     
     <!-- Mapbox GL JS -->
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
@@ -39,80 +39,80 @@
 </head>
 <body>
     <div id="map-container">
-        <!-- 별 배경 캔버스 -->
+        <!-- Stars Background Canvas -->
         <canvas id="stars-canvas"></canvas>
         
-        <!-- Mapbox 지도 -->
+        <!-- Mapbox Map -->
         <div id="map"></div>
         
-        <!-- 햄버거 메뉴 버튼 -->
-        <button id="hamburger-menu-btn" class="hamburger-menu-btn" aria-label="메뉴 열기">
+        <!-- Hamburger Menu Button -->
+        <button id="hamburger-menu-btn" class="hamburger-menu-btn" aria-label="Open menu">
             <span></span>
             <span></span>
             <span></span>
         </button>
         
-        <!-- 좌측 사이드 메뉴 -->
+        <!-- Side Menu -->
         <aside id="side-menu" class="side-menu hidden">
             <div class="side-menu-header">
-                <h3>🏰 메뉴</h3>
-                <button id="close-side-menu" class="close-btn" aria-label="메뉴 닫기">&times;</button>
+                <h3>📍 Menu</h3>
+                <button id="close-side-menu" class="close-btn" aria-label="Close menu">&times;</button>
             </div>
             <div class="side-menu-content">
-                <!-- 사용자 섹션 -->
+                <!-- User Section -->
                 <section class="side-menu-section">
-                    <h4>👤 사용자</h4>
+                    <h4>👤 Account</h4>
                     <button id="side-user-login-btn" class="side-menu-btn">
-                        🔐 로그인
+                        🔐 Sign In
                     </button>
                     <button id="side-user-logout-btn" class="side-menu-btn hidden">
-                        🚪 로그아웃
+                        🚪 Sign Out
                     </button>
                     <span id="side-user-email" class="side-user-email hidden"></span>
                 </section>
                 
-                <!-- 랭킹 섹션 -->
+                <!-- Ranking Section -->
                 <section class="side-menu-section">
-                    <h4>🏆 패권 랭킹</h4>
+                    <h4>🏆 Rankings</h4>
                     <button id="side-ranking-btn" class="side-menu-btn">
-                        📊 세계 패권 보드
+                        📊 Top Owners
                     </button>
                     <button id="side-my-territories-btn" class="side-menu-btn">
-                        🗺️ 내 영토 목록
+                        📍 My Spots
                     </button>
                 </section>
                 
-                <!-- 도움말 섹션 -->
+                <!-- Help Section -->
                 <section class="side-menu-section">
-                    <h4>❓ 도움말</h4>
+                    <h4>❓ Help</h4>
                     <button id="side-help-btn" class="side-menu-btn">
-                        📖 사용법
+                        📖 How to Play
                     </button>
                     <button id="side-about-btn" class="side-menu-btn">
                         ℹ️ About
                     </button>
                 </section>
                 
-                <!-- 버전 정보 -->
+                <!-- Version Info -->
                 <div class="version-info" style="margin-top: auto; padding-top: 20px; text-align: center; color: var(--color-text-muted); font-size: 12px;">
-                    v2.0.0 - 영토 패권 시대
+                    v2.0.0 · Own a Piece 🌍
                 </div>
             </div>
         </aside>
         
-        <!-- 상단 헤더 -->
+        <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <h1>🏰 Billionaire Map</h1>
-                <p>영토 패권 전쟁 · Territorial Hegemony</p>
+                <h1>📍 Billionaire Map</h1>
+                <p>Own a Piece of Earth</p>
             </div>
         </header>
         
-        <!-- 국가 선택기 -->
+        <!-- Country Selector -->
         <div class="map-mode-toggle">
-            <span style="color: var(--color-accent); font-weight: 600;">G20</span>
+            <span style="color: var(--color-accent); font-weight: 600;">🌍</span>
             <select id="country-selector">
-                <option value="">국가 선택...</option>
+                <option value="">Select Country...</option>
             </select>
         </div>
         
@@ -124,24 +124,24 @@
             <!-- RankingBoard.js에서 동적 렌더링 -->
         </aside>
         
-        <!-- 모바일 랭킹 버튼 -->
-        <button class="ranking-mobile-btn" id="ranking-mobile-btn" title="패권 랭킹">🏆</button>
+        <!-- Mobile Ranking Button -->
+        <button class="ranking-mobile-btn" id="ranking-mobile-btn" title="View Rankings">🏆</button>
         
-        <!-- 글로벌 타임라인 (우측 하단) -->
+        <!-- Timeline Widget -->
         <aside class="timeline-widget" id="timeline-widget">
             <div class="timeline-header">
-                <h4>📜 실시간 타임라인</h4>
+                <h4>📜 Live Activity</h4>
                 <button class="timeline-toggle" id="timeline-toggle">−</button>
             </div>
             <div class="timeline-content" id="timeline-content">
-                <!-- HistoryLogger에서 동적 렌더링 -->
+                <!-- Rendered by HistoryLogger -->
             </div>
         </aside>
         
-        <!-- 로딩 인디케이터 -->
+        <!-- Loading Indicator -->
         <div id="loading">
             <div class="spinner"></div>
-            <p>🌍 세계를 불러오는 중...</p>
+            <p>🌍 Loading the world...</p>
         </div>
     </div>
     
