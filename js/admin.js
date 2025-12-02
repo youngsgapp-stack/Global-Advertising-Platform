@@ -12,12 +12,15 @@ const firebaseConfig = CONFIG.FIREBASE;
 const ADMIN_EMAILS = [
     'admin@billionairemap.com',
     'young91@naver.com',
+    'q886654@naver.com',  // Firebase Auth 등록 계정
+    'etgbajy@gmail.com',  // Firebase Auth 등록 계정
 ];
 
 // 로컬 관리자 계정 (P키 5번 연타 로그인용)
 const LOCAL_ADMIN_CREDENTIALS = {
     'admin': 'billionaire2024!',
-    'young91': 'admin1234!'
+    'young91': 'admin1234!',
+    'q886654': 'znznektm1@'  // Firebase 계정과 동일하게 설정
 };
 
 // 세션 인증 유효 시간 (1시간)
