@@ -84,6 +84,9 @@ class BillionaireApp {
      * UI Initialization
      */
     initializeUI() {
+        // Initialize view mode toggle
+        this.initViewModeToggle();
+        
         // Initialize country selector
         this.initCountrySelector();
         
@@ -95,6 +98,40 @@ class BillionaireApp {
         
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
+    }
+    
+    /**
+     * View Mode Toggle Initialization
+     */
+    initViewModeToggle() {
+        const toggleBtn = document.getElementById('view-mode-toggle');
+        if (!toggleBtn) return;
+        
+        toggleBtn.addEventListener('click', async () => {
+            const currentMode = mapController.getViewMode();
+            
+            if (currentMode === 'country') {
+                // Switch to World View
+                toggleBtn.textContent = '📍 Country';
+                toggleBtn.classList.add('active');
+                await mapController.loadWorldView();
+            } else {
+                // Switch to Country View
+                toggleBtn.textContent = '🌍 World';
+                toggleBtn.classList.remove('active');
+                mapController.setViewMode('country');
+                mapController.clearAllTerritoryLayers();
+                
+                // Reload last country or default to USA
+                const country = this.currentCountry || 'usa';
+                await this.loadCountry(country);
+            }
+        });
+        
+        // Listen for reload-country event
+        eventBus.on('reload-country', async ({ country }) => {
+            await this.loadCountry(country);
+        });
     }
     
     /**

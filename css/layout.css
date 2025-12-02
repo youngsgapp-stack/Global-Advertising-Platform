@@ -197,12 +197,47 @@ body {
     transform: translateX(5px);
 }
 
-/* === 국가 선택기 === */
-.map-mode-toggle {
+/* === Map Controls Container === */
+.map-controls {
     position: fixed;
     top: var(--spacing-lg);
     right: var(--spacing-lg);
     z-index: var(--z-header);
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+
+/* === View Toggle Button === */
+.view-toggle-btn {
+    background: var(--color-bg-surface);
+    border: var(--border-primary);
+    color: var(--color-primary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-normal);
+    backdrop-filter: var(--blur-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.view-toggle-btn:hover {
+    background: rgba(78, 205, 196, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(78, 205, 196, 0.3);
+}
+
+.view-toggle-btn.active {
+    background: var(--color-primary);
+    color: var(--color-bg-deep);
+}
+
+/* === Country Selector === */
+.map-mode-toggle {
     display: flex;
     gap: var(--spacing-sm);
     align-items: center;
@@ -360,11 +395,21 @@ body {
         width: 100%;
     }
     
-    .map-mode-toggle {
+    .map-controls {
         top: auto;
         bottom: var(--spacing-lg);
         right: var(--spacing-sm);
         left: var(--spacing-sm);
+        flex-direction: column;
+    }
+    
+    .view-toggle-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .map-mode-toggle {
+        width: 100%;
     }
     
     #country-selector {

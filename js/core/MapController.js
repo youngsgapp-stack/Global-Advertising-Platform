@@ -15,8 +15,10 @@ class MapController {
         this.selectedTerritoryId = null;
         this.geoJsonCache = new Map();
         this.sourcesLoaded = new Set();
-        this.globalAdminData = null;  // 전 세계 행정구역 데이터
+        this.globalAdminData = null;  // Global admin data
         this.globalAdminLoaded = false;
+        this.viewMode = 'country';  // 'world' or 'country'
+        this.activeLayerIds = new Set();  // Track active layers
     }
     
     /**
@@ -363,25 +365,76 @@ class MapController {
     }
     
     /**
-     * 영토 레이어 추가
-     * @param {string} sourceId - 소스 ID
-     * @param {object} geoJsonData - GeoJSON 데이터
+     * Clear all territory layers (for Country View mode)
+     */
+    clearAllTerritoryLayers() {
+        for (const sourceId of this.activeLayerIds) {
+            const fillLayerId = `${sourceId}-fill`;
+            const lineLayerId = `${sourceId}-line`;
+            
+            try {
+                if (this.map.getLayer(fillLayerId)) {
+                    this.map.removeLayer(fillLayerId);
+                }
+                if (this.map.getLayer(lineLayerId)) {
+                    this.map.removeLayer(lineLayerId);
+                }
+                if (this.map.getSource(sourceId)) {
+                    this.map.removeSource(sourceId);
+                }
+            } catch (e) {
+                log.warn(`Failed to remove layer ${sourceId}:`, e);
+            }
+        }
+        this.activeLayerIds.clear();
+        this.sourcesLoaded.clear();
+        log.info('All territory layers cleared');
+    }
+    
+    /**
+     * Set view mode (world or country)
+     */
+    setViewMode(mode) {
+        this.viewMode = mode;
+        log.info(`View mode set to: ${mode}`);
+        eventBus.emit(EVENTS.UI_NOTIFICATION, {
+            type: 'info',
+            message: mode === 'world' ? '🌍 World View' : '📍 Country View'
+        });
+    }
+    
+    /**
+     * Get current view mode
+     */
+    getViewMode() {
+        return this.viewMode;
+    }
+    
+    /**
+     * Territory layer addition
+     * @param {string} sourceId - Source ID
+     * @param {object} geoJsonData - GeoJSON data
      */
     addTerritoryLayer(sourceId, geoJsonData) {
-        // 이미 소스가 있으면 업데이트
+        // In Country View mode, clear previous layers first
+        if (this.viewMode === 'country' && !sourceId.startsWith('world-')) {
+            this.clearAllTerritoryLayers();
+        }
+        
+        // If source already exists, update it
         if (this.map.getSource(sourceId)) {
             this.map.getSource(sourceId).setData(geoJsonData);
             return;
         }
         
-        // 소스 추가
+        // Add source
         this.map.addSource(sourceId, {
             type: 'geojson',
             data: geoJsonData,
             generateId: true
         });
         
-        // Fill 레이어 (영토 채우기)
+        // Fill layer (territory fill)
         this.map.addLayer({
             id: `${sourceId}-fill`,
             type: 'fill',
@@ -402,7 +455,7 @@ class MapController {
             }
         });
         
-        // 경계선 레이어
+        // Border layer
         this.map.addLayer({
             id: `${sourceId}-line`,
             type: 'line',
@@ -419,10 +472,11 @@ class MapController {
             }
         });
         
-        // 호버/선택 이벤트 설정
+        // Setup hover/select interactions
         this.setupTerritoryInteractions(sourceId);
         
         this.sourcesLoaded.add(sourceId);
+        this.activeLayerIds.add(sourceId);
         log.info(`Territory layer added: ${sourceId}`);
     }
     
@@ -580,6 +634,112 @@ class MapController {
      */
     getCenter() {
         return this.map?.getCenter() || { lng: 0, lat: 0 };
+    }
+    
+    /**
+     * Load World View - Display all countries at once
+     */
+    async loadWorldView() {
+        try {
+            log.info('Loading World View...');
+            this.setViewMode('world');
+            this.clearAllTerritoryLayers();
+            
+            // Load global admin data
+            await this.loadGlobalAdminData();
+            
+            if (!this.globalAdminData) {
+                log.error('Failed to load global admin data');
+                return false;
+            }
+            
+            // Add all regions as one layer
+            const worldData = {
+                type: 'FeatureCollection',
+                features: this.globalAdminData.features.map((feature, index) => ({
+                    ...feature,
+                    id: index,
+                    properties: {
+                        ...feature.properties,
+                        id: `world-${index}`,
+                        name: feature.properties.name || feature.properties.name_en || `Region ${index}`,
+                        country: feature.properties.admin || feature.properties.sov_a3 || 'unknown',
+                        sovereignty: 'unconquered'
+                    }
+                }))
+            };
+            
+            // Add world layer (skip clearing since we just cleared)
+            if (this.map.getSource('world-territories')) {
+                this.map.getSource('world-territories').setData(worldData);
+            } else {
+                this.map.addSource('world-territories', {
+                    type: 'geojson',
+                    data: worldData,
+                    generateId: true
+                });
+                
+                this.map.addLayer({
+                    id: 'world-territories-fill',
+                    type: 'fill',
+                    source: 'world-territories',
+                    paint: {
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'sovereignty'], 'ruled'], CONFIG.COLORS.SOVEREIGNTY.RULED,
+                            ['==', ['get', 'sovereignty'], 'contested'], CONFIG.COLORS.SOVEREIGNTY.CONTESTED,
+                            CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
+                        ],
+                        'fill-opacity': [
+                            'case',
+                            ['boolean', ['feature-state', 'hover'], false], 0.7,
+                            0.5
+                        ]
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'world-territories-line',
+                    type: 'line',
+                    source: 'world-territories',
+                    paint: {
+                        'line-color': '#ffffff',
+                        'line-width': 0.5,
+                        'line-opacity': 0.6
+                    }
+                });
+                
+                this.setupTerritoryInteractions('world-territories');
+            }
+            
+            this.activeLayerIds.add('world-territories');
+            
+            // Fly to world view
+            this.flyTo([0, 20], 2);
+            
+            log.info(`World View loaded: ${worldData.features.length} regions`);
+            return true;
+            
+        } catch (error) {
+            log.error('Failed to load World View:', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Toggle between World View and Country View
+     */
+    toggleViewMode() {
+        if (this.viewMode === 'world') {
+            this.setViewMode('country');
+            this.clearAllTerritoryLayers();
+            // Reload current country if any
+            if (this.currentCountry) {
+                eventBus.emit('reload-country', { country: this.currentCountry });
+            }
+        } else {
+            this.loadWorldView();
+        }
     }
 }
 

@@ -108,12 +108,16 @@
             </div>
         </header>
         
-        <!-- Country Selector -->
-        <div class="map-mode-toggle">
-            <span style="color: var(--color-accent); font-weight: 600;">🌍</span>
-            <select id="country-selector">
-                <option value="">Select Country...</option>
-            </select>
+        <!-- View Mode Toggle & Country Selector -->
+        <div class="map-controls">
+            <button id="view-mode-toggle" class="view-toggle-btn" title="Toggle World/Country View">
+                🌍 World
+            </button>
+            <div class="map-mode-toggle">
+                <select id="country-selector">
+                    <option value="">Select Country...</option>
+                </select>
+            </div>
         </div>
         
         <!-- Territory Panel (dynamically rendered) -->
