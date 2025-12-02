@@ -17,9 +17,11 @@ import { buffSystem } from './features/BuffSystem.js';
 import { collaborationHub } from './features/CollaborationHub.js';
 import { historyLogger } from './features/HistoryLogger.js';
 import { territoryPanel } from './ui/TerritoryPanel.js';
+import { territoryListPanel } from './ui/TerritoryListPanel.js';
 import { pixelEditor } from './ui/PixelEditor.js';
 import { rankingBoard } from './ui/RankingBoard.js';
 import { timelineWidget } from './ui/TimelineWidget.js';
+import { onboardingGuide } from './ui/OnboardingGuide.js';
 import { recommendationSystem } from './features/RecommendationSystem.js';
 import { recommendationPanel } from './ui/RecommendationPanel.js';
 import { territoryDataService } from './services/TerritoryDataService.js';
@@ -66,10 +68,12 @@ class BillionaireApp {
             
             // 6. Initialize UI
             territoryPanel.initialize();
+            territoryListPanel.initialize();
             pixelEditor.initialize();
             rankingBoard.initialize();
             timelineWidget.initialize();
             recommendationPanel.initialize();
+            onboardingGuide.initialize();
             this.initializeUI();
             
             // 7. Setup Event Listeners
@@ -664,6 +668,7 @@ class BillionaireApp {
         const loginBtn = document.getElementById('side-user-login-btn');
         const logoutBtn = document.getElementById('side-user-logout-btn');
         const userEmail = document.getElementById('side-user-email');
+        const headerWallet = document.getElementById('header-wallet');
         
         if (user) {
             if (loginBtn) loginBtn.classList.add('hidden');
@@ -672,11 +677,24 @@ class BillionaireApp {
                 userEmail.textContent = user.email;
                 userEmail.classList.remove('hidden');
             }
+            // 로그인 시 지갑 표시
+            if (headerWallet) headerWallet.classList.remove('hidden');
         } else {
             if (loginBtn) loginBtn.classList.remove('hidden');
             if (logoutBtn) logoutBtn.classList.add('hidden');
             if (userEmail) userEmail.classList.add('hidden');
+            // 비로그인 시 지갑 숨김
+            if (headerWallet) headerWallet.classList.add('hidden');
         }
+    }
+    
+    /**
+     * 관리자 모드 여부 확인
+     */
+    isAdminMode() {
+        const adminAuth = sessionStorage.getItem('adminAuth');
+        const adminUserMode = sessionStorage.getItem('adminUserMode');
+        return !!(adminAuth && adminUserMode === 'true');
     }
     
     /**

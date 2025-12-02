@@ -11,8 +11,12 @@ import { firebaseService } from '../services/FirebaseService.js';
 export const SOVEREIGNTY = {
     UNCONQUERED: 'unconquered',  // 미정복
     CONTESTED: 'contested',      // 분쟁 중 (옥션 진행)
-    RULED: 'ruled'               // 통치됨
+    RULED: 'ruled',              // 통치됨
+    PROTECTED: 'protected'       // 보호 기간 중 (도전 불가)
 };
+
+// 보호 기간 설정 (밀리초)
+export const PROTECTION_PERIOD = 7 * 24 * 60 * 60 * 1000; // 7일
 
 class TerritoryManager {
     constructor() {
@@ -155,7 +159,7 @@ class TerritoryManager {
      * 영토 정복 처리
      */
     async handleTerritoryConquered(data) {
-        const { territoryId, userId, userName, tribute } = data;
+        const { territoryId, userId, userName, tribute, isAdmin = false } = data;
         
         const territory = this.territories.get(territoryId);
         if (!territory) {
@@ -164,28 +168,34 @@ class TerritoryManager {
         }
         
         const previousRuler = territory.ruler;
+        const now = new Date();
         
         // 영토 상태 업데이트
-        territory.sovereignty = SOVEREIGNTY.RULED;
+        territory.sovereignty = SOVEREIGNTY.PROTECTED; // 구매 직후 보호 상태
         territory.ruler = userId;
-        territory.rulerSince = new Date();
-        territory.updatedAt = new Date();
+        territory.rulerName = userName;
+        territory.rulerSince = now;
+        territory.protectionEndsAt = new Date(now.getTime() + PROTECTION_PERIOD); // 7일 보호
+        territory.updatedAt = now;
+        territory.purchasedByAdmin = isAdmin; // 관리자 구매 여부
         
         // 역사 기록 추가
+        territory.history = territory.history || [];
         territory.history.push({
             type: 'conquered',
-            timestamp: new Date(),
+            timestamp: now,
             data: {
                 newRuler: userName,
                 previousRuler: previousRuler,
-                tribute: tribute
+                tribute: tribute,
+                isAdmin: isAdmin
             }
         });
         
         // Firestore 업데이트
         try {
             await firebaseService.setDocument('territories', territoryId, territory);
-            log.info(`Territory ${territoryId} conquered by ${userName}`);
+            log.info(`Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
             
             // 영토 업데이트 이벤트 발행
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
@@ -193,6 +203,40 @@ class TerritoryManager {
         } catch (error) {
             log.error('Failed to update territory in Firestore:', error);
         }
+    }
+    
+    /**
+     * 보호 기간 확인
+     */
+    isProtected(territoryId) {
+        const territory = this.territories.get(territoryId);
+        if (!territory || !territory.protectionEndsAt) return false;
+        
+        const protectionEnd = territory.protectionEndsAt instanceof Date 
+            ? territory.protectionEndsAt 
+            : new Date(territory.protectionEndsAt);
+            
+        return new Date() < protectionEnd;
+    }
+    
+    /**
+     * 보호 기간 남은 시간 가져오기
+     */
+    getProtectionRemaining(territoryId) {
+        const territory = this.territories.get(territoryId);
+        if (!territory || !territory.protectionEndsAt) return null;
+        
+        const protectionEnd = territory.protectionEndsAt instanceof Date 
+            ? territory.protectionEndsAt 
+            : new Date(territory.protectionEndsAt);
+            
+        const remaining = protectionEnd - new Date();
+        if (remaining <= 0) return null;
+        
+        const days = Math.floor(remaining / (24 * 60 * 60 * 1000));
+        const hours = Math.floor((remaining % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+        
+        return { days, hours, totalMs: remaining };
     }
     
     /**

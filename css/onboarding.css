@@ -1,0 +1,515 @@
+/**
+ * Billionaire Map - Onboarding Styles
+ * 첫 방문자를 위한 웰컴 가이드 스타일
+ */
+
+/* === Onboarding Modal === */
+.onboarding-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.onboarding-modal.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.onboarding-overlay {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(10, 15, 30, 0.95) 0%, rgba(5, 10, 20, 0.98) 100%);
+    backdrop-filter: blur(10px);
+}
+
+.onboarding-container {
+    position: relative;
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh;
+    background: linear-gradient(145deg, rgba(30, 40, 60, 0.95) 0%, rgba(20, 30, 50, 0.98) 100%);
+    border-radius: 24px;
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    box-shadow: 
+        0 25px 80px rgba(0, 0, 0, 0.5),
+        0 0 60px rgba(78, 205, 196, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    animation: modalAppear 0.5s ease;
+}
+
+@keyframes modalAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+/* Skip Button */
+.onboarding-skip {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    z-index: 10;
+    transition: all 0.2s ease;
+}
+
+.onboarding-skip:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+/* === Slides === */
+.onboarding-slides {
+    position: relative;
+    min-height: 450px;
+    overflow: hidden;
+}
+
+.onboarding-slide {
+    position: absolute;
+    inset: 0;
+    padding: 50px 40px 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: translateX(50px);
+    transition: all 0.4s ease;
+    pointer-events: none;
+}
+
+.onboarding-slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+
+.onboarding-slide.prev {
+    opacity: 0;
+    transform: translateX(-50px);
+}
+
+.slide-content {
+    text-align: center;
+    max-width: 100%;
+}
+
+/* Slide Icon */
+.slide-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+/* Typography */
+.slide-content h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    line-height: 1.2;
+}
+
+.slide-content h1 .brand {
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.slide-content h2 {
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 24px;
+}
+
+.slide-subtitle {
+    font-size: 1.2rem;
+    color: #4ecdc4;
+    margin-bottom: 16px;
+    font-weight: 500;
+}
+
+.slide-description {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.6;
+    margin-bottom: 24px;
+}
+
+/* Slide 1: Features Tags */
+.slide-features {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.slide-features span {
+    background: rgba(78, 205, 196, 0.15);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    padding: 8px 20px;
+    border-radius: 20px;
+    color: #4ecdc4;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Slide 2: How it works */
+.how-it-works {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: left;
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.2s ease;
+}
+
+.step:hover {
+    background: rgba(78, 205, 196, 0.1);
+    border-color: rgba(78, 205, 196, 0.3);
+    transform: translateX(8px);
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.step-info h4 {
+    color: #fff;
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+
+.step-info p {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    margin: 0;
+}
+
+/* Slide 3: Feature Cards */
+.feature-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 10px;
+}
+
+.feature-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px 16px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+    background: rgba(78, 205, 196, 0.1);
+    border-color: rgba(78, 205, 196, 0.3);
+    transform: translateY(-4px);
+}
+
+.feature-icon {
+    font-size: 36px;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.feature-card h4 {
+    color: #fff;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.feature-card p {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* Slide 4: Pricing */
+.pricing-info {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.pricing-card {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.2) 0%, rgba(68, 160, 141, 0.1) 100%);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.price-range {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #4ecdc4;
+    margin-bottom: 8px;
+}
+
+.pricing-card p {
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+}
+
+.pricing-factors {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+}
+
+.pricing-factors li {
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+}
+
+.pricing-factors li:last-child {
+    border-bottom: none;
+}
+
+/* Slide 5: CTA */
+.cta-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 300px;
+    margin: 0 auto 16px;
+}
+
+.cta-primary {
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    border: none;
+    color: #fff;
+    padding: 16px 32px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 20px rgba(78, 205, 196, 0.3);
+}
+
+.cta-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(78, 205, 196, 0.4);
+}
+
+.cta-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    padding: 14px 32px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.cta-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.cta-hint {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    margin: 0;
+}
+
+/* === Navigation === */
+.onboarding-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px 30px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.nav-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 100px;
+}
+
+.nav-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
+}
+
+.nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.nav-btn.next {
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    border-color: transparent;
+}
+
+.nav-btn.next:hover:not(:disabled) {
+    box-shadow: 0 4px 15px rgba(78, 205, 196, 0.3);
+}
+
+/* Dots */
+.nav-dots {
+    display: flex;
+    gap: 8px;
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.dot:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.dot.active {
+    background: #4ecdc4;
+    width: 28px;
+    border-radius: 5px;
+}
+
+/* === Responsive === */
+@media (max-width: 768px) {
+    .onboarding-container {
+        width: 95%;
+        max-height: 95vh;
+        border-radius: 16px;
+    }
+    
+    .onboarding-slide {
+        padding: 40px 24px 20px;
+    }
+    
+    .onboarding-slides {
+        min-height: 400px;
+    }
+    
+    .slide-icon {
+        font-size: 48px;
+    }
+    
+    .slide-content h1 {
+        font-size: 1.8rem;
+    }
+    
+    .slide-content h2 {
+        font-size: 1.4rem;
+    }
+    
+    .feature-cards {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .feature-card {
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        text-align: left;
+    }
+    
+    .feature-icon {
+        font-size: 28px;
+        margin: 0;
+    }
+    
+    .onboarding-nav {
+        padding: 16px 20px 24px;
+    }
+    
+    .nav-btn {
+        padding: 10px 16px;
+        min-width: auto;
+        font-size: 13px;
+    }
+    
+    .how-it-works {
+        gap: 12px;
+    }
+    
+    .step {
+        padding: 12px 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .slide-features {
+        flex-direction: column;
+    }
+    
+    .slide-features span {
+        padding: 8px 16px;
+    }
+    
+    .price-range {
+        font-size: 1.6rem;
+    }
+}
+

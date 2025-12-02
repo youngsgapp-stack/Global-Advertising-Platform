@@ -5,7 +5,7 @@
 
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
-import { SOVEREIGNTY } from '../core/TerritoryManager.js';
+import { SOVEREIGNTY, territoryManager } from '../core/TerritoryManager.js';
 import { buffSystem } from '../features/BuffSystem.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
@@ -19,6 +19,15 @@ class TerritoryPanel {
         this.currentTerritory = null;
         this.lang = 'en';  // English default
         this.countryData = null;
+    }
+    
+    /**
+     * 관리자 모드 확인
+     */
+    isAdminMode() {
+        const adminAuth = sessionStorage.getItem('adminAuth');
+        const adminUserMode = sessionStorage.getItem('adminUserMode');
+        return !!(adminAuth && adminUserMode === 'true');
     }
     
     /**
@@ -113,6 +122,11 @@ class TerritoryPanel {
         const user = firebaseService.getCurrentUser();
         const isOwner = user && t.ruler === user.uid;
         const auction = auctionSystem.getAuctionByTerritory(t.id);
+        const isAdmin = this.isAdminMode();
+        
+        // 보호 기간 확인
+        const protectionRemaining = territoryManager.getProtectionRemaining(t.id);
+        const isProtected = !!protectionRemaining;
         
         // 국가 코드 결정 (properties에서 추출)
         const countryCode = t.country || 
@@ -143,6 +157,12 @@ class TerritoryPanel {
         const countryName = countryInfo.name || t.properties?.admin || t.country || 'Unknown';
         const countryFlag = countryInfo.flag || '🏳️';
         
+        // 소유권 상태 텍스트
+        let sovereigntyText = vocab[t.sovereignty] || 'Available';
+        if (t.sovereignty === 'protected' || isProtected) {
+            sovereigntyText = '🛡️ Protected';
+        }
+        
         this.container.innerHTML = `
             <div class="panel-header">
                 <div class="territory-title">
@@ -155,74 +175,55 @@ class TerritoryPanel {
             <div class="panel-content">
                 <!-- Sovereignty Status -->
                 <div class="sovereignty-section">
-                    <div class="sovereignty-badge ${t.sovereignty || 'unconquered'}">
-                        <span class="sovereignty-icon">${this.getSovereigntyIcon(t.sovereignty)}</span>
-                        <span class="sovereignty-text">${vocab[t.sovereignty] || 'Available'}</span>
+                    <div class="sovereignty-badge ${isProtected ? 'protected' : (t.sovereignty || 'unconquered')}">
+                        <span class="sovereignty-icon">${isProtected ? '🛡️' : this.getSovereigntyIcon(t.sovereignty)}</span>
+                        <span class="sovereignty-text">${sovereigntyText}</span>
                     </div>
                     ${t.ruler ? `
                         <div class="ruler-info">
-                            <span class="ruler-label">Owner:</span>
-                            <span class="ruler-name">${t.rulerName || t.ruler}</span>
+                            <span class="ruler-label">👑 Owner:</span>
+                            <span class="ruler-name">${t.rulerName || 'Unknown'}</span>
+                            ${t.purchasedByAdmin ? '<span class="admin-badge">🔧 Admin</span>' : ''}
                         </div>
+                        ${isProtected ? `
+                            <div class="protection-info">
+                                <span class="protection-icon">🛡️</span>
+                                <span>Protected for ${protectionRemaining.days}d ${protectionRemaining.hours}h</span>
+                            </div>
+                        ` : ''}
                     ` : ''}
                 </div>
                 
-                <!-- Territory Stats (Real Data) -->
-                <div class="territory-stats">
-                    <div class="stat-item">
-                        <span class="stat-icon">${countryFlag}</span>
-                        <span class="stat-label">Country</span>
-                        <span class="stat-value">${countryName}</span>
+                <!-- Territory Info Card -->
+                <div class="territory-info-card">
+                    <div class="info-row">
+                        <span class="info-label">${countryFlag} Country</span>
+                        <span class="info-value">${countryName}</span>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-icon">👥</span>
-                        <span class="stat-label">Population</span>
-                        <span class="stat-value">${territoryDataService.formatNumber(population)}</span>
+                    <div class="info-row">
+                        <span class="info-label">👥 Population</span>
+                        <span class="info-value">${territoryDataService.formatNumber(population)}</span>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-icon">📏</span>
-                        <span class="stat-label">Area</span>
-                        <span class="stat-value">${territoryDataService.formatArea(area)}</span>
+                    <div class="info-row">
+                        <span class="info-label">📏 Area</span>
+                        <span class="info-value">${territoryDataService.formatArea(area)}</span>
                     </div>
-                    <div class="stat-item highlight">
-                        <span class="stat-icon">💰</span>
-                        <span class="stat-label">Price</span>
-                        <span class="stat-value tribute">${territoryDataService.formatPrice(realPrice)}</span>
-                    </div>
-                    ${this.countryData ? `
-                        <div class="stat-item">
-                            <span class="stat-icon">🏙️</span>
-                            <span class="stat-label">Capital</span>
-                            <span class="stat-value">${this.countryData.capital || 'N/A'}</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-icon">🌍</span>
-                            <span class="stat-label">Region</span>
-                            <span class="stat-value">${this.countryData.region || 'N/A'}</span>
-                        </div>
-                    ` : ''}
-                </div>
-                
-                <!-- Pixel Value (면적 기반) -->
-                <div class="pixel-value-section">
-                    <h3>🎨 Ad Space (Pixels)</h3>
-                    <div class="value-bar-container">
-                        <div class="value-bar" style="width: ${Math.min(100, (pixelCount / 100))}%"></div>
-                    </div>
-                    <div class="value-text">
-                        <span class="pixel-count">${this.formatNumber(pixelCount)}</span>
-                        <span>available pixels</span>
-                    </div>
-                    <div class="price-breakdown">
-                        <small>💡 Price based on area × pixels × location</small>
+                    <div class="info-row highlight">
+                        <span class="info-label">💰 Price</span>
+                        <span class="info-value price">${isAdmin ? 'FREE (Admin)' : territoryDataService.formatPrice(realPrice)}</span>
                     </div>
                 </div>
                 
-                <!-- Applied Buffs -->
-                ${this.renderBuffs(t)}
-                
-                <!-- Territory History -->
-                ${this.renderHistory(t)}
+                <!-- Pixel Info -->
+                <div class="pixel-info-card">
+                    <div class="pixel-header">
+                        <span>🎨 Ad Space</span>
+                        <span class="pixel-count">${this.formatNumber(pixelCount)} px</span>
+                    </div>
+                    <div class="pixel-bar">
+                        <div class="pixel-bar-fill" style="width: ${Math.min(100, (pixelCount / 100))}%"></div>
+                    </div>
+                </div>
                 
                 <!-- Auction Info (if exists) -->
                 ${auction ? this.renderAuction(auction) : ''}
@@ -323,6 +324,8 @@ class TerritoryPanel {
      */
     renderActions(territory, isOwner, auction, realPrice = 100) {
         const user = firebaseService.getCurrentUser();
+        const isAdmin = this.isAdminMode();
+        const isProtected = territoryManager.isProtected(territory.id);
         
         if (!user) {
             return `
@@ -332,7 +335,8 @@ class TerritoryPanel {
             `;
         }
         
-        if (territory.sovereignty === SOVEREIGNTY.RULED && isOwner) {
+        // 소유자인 경우 - 꾸미기 버튼
+        if ((territory.sovereignty === SOVEREIGNTY.RULED || territory.sovereignty === SOVEREIGNTY.PROTECTED) && isOwner) {
             return `
                 <button class="action-btn pixel-btn" id="open-pixel-editor">
                     🎨 Decorate Territory
@@ -343,13 +347,41 @@ class TerritoryPanel {
             `;
         }
         
+        // 경매 중인 경우
         if (territory.sovereignty === SOVEREIGNTY.CONTESTED && auction) {
             return `
-                <span class="auction-notice">Auction in progress - Place your bid above</span>
+                <span class="auction-notice">⏳ Auction in progress - Place your bid above</span>
             `;
         }
         
+        // 보호 기간 중인 경우 - 경매 입찰은 가능 (7일 후 낙찰)
+        if (isProtected && !isOwner) {
+            const remaining = territoryManager.getProtectionRemaining(territory.id);
+            return `
+                <div class="protected-notice">
+                    <span class="protected-icon">🛡️</span>
+                    <span>Protected Territory</span>
+                    <small>Auction ends in ${remaining.days}d ${remaining.hours}h</small>
+                </div>
+                <button class="action-btn auction-btn" id="start-auction">
+                    🏷️ Start Auction (ends after protection)
+                </button>
+            `;
+        }
+        
+        // 미정복 영토 - 구매 가능
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
+            if (isAdmin) {
+                // 관리자 모드: 무료 구매
+                return `
+                    <div class="admin-mode-notice">
+                        <span>🔧 Admin Mode - Free Claim</span>
+                    </div>
+                    <button class="action-btn conquest-btn admin-conquest" id="instant-conquest">
+                        🔧 Claim as Admin (FREE)
+                    </button>
+                `;
+            }
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
                     ⚔️ Claim Now ($${this.formatNumber(realPrice)})
@@ -360,9 +392,10 @@ class TerritoryPanel {
             `;
         }
         
+        // 다른 사람 소유 영토 (보호 기간 아님)
         return `
             <button class="action-btn challenge-btn" id="challenge-ruler">
-                ⚔️ 통치자에게 도전
+                ⚔️ Challenge Owner
             </button>
         `;
     }
@@ -420,6 +453,7 @@ class TerritoryPanel {
      */
     async handleInstantConquest() {
         const user = firebaseService.getCurrentUser();
+        const isAdmin = this.isAdminMode();
         
         // 로그인 체크
         if (!user) {
@@ -439,7 +473,42 @@ class TerritoryPanel {
             return;
         }
         
-        // 가격 가져오기
+        const territoryName = this.extractName(this.currentTerritory.name) || 
+                             this.extractName(this.currentTerritory.properties?.name) ||
+                             this.currentTerritory.id;
+        
+        // 관리자 모드: 무료 구매
+        if (isAdmin) {
+            try {
+                // 바로 정복 처리 (포인트 차감 없이)
+                eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
+                    territoryId: this.currentTerritory.id,
+                    userId: user.uid,
+                    userName: user.displayName || user.email,
+                    tribute: 0,
+                    isAdmin: true
+                });
+                
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'success',
+                    message: `🔧 Admin claimed: ${territoryName}`
+                });
+                
+                // 패널 갱신
+                this.render();
+                this.bindActions();
+                
+            } catch (error) {
+                log.error('Admin conquest failed:', error);
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'error',
+                    message: 'Failed to claim territory'
+                });
+            }
+            return;
+        }
+        
+        // 일반 사용자: 결제 처리
         const countryCode = this.currentTerritory.country || 
                            this.currentTerritory.properties?.country || 
                            'unknown';
@@ -450,9 +519,7 @@ class TerritoryPanel {
             eventBus.emit(EVENTS.PAYMENT_START, {
                 type: 'conquest',
                 territoryId: this.currentTerritory.id,
-                territoryName: this.extractName(this.currentTerritory.name) || 
-                              this.extractName(this.currentTerritory.properties?.name) ||
-                              this.currentTerritory.id,
+                territoryName: territoryName,
                 amount: price
             });
             

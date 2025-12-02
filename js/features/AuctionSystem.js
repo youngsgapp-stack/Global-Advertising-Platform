@@ -98,6 +98,22 @@ class AuctionSystem {
             throw new Error('Auction already in progress');
         }
         
+        // 경매 종료 시간 결정
+        let auctionEndTime;
+        const protectionRemaining = territoryManager.getProtectionRemaining(territoryId);
+        
+        if (protectionRemaining) {
+            // 보호 기간 중인 영토: 보호 기간 종료 시점에 경매 종료
+            auctionEndTime = new Date(Date.now() + protectionRemaining.totalMs);
+        } else if (territory.sovereignty === SOVEREIGNTY.RULED || 
+                   territory.sovereignty === SOVEREIGNTY.PROTECTED) {
+            // 이미 소유된 영토: 7일 경매
+            auctionEndTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        } else {
+            // 미점유 영토: 24시간 경매
+            auctionEndTime = options.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000);
+        }
+        
         const auction = {
             id: `auction_${territoryId}_${Date.now()}`,
             territoryId,
@@ -116,7 +132,12 @@ class AuctionSystem {
             bids: [],
             
             startTime: new Date(),
-            endTime: options.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000), // 기본 24시간
+            endTime: auctionEndTime,
+            
+            // 보호 기간 중 경매 여부
+            isProtectedAuction: !!protectionRemaining,
+            currentOwnerId: territory.ruler || null,
+            currentOwnerName: territory.rulerName || null,
             
             createdBy: user.uid,
             createdAt: new Date()
@@ -125,8 +146,10 @@ class AuctionSystem {
         // Firestore 저장
         await firebaseService.setDocument('auctions', auction.id, auction);
         
-        // 영토 상태 업데이트
-        territory.sovereignty = SOVEREIGNTY.CONTESTED;
+        // 영토 상태 업데이트 (보호 기간 중이면 sovereignty 유지)
+        if (!protectionRemaining) {
+            territory.sovereignty = SOVEREIGNTY.CONTESTED;
+        }
         territory.currentAuction = auction.id;
         await firebaseService.setDocument('territories', territoryId, territory);
         
@@ -136,7 +159,8 @@ class AuctionSystem {
         // 이벤트 발행
         eventBus.emit(EVENTS.AUCTION_START, { auction });
         
-        log.info(`Auction created for territory ${territoryId}`);
+        const daysRemaining = Math.ceil((auctionEndTime - new Date()) / (24 * 60 * 60 * 1000));
+        log.info(`Auction created for territory ${territoryId}, ends in ${daysRemaining} days`);
         return auction;
     }
     

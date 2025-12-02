@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="css/ranking.css">
     <link rel="stylesheet" href="css/timeline.css">
     <link rel="stylesheet" href="css/recommendation.css">
+    <link rel="stylesheet" href="css/onboarding.css">
     
     <style>
         /* Additional inline styles (fast loading) */
@@ -72,6 +73,20 @@
                     <span id="side-user-email" class="side-user-email hidden"></span>
                 </section>
                 
+                <!-- Territory Filter Section -->
+                <section class="side-menu-section">
+                    <h4>🗺️ Browse Territories</h4>
+                    <button id="side-available-btn" class="side-menu-btn filter-btn" data-filter="available">
+                        🏴 Available <span class="count-badge" id="count-available">0</span>
+                    </button>
+                    <button id="side-auction-btn" class="side-menu-btn filter-btn" data-filter="auction">
+                        🔥 In Auction <span class="count-badge" id="count-auction">0</span>
+                    </button>
+                    <button id="side-owned-btn" class="side-menu-btn filter-btn" data-filter="owned">
+                        🏰 Owned <span class="count-badge" id="count-owned">0</span>
+                    </button>
+                </section>
+                
                 <!-- Ranking Section -->
                 <section class="side-menu-section">
                     <h4>🏆 Rankings</h4>
@@ -86,6 +101,9 @@
                 <!-- Help Section -->
                 <section class="side-menu-section">
                     <h4>❓ Help</h4>
+                    <button id="side-tutorial-btn" class="side-menu-btn">
+                        🎓 Tutorial
+                    </button>
                     <button id="side-help-btn" class="side-menu-btn">
                         📖 How to Play
                     </button>
@@ -107,8 +125,8 @@
                 <h1>📍 Billionaire Map</h1>
                 <p>Own a Piece of Earth</p>
             </div>
-            <!-- Wallet Display -->
-            <div class="header-wallet" id="header-wallet">
+            <!-- Wallet Display (hidden by default, shown on login) -->
+            <div class="header-wallet hidden" id="header-wallet">
                 <button class="wallet-btn" id="open-wallet-modal" title="Your Wallet">
                     <span class="wallet-icon">💰</span>
                     <span class="wallet-balance" id="header-wallet-balance">$0</span>
@@ -130,6 +148,29 @@
         
         <!-- Territory Panel (dynamically rendered) -->
         <div id="territory-panel" class="territory-panel hidden"></div>
+        
+        <!-- Territory List Panel -->
+        <div id="territory-list-panel" class="territory-list-panel hidden">
+            <div class="territory-list-header">
+                <h3 id="territory-list-title">🗺️ Territories</h3>
+                <button id="close-territory-list" class="close-btn">&times;</button>
+            </div>
+            <div class="territory-list-filters">
+                <button class="filter-tab active" data-filter="all">All</button>
+                <button class="filter-tab" data-filter="available">🏴 Available</button>
+                <button class="filter-tab" data-filter="auction">🔥 Auction</button>
+                <button class="filter-tab" data-filter="owned">🏰 Owned</button>
+            </div>
+            <div class="territory-list-search">
+                <input type="text" id="territory-search" placeholder="🔍 Search territories...">
+            </div>
+            <div class="territory-list-content" id="territory-list-content">
+                <!-- Dynamically rendered -->
+            </div>
+            <div class="territory-list-footer">
+                <span id="territory-list-count">0 territories</span>
+            </div>
+        </div>
         
         <!-- Ranking Board -->
         <aside class="ranking-board" id="ranking-board">
@@ -189,6 +230,149 @@
         <div id="admin-user-mode-banner" class="admin-user-mode-banner hidden">
             <span>🎭 관리자로 사용자 체험 중</span>
             <button id="back-to-admin" class="btn-back-admin">관리자 페이지로 돌아가기</button>
+        </div>
+        
+        <!-- Onboarding Welcome Modal -->
+        <div id="onboarding-modal" class="onboarding-modal hidden">
+            <div class="onboarding-overlay"></div>
+            <div class="onboarding-container">
+                <button class="onboarding-skip" id="onboarding-skip">Skip →</button>
+                
+                <!-- Slides -->
+                <div class="onboarding-slides" id="onboarding-slides">
+                    <!-- Slide 1: Welcome -->
+                    <div class="onboarding-slide active" data-slide="0">
+                        <div class="slide-content">
+                            <div class="slide-icon">🌍</div>
+                            <h1>Welcome to <span class="brand">Billionaire Map</span></h1>
+                            <p class="slide-subtitle">Own a Piece of Earth</p>
+                            <p class="slide-description">
+                                전 세계 지도에서 실제 행정구역을 구매하여<br>
+                                나만의 영토를 소유하세요!
+                            </p>
+                            <div class="slide-features">
+                                <span>🏴 영토 구매</span>
+                                <span>🎨 픽셀 아트</span>
+                                <span>🏆 랭킹 경쟁</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slide 2: How it works -->
+                    <div class="onboarding-slide" data-slide="1">
+                        <div class="slide-content">
+                            <div class="slide-icon">🗺️</div>
+                            <h2>어떻게 작동하나요?</h2>
+                            <div class="how-it-works">
+                                <div class="step">
+                                    <div class="step-number">1</div>
+                                    <div class="step-info">
+                                        <h4>영토 선택</h4>
+                                        <p>지도에서 원하는 지역을 클릭하세요</p>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">2</div>
+                                    <div class="step-info">
+                                        <h4>포인트 충전</h4>
+                                        <p>PayPal로 포인트를 충전하세요</p>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">3</div>
+                                    <div class="step-info">
+                                        <h4>영토 구매</h4>
+                                        <p>즉시 구매 또는 경매로 영토를 획득!</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slide 3: Features -->
+                    <div class="onboarding-slide" data-slide="2">
+                        <div class="slide-content">
+                            <div class="slide-icon">✨</div>
+                            <h2>무엇을 할 수 있나요?</h2>
+                            <div class="feature-cards">
+                                <div class="feature-card">
+                                    <span class="feature-icon">🎨</span>
+                                    <h4>픽셀 아트 꾸미기</h4>
+                                    <p>내 영토를 100x100 픽셀 캔버스로 꾸미세요</p>
+                                </div>
+                                <div class="feature-card">
+                                    <span class="feature-icon">⚔️</span>
+                                    <h4>경매 참여</h4>
+                                    <p>다른 영토에 입찰하여 영토를 확장하세요</p>
+                                </div>
+                                <div class="feature-card">
+                                    <span class="feature-icon">👥</span>
+                                    <h4>협업 모드</h4>
+                                    <p>친구들과 함께 픽셀 아트를 그리세요</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slide 4: Pricing -->
+                    <div class="onboarding-slide" data-slide="3">
+                        <div class="slide-content">
+                            <div class="slide-icon">💰</div>
+                            <h2>영토 가격은 어떻게 되나요?</h2>
+                            <div class="pricing-info">
+                                <div class="pricing-card">
+                                    <div class="price-range">$100 ~ $100K+</div>
+                                    <p>영토마다 가격이 다릅니다</p>
+                                </div>
+                                <ul class="pricing-factors">
+                                    <li>📍 인구 밀도에 따라 가격 책정</li>
+                                    <li>🏙️ 대도시 지역은 더 높은 가격</li>
+                                    <li>🛡️ 구매 후 7일간 소유권 보호</li>
+                                    <li>🔥 경매는 더 낮은 가격에 시작 가능</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Slide 5: Get Started -->
+                    <div class="onboarding-slide" data-slide="4">
+                        <div class="slide-content">
+                            <div class="slide-icon">🚀</div>
+                            <h2>시작할 준비가 되셨나요?</h2>
+                            <p class="slide-description">
+                                Google 계정으로 간편하게 로그인하고<br>
+                                나만의 영토를 차지하세요!
+                            </p>
+                            <div class="cta-buttons">
+                                <button class="cta-primary" id="onboarding-login">
+                                    🔐 로그인하고 시작하기
+                                </button>
+                                <button class="cta-secondary" id="onboarding-explore">
+                                    🗺️ 먼저 둘러보기
+                                </button>
+                            </div>
+                            <p class="cta-hint">* 둘러보기는 로그인 없이도 가능합니다</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Navigation -->
+                <div class="onboarding-nav">
+                    <button class="nav-btn prev" id="onboarding-prev" disabled>
+                        ← 이전
+                    </button>
+                    <div class="nav-dots" id="onboarding-dots">
+                        <span class="dot active" data-slide="0"></span>
+                        <span class="dot" data-slide="1"></span>
+                        <span class="dot" data-slide="2"></span>
+                        <span class="dot" data-slide="3"></span>
+                        <span class="dot" data-slide="4"></span>
+                    </div>
+                    <button class="nav-btn next" id="onboarding-next">
+                        다음 →
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     

@@ -9,7 +9,7 @@
     top: 50%;
     right: var(--spacing-lg);
     transform: translateY(-50%);
-    width: 380px;
+    width: 360px;
     max-height: 85vh;
     background: var(--color-bg-surface);
     border-radius: var(--radius-xl);
@@ -31,9 +31,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--spacing-lg);
+    padding: var(--spacing-md) var(--spacing-lg);
     border-bottom: var(--border-subtle);
-    background: rgba(78, 205, 196, 0.1);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15) 0%, rgba(78, 205, 196, 0.05) 100%);
 }
 
 .territory-title {
@@ -43,37 +43,43 @@
 }
 
 .territory-icon {
-    font-size: var(--font-size-2xl);
+    font-size: var(--font-size-xl);
 }
 
 .territory-title h2 {
-    font-size: var(--font-size-xl);
+    font-size: var(--font-size-lg);
     color: var(--color-text);
     margin: 0;
+    font-weight: 600;
 }
 
 .territory-panel .panel-content {
-    padding: var(--spacing-lg);
+    padding: var(--spacing-md);
     overflow-y: auto;
-    max-height: calc(85vh - 80px);
+    max-height: calc(85vh - 60px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
 }
 
 /* === 주권 섹션 === */
 .sovereignty-section {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-lg);
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
 }
 
 .sovereignty-badge {
     display: inline-flex;
     align-items: center;
     gap: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-md);
+    padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-pill);
     font-weight: 600;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
     width: fit-content;
 }
 
@@ -95,7 +101,16 @@
     border: 1px solid rgba(255, 107, 107, 0.4);
 }
 
+.sovereignty-badge.protected {
+    background: rgba(168, 130, 255, 0.2);
+    color: #a882ff;
+    border: 1px solid rgba(168, 130, 255, 0.4);
+}
+
 .ruler-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
     font-size: var(--font-size-sm);
     color: var(--color-text-secondary);
 }
@@ -103,6 +118,150 @@
 .ruler-name {
     color: var(--color-accent);
     font-weight: 600;
+}
+
+.admin-badge {
+    background: linear-gradient(135deg, #ff6b6b, #feca57);
+    color: #1a1a1a;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+}
+
+.protection-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-xs);
+    color: #a882ff;
+    margin-top: var(--spacing-xs);
+}
+
+/* === 영토 정보 카드 === */
+.territory-info-card {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-sm);
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-xs) 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-row.highlight {
+    background: rgba(78, 205, 196, 0.1);
+    margin: var(--spacing-xs) calc(-1 * var(--spacing-sm));
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-md);
+    border-bottom: none;
+}
+
+.info-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+}
+
+.info-value {
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.info-value.price {
+    color: var(--color-primary);
+    font-weight: 700;
+    font-size: var(--font-size-md);
+}
+
+/* === 픽셀 정보 카드 === */
+.pixel-info-card {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-sm);
+}
+
+.pixel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xs);
+    font-size: var(--font-size-sm);
+}
+
+.pixel-header .pixel-count {
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+.pixel-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.pixel-bar-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-pill);
+    transition: width var(--transition-slow);
+}
+
+/* === 보호 알림 === */
+.protected-notice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md);
+    background: rgba(168, 130, 255, 0.1);
+    border: 1px solid rgba(168, 130, 255, 0.3);
+    border-radius: var(--radius-lg);
+    text-align: center;
+}
+
+.protected-notice .protected-icon {
+    font-size: var(--font-size-2xl);
+}
+
+.protected-notice span {
+    color: #a882ff;
+    font-weight: 600;
+}
+
+.protected-notice small {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+}
+
+/* === 관리자 모드 알림 === */
+.admin-mode-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(254, 202, 87, 0.2));
+    border: 1px solid rgba(255, 107, 107, 0.4);
+    border-radius: var(--radius-md);
+    color: #feca57;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+}
+
+.admin-conquest {
+    background: linear-gradient(135deg, #ff6b6b, #feca57) !important;
+    color: #1a1a1a !important;
 }
 
 /* === 영토 통계 === */
@@ -942,6 +1101,232 @@
     to { transform: rotate(360deg); }
 }
 
+/* === Territory List Panel === */
+.territory-list-panel {
+    position: fixed;
+    top: 80px;
+    left: var(--spacing-lg);
+    width: 380px;
+    max-height: calc(100vh - 120px);
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-xl);
+    backdrop-filter: var(--blur-lg);
+    border: var(--border-light);
+    box-shadow: var(--shadow-soft);
+    z-index: var(--z-panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: var(--transition-normal);
+}
+
+.territory-list-panel.hidden {
+    transform: translateX(-420px);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.territory-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.2) 0%, rgba(78, 205, 196, 0.05) 100%);
+    border-bottom: var(--border-subtle);
+}
+
+.territory-list-header h3 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+}
+
+.territory-list-filters {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: var(--border-subtle);
+    background: rgba(0, 0, 0, 0.2);
+    overflow-x: auto;
+}
+
+.filter-tab {
+    padding: var(--spacing-xs) var(--spacing-md);
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    transition: var(--transition-fast);
+}
+
+.filter-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary);
+}
+
+.filter-tab.active {
+    background: var(--color-primary);
+    color: var(--color-bg-primary);
+    font-weight: 600;
+}
+
+.territory-list-search {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: var(--border-subtle);
+}
+
+.territory-list-search input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.territory-list-search input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.territory-list-search input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(78, 205, 196, 0.2);
+}
+
+.territory-list-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+}
+
+.territory-list-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-xs);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    border: 1px solid transparent;
+}
+
+.territory-list-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(78, 205, 196, 0.3);
+    transform: translateX(4px);
+}
+
+.territory-list-item.available {
+    border-left: 3px solid var(--color-primary);
+}
+
+.territory-list-item.auction {
+    border-left: 3px solid #ff6600;
+    animation: auction-pulse 2s ease-in-out infinite;
+}
+
+.territory-list-item.owned {
+    border-left: 3px solid #ff6b6b;
+}
+
+@keyframes auction-pulse {
+    0%, 100% { background: rgba(255, 102, 0, 0.05); }
+    50% { background: rgba(255, 102, 0, 0.15); }
+}
+
+.territory-item-icon {
+    font-size: var(--font-size-xl);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+}
+
+.territory-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.territory-item-name {
+    font-weight: 500;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.territory-item-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: 2px;
+}
+
+.territory-item-price {
+    font-weight: 600;
+    color: var(--color-primary);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+}
+
+.territory-item-price.auction {
+    color: #ff9500;
+}
+
+.territory-list-footer {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-top: var(--border-subtle);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.territory-list-empty {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+}
+
+.territory-list-empty .empty-icon {
+    font-size: 48px;
+    margin-bottom: var(--spacing-md);
+}
+
+/* Count Badge in Side Menu */
+.count-badge {
+    background: rgba(78, 205, 196, 0.3);
+    color: var(--color-primary);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.side-menu-btn[data-filter="auction"] .count-badge {
+    background: rgba(255, 102, 0, 0.3);
+    color: #ff9500;
+}
+
+.side-menu-btn[data-filter="owned"] .count-badge {
+    background: rgba(255, 107, 107, 0.3);
+    color: #ff6b6b;
+}
+
 /* === 반응형 === */
 @media (max-width: 768px) {
     .territory-panel {
@@ -979,6 +1364,20 @@
     
     .point-packages {
         grid-template-columns: 1fr;
+    }
+    
+    .territory-list-panel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 70vh;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    }
+    
+    .territory-list-panel.hidden {
+        transform: translateY(100%);
     }
 }
 

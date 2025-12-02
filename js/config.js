@@ -65,7 +65,7 @@ export const CONFIG = {
         // 주권 상태별 색상
         SOVEREIGNTY: {
             UNCONQUERED: '#4ecdc4',   // 미정복 - 청록
-            CONTESTED: '#feca57',     // 분쟁 중 - 노랑
+            CONTESTED: '#ff6600',     // 분쟁 중 - 주황 (더 눈에 띄게)
             RULED: '#ff6b6b'          // 통치됨 - 빨강
         },
         // UI 색상

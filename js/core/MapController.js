@@ -368,17 +368,31 @@ class MapController {
      * Clear all territory layers (for Country View mode)
      */
     clearAllTerritoryLayers() {
+        // 경매 애니메이션 중지
+        this.stopAuctionAnimation();
+        
         for (const sourceId of this.activeLayerIds) {
             const fillLayerId = `${sourceId}-fill`;
             const lineLayerId = `${sourceId}-line`;
+            const auctionGlowId = `${sourceId}-auction-glow`;
+            const auctionBorderId = `${sourceId}-auction-border`;
+            const auctionInnerId = `${sourceId}-auction-inner`;
+            const ownedBorderId = `${sourceId}-owned-border`;
             
             try {
-                if (this.map.getLayer(fillLayerId)) {
-                    this.map.removeLayer(fillLayerId);
+                // 모든 관련 레이어 제거
+                const layersToRemove = [
+                    fillLayerId, lineLayerId, 
+                    auctionGlowId, auctionBorderId, auctionInnerId, 
+                    ownedBorderId
+                ];
+                
+                for (const layerId of layersToRemove) {
+                    if (this.map.getLayer(layerId)) {
+                        this.map.removeLayer(layerId);
+                    }
                 }
-                if (this.map.getLayer(lineLayerId)) {
-                    this.map.removeLayer(lineLayerId);
-                }
+                
                 if (this.map.getSource(sourceId)) {
                     this.map.removeSource(sourceId);
                 }
@@ -421,6 +435,19 @@ class MapController {
             this.clearAllTerritoryLayers();
         }
         
+        // 각 feature에 해시 기반 색상 추가 (국가 고유 색상)
+        if (geoJsonData && geoJsonData.features) {
+            geoJsonData.features = geoJsonData.features.map(feature => {
+                const name = feature.properties?.name || 
+                             feature.properties?.NAME_1 || 
+                             feature.properties?.NAME_2 ||
+                             feature.properties?.id || 
+                             feature.id || '';
+                feature.properties.hashColor = this.stringToColor(name);
+                return feature;
+            });
+        }
+        
         // If source already exists, update it
         if (this.map.getSource(sourceId)) {
             this.map.getSource(sourceId).setData(geoJsonData);
@@ -435,6 +462,8 @@ class MapController {
         });
         
         // Fill layer (territory fill)
+        // 경매 중(contested)도 기본 색상 유지 - 테두리로만 구분
+        // 미점유(unconquered) 영토는 국가별 고유 색상 사용
         this.map.addLayer({
             id: `${sourceId}-fill`,
             type: 'fill',
@@ -443,8 +472,9 @@ class MapController {
                 'fill-color': [
                     'case',
                     ['==', ['get', 'sovereignty'], 'ruled'], CONFIG.COLORS.SOVEREIGNTY.RULED,
-                    ['==', ['get', 'sovereignty'], 'contested'], CONFIG.COLORS.SOVEREIGNTY.CONTESTED,
-                    CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
+                    ['==', ['get', 'sovereignty'], 'protected'], CONFIG.COLORS.SOVEREIGNTY.RULED,
+                    // 미점유 & 경매중: 해당 지역 고유 색상 사용
+                    ['coalesce', ['get', 'hashColor'], CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED]
                 ],
                 'fill-opacity': [
                     'case',
@@ -455,7 +485,7 @@ class MapController {
             }
         });
         
-        // Border layer
+        // Border layer (기본)
         this.map.addLayer({
             id: `${sourceId}-line`,
             type: 'line',
@@ -469,6 +499,66 @@ class MapController {
                     1
                 ],
                 'line-opacity': 0.8
+            }
+        });
+        
+        // 경매 중 영역 - 글로우 효과 (외곽 후광)
+        this.map.addLayer({
+            id: `${sourceId}-auction-glow`,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', ['get', 'sovereignty'], 'contested'],
+            paint: {
+                'line-color': '#ff6600',  // 주황색 글로우
+                'line-width': 12,
+                'line-opacity': 0.4,
+                'line-blur': 4
+            }
+        });
+        
+        // 경매 중 영역 - 중간 테두리 (밝은 주황)
+        this.map.addLayer({
+            id: `${sourceId}-auction-border`,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', ['get', 'sovereignty'], 'contested'],
+            paint: {
+                'line-color': '#ff9500',  // 밝은 주황색
+                'line-width': 6,
+                'line-opacity': 0.9
+            }
+        });
+        
+        // 경매 중 영역 - 내부 점선 (흰색)
+        this.map.addLayer({
+            id: `${sourceId}-auction-inner`,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', ['get', 'sovereignty'], 'contested'],
+            paint: {
+                'line-color': '#ffffff',
+                'line-width': 2,
+                'line-opacity': 1,
+                'line-dasharray': [4, 3]
+            }
+        });
+        
+        // 경매 중 영역 애니메이션 시작
+        this.startAuctionAnimation(sourceId);
+        
+        // 소유된 영역 특별 테두리 (빨간색)
+        this.map.addLayer({
+            id: `${sourceId}-owned-border`,
+            type: 'line',
+            source: sourceId,
+            filter: ['any', 
+                ['==', ['get', 'sovereignty'], 'ruled'],
+                ['==', ['get', 'sovereignty'], 'protected']
+            ],
+            paint: {
+                'line-color': CONFIG.COLORS.SOVEREIGNTY.RULED,
+                'line-width': 3,
+                'line-opacity': 0.9
             }
         });
         
@@ -634,6 +724,53 @@ class MapController {
      */
     getCenter() {
         return this.map?.getCenter() || { lng: 0, lat: 0 };
+    }
+    
+    /**
+     * 경매 중 영역 펄스 애니메이션
+     */
+    startAuctionAnimation(sourceId) {
+        const glowLayerId = `${sourceId}-auction-glow`;
+        const borderLayerId = `${sourceId}-auction-border`;
+        
+        // 이미 애니메이션 중인지 확인
+        if (this.auctionAnimationFrame) {
+            cancelAnimationFrame(this.auctionAnimationFrame);
+        }
+        
+        let startTime = null;
+        const animate = (timestamp) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            
+            // 2초 주기 펄스 (0.3 ~ 0.7 opacity)
+            const pulse = 0.3 + 0.4 * Math.abs(Math.sin(elapsed / 1000 * Math.PI));
+            
+            // 글로우 레이어가 있으면 opacity 업데이트
+            if (this.map && this.map.getLayer(glowLayerId)) {
+                this.map.setPaintProperty(glowLayerId, 'line-opacity', pulse);
+            }
+            
+            // 테두리 width 펄스 (5 ~ 8)
+            const widthPulse = 5 + 3 * Math.abs(Math.sin(elapsed / 800 * Math.PI));
+            if (this.map && this.map.getLayer(borderLayerId)) {
+                this.map.setPaintProperty(borderLayerId, 'line-width', widthPulse);
+            }
+            
+            this.auctionAnimationFrame = requestAnimationFrame(animate);
+        };
+        
+        this.auctionAnimationFrame = requestAnimationFrame(animate);
+    }
+    
+    /**
+     * 경매 애니메이션 중지
+     */
+    stopAuctionAnimation() {
+        if (this.auctionAnimationFrame) {
+            cancelAnimationFrame(this.auctionAnimationFrame);
+            this.auctionAnimationFrame = null;
+        }
     }
     
     /**
