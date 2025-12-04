@@ -98,20 +98,29 @@ class AuctionSystem {
             throw new Error('Auction already in progress');
         }
         
+        // Firestore Timestamp 가져오기
+        const Timestamp = firebaseService.getTimestamp();
+        if (!Timestamp) {
+            throw new Error('Firestore Timestamp not available');
+        }
+        
         // 경매 종료 시간 결정
         let auctionEndTime;
         const protectionRemaining = territoryManager.getProtectionRemaining(territoryId);
         
-        if (protectionRemaining) {
+        if (protectionRemaining && protectionRemaining.totalMs > 0) {
             // 보호 기간 중인 영토: 보호 기간 종료 시점에 경매 종료
-            auctionEndTime = new Date(Date.now() + protectionRemaining.totalMs);
+            const endDate = new Date(Date.now() + protectionRemaining.totalMs);
+            auctionEndTime = Timestamp.fromDate(endDate);
         } else if (territory.sovereignty === SOVEREIGNTY.RULED || 
                    territory.sovereignty === SOVEREIGNTY.PROTECTED) {
             // 이미 소유된 영토: 7일 경매
-            auctionEndTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            auctionEndTime = Timestamp.fromDate(endDate);
         } else {
             // 미점유 영토: 24시간 경매
-            auctionEndTime = options.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const endDate = options.endTime ? new Date(options.endTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+            auctionEndTime = Timestamp.fromDate(endDate);
         }
         
         const auction = {
@@ -131,27 +140,36 @@ class AuctionSystem {
             
             bids: [],
             
-            startTime: new Date(),
+            startTime: Timestamp.now(),
             endTime: auctionEndTime,
             
             // 보호 기간 중 경매 여부
-            isProtectedAuction: !!protectionRemaining,
+            isProtectedAuction: !!(protectionRemaining && protectionRemaining.totalMs > 0),
             currentOwnerId: territory.ruler || null,
             currentOwnerName: territory.rulerName || null,
             
             createdBy: user.uid,
-            createdAt: new Date()
+            createdAt: Timestamp.now()
         };
         
         // Firestore 저장
         await firebaseService.setDocument('auctions', auction.id, auction);
         
         // 영토 상태 업데이트 (보호 기간 중이면 sovereignty 유지)
+        // Firestore에 저장할 때는 배열 필드 제외 (중첩 배열 오류 방지)
+        const territoryUpdate = {
+            sovereignty: !protectionRemaining ? SOVEREIGNTY.CONTESTED : territory.sovereignty,
+            currentAuction: auction.id,
+            updatedAt: Timestamp.now()
+        };
+        
+        await firebaseService.updateDocument('territories', territoryId, territoryUpdate);
+        
+        // 로컬 캐시 업데이트
         if (!protectionRemaining) {
             territory.sovereignty = SOVEREIGNTY.CONTESTED;
         }
         territory.currentAuction = auction.id;
-        await firebaseService.setDocument('territories', territoryId, territory);
         
         // 로컬 캐시 업데이트
         this.activeAuctions.set(auction.id, auction);
@@ -326,7 +344,14 @@ class AuctionSystem {
             if (territory) {
                 territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
                 territory.currentAuction = null;
-                await firebaseService.setDocument('territories', auction.territoryId, territory);
+                
+                // Firestore 업데이트 (배열 필드 제외)
+                const Timestamp = firebaseService.getTimestamp();
+                await firebaseService.updateDocument('territories', auction.territoryId, {
+                    sovereignty: SOVEREIGNTY.UNCONQUERED,
+                    currentAuction: null,
+                    updatedAt: Timestamp.now()
+                });
             }
         }
         

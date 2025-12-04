@@ -186,12 +186,19 @@ class TerritoryManager {
             if (altCode) {
                 altCode = altCode.toString().toLowerCase();
                 
+                // 특수 코드 처리 (DN1 = Greenland, GRL = Greenland)
+                if (altCode === 'dn1' || altCode === 'grl') {
+                    altCode = 'greenland';
+                }
+                
                 // ISO 코드를 슬러그로 변환 시도 (예: "usa" -> "usa", "kor" -> "south-korea")
                 const isoToSlug = {
                     'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
                     'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
                     'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
-                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia'
+                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia',
+                    'grl': 'greenland', 'dn1': 'greenland',
+                    'mli': 'mali'
                 };
                 
                 const slugCode = isoToSlug[altCode] || altCode;

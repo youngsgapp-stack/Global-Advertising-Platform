@@ -44,6 +44,16 @@ class BillionaireApp {
             
             // 2. Initialize Firebase & Data Services
             await firebaseService.initialize();
+            
+            // Firebase 초기화 후 현재 사용자 상태 확인 (리다이렉트 후 복원)
+            setTimeout(() => {
+                const currentUser = firebaseService.getCurrentUser();
+                if (currentUser) {
+                    console.log('[BillionaireApp] 🔍 Found existing user after init:', currentUser.email);
+                    this.updateAuthUI(currentUser);
+                }
+            }, 1000);
+            
             await territoryDataService.initialize();
             
             // 2.5. Initialize Wallet & Payment Services
@@ -272,8 +282,13 @@ class BillionaireApp {
         const logoutBtn = document.getElementById('side-user-logout-btn');
         
         if (loginBtn) {
-            loginBtn.addEventListener('click', () => {
-                firebaseService.signInWithGoogle();
+            loginBtn.addEventListener('click', async () => {
+                try {
+                    await firebaseService.signInWithGoogle();
+                } catch (error) {
+                    // 오류는 AUTH_ERROR 이벤트로 처리됨
+                    // 리다이렉트의 경우 null을 반환하므로 오류가 아님
+                }
             });
         }
         
@@ -286,7 +301,7 @@ class BillionaireApp {
         // Wallet button
         const walletBtn = document.getElementById('open-wallet-modal');
         if (walletBtn) {
-            walletBtn.addEventListener('click', () => {
+            walletBtn.addEventListener('click', async () => {
                 const user = firebaseService.getCurrentUser();
                 if (user) {
                     paymentService.openChargeModal();
@@ -295,7 +310,11 @@ class BillionaireApp {
                         type: 'warning',
                         message: 'Please sign in to access your wallet'
                     });
-                    firebaseService.signInWithGoogle();
+                    try {
+                        await firebaseService.signInWithGoogle();
+                    } catch (error) {
+                        // 오류는 AUTH_ERROR 이벤트로 처리됨
+                    }
                 }
             });
         }
@@ -360,6 +379,7 @@ class BillionaireApp {
     setupEventListeners() {
         // Auth state change
         eventBus.on(EVENTS.AUTH_STATE_CHANGED, ({ user }) => {
+            console.log('[BillionaireApp] 🔐 AUTH_STATE_CHANGED event received, user:', user ? user.email : 'null');
             this.updateAuthUI(user);
         });
         
@@ -401,6 +421,92 @@ class BillionaireApp {
         
         document.getElementById('side-about-btn')?.addEventListener('click', () => {
             this.showAboutModal();
+        });
+        
+        // Ranking section buttons
+        document.getElementById('side-ranking-btn')?.addEventListener('click', () => {
+            rankingBoard.open();
+            // 사이드 메뉴 닫기
+            const sideMenu = document.getElementById('side-menu');
+            if (sideMenu) {
+                sideMenu.classList.add('hidden');
+            }
+        });
+        
+        document.getElementById('side-my-territories-btn')?.addEventListener('click', () => {
+            rankingBoard.open();
+            rankingBoard.switchTab('territories');
+            // 사이드 메뉴 닫기
+            const sideMenu = document.getElementById('side-menu');
+            if (sideMenu) {
+                sideMenu.classList.add('hidden');
+            }
+        });
+        
+        // UI_MODAL_OPEN 이벤트 처리 (로그인 모달 등)
+        eventBus.on(EVENTS.UI_MODAL_OPEN, (data) => {
+            if (data.type === 'login') {
+                console.log('[BillionaireApp] 🔐 Login modal opened, calling signInWithGoogle...');
+                firebaseService.signInWithGoogle().then((user) => {
+                    if (user) {
+                        console.log('[BillionaireApp] ✅ Login successful:', user.email);
+                    } else {
+                        console.log('[BillionaireApp] ℹ️ Login initiated (redirect), user will be redirected');
+                    }
+                }).catch((error) => {
+                    console.error('[BillionaireApp] ❌ Login error:', error.code, error.message);
+                    // 리다이렉트의 경우 null을 반환하므로 오류가 아님
+                    if (error && error.code !== 'auth/cancelled-popup-request') {
+                        // 오류는 AUTH_ERROR 이벤트로 처리됨
+                    }
+                });
+            }
+        });
+        
+        // AUTH_ERROR 이벤트 처리
+        eventBus.on(EVENTS.AUTH_ERROR, ({ error }) => {
+            let message = '로그인에 실패했습니다.';
+            let actionButton = null;
+            
+            if (error.code === 'auth/unauthorized-domain') {
+                const domain = error.domain || window.location.hostname;
+                message = `현재 도메인(${domain})이 Firebase에 등록되지 않았습니다.`;
+                
+                // Firebase 콘솔 링크 버튼 추가
+                if (error.consoleLink) {
+                    actionButton = {
+                        text: 'Firebase 콘솔 열기',
+                        action: () => {
+                            window.open(error.consoleLink, '_blank');
+                        }
+                    };
+                }
+                
+                // 상세 안내 메시지 표시
+                setTimeout(() => {
+                    const detailMessage = error.message || `Firebase 콘솔에서 "${domain}" 도메인을 추가해주세요.`;
+                    if (confirm(`${message}\n\n${detailMessage}\n\nFirebase 콘솔을 열까요?`)) {
+                        if (error.consoleLink) {
+                            window.open(error.consoleLink, '_blank');
+                        }
+                    }
+                }, 100);
+            } else if (error.code === 'auth/popup-closed-by-user') {
+                message = '로그인 창이 닫혔습니다. 다시 시도해주세요.';
+            } else if (error.code === 'auth/popup-blocked') {
+                message = '팝업이 차단되었습니다. 리다이렉트 방식으로 로그인을 시도합니다...';
+                // 리다이렉트는 이미 signInWithGoogle에서 처리됨
+            } else if (error.message?.includes('Cross-Origin-Opener-Policy')) {
+                message = '브라우저 보안 정책으로 인해 팝업이 차단되었습니다. 리다이렉트 방식으로 로그인을 시도합니다...';
+            } else if (error.message) {
+                message = error.message;
+            }
+            
+            this.showNotification({
+                type: 'error',
+                message: message,
+                duration: 8000
+            });
         });
     }
     
@@ -495,19 +601,19 @@ class BillionaireApp {
         modal.innerHTML = `
             <div class="modal-content about-modal-content">
                 <div class="modal-header">
-                    <h2>ℹ️ About Billionaire Map</h2>
+                        <h2>ℹ️ About Own a Piece of Earth</h2>
                     <button class="close-btn" id="close-about-modal">&times;</button>
                 </div>
                 <div class="modal-body about-body">
                     <div class="about-hero">
-                        <h1>🌍 Billionaire Map</h1>
-                        <p class="tagline">"Own a Piece of Earth"</p>
+                        <h1>🌍 Own a Piece of Earth</h1>
+                        <p class="tagline">"Own Piece"</p>
                         <p class="version">Version ${CONFIG.VERSION}</p>
                     </div>
                     
                     <div class="about-section">
-                        <h3>🎮 What is Billionaire Map?</h3>
-                        <p>Billionaire Map is an interactive global territory game where players can claim, auction, and decorate real-world administrative regions. Build your empire, compete with others, and leave your mark on the world!</p>
+                        <h3>🎮 What is Own a Piece of Earth?</h3>
+                        <p>Own a Piece of Earth is an interactive global territory game where players can claim, auction, and decorate real-world administrative regions. Build your empire, compete with others, and leave your mark on the world!</p>
                     </div>
                     
                     <div class="about-section">
@@ -538,7 +644,7 @@ class BillionaireApp {
                     </div>
                     
                     <div class="about-footer">
-                        <p>© 2025 Billionaire Map. All rights reserved.</p>
+                        <p>© 2025 Own a Piece of Earth. All rights reserved.</p>
                         <p>Made with ❤️ for global explorers</p>
                     </div>
                 </div>
@@ -841,12 +947,15 @@ class BillionaireApp {
      * Update Auth UI
      */
     updateAuthUI(user) {
+        console.log('[BillionaireApp] 🎨 updateAuthUI called, user:', user ? user.email : 'null');
+        
         const loginBtn = document.getElementById('side-user-login-btn');
         const logoutBtn = document.getElementById('side-user-logout-btn');
         const userEmail = document.getElementById('side-user-email');
         const headerWallet = document.getElementById('header-wallet');
         
         if (user) {
+            console.log('[BillionaireApp] ✅ Updating UI for logged in user:', user.email);
             if (loginBtn) loginBtn.classList.add('hidden');
             if (logoutBtn) logoutBtn.classList.remove('hidden');
             if (userEmail) {
@@ -856,6 +965,7 @@ class BillionaireApp {
             // 로그인 시 지갑 표시
             if (headerWallet) headerWallet.classList.remove('hidden');
         } else {
+            console.log('[BillionaireApp] 👋 Updating UI for logged out user');
             if (loginBtn) loginBtn.classList.remove('hidden');
             if (logoutBtn) logoutBtn.classList.add('hidden');
             if (userEmail) userEmail.classList.add('hidden');

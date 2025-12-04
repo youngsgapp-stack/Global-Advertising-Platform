@@ -66,31 +66,88 @@ body {
     box-shadow: var(--shadow-soft);
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
+    justify-content: center;
+    gap: var(--spacing-lg);
+    min-width: fit-content;
+    max-width: 90vw;
 }
 
 .header-content {
     text-align: center;
+    white-space: nowrap;
 }
 
 .header-content h1 {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin: 0;
+    line-height: 1.2;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    color: var(--color-text);
+}
+
+.header-emoji {
+    font-size: var(--font-size-xl);
+    display: inline-block;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(78, 205, 196, 0.3));
+}
+
+.header-content h1 .header-title-text {
     background: linear-gradient(45deg, var(--color-secondary), var(--color-primary), var(--color-accent));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    margin: 0;
-    line-height: 1.2;
 }
 
 .header-content p {
-    font-size: var(--font-size-2xl);
-    color: var(--color-text);
-    margin-top: var(--spacing-xs);
-    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    margin-top: 2px;
+    font-weight: 500;
     line-height: 1.2;
+}
+
+/* === 지갑 버튼 === */
+.header-wallet {
+    margin-left: var(--spacing-md);
+}
+
+.header-wallet.hidden {
+    display: none;
+}
+
+.wallet-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-md);
+    background: linear-gradient(135deg, #ff9500 0%, #ff6b6b 100%);
+    border: none;
+    border-radius: var(--radius-lg);
+    color: white;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: var(--transition-normal);
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(255, 149, 0, 0.3);
+}
+
+.wallet-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 149, 0, 0.5);
+}
+
+.wallet-icon {
+    font-size: var(--font-size-md);
+}
+
+.wallet-balance {
+    font-weight: 700;
 }
 
 /* === 햄버거 메뉴 버튼 === */
@@ -389,10 +446,31 @@ body {
     .header {
         top: var(--spacing-sm);
         padding: var(--spacing-sm) var(--spacing-md);
+        flex-wrap: wrap;
+        gap: var(--spacing-sm);
+    }
+    
+    .header-content {
+        flex: 1;
+        min-width: 0;
     }
     
     .header-content h1 {
-        font-size: var(--font-size-xl);
+        font-size: var(--font-size-md);
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .header-emoji {
+        font-size: var(--font-size-lg);
+    }
+    
+    .header-content p {
+        font-size: var(--font-size-xs);
+    }
+    
+    .header-wallet {
+        margin-left: 0;
     }
     
     .side-menu {

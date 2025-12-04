@@ -391,7 +391,7 @@ class PaymentService {
             createOrder: (data, actions) => {
                 return actions.order.create({
                     purchase_units: [{
-                        description: `Billionaire Map - ${this.selectedPackage.points} Points`,
+                        description: `Own a Piece of Earth - ${this.selectedPackage.points} Points`,
                         amount: {
                             value: this.selectedPackage.amount.toString(),
                             currency_code: 'USD'

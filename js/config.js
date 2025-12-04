@@ -5,7 +5,7 @@
 
 export const CONFIG = {
     // 앱 정보
-    APP_NAME: "Mr.Young's Billionaire Homepage",
+    APP_NAME: "Own a Piece of Earth",
     VERSION: '2.0.0',
     
     // Mapbox 설정
@@ -157,6 +157,7 @@ export const CONFIG = {
         'switzerland': { name: 'Switzerland', nameKo: '스위스', center: [8, 47], zoom: 7, flag: '🇨🇭', group: 'europe', continent: 'europe' },
         'norway': { name: 'Norway', nameKo: '노르웨이', center: [10, 62], zoom: 4, flag: '🇳🇴', group: 'europe', continent: 'europe' },
         'portugal': { name: 'Portugal', nameKo: '포르투갈', center: [-8, 39], zoom: 6, flag: '🇵🇹', group: 'europe', continent: 'europe' },
+        'greenland': { name: 'Greenland', nameKo: '그린란드', center: [-42, 72], zoom: 3, flag: '🇬🇱', group: 'north-america', continent: 'north-america' },
         'greece': { name: 'Greece', nameKo: '그리스', center: [22, 39], zoom: 6, flag: '🇬🇷', group: 'europe', continent: 'europe' },
         'czech-republic': { name: 'Czech Republic', nameKo: '체코', center: [15, 50], zoom: 6, flag: '🇨🇿', group: 'europe', continent: 'europe' },
         'romania': { name: 'Romania', nameKo: '루마니아', center: [25, 46], zoom: 6, flag: '🇷🇴', group: 'europe', continent: 'europe' },
@@ -241,6 +242,7 @@ export const CONFIG = {
         'uganda': { name: 'Uganda', nameKo: '우간다', center: [32, 1], zoom: 6, flag: '🇺🇬', group: 'africa', continent: 'africa' },
         'rwanda': { name: 'Rwanda', nameKo: '르완다', center: [30, -2], zoom: 8, flag: '🇷🇼', group: 'africa', continent: 'africa' },
         'senegal': { name: 'Senegal', nameKo: '세네갈', center: [-14, 14], zoom: 6, flag: '🇸🇳', group: 'africa', continent: 'africa' },
+        'mali': { name: 'Mali', nameKo: '말리', center: [-4, 17], zoom: 5, flag: '🇲🇱', group: 'africa', continent: 'africa' },
         'ivory-coast': { name: "Côte d'Ivoire", nameKo: '코트디부아르', center: [-5, 8], zoom: 6, flag: '🇨🇮', group: 'africa', continent: 'africa' },
         'cameroon': { name: 'Cameroon', nameKo: '카메룬', center: [12, 6], zoom: 5, flag: '🇨🇲', group: 'africa', continent: 'africa' },
         'angola': { name: 'Angola', nameKo: '앙골라', center: [17, -12], zoom: 5, flag: '🇦🇴', group: 'africa', continent: 'africa' },
@@ -336,15 +338,16 @@ export const CONFIG = {
     }
 };
 
-// 개발 모드 여부
-export const IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+// 개발 모드 여부 (로컬 네트워크 IP 포함)
+const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^localhost$|^127\.0\.0\.1$/.test(window.location.hostname);
+export const IS_DEV = isLocalNetwork || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 // 로깅 헬퍼
 export const log = {
-    info: (...args) => IS_DEV && console.log('[v2]', ...args),
+    info: (...args) => (IS_DEV || true) && console.log('[v2]', ...args), // 임시로 항상 로그 출력
     warn: (...args) => console.warn('[v2]', ...args),
     error: (...args) => console.error('[v2]', ...args),
-    debug: (...args) => IS_DEV && console.debug('[v2]', ...args)
+    debug: (...args) => (IS_DEV || true) && console.debug('[v2]', ...args) // 임시로 항상 로그 출력
 };
 
 export default CONFIG;

@@ -826,41 +826,7 @@
 }
 
 /* === 헤더 지갑 === */
-.header-wallet {
-    position: absolute;
-    right: var(--spacing-lg);
-    top: 50%;
-    transform: translateY(-50%);
-}
-
-.wallet-btn {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    background: var(--gradient-gold);
-    border: none;
-    border-radius: var(--radius-pill);
-    padding: var(--spacing-sm) var(--spacing-lg);
-    font-size: var(--font-size-md);
-    font-weight: 700;
-    color: #1a1a1a;
-    cursor: pointer;
-    transition: var(--transition-normal);
-    box-shadow: var(--shadow-soft);
-}
-
-.wallet-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-glow-accent);
-}
-
-.wallet-icon {
-    font-size: var(--font-size-lg);
-}
-
-.wallet-balance {
-    font-family: var(--font-family-mono);
-}
+/* 지갑 스타일은 layout.css에서 관리 */
 
 /* === 결제 모달 === */
 .payment-modal-content {

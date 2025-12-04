@@ -28,7 +28,7 @@ class FirebaseService {
         try {
             // Firebase 모듈 동적 로드
             const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
             const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // Firebase 앱 초기화
@@ -44,20 +44,101 @@ class FirebaseService {
             
             // Auth 헬퍼 저장
             this._auth = {
-                signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged
+                signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged
             };
             
-            // 인증 상태 감시
+            // 세션 스토리지에서 리다이렉트 플래그 확인 (초기화 시)
+            const redirectStarted = sessionStorage.getItem('firebase_redirect_started');
+            if (redirectStarted === 'true') {
+                log.info('[FirebaseService] 🔗 Redirect was started before page load, will check result...');
+            }
+            
+            // 리다이렉트 결과 확인을 먼저 수행 (onAuthStateChanged 설정 전)
+            // getRedirectResult는 한 번만 호출 가능하므로 가장 먼저 호출해야 함
+            const redirectCheckPromise = this.checkRedirectResult().catch(error => {
+                // 리다이렉트가 아닌 경우 오류는 정상
+                if (error.code !== 'auth/operation-not-allowed') {
+                    log.debug('[FirebaseService] Redirect result check (normal if no redirect):', error.message);
+                }
+                return null;
+            });
+            
+            // 인증 상태 감시 (리다이렉트 결과 확인 후 설정)
             onAuthStateChanged(this.auth, (user) => {
-                this.currentUser = user;
-                eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user });
+                log.info('[FirebaseService] 🔐 Auth state changed:', user ? `Logged in as ${user.email}` : 'Logged out');
+                log.info('[FirebaseService] 🔐 User UID:', user ? user.uid : 'null');
+                log.info('[FirebaseService] 🔐 User email:', user ? user.email : 'null');
                 
-                if (user) {
-                    log.info('User logged in:', user.email);
-                    eventBus.emit(EVENTS.AUTH_LOGIN, { user });
+                // 이전 상태와 비교하여 실제로 변경된 경우에만 처리
+                const previousUser = this.currentUser;
+                const userChanged = !previousUser && user || previousUser && !user || 
+                                   (previousUser && user && previousUser.uid !== user.uid);
+                
+                log.info('[FirebaseService] 🔐 User changed:', userChanged);
+                log.info('[FirebaseService] 🔐 Previous user:', previousUser ? previousUser.email : 'null');
+                
+                this.currentUser = user;
+                
+                if (userChanged || user) {
+                    // 상태가 변경되었거나 사용자가 있는 경우에만 이벤트 발행
+                    log.info('[FirebaseService] 📢 Emitting AUTH_STATE_CHANGED event');
+                    eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user });
+                    
+                    if (user) {
+                        log.info('[FirebaseService] ✅ User logged in:', user.email);
+                        eventBus.emit(EVENTS.AUTH_LOGIN, { user });
+                    } else {
+                        log.info('[FirebaseService] 👋 User logged out');
+                        eventBus.emit(EVENTS.AUTH_LOGOUT, {});
+                    }
                 } else {
-                    log.info('User logged out');
-                    eventBus.emit(EVENTS.AUTH_LOGOUT, {});
+                    log.info('[FirebaseService] ⏭️ Skipping event emission (no change)');
+                }
+            });
+            
+            // 리다이렉트 결과 확인 완료 후 처리
+            redirectCheckPromise.then(user => {
+                if (user) {
+                    log.info('[FirebaseService] ✅ Redirect sign-in completed, user:', user.email);
+                } else {
+                    log.info('[FirebaseService] ℹ️ No redirect result (normal if not redirected)');
+                    
+                    // 세션 스토리지에서 리다이렉트 플래그 재확인
+                    const stillRedirecting = sessionStorage.getItem('firebase_redirect_started');
+                    if (stillRedirecting === 'true') {
+                        log.info('[FirebaseService] 🔗 Redirect flag still present, waiting for auth state...');
+                        // 리다이렉트 플래그가 있으면 onAuthStateChanged를 기다림
+                        // 이미 설정되어 있으므로 자동으로 트리거될 것임
+                    }
+                    
+                    // 초기 인증 상태 확인
+                    const initialUser = this.auth.currentUser;
+                    if (initialUser && !this.currentUser) {
+                        log.info('[FirebaseService] 🔍 Initial user found after redirect check:', initialUser.email);
+                        this.currentUser = initialUser;
+                        // 약간의 지연 후 이벤트 발행 (다른 초기화가 완료된 후)
+                        setTimeout(() => {
+                            eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: initialUser });
+                        }, 500);
+                    }
+                    
+                    // 리다이렉트 결과가 없어도 현재 인증 상태를 다시 확인 (지연 후)
+                    // 리다이렉트 후 onAuthStateChanged가 트리거되기 전일 수 있음
+                    // 리다이렉트 플래그가 있으면 더 오래 기다림
+                    const delayTime = stillRedirecting === 'true' ? 5000 : 2000;
+                    setTimeout(() => {
+                        const delayedUser = this.auth.currentUser;
+                        if (delayedUser && !this.currentUser) {
+                            log.info('[FirebaseService] 🔄 Found user after delay:', delayedUser.email);
+                            this.currentUser = delayedUser;
+                            eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: delayedUser });
+                        } else if (stillRedirecting === 'true' && !delayedUser) {
+                            log.warn('[FirebaseService] ⚠️ Redirect flag present but no user found after', delayTime, 'ms');
+                            // 플래그 제거 (타임아웃)
+                            sessionStorage.removeItem('firebase_redirect_started');
+                            sessionStorage.removeItem('firebase_redirect_timestamp');
+                        }
+                    }, delayTime);
                 }
             });
             
@@ -73,19 +154,385 @@ class FirebaseService {
     }
     
     /**
-     * Google 로그인
+     * 리다이렉트 결과 확인 (페이지 로드 시)
      */
-    async signInWithGoogle() {
+    async checkRedirectResult() {
+        try {
+            log.info('[FirebaseService] 🔍 Checking redirect result...');
+            
+            // 세션 스토리지에서 리다이렉트 시작 플래그 확인
+            const redirectStarted = sessionStorage.getItem('firebase_redirect_started');
+            const redirectTimestamp = sessionStorage.getItem('firebase_redirect_timestamp');
+            
+            if (redirectStarted === 'true') {
+                log.info('[FirebaseService] 🔗 Redirect was started (timestamp:', redirectTimestamp, ')');
+            }
+            
+            // URL에 리다이렉트 관련 파라미터가 있는지 확인
+            const urlParams = new URLSearchParams(window.location.search);
+            const hash = window.location.hash;
+            const hasAuthParams = urlParams.has('__firebase_request_key') || 
+                                 hash.includes('access_token') ||
+                                 hash.includes('id_token') ||
+                                 hash.includes('authUser') ||
+                                 hash.includes('apiKey');
+            
+            log.info('[FirebaseService] 📍 Current URL:', window.location.href.substring(0, 150));
+            log.info('[FirebaseService] 📍 URL params:', Array.from(urlParams.keys()).join(', ') || 'none');
+            log.info('[FirebaseService] 📍 Hash:', hash.substring(0, 150) || 'none');
+            
+            if (hasAuthParams) {
+                log.info('[FirebaseService] 🔗 Auth parameters found in URL, processing redirect...');
+            }
+            
+            // getRedirectResult는 리다이렉트 후 한 번만 호출 가능
+            // 호출하면 리다이렉트 결과를 소비하므로, 반드시 먼저 호출해야 함
+            log.info('[FirebaseService] 🔄 Calling getRedirectResult...');
+            const result = await this._auth.getRedirectResult(this.auth);
+            
+            log.info('[FirebaseService] Redirect result:', result ? `Found (user: ${result.user?.email})` : 'None');
+            if (result && result.credential) {
+                log.info('[FirebaseService] ✅ Credential found in redirect result');
+            }
+            
+            // 리다이렉트 결과를 확인했으므로 플래그 제거
+            if (redirectStarted === 'true') {
+                sessionStorage.removeItem('firebase_redirect_started');
+                sessionStorage.removeItem('firebase_redirect_timestamp');
+                log.info('[FirebaseService] 🧹 Cleared redirect flags');
+            }
+            
+            if (result && result.user) {
+                log.info('[FirebaseService] ✅ Sign-in via redirect successful:', result.user.email);
+                
+                // currentUser 업데이트
+                this.currentUser = result.user;
+                
+                // onAuthStateChanged가 자동으로 트리거되지만, 명시적으로도 이벤트 발행
+                // 약간의 지연을 두어 onAuthStateChanged가 먼저 실행되도록 함
+                setTimeout(() => {
+                    log.info('[FirebaseService] 📢 Emitting AUTH_STATE_CHANGED event for redirect user');
+                    eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: result.user });
+                    eventBus.emit(EVENTS.AUTH_LOGIN, { user: result.user });
+                    
+                    // 성공 알림
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'success',
+                        message: `✅ 로그인 성공! ${result.user.email || result.user.displayName}님 환영합니다.`,
+                        duration: 3000
+                    });
+                }, 300);
+                
+                return result.user;
+            } else {
+                // 리다이렉트 결과가 없으면 현재 인증 상태 확인
+                const currentUser = this.auth.currentUser;
+                log.info('[FirebaseService] Current auth user:', currentUser ? currentUser.email : 'None');
+                
+                if (currentUser) {
+                    log.info('[FirebaseService] ℹ️ No redirect result, but user is already logged in:', currentUser.email);
+                    this.currentUser = currentUser;
+                    // 인증 상태 이벤트 발행
+                    setTimeout(() => {
+                        log.info('[FirebaseService] 📢 Emitting AUTH_STATE_CHANGED event for existing user');
+                        eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: currentUser });
+                    }, 300);
+                    return currentUser;
+                } else {
+                    log.info('[FirebaseService] ℹ️ No redirect result and no user (normal if not redirected)');
+                    
+                    // 세션 스토리지에서 리다이렉트 시작 플래그 확인
+                    const redirectStarted = sessionStorage.getItem('firebase_redirect_started');
+                    const redirectTimestamp = sessionStorage.getItem('firebase_redirect_timestamp');
+                    
+                    // URL에 인증 관련 파라미터가 있는지 확인
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const hash = window.location.hash;
+                    const hasAuthParams = urlParams.has('__firebase_request_key') || 
+                                         hash.includes('access_token') ||
+                                         hash.includes('id_token') ||
+                                         hash.includes('authUser') ||
+                                         hash.includes('apiKey');
+                    
+                    // 리다이렉트가 시작되었거나 인증 파라미터가 있으면 대기
+                    if (redirectStarted === 'true' || hasAuthParams) {
+                        log.info('[FirebaseService] 🔗 Redirect detected (flag or params), waiting for onAuthStateChanged...');
+                        log.info('[FirebaseService] 🔗 Redirect started:', redirectStarted);
+                        log.info('[FirebaseService] 🔗 Has auth params:', hasAuthParams);
+                        log.info('[FirebaseService] 🔗 Current auth state:', this.auth.currentUser ? this.auth.currentUser.email : 'null');
+                        
+                        // onAuthStateChanged가 트리거될 때까지 대기 (최대 10초)
+                        return new Promise((resolve) => {
+                            let resolved = false;
+                            let checkCount = 0;
+                            const maxChecks = 20; // 10초 (500ms * 20)
+                            
+                            // 즉시 한 번 확인
+                            const immediateUser = this.auth.currentUser;
+                            if (immediateUser) {
+                                log.info('[FirebaseService] ✅ Found user immediately:', immediateUser.email);
+                                this.currentUser = immediateUser;
+                                eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: immediateUser });
+                                resolve(immediateUser);
+                                return;
+                            }
+                            
+                            // 주기적으로 현재 사용자 확인
+                            const checkInterval = setInterval(() => {
+                                checkCount++;
+                                const currentUser = this.auth.currentUser;
+                                
+                                log.info('[FirebaseService] 🔄 Periodic check', checkCount, '/', maxChecks, ':', currentUser ? currentUser.email : 'null');
+                                
+                                if (currentUser && !resolved) {
+                                    resolved = true;
+                                    clearInterval(checkInterval);
+                                    clearTimeout(timeout);
+                                    log.info('[FirebaseService] ✅ Found user via periodic check:', currentUser.email);
+                                    this.currentUser = currentUser;
+                                    eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: currentUser });
+                                    resolve(currentUser);
+                                } else if (checkCount >= maxChecks && !resolved) {
+                                    resolved = true;
+                                    clearInterval(checkInterval);
+                                    clearTimeout(timeout);
+                                    log.warn('[FirebaseService] ⚠️ No user found after', checkCount * 500, 'ms');
+                                    // 플래그 제거
+                                    if (redirectStarted === 'true') {
+                                        sessionStorage.removeItem('firebase_redirect_started');
+                                        sessionStorage.removeItem('firebase_redirect_timestamp');
+                                    }
+                                    resolve(null);
+                                }
+                            }, 500);
+                            
+                            const timeout = setTimeout(() => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    clearInterval(checkInterval);
+                                    const delayedUser = this.auth.currentUser;
+                                    if (delayedUser) {
+                                        log.info('[FirebaseService] ✅ Found user after timeout:', delayedUser.email);
+                                        this.currentUser = delayedUser;
+                                        eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: delayedUser });
+                                        resolve(delayedUser);
+                                    } else {
+                                        log.warn('[FirebaseService] ⚠️ Auth params found but no user after timeout');
+                                        // 플래그 제거
+                                        if (redirectStarted === 'true') {
+                                            sessionStorage.removeItem('firebase_redirect_started');
+                                            sessionStorage.removeItem('firebase_redirect_timestamp');
+                                        }
+                                        resolve(null);
+                                    }
+                                }
+                            }, 10000);
+                            
+                            // onAuthStateChanged가 트리거되면 즉시 해결
+                            // 이미 설정되어 있으므로 별도로 설정할 필요 없음
+                            // 하지만 추가 리스너를 설정하여 더 빠르게 감지
+                            const unsubscribe = this._auth.onAuthStateChanged(this.auth, (user) => {
+                                if (user && !resolved) {
+                                    resolved = true;
+                                    clearInterval(checkInterval);
+                                    clearTimeout(timeout);
+                                    unsubscribe();
+                                    log.info('[FirebaseService] ✅ User found via additional onAuthStateChanged listener:', user.email);
+                                    this.currentUser = user;
+                                    eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user });
+                                    resolve(user);
+                                }
+                            });
+                        });
+                    }
+                }
+            }
+        } catch (error) {
+            log.error('[FirebaseService] ❌ Redirect result check error:', error.code, error.message);
+            
+            // 리다이렉트 오류 처리
+            if (error.code === 'auth/operation-not-allowed') {
+                log.warn('[FirebaseService] ⚠️ Redirect operation not allowed');
+            } else if (error.code === 'auth/account-exists-with-different-credential') {
+                log.error('[FirebaseService] ❌ Account exists with different credential');
+                eventBus.emit(EVENTS.AUTH_ERROR, { error });
+            } else {
+                // 다른 오류는 로그만 남기고 무시 (리다이렉트가 아닌 경우 정상)
+                log.debug('[FirebaseService] ℹ️ Redirect result check error (normal if no redirect):', error.code, error.message);
+            }
+            
+            // 오류가 발생해도 현재 인증 상태 확인
+            const currentUser = this.auth.currentUser;
+            if (currentUser) {
+                log.info('[FirebaseService] ✅ Error occurred but user is logged in:', currentUser.email);
+                this.currentUser = currentUser;
+                setTimeout(() => {
+                    log.info('[FirebaseService] 📢 Emitting AUTH_STATE_CHANGED event after error');
+                    eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: currentUser });
+                }, 200);
+                return currentUser;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Google 로그인 (팝업 또는 리다이렉트)
+     * 로컬 네트워크 IP에서는 리다이렉트 방식 사용
+     */
+    async signInWithGoogle(useRedirect = false) {
+        log.info('[FirebaseService] 🚀 signInWithGoogle called, useRedirect:', useRedirect);
+        
         if (!this.initialized) {
+            log.error('[FirebaseService] ❌ Firebase not initialized');
             throw new Error('Firebase not initialized');
         }
         
         try {
             const provider = new this._auth.GoogleAuthProvider();
-            const result = await this._auth.signInWithPopup(this.auth, provider);
-            return result.user;
+            
+            // 로컬 네트워크 IP 감지
+            const currentDomain = window.location.hostname;
+            const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^localhost$|^127\.0\.0\.1$/.test(currentDomain);
+            
+            log.info('[FirebaseService] 📍 Current domain:', currentDomain);
+            log.info('[FirebaseService] 📍 Is local network:', isLocalNetwork);
+            log.info('[FirebaseService] 📍 Use redirect param:', useRedirect);
+            
+            // 로컬 네트워크이거나 리다이렉트가 명시적으로 요청된 경우
+            if (useRedirect || isLocalNetwork) {
+                log.info('[FirebaseService] 🔄 Using redirect method for sign-in');
+                
+                // 리다이렉트 시작 플래그를 세션 스토리지에 저장
+                sessionStorage.setItem('firebase_redirect_started', 'true');
+                sessionStorage.setItem('firebase_redirect_timestamp', Date.now().toString());
+                
+                // 사용자에게 안내
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'info',
+                    message: '로그인 페이지로 이동합니다...',
+                    duration: 2000
+                });
+                
+                try {
+                    // 리다이렉트 방식 사용
+                    log.info('[FirebaseService] 🚀 Calling signInWithRedirect...');
+                    await this._auth.signInWithRedirect(this.auth, provider);
+                    log.info('[FirebaseService] ✅ Redirect initiated, user will be redirected to Google sign-in');
+                    // 리다이렉트는 페이지를 이동시키므로 여기서는 반환하지 않음
+                    // 실제로는 이 코드가 실행되지 않을 수 있음 (페이지 이동)
+                    return null;
+                } catch (redirectError) {
+                    log.error('[FirebaseService] ❌ Redirect failed:', redirectError.code, redirectError.message);
+                    // 리다이렉트 실패 시 플래그 제거
+                    sessionStorage.removeItem('firebase_redirect_started');
+                    sessionStorage.removeItem('firebase_redirect_timestamp');
+                    eventBus.emit(EVENTS.AUTH_ERROR, { error: redirectError });
+                    throw redirectError;
+                }
+            }
+            
+            // 팝업 방식 시도 (일반 도메인에서만)
+            try {
+                log.info('[FirebaseService] 🪟 Attempting popup sign-in...');
+                const result = await this._auth.signInWithPopup(this.auth, provider);
+                log.info('[FirebaseService] ✅ Popup sign-in successful:', result.user.email);
+                return result.user;
+            } catch (popupError) {
+                log.warn('[FirebaseService] ⚠️ Popup sign-in failed:', popupError.code, popupError.message);
+                
+                // 도메인 미등록 오류 처리
+                if (popupError.code === 'auth/unauthorized-domain') {
+                    const domain = window.location.hostname;
+                    log.error('[FirebaseService] ❌ Unauthorized domain:', domain);
+                    
+                    const errorMessage = `현재 도메인(${domain})이 Firebase에 등록되지 않았습니다.\n\n` +
+                        `Firebase 콘솔에서 다음 도메인을 추가해주세요:\n` +
+                        `- ${domain}\n` +
+                        `- ${window.location.origin}\n\n` +
+                        `Firebase 콘솔: https://console.firebase.google.com/project/${CONFIG.FIREBASE.projectId}/authentication/settings`;
+                    
+                    eventBus.emit(EVENTS.AUTH_ERROR, { 
+                        error: {
+                            ...popupError,
+                            domain: domain,
+                            message: errorMessage,
+                            consoleLink: `https://console.firebase.google.com/project/${CONFIG.FIREBASE.projectId}/authentication/settings`
+                        }
+                    });
+                    
+                    // 리다이렉트 방식으로 재시도 (도메인 등록 후 작동할 수 있음)
+                    log.info('[FirebaseService] 🔄 Retrying with redirect method...');
+                    try {
+                        sessionStorage.setItem('firebase_redirect_started', 'true');
+                        sessionStorage.setItem('firebase_redirect_timestamp', Date.now().toString());
+                        await this._auth.signInWithRedirect(this.auth, provider);
+                        return null;
+                    } catch (redirectError) {
+                        log.error('[FirebaseService] ❌ Redirect also failed:', redirectError);
+                        throw popupError; // 원래 오류를 던짐
+                    }
+                }
+                
+                // 팝업이 차단되었거나 실패한 경우 리다이렉트 방식으로 전환
+                const shouldUseRedirect = 
+                    popupError.code === 'auth/popup-blocked' || 
+                    popupError.code === 'auth/popup-closed-by-user' ||
+                    popupError.code === 'auth/cancelled-popup-request' ||
+                    popupError.message?.includes('Cross-Origin-Opener-Policy') ||
+                    popupError.message?.includes('COOP');
+                
+                if (shouldUseRedirect) {
+                    log.info('[FirebaseService] 🔄 Popup blocked or failed, using redirect method');
+                    
+                    // 사용자에게 안내
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'info',
+                        message: '팝업이 차단되었습니다. 리다이렉트 방식으로 로그인합니다...',
+                        duration: 2000
+                    });
+                    
+                    // 리다이렉트 방식으로 전환
+                    sessionStorage.setItem('firebase_redirect_started', 'true');
+                    sessionStorage.setItem('firebase_redirect_timestamp', Date.now().toString());
+                    await this._auth.signInWithRedirect(this.auth, provider);
+                    
+                    // 리다이렉트는 페이지를 이동시키므로 여기서는 반환하지 않음
+                    return null;
+                }
+                
+                // 다른 오류는 그대로 throw
+                log.error('[FirebaseService] ❌ Popup error not handled:', popupError.code);
+                eventBus.emit(EVENTS.AUTH_ERROR, { error: popupError });
+                throw popupError;
+            }
         } catch (error) {
             log.error('Google sign-in failed:', error);
+            
+            // unauthorized-domain 오류 처리
+            if (error.code === 'auth/unauthorized-domain') {
+                const currentDomain = window.location.hostname;
+                const currentUrl = window.location.origin;
+                const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\./.test(currentDomain);
+                
+                let helpMessage = '';
+                if (isLocalNetwork) {
+                    helpMessage = `로컬 네트워크 IP(${currentDomain})가 Firebase에 등록되지 않았습니다.\n\n해결 방법:\n1. Firebase 콘솔 접속: https://console.firebase.google.com/project/worldad-8be07/authentication/settings\n2. "Authorized domains" 섹션으로 이동\n3. "Add domain" 버튼 클릭\n4. "${currentDomain}" 입력 후 저장\n5. 페이지 새로고침 후 다시 시도\n\n또는 localhost를 사용하세요: http://localhost:8000`;
+                } else {
+                    helpMessage = `현재 도메인(${currentDomain})이 Firebase에 등록되지 않았습니다.\n\n해결 방법:\n1. Firebase 콘솔: https://console.firebase.google.com/project/worldad-8be07/authentication/settings\n2. "Authorized domains" → "Add domain"\n3. "${currentDomain}" 추가`;
+                }
+                
+                const friendlyError = {
+                    code: error.code,
+                    message: helpMessage,
+                    domain: currentDomain,
+                    consoleLink: `https://console.firebase.google.com/project/worldad-8be07/authentication/settings`,
+                    originalError: error
+                };
+                eventBus.emit(EVENTS.AUTH_ERROR, { error: friendlyError });
+                throw friendlyError;
+            }
+            
             eventBus.emit(EVENTS.AUTH_ERROR, { error });
             throw error;
         }
@@ -328,6 +775,13 @@ class FirebaseService {
      */
     createTimestamp() {
         return this._firestore.Timestamp.now();
+    }
+    
+    /**
+     * Firestore Timestamp 클래스 반환
+     */
+    getTimestamp() {
+        return this._firestore.Timestamp;
     }
 }
 
