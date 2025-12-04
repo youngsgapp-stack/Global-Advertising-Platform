@@ -1,0 +1,503 @@
+/**
+ * PixelEditor3 CSS - 완전히 새로운 모던 디자인
+ * 깔끔하고 직관적인 UI
+ */
+
+/* === 모달 오버레이 === */
+.pixel-editor-3 {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pixel-editor-3.hidden {
+    display: none;
+}
+
+.pixel-editor-3-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+}
+
+/* === 메인 콘텐츠 === */
+.pixel-editor-3-content {
+    position: relative;
+    width: 95%;
+    max-width: 1600px;
+    height: 90vh;
+    max-height: 900px;
+    background: #1a1a2e;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 2px solid rgba(78, 205, 196, 0.3);
+}
+
+/* === 헤더 === */
+.pixel-editor-3-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.1), rgba(78, 205, 196, 0.05));
+    border-bottom: 1px solid rgba(78, 205, 196, 0.2);
+}
+
+.pixel-editor-3-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: #4ecdc4;
+}
+
+.pixel-editor-3-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.pixel-editor-3-btn {
+    padding: 8px 16px;
+    background: rgba(78, 205, 196, 0.1);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pixel-editor-3-btn:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+    transform: translateY(-1px);
+}
+
+.pixel-editor-3-btn-primary {
+    background: #4ecdc4;
+    border-color: #4ecdc4;
+    color: #0a0a1a;
+    font-weight: 600;
+}
+
+.pixel-editor-3-btn-primary:hover {
+    background: #45b8b0;
+    border-color: #45b8b0;
+}
+
+.pixel-editor-3-save-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(78, 205, 196, 0.1);
+    border-radius: 8px;
+    font-size: 13px;
+    color: #4ecdc4;
+}
+
+.pixel-editor-3-close {
+    width: 36px;
+    height: 36px;
+    background: rgba(255, 107, 107, 0.1);
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    border-radius: 8px;
+    color: #ff6b6b;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    line-height: 1;
+}
+
+.pixel-editor-3-close:hover {
+    background: rgba(255, 107, 107, 0.2);
+    border-color: #ff6b6b;
+    transform: rotate(90deg);
+}
+
+/* === 본문 === */
+.pixel-editor-3-body {
+    display: grid;
+    grid-template-columns: 220px 1fr 200px;
+    gap: 16px;
+    padding: 20px;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* === 사이드바 === */
+.pixel-editor-3-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.pixel-editor-3-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.pixel-editor-3-sidebar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.pixel-editor-3-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(78, 205, 196, 0.3);
+    border-radius: 3px;
+}
+
+.pixel-editor-3-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(78, 205, 196, 0.5);
+}
+
+.pixel-editor-3-section {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid rgba(78, 205, 196, 0.1);
+}
+
+.pixel-editor-3-section h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #4ecdc4;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* === 도구 그리드 === */
+.pixel-editor-3-tool-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.pixel-editor-3-tool-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    border-radius: 8px;
+    color: #ccc;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pixel-editor-3-tool-btn:hover {
+    background: rgba(78, 205, 196, 0.1);
+    border-color: #4ecdc4;
+    color: #fff;
+}
+
+.pixel-editor-3-tool-btn.active {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+    color: #4ecdc4;
+}
+
+.pixel-editor-3-tool-btn .tool-icon {
+    font-size: 20px;
+}
+
+.pixel-editor-3-tool-btn span:not(.tool-icon) {
+    font-size: 11px;
+}
+
+/* === 브러시 크기 === */
+.pixel-editor-3-brush-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pixel-editor-3-brush-control input[type="range"] {
+    flex: 1;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 2px;
+    appearance: none;
+    cursor: pointer;
+}
+
+.pixel-editor-3-brush-control input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #4ecdc4;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.pixel-editor-3-brush-control input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: #4ecdc4;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+#pixel-brush-size-value-3 {
+    font-size: 13px;
+    color: #4ecdc4;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: right;
+}
+
+/* === 색상 피커 === */
+.pixel-editor-3-color-picker {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.pixel-editor-3-color-preview {
+    width: 60px;
+    height: 60px;
+    border-radius: 8px;
+    border: 2px solid #fff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+}
+
+#pixel-color-input-3 {
+    flex: 1;
+    height: 60px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: transparent;
+}
+
+/* === 팔레트 === */
+.pixel-editor-3-palette {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+}
+
+.pixel-editor-3-palette-color {
+    aspect-ratio: 1;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+}
+
+.pixel-editor-3-palette-color:hover {
+    transform: scale(1.15);
+    border-color: #fff;
+    z-index: 1;
+    position: relative;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* === 메인 캔버스 영역 === */
+.pixel-editor-3-main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    overflow: hidden;
+}
+
+.pixel-editor-3-canvas-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.5);
+    position: relative;
+}
+
+#pixel-canvas-3 {
+    display: block;
+    cursor: crosshair;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    transition: transform 0.1s ease-out;
+}
+
+/* === 줌 컨트롤 === */
+.pixel-editor-3-zoom-controls {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    z-index: 10;
+}
+
+.pixel-editor-3-zoom-btn {
+    width: 36px;
+    height: 36px;
+    background: rgba(78, 205, 196, 0.1);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 6px;
+    color: #4ecdc4;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.pixel-editor-3-zoom-btn:hover {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: #4ecdc4;
+    transform: scale(1.1);
+}
+
+.pixel-editor-3-zoom-display {
+    width: 36px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #4ecdc4;
+    font-weight: 600;
+    background: rgba(78, 205, 196, 0.05);
+    border-radius: 4px;
+}
+
+.pixel-editor-3-zoom-hint {
+    font-size: 9px;
+    color: #888;
+    text-align: center;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(78, 205, 196, 0.2);
+}
+
+.pixel-editor-3-canvas-info {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    font-size: 12px;
+    color: #aaa;
+}
+
+/* === 통계 === */
+.pixel-editor-3-stat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pixel-editor-3-stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.pixel-editor-3-stat-item span:first-child {
+    color: #aaa;
+}
+
+.pixel-editor-3-stat-item span:last-child {
+    color: #4ecdc4;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+/* === 반응형 === */
+@media (max-width: 1400px) {
+    .pixel-editor-3-body {
+        grid-template-columns: 180px 1fr 160px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .pixel-editor-3-body {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+    }
+    
+    .pixel-editor-3-sidebar {
+        max-height: 200px;
+        overflow-x: auto;
+        overflow-y: auto;
+        flex-direction: row;
+    }
+    
+    .pixel-editor-3-section {
+        min-width: 200px;
+    }
+}
+
+@media (max-width: 768px) {
+    .pixel-editor-3-content {
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        border-radius: 0;
+    }
+    
+    .pixel-editor-3-header h2 {
+        font-size: 18px;
+    }
+    
+    .pixel-editor-3-actions {
+        gap: 6px;
+    }
+    
+    .pixel-editor-3-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+}
+

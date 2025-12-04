@@ -160,6 +160,19 @@ class FirebaseService {
             }
             return null;
         } catch (error) {
+            // 오프라인 에러나 존재하지 않는 문서는 조용히 처리 (에러 로그 제거)
+            // pixelCanvases 컬렉션은 존재하지 않는 문서가 많을 수 있으므로 에러를 조용히 처리
+            if (collectionName === 'pixelCanvases') {
+                // pixelCanvases는 존재하지 않는 문서가 정상이므로 null 반환 (에러 로그 없음)
+                return null;
+            }
+            
+            // 오프라인 에러는 null 반환 (존재하지 않는 문서로 간주)
+            if (error.code === 'unavailable' || error.code === 'failed-precondition' || error.message?.includes('offline')) {
+                return null;
+            }
+            
+            // 다른 에러만 로그 출력
             log.error(`Failed to get document ${collectionName}/${docId}:`, error);
             throw error;
         }

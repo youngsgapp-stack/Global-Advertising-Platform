@@ -23,6 +23,7 @@ class TerritoryManager {
         this.territories = new Map();
         this.currentTerritory = null;
         this.unsubscribers = [];
+        this.processingTerritoryId = null; // 무한 루프 방지
     }
     
     /**
@@ -83,40 +84,68 @@ class TerritoryManager {
      * 영토 선택 처리
      */
     async handleTerritorySelect(data) {
-        const { territoryId, properties, country, geometry, featureId, sourceId } = data;
-        
-        // Firestore에서 최신 데이터 가져오기 (pixelCanvas 정보 포함)
-        let territory = this.territories.get(territoryId);
-        
-        if (!territory) {
-            // 새 영토 데이터 생성 (GeoJSON 속성 기반)
-            territory = this.createTerritoryFromProperties(territoryId, properties);
-            this.territories.set(territoryId, territory);
+        // 이미 territory 객체가 전달된 경우 (TerritoryListPanel 등에서)
+        if (data.territory) {
+            const territory = data.territory;
+            this.currentTerritory = territory;
+            
+            // 영토 패널 열기 이벤트만 발행 (무한 루프 방지)
+            eventBus.emit(EVENTS.UI_PANEL_OPEN, {
+                type: 'territory',
+                data: territory
+            });
+            return;
         }
         
-        // Firestore에서 최신 픽셀 정보 로드
+        // territoryId가 없는 경우 처리 불가
+        if (!data.territoryId) {
+            log.warn('[TerritoryManager] handleTerritorySelect: territoryId is missing', data);
+            return;
+        }
+        
+        const { territoryId, properties = {}, country, geometry, featureId, sourceId } = data;
+        
+        // 무한 루프 방지: 이미 처리 중인 영토는 건너뛰기
+        if (this.processingTerritoryId === territoryId) {
+            log.warn(`[TerritoryManager] Territory ${territoryId} is already being processed, skipping`);
+            return;
+        }
+        
+        this.processingTerritoryId = territoryId;
+        
         try {
-            const firestoreData = await firebaseService.getDocument('territories', territoryId);
-            if (firestoreData) {
-                // pixelCanvas 정보 병합
-                if (firestoreData.pixelCanvas) {
-                    territory.pixelCanvas = {
-                        ...territory.pixelCanvas,
-                        ...firestoreData.pixelCanvas
-                    };
-                }
-                // 기타 최신 정보 병합
-                if (firestoreData.ruler) territory.ruler = firestoreData.ruler;
-                if (firestoreData.rulerName) territory.rulerName = firestoreData.rulerName;
-                if (firestoreData.sovereignty) territory.sovereignty = firestoreData.sovereignty;
-                if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
-                log.debug(`Updated territory ${territoryId} from Firestore with pixelCanvas data`);
+            // Firestore에서 최신 데이터 가져오기 (pixelCanvas 정보 포함)
+            let territory = this.territories.get(territoryId);
+            
+            if (!territory) {
+                // 새 영토 데이터 생성 (GeoJSON 속성 기반)
+                territory = this.createTerritoryFromProperties(territoryId, properties);
+                this.territories.set(territoryId, territory);
             }
-        } catch (error) {
-            log.warn(`Failed to load territory ${territoryId} from Firestore:`, error);
-        }
-        
-        // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
+            
+            // Firestore에서 최신 픽셀 정보 로드
+            try {
+                const firestoreData = await firebaseService.getDocument('territories', territoryId);
+                if (firestoreData) {
+                    // pixelCanvas 정보 병합
+                    if (firestoreData.pixelCanvas) {
+                        territory.pixelCanvas = {
+                            ...territory.pixelCanvas,
+                            ...firestoreData.pixelCanvas
+                        };
+                    }
+                    // 기타 최신 정보 병합
+                    if (firestoreData.ruler) territory.ruler = firestoreData.ruler;
+                    if (firestoreData.rulerName) territory.rulerName = firestoreData.rulerName;
+                    if (firestoreData.sovereignty) territory.sovereignty = firestoreData.sovereignty;
+                    if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
+                    log.debug(`Updated territory ${territoryId} from Firestore with pixelCanvas data`);
+                }
+            } catch (error) {
+                log.warn(`Failed to load territory ${territoryId} from Firestore:`, error);
+            }
+            
+            // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
         // adm0_a3는 ISO 3166-1 alpha-3 코드 (예: "USA")를 포함하므로 우선 사용
         let finalCountry = country || 
                           properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
@@ -181,41 +210,54 @@ class TerritoryManager {
             finalCountry = null; // TerritoryPanel에서 다시 시도하도록
         }
         
-        // 국가 코드와 지오메트리 추가
-        territory.country = finalCountry;
-        territory.geometry = geometry;
-        territory.properties = properties; // properties도 저장
-        
-        // Feature ID와 Source ID도 저장 (맵 업데이트 시 사용)
-        territory.featureId = featureId;
-        territory.sourceId = sourceId;
-        
-        this.currentTerritory = territory;
-        
-        // 영토 패널 열기 이벤트 발행
-        eventBus.emit(EVENTS.UI_PANEL_OPEN, {
-            type: 'territory',
-            data: territory
-        });
-        
-        // 픽셀 데이터가 있으면 맵 업데이트 트리거
-        if (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0) {
+            // 국가 코드와 지오메트리 추가
+            territory.country = finalCountry;
+            territory.geometry = geometry;
+            territory.properties = properties; // properties도 저장
+            
+            // Feature ID와 Source ID도 저장 (맵 업데이트 시 사용)
+            territory.featureId = featureId;
+            territory.sourceId = sourceId;
+            
+            this.currentTerritory = territory;
+            
+            // 영토 패널 열기 이벤트 발행 (TERRITORY_SELECT는 다시 발행하지 않음 - 무한 루프 방지)
+            eventBus.emit(EVENTS.UI_PANEL_OPEN, {
+                type: 'territory',
+                data: territory
+            });
+            
+            // 영토 업데이트 이벤트 발행 (조건 없이 항상 발행 - 파이프라인에서 Firestore 확인)
+            // 컨설팅 원칙: 메모리 캐시가 아닌 Firestore 단일 원천으로 판단
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
                 territory: territory 
             });
+            
+            // 영토 선택 이벤트 발행 (조건 없이 항상 발행 - 파이프라인에서 Firestore 확인)
+            eventBus.emit(EVENTS.TERRITORY_SELECT, {
+                territory: territory
+            });
+        } finally {
+            // 처리 완료 후 플래그 해제 (약간의 지연 후)
+            setTimeout(() => {
+                if (this.processingTerritoryId === territoryId) {
+                    this.processingTerritoryId = null;
+                }
+            }, 500);
         }
     }
     
     /**
      * GeoJSON 속성에서 영토 데이터 생성
      */
-    createTerritoryFromProperties(territoryId, properties) {
+    createTerritoryFromProperties(territoryId, properties = {}) {
+        const props = properties || {};
         return {
             id: territoryId,
             name: {
-                ko: properties.name_ko || properties.name || territoryId,
-                en: properties.name_en || properties.name || territoryId,
-                local: properties.name_local || properties.name || territoryId
+                ko: props.name_ko || props.name || props.NAME_1 || props.NAME_2 || territoryId,
+                en: props.name_en || props.name || props.NAME_1 || props.NAME_2 || territoryId,
+                local: props.name_local || props.name || props.NAME_1 || props.NAME_2 || territoryId
             },
             country: properties.country || 'unknown',
             countryCode: properties.country_code || 'XX',

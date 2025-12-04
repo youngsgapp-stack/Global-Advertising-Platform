@@ -7,6 +7,7 @@ import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from './EventBus.js';
 import { territoryManager } from './TerritoryManager.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { initPixelMapRenderer3 } from './PixelMapRenderer3.js';
 
 class MapController {
     constructor() {
@@ -56,6 +57,9 @@ class MapController {
             
             // 이벤트 리스너 설정
             this.setupEventListeners();
+            
+            // PixelMapRenderer3 초기화 (완전히 새로 구축된 맵 렌더링 시스템)
+            this.pixelMapRenderer = initPixelMapRenderer3(this);
             
             log.info('Map initialized successfully');
             eventBus.emit(EVENTS.MAP_LOADED, { map: this.map });
@@ -124,29 +128,19 @@ class MapController {
             });
         });
         
-        // 픽셀 캔버스 업데이트 이벤트
-        eventBus.on(EVENTS.PIXEL_CANVAS_SAVED, (data) => {
-            this.handlePixelCanvasUpdate(data);
-        });
+        // 픽셀 캔버스 업데이트는 PixelMapRenderer에서 처리 (V2)
+        // PixelMapRenderer가 이미 이벤트를 구독하고 있음
         
-        // 영토 업데이트 이벤트
-        eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
-            if (data.territory) {
-                // 약간의 지연을 두고 업데이트 (다른 업데이트와 충돌 방지)
-                setTimeout(() => {
-                    this.updateTerritoryLayerVisual(data.territory);
-                }, 50);
-            }
-        });
+        // 영토 업데이트 이벤트 (일반적인 업데이트는 PixelMapRenderer가 처리)
     }
     
     /**
      * 픽셀 캔버스 업데이트 처리
      */
     handlePixelCanvasUpdate(data) {
+        console.log('[MapController] handlePixelCanvasUpdate called:', data);
         const { territoryId, filledPixels, territory } = data;
-        log.info(`🎨 ===== PIXEL CANVAS UPDATED =====`);
-        log.info(`Territory ID: ${territoryId}, Filled Pixels: ${filledPixels}`);
+        log.info(`[MapController] Pixel canvas updated - Territory: ${territoryId}, Filled Pixels: ${filledPixels}`);
         
         // territory 객체가 직접 전달되면 사용, 없으면 TerritoryManager에서 가져오기
         let targetTerritory = territory;
@@ -171,8 +165,19 @@ class MapController {
             };
         }
         
-        log.info(`📍 ===== UPDATING MAP VISUAL =====`);
-        log.info(`Territory Info:`, {
+        console.log(`[MapController] About to call updateTerritoryLayerVisual for: ${territoryId}`);
+        console.log(`[MapController] Target territory:`, {
+            id: targetTerritory.id,
+            hasSourceId: !!targetTerritory.sourceId,
+            sourceId: targetTerritory.sourceId,
+            hasFeatureId: !!targetTerritory.featureId,
+            featureId: targetTerritory.featureId,
+            country: targetTerritory.country,
+            filledPixels: targetTerritory.pixelCanvas?.filledPixels || filledPixels
+        });
+        
+        log.info(`[MapController] Updating map visual for territory: ${territoryId}`);
+        log.debug(`[MapController] Territory info:`, {
             id: targetTerritory.id,
             hasSourceId: !!targetTerritory.sourceId,
             sourceId: targetTerritory.sourceId,
@@ -184,10 +189,18 @@ class MapController {
         
         // sourcesLoaded 동기화 (먼저 실행)
         this.syncSourcesLoaded();
-        log.info(`sourcesLoaded after sync: ${Array.from(this.sourcesLoaded).join(', ') || '(empty)'}`);
+        console.log(`[MapController] Sources after sync: ${Array.from(this.sourcesLoaded).join(', ') || '(none)'}`);
+        log.debug(`[MapController] Sources after sync: ${Array.from(this.sourcesLoaded).join(', ') || '(none)'}`);
         
         // 즉시 업데이트 시도
-        this.updateTerritoryLayerVisual(targetTerritory);
+        console.log(`[MapController] Calling updateTerritoryLayerVisual now...`);
+        try {
+            this.updateTerritoryLayerVisual(targetTerritory);
+            console.log(`[MapController] updateTerritoryLayerVisual returned`);
+        } catch (error) {
+            console.error(`[MapController] Error in updateTerritoryLayerVisual:`, error);
+            log.error(`[MapController] Error in updateTerritoryLayerVisual:`, error);
+        }
         
         // source를 찾지 못한 경우 재시도 (맵이 로드될 때까지 기다림)
         // sourcesLoaded가 비어있거나, Territory에 sourceId가 없으면 재시도
@@ -230,17 +243,22 @@ class MapController {
      * 영토 레이어 시각적 업데이트 (픽셀 데이터 반영)
      */
     updateTerritoryLayerVisual(territory) {
+        console.log('[MapController] updateTerritoryLayerVisual called:', {
+            territoryId: territory?.id,
+            hasMap: !!this.map,
+            hasTerritory: !!territory,
+            pixelCanvas: territory?.pixelCanvas
+        });
+        
         if (!this.map || !territory || !territory.id) {
-            log.warn('Cannot update territory layer visual: missing map, territory, or territory.id');
+            log.warn('[MapController] Cannot update: missing map, territory, or territory.id');
             return;
         }
         
         try {
             const territoryId = territory.id;
-            log.debug(`Updating territory layer visual for: ${territoryId}`, {
-                pixelCanvas: territory.pixelCanvas,
-                filledPixels: territory.pixelCanvas?.filledPixels
-            });
+            console.log(`[MapController] Updating territory layer visual for: ${territoryId}`);
+            log.info(`[MapController] Updating territory layer visual for: ${territoryId}`);
             
             // sourcesLoaded 동기화 (맵에 실제로 로드된 source 확인)
             if (this.sourcesLoaded.size === 0) {
@@ -461,7 +479,8 @@ class MapController {
                 
                 if (feature) {
                     found = true;
-                    log.debug(`Found feature for territory ${territoryId} in source ${sourceId}`);
+                    console.log(`[MapController] ✅ Feature found for ${territoryId} in source ${sourceId}`);
+                    log.info(`[MapController] Feature found for territory ${territoryId} in source ${sourceId}`);
                     
                     // 픽셀 데이터로 속성 업데이트 (변수 범위를 넓게 설정)
                     const filledPixels = territory.pixelCanvas?.filledPixels || 0;
@@ -469,6 +488,8 @@ class MapController {
                     const height = territory.pixelCanvas?.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
                     const totalPixels = width * height;
                     const pixelFillRatio = totalPixels > 0 ? filledPixels / totalPixels : 0;
+                    
+                    console.log(`[MapController] Pixel data: ${filledPixels} pixels, ratio: ${(pixelFillRatio * 100).toFixed(1)}%`);
                     
                     if (territory.pixelCanvas) {
                         // 속성 업데이트
@@ -481,8 +502,12 @@ class MapController {
                         log.info(`Updated feature properties: ${filledPixels} pixels (${(pixelFillRatio * 100).toFixed(1)}% filled)`);
                     }
                     
-                    // sovereignty도 업데이트 (있으면)
-                    if (territory.sovereignty) {
+                    // sovereignty 업데이트 - 픽셀 데이터가 있으면 반드시 'ruled'로 설정 (색상 변경을 위해 필수!)
+                    // sovereignty가 없거나 픽셀을 그린 territory는 'ruled'로 설정하여 색상 변화 활성화
+                    if (filledPixels > 0) {
+                        feature.properties.sovereignty = territory.sovereignty || 'ruled';
+                        console.log(`[MapController] Set sovereignty to '${feature.properties.sovereignty}' for ${territoryId} (has ${filledPixels} pixels)`);
+                    } else if (territory.sovereignty) {
                         feature.properties.sovereignty = territory.sovereignty;
                     }
                     
@@ -513,7 +538,9 @@ class MapController {
                                     ...feature.properties,
                                     id: territoryId, // 정규화된 ID로 통일
                                     pixelFillRatio: pixelFillRatio,
-                                    filledPixels: filledPixels
+                                    filledPixels: filledPixels,
+                                    // sovereignty를 확실히 설정 (색상 변경을 위해 필수)
+                                    sovereignty: feature.properties.sovereignty || (filledPixels > 0 ? 'ruled' : f.properties.sovereignty)
                                 }
                             }));
                         }
@@ -525,67 +552,117 @@ class MapController {
                         features: updatedFeatures
                     };
                     
-                    // source 데이터 업데이트 (완전히 새로운 객체)
-                    source.setData(updatedGeoJson);
-                    
-                    log.info(`✅ Source ${sourceId} data updated for territory ${territoryId} - ${filledPixels} pixels (${(pixelFillRatio * 100).toFixed(1)}% filled)`);
-                    
-                    // 맵 레이어 강제 업데이트 (다중 방법 시도)
+                    // ===== 옵션 1: 레이어 완전 재생성 방식 (가장 확실한 방법) =====
                     const fillLayerId = `${sourceId}-fill`;
                     
-                    // 방법 1: Mapbox setFeatureState로 직접 업데이트
-                    try {
-                        const featureId = feature.id || feature.properties.id || feature.properties.originalId || territoryId;
+                    // 1단계: Source 데이터 업데이트
+                    source.setData(updatedGeoJson);
+                    
+                    console.log(`[MapController] ✅ Source ${sourceId} updated - ${filledPixels} pixels (${(pixelFillRatio * 100).toFixed(1)}%), sovereignty: ${feature.properties.sovereignty}`);
+                    log.info(`[MapController] Source ${sourceId} updated for ${territoryId}`);
+                    
+                    // 2단계: Fill 레이어 완전히 제거 후 재생성 (가장 확실한 방법)
+                    if (this.map.getLayer(fillLayerId)) {
+                        console.log(`[MapController] Removing layer ${fillLayerId} for recreation...`);
                         
-                        // 여러 ID 형식으로 시도
-                        const idsToTry = [feature.id, feature.properties.id, feature.properties.originalId, territoryId].filter(Boolean);
-                        for (const idToTry of idsToTry) {
-                            try {
-                                this.map.setFeatureState(
-                                    { source: sourceId, id: idToTry },
-                                    {
-                                        pixelFillRatio: pixelFillRatio,
-                                        filledPixels: filledPixels,
-                                        updated: Date.now()
-                                    }
-                                );
-                                log.debug(`✅ Feature state set for ${territoryId} using ID: ${idToTry}`);
-                                break; // 성공하면 중단
-                            } catch (e) {
-                                // 다음 ID 시도
+                        // 레이어 순서 유지를 위해 다음 레이어 ID 찾기
+                        const style = this.map.getStyle();
+                        const layerIndex = style.layers.findIndex(l => l.id === fillLayerId);
+                        let beforeLayer = null;
+                        
+                        // 현재 레이어 다음에 오는 레이어 찾기
+                        if (layerIndex >= 0 && layerIndex < style.layers.length - 1) {
+                            for (let i = layerIndex + 1; i < style.layers.length; i++) {
+                                const nextLayer = style.layers[i];
+                                if (nextLayer.source === sourceId || nextLayer.id.startsWith(sourceId + '-')) {
+                                    beforeLayer = nextLayer.id;
+                                    break;
+                                }
                             }
                         }
-                    } catch (e) {
-                        log.warn(`Failed to set feature state:`, e);
-                    }
-                    
-                    // 방법 2: 맵 강제 새로고침 (즉시)
-                    this.map.triggerRepaint();
-                    
-                    // 방법 3: 레이어 paint 속성 직접 업데이트 (pixelFillRatio 기반 색상)
-                    if (this.map.getLayer(fillLayerId)) {
-                        // paint 속성 다시 읽어서 강제 재계산
-                        const currentPaint = this.map.getPaintProperty(fillLayerId, 'fill-color');
                         
-                        // 약간의 지연 후 강제 새로고침
-                        setTimeout(() => {
-                            // 레이어를 일시적으로 제거 후 다시 추가하여 강제 새로고침
-                            const layerDef = this.map.getLayer(fillLayerId);
-                            if (layerDef) {
-                                // paint 속성 다시 설정
-                                this.map.setPaintProperty(fillLayerId, 'fill-color', currentPaint);
-                                
-                                // 맵 줌을 미세하게 변경하여 강제 새로고침
-                                const currentZoom = this.map.getZoom();
-                                this.map.zoomTo(currentZoom + 0.0001, { duration: 0 });
-                                setTimeout(() => {
-                                    this.map.zoomTo(currentZoom, { duration: 0 });
+                        // 레이어 제거
+                        this.map.removeLayer(fillLayerId);
+                        console.log(`[MapController] Layer ${fillLayerId} removed`);
+                        
+                        // 3단계: Source 데이터 업데이트 완료 대기 후 레이어 재생성
+                        source.once('data', () => {
+                            console.log(`[MapController] Source data event fired, recreating layer...`);
+                            
+                            // 짧은 지연 후 레이어 재생성 (Mapbox가 source 업데이트를 완전히 처리하도록)
+                            setTimeout(() => {
+                                try {
+                                    // Fill 레이어 재생성 (addTerritoryLayer와 동일한 정의 사용)
+                                    this.map.addLayer({
+                                        id: fillLayerId,
+                                        type: 'fill',
+                                        source: sourceId,
+                                        paint: {
+                                            'fill-color': [
+                                                'case',
+                                                ['==', ['get', 'sovereignty'], 'ruled'], [
+                                                    'interpolate',
+                                                    ['linear'],
+                                                    ['coalesce', ['get', 'pixelFillRatio'], 0],
+                                                    0, CONFIG.COLORS.SOVEREIGNTY.RULED,
+                                                    0.25, '#ff8c8c',
+                                                    0.5, '#ffb347',
+                                                    0.75, '#ffd700',
+                                                    1, '#90ee90'
+                                                ],
+                                                ['==', ['get', 'sovereignty'], 'protected'], [
+                                                    'interpolate',
+                                                    ['linear'],
+                                                    ['coalesce', ['get', 'pixelFillRatio'], 0],
+                                                    0, CONFIG.COLORS.SOVEREIGNTY.RULED,
+                                                    0.25, '#ff8c8c',
+                                                    0.5, '#ffb347',
+                                                    0.75, '#ffd700',
+                                                    1, '#90ee90'
+                                                ],
+                                                ['coalesce', ['get', 'hashColor'], CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED]
+                                            ],
+                                            'fill-opacity': [
+                                                'case',
+                                                // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
+                                                ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
+                                                // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절
+                                                ['boolean', ['feature-state', 'hover'], false], 0.7,
+                                                ['boolean', ['feature-state', 'selected'], false], 0.8,
+                                                0.5  // 기본: 위성 배경이 살짝 비치도록 투명도 낮춤
+                                            ],
+                                            'fill-color-transition': {
+                                                duration: 500,
+                                                delay: 0
+                                            }
+                                        }
+                                    }, beforeLayer);
+                                    
+                                    console.log(`[MapController] ✅ Layer ${fillLayerId} recreated`);
+                                    
+                                    // 레이어 재생성 후 맵 강제 새로고침
                                     this.map.triggerRepaint();
-                                    log.info(`🔄 Map fully refreshed for territory ${territoryId}`);
-                                }, 50);
-                            }
-                        }, 100);
+                                    
+                                    // 렌더링 완료 확인
+                                    this.map.once('render', () => {
+                                        console.log(`[MapController] ✅✅✅ Map render completed - visual update SHOULD BE VISIBLE NOW! ✅✅✅`);
+                                        log.info(`[MapController] Territory ${territoryId} visual update completed`);
+                                    });
+                                } catch (error) {
+                                    console.error(`[MapController] ❌ Failed to recreate layer:`, error);
+                                    log.error(`[MapController] Failed to recreate layer ${fillLayerId}:`, error);
+                                }
+                            }, 100); // 100ms 지연
+                        });
+                    } else {
+                        // 레이어가 없으면 단순히 맵 새로고침
+                        source.once('data', () => {
+                            this.map.triggerRepaint();
+                        });
                     }
+                    
+                    // 즉시 맵 새로고침 (이벤트와 병행)
+                    this.map.triggerRepaint();
                     
                     break; // 첫 번째 매칭된 feature만 업데이트
                 }
@@ -1020,36 +1097,81 @@ class MapController {
         }
         
         // 각 feature에 해시 기반 색상 추가 및 TerritoryManager 데이터 동기화
+        // 핵심: GeoJSON 단계에서 territoryId를 명시적으로 심고, TerritoryManager에 매핑 확립
         if (geoJsonData && geoJsonData.features) {
-            geoJsonData.features = geoJsonData.features.map(feature => {
-                const name = feature.properties?.name || 
-                             feature.properties?.NAME_1 || 
-                             feature.properties?.NAME_2 ||
-                             feature.properties?.id || 
-                             feature.id || '';
-                feature.properties.hashColor = this.stringToColor(name);
+            geoJsonData.features = geoJsonData.features.map((feature, index) => {
+                // 1. territoryId 확정 (명시적으로 설정)
+                let territoryId = feature.properties?.id || feature.id;
                 
-                // TerritoryManager에서 territory 데이터 가져와서 픽셀 정보 동기화
-                const territoryId = feature.properties?.id || feature.id;
-                if (territoryId) {
-                    const territory = territoryManager.getTerritory(territoryId);
-                    if (territory && territory.pixelCanvas) {
-                        const filledPixels = territory.pixelCanvas.filledPixels || 0;
-                        const width = territory.pixelCanvas.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
-                        const height = territory.pixelCanvas.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
-                        const totalPixels = width * height;
-                        const pixelFillRatio = totalPixels > 0 ? filledPixels / totalPixels : 0;
-                        
-                        feature.properties.filledPixels = filledPixels;
-                        feature.properties.pixelCanvasWidth = width;
-                        feature.properties.pixelCanvasHeight = height;
-                        feature.properties.pixelFillRatio = pixelFillRatio;
-                        
-                        if (territory.sovereignty) {
-                            feature.properties.sovereignty = territory.sovereignty;
-                        }
+                // territoryId가 없거나 숫자만 있으면 정규화
+                if (!territoryId || String(territoryId).match(/^\d+$/)) {
+                    const name = feature.properties?.name || 
+                                 feature.properties?.NAME_1 || 
+                                 feature.properties?.NAME_2 ||
+                                 feature.properties?.name_en ||
+                                 '';
+                    if (name) {
+                        territoryId = this.normalizeTerritoryId(territoryId || '', name, feature.properties?.country || '');
+                    } else {
+                        territoryId = territoryId || `${sourceId}-${index}`;
                     }
                 }
+                
+                // 2. feature.id 확정 (Mapbox가 사용하는 ID)
+                const featureId = feature.id ?? index;
+                
+                // 3. properties에 territoryId 명시적으로 설정 (항상)
+                feature.properties = feature.properties || {};
+                feature.properties.id = territoryId;  // 명시적으로 설정
+                feature.properties.territoryId = territoryId;  // 별칭으로도 저장
+                
+                // 4. feature.id도 설정 (Mapbox 매칭용)
+                feature.id = featureId;
+                
+                // 5. 해시 색상 설정
+                const name = feature.properties.name || 
+                             feature.properties.NAME_1 || 
+                             feature.properties.NAME_2 ||
+                             territoryId;
+                feature.properties.hashColor = this.stringToColor(name);
+                
+                // 6. TerritoryManager에 매핑 확립 (핵심!)
+                let territory = territoryManager.getTerritory(territoryId);
+                if (!territory) {
+                    // TerritoryManager에 없는 경우 생성
+                    territory = territoryManager.createTerritoryFromProperties(
+                        territoryId,
+                        feature.properties
+                    );
+                    territoryManager.territories.set(territoryId, territory);
+                }
+                
+                // 7. sourceId/featureId 매핑 확립 (항상 업데이트)
+                territory.sourceId = sourceId;
+                territory.featureId = featureId;
+                territory.geometry = feature.geometry;
+                territory.properties = feature.properties;
+                
+                // 8. 픽셀 정보 동기화 (TerritoryManager에서)
+                if (territory.pixelCanvas) {
+                    const filledPixels = territory.pixelCanvas.filledPixels || 0;
+                    const width = territory.pixelCanvas.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                    const height = territory.pixelCanvas.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+                    const totalPixels = width * height;
+                    const pixelFillRatio = totalPixels > 0 ? filledPixels / totalPixels : 0;
+                    
+                    feature.properties.filledPixels = filledPixels;
+                    feature.properties.pixelCanvasWidth = width;
+                    feature.properties.pixelCanvasHeight = height;
+                    feature.properties.pixelFillRatio = pixelFillRatio;
+                }
+                
+                // 9. sovereignty 동기화
+                if (territory.sovereignty) {
+                    feature.properties.sovereignty = territory.sovereignty;
+                }
+                
+                log.debug(`[MapController] Established mapping: territoryId=${territoryId}, sourceId=${sourceId}, featureId=${featureId}`);
                 
                 return feature;
             });
@@ -1084,11 +1206,16 @@ class MapController {
             paint: {
                 'fill-color': [
                     'case',
-                    // 정복된 영토: 픽셀 채움 비율에 따라 색상 변화
+                    // 정복된 영토: 픽셀 채움 비율에 따라 색상 변화 (Feature State + Properties 모두 지원)
                     ['==', ['get', 'sovereignty'], 'ruled'], [
                         'interpolate',
                         ['linear'],
-                        ['coalesce', ['get', 'pixelFillRatio'], 0],
+                        [
+                            'coalesce',
+                            ['feature-state', 'pixelFillRatio'],  // Feature State 우선
+                            ['get', 'pixelFillRatio'],              // Properties 폴백
+                            0
+                        ],
                         0, CONFIG.COLORS.SOVEREIGNTY.RULED,  // 0%: 기본 빨강
                         0.25, '#ff8c8c',  // 25%: 밝은 빨강
                         0.5, '#ffb347',   // 50%: 주황
@@ -1098,7 +1225,12 @@ class MapController {
                     ['==', ['get', 'sovereignty'], 'protected'], [
                         'interpolate',
                         ['linear'],
-                        ['coalesce', ['get', 'pixelFillRatio'], 0],
+                        [
+                            'coalesce',
+                            ['feature-state', 'pixelFillRatio'],
+                            ['get', 'pixelFillRatio'],
+                            0
+                        ],
                         0, CONFIG.COLORS.SOVEREIGNTY.RULED,
                         0.25, '#ff8c8c',
                         0.5, '#ffb347',
@@ -1110,9 +1242,13 @@ class MapController {
                 ],
                 'fill-opacity': [
                     'case',
+                    // 컨설팅 원칙: 배경색 숨김 조건을 hasPixelArt = true 하나로 단순화
+                    // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
+                    ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
+                    // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절
                     ['boolean', ['feature-state', 'hover'], false], 0.7,
                     ['boolean', ['feature-state', 'selected'], false], 0.8,
-                    0.5  // 위성 배경이 살짝 비치도록 투명도 낮춤
+                    0.5  // 기본: 위성 배경이 살짝 비치도록 투명도 낮춤
                 ],
                 // 애니메이션 효과: 색상 전환 시간 500ms
                 'fill-color-transition': {
@@ -1205,6 +1341,14 @@ class MapController {
         this.sourcesLoaded.add(sourceId);
         this.activeLayerIds.add(sourceId);
         log.info(`Territory layer added: ${sourceId}`);
+        
+        // 레이어 추가 완료 후 픽셀 아트 자동 표시
+        setTimeout(() => {
+            eventBus.emit(EVENTS.MAP_LAYER_ADDED, {
+                sourceId: sourceId,
+                geoJsonData: geoJsonData
+            });
+        }, 500);
     }
     
     /**
@@ -1332,16 +1476,45 @@ class MapController {
             // 'regions-south-korea' -> 'south-korea'
             const parts = sourceId.split('-');
             if (parts.length >= 2) {
-                // 첫 번째 부분 (territories, states, regions, etc) 제거하고 나머지 합침
-                countryCode = parts.slice(1).join('-');
+                const extractedCode = parts.slice(1).join('-');
+                // 잘못된 값 필터링
+                const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces'];
+                if (!invalidCodes.includes(extractedCode.toLowerCase())) {
+                    countryCode = extractedCode;
+                }
             }
         }
         
-        // feature.properties에서 국가 코드 추출 시도
+        // feature.properties에서 국가 코드 추출 시도 (ISO 코드 우선)
         if (!countryCode && feature.properties) {
-            countryCode = feature.properties.country || 
-                         feature.properties.country_code ||
-                         feature.properties.sov_a3?.toLowerCase();
+            // ISO 코드 (adm0_a3) 우선 사용
+            if (feature.properties.adm0_a3) {
+                const isoCode = feature.properties.adm0_a3.toLowerCase();
+                // ISO 코드를 슬러그로 변환
+                const isoToSlug = {
+                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
+                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
+                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
+                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia',
+                    'dza': 'algeria', 'mar': 'morocco', 'tun': 'tunisia', 'egy': 'egypt',
+                    'zaf': 'south-africa', 'nga': 'nigeria', 'ken': 'kenya'
+                };
+                if (isoToSlug[isoCode]) {
+                    countryCode = isoToSlug[isoCode];
+                }
+            }
+            
+            if (!countryCode) {
+                countryCode = feature.properties.country || 
+                             feature.properties.country_code ||
+                             feature.properties.sov_a3?.toLowerCase();
+            }
+        }
+        
+        // 잘못된 값 필터링
+        const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces'];
+        if (countryCode && invalidCodes.includes(countryCode.toLowerCase())) {
+            countryCode = null;
         }
         
         // 최종 fallback: 'unknown'
@@ -1529,6 +1702,7 @@ class MapController {
             const countryColors = new Map();
             
             // Add all regions as one layer with country colors
+            // 핵심: territoryId를 명시적으로 설정하고 TerritoryManager에 매핑 확립
             const worldData = {
                 type: 'FeatureCollection',
                 features: this.globalAdminData.features.map((feature, index) => {
@@ -1539,18 +1713,47 @@ class MapController {
                         countryColors.set(countryCode, this.stringToColor(countryCode));
                     }
                     
+                    // territoryId 정규화 (이름 기반)
+                    const name = feature.properties.name || feature.properties.name_en || `Region ${index}`;
+                    const territoryId = this.normalizeTerritoryId(
+                        feature.properties.id || feature.id || `world-${index}`,
+                        name,
+                        countryCode
+                    );
+                    
+                    // feature.id 확정
+                    const featureId = index;
+                    
+                    // TerritoryManager에 매핑 확립
+                    let territory = territoryManager.getTerritory(territoryId);
+                    if (!territory) {
+                        territory = territoryManager.createTerritoryFromProperties(territoryId, {
+                            name: name,
+                            country: countryCode,
+                            sovereignty: 'unconquered'
+                        });
+                        territoryManager.territories.set(territoryId, territory);
+                    }
+                    
+                    // sourceId/featureId 매핑 확립
+                    territory.sourceId = 'world-territories';
+                    territory.featureId = featureId;
+                    territory.geometry = feature.geometry;
+                    territory.properties = {
+                        ...feature.properties,
+                        id: territoryId,
+                        territoryId: territoryId,
+                        name: name,
+                        country: countryCode,
+                        countryCode: countryCode,
+                        countryColor: countryColors.get(countryCode),
+                        sovereignty: 'unconquered'
+                    };
+                    
                     return {
                         ...feature,
-                        id: index,
-                        properties: {
-                            ...feature.properties,
-                            id: `world-${index}`,
-                            name: feature.properties.name || feature.properties.name_en || `Region ${index}`,
-                            country: feature.properties.admin || countryCode,
-                            countryCode: countryCode,
-                            countryColor: countryColors.get(countryCode),
-                            sovereignty: 'unconquered'
-                        }
+                        id: featureId,
+                        properties: territory.properties
                     };
                 })
             };
@@ -1568,6 +1771,7 @@ class MapController {
                 });
                 
                 // 월드뷰 영토 레이어 - 위성 배경이 비치도록 투명도 조정
+                // 배경색 숨김 조건을 hasPixelArt 하나로 단순화
                 this.map.addLayer({
                     id: 'world-territories-fill',
                     type: 'fill',
@@ -1576,9 +1780,12 @@ class MapController {
                         'fill-color': ['get', 'countryColor'],
                         'fill-opacity': [
                             'case',
+                            // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
+                            ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
+                            // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절
                             ['boolean', ['feature-state', 'hover'], false], 0.7,
                             ['boolean', ['feature-state', 'selected'], false], 0.8,
-                            0.5  // 위성 배경이 살짝 비치도록
+                            0.5  // 기본: 위성 배경이 살짝 비치도록
                         ]
                     }
                 });

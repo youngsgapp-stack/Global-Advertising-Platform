@@ -7,7 +7,6 @@ import { CONFIG, log } from './config.js';
 import { eventBus, EVENTS } from './core/EventBus.js';
 import { mapController } from './core/MapController.js';
 import { territoryManager } from './core/TerritoryManager.js';
-import { pixelCanvas } from './core/PixelCanvas.js';
 import { firebaseService } from './services/FirebaseService.js';
 import { walletService, WALLET_EVENTS } from './services/WalletService.js';
 import { paymentService } from './services/PaymentService.js';
@@ -18,13 +17,14 @@ import { collaborationHub } from './features/CollaborationHub.js';
 import { historyLogger } from './features/HistoryLogger.js';
 import { territoryPanel } from './ui/TerritoryPanel.js';
 import { territoryListPanel } from './ui/TerritoryListPanel.js';
-import { pixelEditor } from './ui/PixelEditor.js';
+import { pixelEditor3 } from './ui/PixelEditor3.js';
 import { rankingBoard } from './ui/RankingBoard.js';
 import { timelineWidget } from './ui/TimelineWidget.js';
 import { onboardingGuide } from './ui/OnboardingGuide.js';
 import { recommendationSystem } from './features/RecommendationSystem.js';
 import { recommendationPanel } from './ui/RecommendationPanel.js';
 import { territoryDataService } from './services/TerritoryDataService.js';
+import './utils/ResetData.js'; // 데이터 초기화 유틸리티 (전역 함수로 등록)
 
 class BillionaireApp {
     constructor() {
@@ -69,7 +69,7 @@ class BillionaireApp {
             // 6. Initialize UI
             territoryPanel.initialize();
             territoryListPanel.initialize();
-            pixelEditor.initialize();
+            pixelEditor3.initialize();
             rankingBoard.initialize();
             timelineWidget.initialize();
             recommendationPanel.initialize();

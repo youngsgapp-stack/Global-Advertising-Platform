@@ -125,6 +125,7 @@ export const EVENTS = {
     MAP_ZOOM: 'map:zoom',
     MAP_MOVE: 'map:move',
     MAP_MODE_CHANGE: 'map:modeChange',
+    MAP_LAYER_ADDED: 'map:layerAdded',
     
     // 영토
     TERRITORY_SELECT: 'territory:select',
@@ -146,6 +147,7 @@ export const EVENTS = {
     PIXEL_VALUE_CHANGE: 'pixel:valueChange',
     PIXEL_CANVAS_UPDATED: 'pixel:canvasUpdated',
     PIXEL_CANVAS_SAVED: 'pixel:canvasSaved',
+    PIXEL_DATA_SAVED: 'pixel:dataSaved',
     
     // 랭킹
     RANKING_UPDATE: 'ranking:update',
