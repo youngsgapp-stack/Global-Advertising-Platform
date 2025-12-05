@@ -1091,10 +1091,11 @@ class MapController {
      * @param {object} geoJsonData - GeoJSON data
      */
     addTerritoryLayer(sourceId, geoJsonData) {
+        // 다른 나라 행정구역 표시 유지를 위해 clearAllTerritoryLayers 제거
         // In Country View mode, clear previous layers first
-        if (this.viewMode === 'country' && !sourceId.startsWith('world-')) {
-            this.clearAllTerritoryLayers();
-        }
+        // if (this.viewMode === 'country' && !sourceId.startsWith('world-')) {
+        //     this.clearAllTerritoryLayers();
+        // }
         
         // 각 feature에 해시 기반 색상 추가 및 TerritoryManager 데이터 동기화
         // 핵심: GeoJSON 단계에서 territoryId를 명시적으로 심고, TerritoryManager에 매핑 확립
@@ -1398,20 +1399,34 @@ class MapController {
             if (e.features.length > 0) {
                 const feature = e.features[0];
                 
+                // 소스 존재 여부 확인
+                if (!this.map.getSource(sourceId)) {
+                    return;
+                }
+                
                 // 이전 호버 해제
                 if (this.hoveredTerritoryId !== null) {
-                    this.map.setFeatureState(
-                        { source: sourceId, id: this.hoveredTerritoryId },
-                        { hover: false }
-                    );
+                    try {
+                        this.map.setFeatureState(
+                            { source: sourceId, id: this.hoveredTerritoryId },
+                            { hover: false }
+                        );
+                    } catch (error) {
+                        // 소스가 제거된 경우 무시
+                        log.debug('Source removed during hover:', sourceId);
+                    }
                 }
                 
                 // 새 호버 설정
                 this.hoveredTerritoryId = feature.id;
-                this.map.setFeatureState(
-                    { source: sourceId, id: this.hoveredTerritoryId },
-                    { hover: true }
-                );
+                try {
+                    this.map.setFeatureState(
+                        { source: sourceId, id: this.hoveredTerritoryId },
+                        { hover: true }
+                    );
+                } catch (error) {
+                    log.debug('Failed to set hover state:', error);
+                }
                 
                 eventBus.emit(EVENTS.TERRITORY_HOVER, {
                     territoryId: feature.properties.id || feature.id,
@@ -1426,10 +1441,18 @@ class MapController {
             this.map.getCanvas().style.cursor = '';
             
             if (this.hoveredTerritoryId !== null) {
-                this.map.setFeatureState(
-                    { source: sourceId, id: this.hoveredTerritoryId },
-                    { hover: false }
-                );
+                // 소스 존재 여부 확인
+                if (this.map.getSource(sourceId)) {
+                    try {
+                        this.map.setFeatureState(
+                            { source: sourceId, id: this.hoveredTerritoryId },
+                            { hover: false }
+                        );
+                    } catch (error) {
+                        // 소스가 제거된 경우 무시
+                        log.debug('Source removed during mouseleave:', sourceId);
+                    }
+                }
             }
             this.hoveredTerritoryId = null;
         });

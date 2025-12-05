@@ -176,7 +176,8 @@ class BillionaireApp {
                 toggleBtn.textContent = '🌍 World';
                 toggleBtn.classList.remove('active');
                 mapController.setViewMode('country');
-                mapController.clearAllTerritoryLayers();
+                // 다른 나라 행정구역 표시 유지를 위해 clearAllTerritoryLayers 제거
+                // mapController.clearAllTerritoryLayers();
                 
                 // Reload last country or default to USA
                 const country = this.currentCountry || 'usa';
@@ -708,10 +709,10 @@ class BillionaireApp {
                 }
             }
             
-            // 1,2,3: Zoom levels
-            if (e.key === '1') mapController.flyTo([0, 20], 2);
-            if (e.key === '2') mapController.flyTo([0, 20], 4);
-            if (e.key === '3') mapController.flyTo([0, 20], 6);
+            // 1,2,3: Zoom levels (disabled - 숫자 키 입력 방해 방지)
+            // if (e.key === '1') mapController.flyTo([0, 20], 2);
+            // if (e.key === '2') mapController.flyTo([0, 20], 4);
+            // if (e.key === '3') mapController.flyTo([0, 20], 6);
         });
         
         // Admin modal event listeners

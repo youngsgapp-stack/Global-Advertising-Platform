@@ -320,8 +320,16 @@ class TerritoryListPanel {
         if (!territory) return;
         
         // 해당 영토로 이동
-        if (territory.center) {
-            mapController.flyTo(territory.center, 8);
+        let center = territory.center;
+        
+        // center가 없으면 geometry에서 계산
+        if (!center && territory.sourceId && territory.featureId) {
+            center = this.calculateTerritoryCenter(territory);
+        }
+        
+        // center가 있으면 이동
+        if (center) {
+            mapController.flyTo(center, 8);
         }
         
         // 영토 선택 이벤트 발생
@@ -329,6 +337,87 @@ class TerritoryListPanel {
         
         // 패널 닫기
         this.close();
+    }
+    
+    /**
+     * 영토 geometry에서 중심점 계산
+     */
+    calculateTerritoryCenter(territory) {
+        try {
+            const map = mapController.map;
+            if (!map || !territory.sourceId || !territory.featureId) return null;
+            
+            const source = map.getSource(territory.sourceId);
+            if (!source || source.type !== 'geojson') return null;
+            
+            const data = source._data;
+            if (!data || !data.features) return null;
+            
+            // feature 찾기
+            const feature = data.features.find(f => 
+                String(f.id) === String(territory.featureId) ||
+                String(f.properties?.id) === String(territory.id)
+            );
+            
+            if (!feature || !feature.geometry) return null;
+            
+            // bounds 계산
+            const bounds = this.calculateBounds(feature.geometry);
+            if (!bounds) return null;
+            
+            // 중심점 계산
+            const centerLng = (bounds.minLng + bounds.maxLng) / 2;
+            const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+            
+            return [centerLng, centerLat];
+        } catch (error) {
+            log.warn(`Failed to calculate territory center for ${territory.id}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * geometry에서 bounds 계산
+     */
+    calculateBounds(geometry) {
+        if (!geometry || !geometry.coordinates) return null;
+        
+        let minLng = Infinity, maxLng = -Infinity;
+        let minLat = Infinity, maxLat = -Infinity;
+        
+        const processCoordinates = (coords) => {
+            if (Array.isArray(coords[0])) {
+                coords.forEach(processCoordinates);
+            } else if (coords.length >= 2) {
+                const [lng, lat] = coords;
+                minLng = Math.min(minLng, lng);
+                maxLng = Math.max(maxLng, lng);
+                minLat = Math.min(minLat, lat);
+                maxLat = Math.max(maxLat, lat);
+            }
+        };
+        
+        try {
+            if (geometry.type === 'Polygon') {
+                geometry.coordinates.forEach(processCoordinates);
+            } else if (geometry.type === 'MultiPolygon') {
+                geometry.coordinates.forEach(polygon => {
+                    polygon.forEach(processCoordinates);
+                });
+            } else if (geometry.type === 'Point') {
+                const [lng, lat] = geometry.coordinates;
+                return { minLng: lng, maxLng: lng, minLat: lat, maxLat: lat };
+            }
+            
+            if (minLng === Infinity || maxLng === -Infinity || minLat === Infinity || maxLat === -Infinity) {
+                return null;
+            }
+            
+            return { minLng, maxLng, minLat, maxLat };
+        } catch (error) {
+            log.warn('Failed to calculate bounds:', error);
+            return null;
+        }
     }
     
     /**

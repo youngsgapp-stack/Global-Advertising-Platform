@@ -7,6 +7,7 @@ import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryManager, SOVEREIGNTY } from '../core/TerritoryManager.js';
+import { territoryDataService } from '../services/TerritoryDataService.js';
 
 // 옥션 타입
 export const AUCTION_TYPE = {
@@ -64,11 +65,154 @@ class AuctionSystem {
      */
     async loadActiveAuctions() {
         try {
-            const auctions = await firebaseService.queryCollection('auctions', [
-                { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-            ]);
+            // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
+            let auctions = [];
+            try {
+                auctions = await firebaseService.queryCollection('auctions', [
+                    { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
+                ]);
+            } catch (error) {
+                // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
+                if (error.message && error.message.includes('permissions')) {
+                    log.debug('Cannot load auctions: user not authenticated (this is normal for logged-out users)');
+                    this.activeAuctions.clear();
+                    return;
+                }
+                throw error; // 다른 오류는 다시 throw
+            }
             
             for (const auction of auctions) {
+                // 경매 종료 시간 확인 및 자동 종료 처리
+                const endTime = auction.endTime;
+                let isExpired = false;
+                
+                if (endTime) {
+                    let endDate;
+                    // Firestore Timestamp 처리
+                    if (endTime && typeof endTime === 'object') {
+                        if (endTime.toDate && typeof endTime.toDate === 'function') {
+                            endDate = endTime.toDate();
+                        } else if (endTime.seconds) {
+                            endDate = new Date(endTime.seconds * 1000);
+                        } else if (endTime instanceof Date) {
+                            endDate = endTime;
+                        } else {
+                            endDate = new Date(endTime);
+                        }
+                    } else {
+                        endDate = new Date(endTime);
+                    }
+                    
+                    // 종료 시간이 지났는지 확인
+                    if (endDate && !isNaN(endDate.getTime())) {
+                        const now = new Date();
+                        if (endDate.getTime() <= now.getTime()) {
+                            isExpired = true;
+                            log.info(`Auction ${auction.id} has expired, auto-ending...`);
+                            // 자동 종료 처리 (로그인한 사용자만 가능)
+                            if (firebaseService.isAuthenticated()) {
+                                try {
+                                    await this.endAuction(auction.id);
+                                } catch (error) {
+                                    log.warn(`Failed to auto-end auction ${auction.id} (auth required):`, error.message);
+                                }
+                            } else {
+                                log.debug(`Skipping auto-end for auction ${auction.id} (user not authenticated)`);
+                            }
+                            continue; // 종료된 경매는 activeAuctions에 추가하지 않음
+                        }
+                    }
+                }
+                
+                // 경매가 아직 활성 상태인 경우에만 처리
+                // 영토 정보 가져와서 실제 가격 계산
+                const territory = territoryManager.getTerritory(auction.territoryId);
+                let correctStartingBid = auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE;
+                
+                if (territory) {
+                    // 영토의 실제 가격 계산
+                    const countryCode = territory.country || 
+                                      territory.properties?.country || 
+                                      territory.properties?.adm0_a3?.toLowerCase() || 
+                                      'unknown';
+                    const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+                    
+                    if (realPrice && realPrice > 0) {
+                        // 경매 시작가는 즉시 구매가의 60%로 설정 (입찰자가 없는 경우에만 업데이트)
+                        // 입찰자가 있으면 이미 진행 중인 경매이므로 시작가는 변경하지 않음
+                        if (!auction.highestBidder) {
+                            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+                            correctStartingBid = Math.max(Math.floor(realPrice * auctionRatio), 10); // 최소 10pt
+                        } else {
+                            // 입찰자가 있는 경우는 실제 가격 사용 (기존 로직 유지)
+                            correctStartingBid = realPrice;
+                        }
+                    }
+                }
+                
+                let needsUpdate = false;
+                
+                // 입찰자가 없는 경우: currentBid는 startingBid와 같아야 함
+                if (!auction.highestBidder) {
+                    // currentBid가 startingBid와 다르거나, startingBid가 실제 가격과 다르면 수정
+                    if (auction.currentBid !== correctStartingBid || auction.startingBid !== correctStartingBid) {
+                        log.warn(`Auction ${auction.id} has mismatched currentBid (${auction.currentBid}) or startingBid (${auction.startingBid}), fixing to correct price (${correctStartingBid})`);
+                        auction.currentBid = correctStartingBid;
+                        auction.startingBid = correctStartingBid;
+                        needsUpdate = true;
+                    }
+                } 
+                // 입찰자가 있는 경우: currentBid가 startingBid보다 크거나 같아야 함
+                else {
+                    if (!auction.currentBid || auction.currentBid < correctStartingBid) {
+                        log.warn(`Auction ${auction.id} has invalid currentBid (${auction.currentBid}), fixing to startingBid (${correctStartingBid})`);
+                        auction.currentBid = correctStartingBid;
+                        needsUpdate = true;
+                    }
+                    
+                    // startingBid가 실제 가격과 다르면 수정 (입찰자는 유지)
+                    if (auction.startingBid !== correctStartingBid) {
+                        auction.startingBid = correctStartingBid;
+                        needsUpdate = true;
+                    }
+                }
+                
+                // Firestore 업데이트 (로그인한 사용자만 가능)
+                if (needsUpdate) {
+                    // 로그인 상태 확인
+                    if (firebaseService.isAuthenticated()) {
+                        try {
+                            await firebaseService.updateDocument('auctions', auction.id, {
+                                currentBid: auction.currentBid,
+                                startingBid: auction.startingBid,
+                                highestBidder: auction.highestBidder || null,
+                                highestBidderName: auction.highestBidderName || null
+                            });
+                        } catch (error) {
+                            log.warn(`Failed to update auction ${auction.id} (auth required):`, error.message);
+                        }
+                    } else {
+                        log.debug(`Skipping auction update for ${auction.id} (user not authenticated)`);
+                    }
+                }
+                
+                // 영토 상태 확인 및 수정
+                // 경매가 있는데 영토 상태가 CONTESTED가 아니면 수정 (미점유 영토인 경우만)
+                if (territory && !territory.ruler) {
+                    if (territory.sovereignty !== SOVEREIGNTY.CONTESTED) {
+                        // 미점유 영토에서 경매가 시작되었는데 상태가 CONTESTED가 아니면 수정
+                        territory.sovereignty = SOVEREIGNTY.CONTESTED;
+                        territory.currentAuction = auction.id;
+                        
+                        const Timestamp = firebaseService.getTimestamp();
+                        await firebaseService.updateDocument('territories', auction.territoryId, {
+                            sovereignty: SOVEREIGNTY.CONTESTED,
+                            currentAuction: auction.id,
+                            updatedAt: Timestamp ? Timestamp.now() : new Date()
+                        });
+                    }
+                }
+                
                 this.activeAuctions.set(auction.id, auction);
             }
             
@@ -123,6 +267,29 @@ class AuctionSystem {
             auctionEndTime = Timestamp.fromDate(endDate);
         }
         
+        // 시작 입찰가 결정 (영토 실제 가격 계산)
+        const countryCode = territory.country || 
+                          territory.properties?.country || 
+                          territory.properties?.adm0_a3?.toLowerCase() || 
+                          'unknown';
+        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        
+        // 경매 시작가는 즉시 구매가보다 낮게 설정 (기본 60%)
+        // 사용자가 직접 지정한 경우는 그대로 사용, 아니면 즉시 구매가의 비율로 계산
+        const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+        const calculatedStartingBid = realPrice 
+            ? Math.max(Math.floor(realPrice * auctionRatio), 10) // 최소 10pt
+            : (territory.tribute || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+        
+        const startingBid = options.startingBid || calculatedStartingBid;
+        
+        // 최소 증가액 결정 (시작가의 10% 또는 최소 10pt)
+        const defaultMinIncrement = Math.max(
+            Math.floor(startingBid * 0.1), // 시작가의 10%
+            10 // 최소 10pt
+        );
+        const minIncrement = options.minIncrement || defaultMinIncrement;
+        
         const auction = {
             id: `auction_${territoryId}_${Date.now()}`,
             territoryId,
@@ -131,9 +298,9 @@ class AuctionSystem {
             type: options.type || AUCTION_TYPE.STANDARD,
             status: AUCTION_STATUS.ACTIVE,
             
-            startingBid: options.startingBid || territory.tribute,
-            currentBid: options.startingBid || territory.tribute,
-            minIncrement: options.minIncrement || 100,
+            startingBid: startingBid,
+            currentBid: startingBid, // 시작가와 동일하게 설정
+            minIncrement: minIncrement,
             
             highestBidder: null,
             highestBidderName: null,
@@ -155,10 +322,20 @@ class AuctionSystem {
         // Firestore 저장
         await firebaseService.setDocument('auctions', auction.id, auction);
         
-        // 영토 상태 업데이트 (보호 기간 중이면 sovereignty 유지)
+        // 영토 상태 업데이트
+        // 미점유 영토에서 경매 시작 시에만 CONTESTED로 변경
+        // 이미 소유된 영토는 sovereignty 유지 (RULED 또는 PROTECTED)
+        let newSovereignty = territory.sovereignty;
+        
+        if (!protectionRemaining && territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
+            // 미점유 영토에서 경매 시작: CONTESTED로 변경
+            newSovereignty = SOVEREIGNTY.CONTESTED;
+        }
+        // 보호 기간 중이거나 이미 소유된 영토: sovereignty 유지
+        
         // Firestore에 저장할 때는 배열 필드 제외 (중첩 배열 오류 방지)
         const territoryUpdate = {
-            sovereignty: !protectionRemaining ? SOVEREIGNTY.CONTESTED : territory.sovereignty,
+            sovereignty: newSovereignty,
             currentAuction: auction.id,
             updatedAt: Timestamp.now()
         };
@@ -166,9 +343,7 @@ class AuctionSystem {
         await firebaseService.updateDocument('territories', territoryId, territoryUpdate);
         
         // 로컬 캐시 업데이트
-        if (!protectionRemaining) {
-            territory.sovereignty = SOVEREIGNTY.CONTESTED;
-        }
+        territory.sovereignty = newSovereignty;
         territory.currentAuction = auction.id;
         
         // 로컬 캐시 업데이트
@@ -197,10 +372,26 @@ class AuctionSystem {
             throw new Error('Auction is not active');
         }
         
+        // currentBid가 startingBid보다 작거나 없으면 startingBid 사용 (기존 데이터 호환성)
+        const effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0) 
+            ? auction.currentBid 
+            : (auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+        
+        // minIncrement가 없거나 너무 크면 시작가의 10% 또는 최소 10pt로 설정
+        const effectiveMinIncrement = auction.minIncrement || Math.max(
+            Math.floor(effectiveCurrentBid * 0.1),
+            10
+        );
+        
         // 입찰 금액 검증
-        const minBid = auction.currentBid + auction.minIncrement;
+        const minBid = effectiveCurrentBid + effectiveMinIncrement;
         if (bidAmount < minBid) {
             throw new Error(`Minimum bid is ${minBid} pt`);
+        }
+        
+        // currentBid 업데이트 (기존 데이터 수정)
+        if (auction.currentBid !== effectiveCurrentBid) {
+            auction.currentBid = effectiveCurrentBid;
         }
         
         // 전략 버프 적용
@@ -356,7 +547,44 @@ class AuctionSystem {
         }
         
         // Firestore 업데이트
-        await firebaseService.setDocument('auctions', auctionId, auction);
+        const Timestamp = firebaseService.getTimestamp();
+        await firebaseService.updateDocument('auctions', auction.id, {
+            status: AUCTION_STATUS.ENDED,
+            endedAt: Timestamp ? Timestamp.now() : new Date(),
+            updatedAt: Timestamp ? Timestamp.now() : new Date()
+        });
+        
+        // 영토 상태 업데이트 (낙찰자가 없는 경우에만 - 있으면 위에서 이미 처리됨)
+        if (!auction.highestBidder) {
+            const territory = territoryManager.getTerritory(auction.territoryId);
+            if (territory) {
+                // 경매 시작 전 상태로 복구
+                // 원래 소유자가 있었으면 (currentOwnerId) 그 상태로 복구
+                // 없으면 UNCONQUERED로 복구
+                if (auction.currentOwnerId) {
+                    // 원래 소유자가 있었던 경우: RULED로 복구 (보호 기간은 이미 지났을 것)
+                    territory.sovereignty = SOVEREIGNTY.RULED;
+                    territory.ruler = auction.currentOwnerId;
+                    territory.rulerName = auction.currentOwnerName;
+                } else {
+                    // 원래 소유자가 없었던 경우: UNCONQUERED로 복구
+                    territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
+                    territory.ruler = null;
+                    territory.rulerName = null;
+                }
+                territory.currentAuction = null;
+                
+                // Firestore 업데이트
+                const Timestamp = firebaseService.getTimestamp();
+                await firebaseService.updateDocument('territories', auction.territoryId, {
+                    sovereignty: territory.sovereignty,
+                    ruler: territory.ruler || null,
+                    rulerName: territory.rulerName || null,
+                    currentAuction: null,
+                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                });
+            }
+        }
         
         // 로컬 캐시 제거
         this.activeAuctions.delete(auctionId);

@@ -8,7 +8,7 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 import { SOVEREIGNTY, territoryManager } from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
 import { buffSystem } from '../features/BuffSystem.js';
-import { auctionSystem } from '../features/AuctionSystem.js';
+import { auctionSystem, AUCTION_STATUS } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
@@ -122,7 +122,8 @@ class TerritoryPanel {
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const user = firebaseService.getCurrentUser();
         const isOwner = user && t.ruler === user.uid;
-        const auction = auctionSystem.getAuctionByTerritory(t.id);
+        // 로그인한 사용자만 경매 정보 표시
+        const auction = user ? auctionSystem.getAuctionByTerritory(t.id) : null;
         const isAdmin = this.isAdminMode();
         
         // 보호 기간 확인
@@ -237,9 +238,34 @@ class TerritoryPanel {
         const countryFlag = countryInfo.flag || '🏳️';
         
         // 소유권 상태 텍스트
+        // 경매 중이면 "Bidding" 표시, 아니면 일반 상태 표시
         let sovereigntyText = vocab[t.sovereignty] || 'Available';
         if (t.sovereignty === 'protected' || isProtected) {
             sovereigntyText = '🛡️ Protected';
+        } else if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
+            // 활성 경매가 있으면 "Bidding" 표시
+            sovereigntyText = '⏳ Bidding';
+        } else if (t.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
+            // CONTESTED 상태인데 경매가 없으면 UNCONQUERED로 복구
+            sovereigntyText = '✅ Available';
+            // 비동기로 상태 복구
+            setTimeout(async () => {
+                try {
+                    const Timestamp = firebaseService.getTimestamp();
+                    await firebaseService.updateDocument('territories', t.id, {
+                        sovereignty: SOVEREIGNTY.UNCONQUERED,
+                        currentAuction: null,
+                        updatedAt: Timestamp ? Timestamp.now() : new Date()
+                    });
+                    t.sovereignty = SOVEREIGNTY.UNCONQUERED;
+                    t.currentAuction = null;
+                    // 패널 다시 렌더링
+                    this.render();
+                    this.bindActions();
+                } catch (error) {
+                    log.error('Failed to fix territory state:', error);
+                }
+            }, 0);
         }
         
         this.container.innerHTML = `
@@ -309,7 +335,7 @@ class TerritoryPanel {
                 
                 <!-- Action Buttons -->
                 <div class="territory-actions">
-                    ${this.renderActions(t, isOwner, auction, realPrice)}
+                    ${this.renderActions(t, isOwner, auction, realPrice, auction ? this.getEffectiveAuctionBid(auction) : null)}
                 </div>
             </div>
         `;
@@ -371,18 +397,163 @@ class TerritoryPanel {
      * Auction Section Rendering
      */
     renderAuction(auction) {
+        // 영토 정보 가져오기 (실제 가격 계산용)
+        const territory = this.currentTerritory;
+        let realTerritoryPrice = null;
+        
+        if (territory) {
+            // 영토의 실제 가격 계산
+            const countryCode = territory.country || 
+                              territory.properties?.country || 
+                              territory.properties?.adm0_a3?.toLowerCase() || 
+                              'unknown';
+            realTerritoryPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        }
+        
+        // 경매가 종료되었는지 확인
+        if (auction.status === 'ended' || auction.status === AUCTION_STATUS.ENDED) {
+            return `
+                <div class="auction-section auction-ended">
+                    <h3>⚔️ Auction Ended</h3>
+                    <div class="auction-info">
+                        <div class="auction-result">
+                            ${auction.highestBidder 
+                                ? `<span>Winner: ${auction.highestBidderName || 'Unknown'}</span><span>Final Bid: ${this.formatNumber(auction.currentBid)} pt</span>`
+                                : '<span>No bids placed</span>'
+                            }
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 경매 종료 시간 확인
+        const endTime = auction.endTime;
+        let isExpired = false;
+        
+        if (endTime) {
+            let endDate;
+            // Firestore Timestamp 처리
+            if (endTime && typeof endTime === 'object') {
+                if (endTime.toDate && typeof endTime.toDate === 'function') {
+                    endDate = endTime.toDate();
+                } else if (endTime.seconds) {
+                    endDate = new Date(endTime.seconds * 1000);
+                } else if (endTime instanceof Date) {
+                    endDate = endTime;
+                } else {
+                    endDate = new Date(endTime);
+                }
+            } else {
+                endDate = new Date(endTime);
+            }
+            
+            if (endDate && !isNaN(endDate.getTime())) {
+                const now = new Date();
+                if (endDate.getTime() <= now.getTime()) {
+                    isExpired = true;
+                }
+            }
+        }
+        
+        // 만료된 경매는 종료 처리
+        if (isExpired) {
+            // 비동기로 종료 처리 (렌더링 블로킹 방지)
+            setTimeout(() => {
+                auctionSystem.endAuction(auction.id).catch(err => {
+                    log.error('Failed to end expired auction:', err);
+                });
+            }, 0);
+            
+            return `
+                <div class="auction-section auction-ended">
+                    <h3>⚔️ Auction Ended</h3>
+                    <div class="auction-info">
+                        <div class="auction-result">
+                            ${auction.highestBidder 
+                                ? `<span>Winner: ${auction.highestBidderName || 'Unknown'}</span><span>Final Bid: ${this.formatNumber(auction.currentBid)} pt</span>`
+                                : '<span>No bids placed</span>'
+                            }
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 실제 영토 가격을 기준으로 startingBid 결정
+        // 입찰자가 없으면 경매 시작가 비율 적용 (즉시 구매가의 60%)
+        let correctStartingBid = realTerritoryPrice || auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE;
+        
+        // 입찰자가 없으면 경매 시작가 비율 적용
+        if (!auction.highestBidder && realTerritoryPrice) {
+            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+            correctStartingBid = Math.max(Math.floor(realTerritoryPrice * auctionRatio), 10); // 최소 10pt
+        }
+        
+        // currentBid 검증 및 수정
+        // 입찰자가 없고 currentBid가 startingBid와 다르면 startingBid로 수정
+        let effectiveCurrentBid = auction.currentBid;
+        
+        if (!auction.highestBidder) {
+            // 입찰자가 없으면 currentBid는 startingBid와 같아야 함
+            if (!effectiveCurrentBid || effectiveCurrentBid !== correctStartingBid) {
+                effectiveCurrentBid = correctStartingBid;
+                
+                // Firestore 업데이트 (비동기, 렌더링 블로킹 방지)
+                setTimeout(async () => {
+                    try {
+                        await firebaseService.updateDocument('auctions', auction.id, {
+                            currentBid: effectiveCurrentBid,
+                            startingBid: correctStartingBid
+                        });
+                        // 로컬 캐시도 업데이트
+                        auction.currentBid = effectiveCurrentBid;
+                        auction.startingBid = correctStartingBid;
+                        log.info(`Fixed auction ${auction.id} currentBid from ${auction.currentBid} to ${effectiveCurrentBid}`);
+                    } catch (error) {
+                        log.error('Failed to fix auction currentBid:', error);
+                    }
+                }, 0);
+            }
+        } else {
+            // 입찰자가 있으면 currentBid가 startingBid보다 크거나 같아야 함
+            if (!effectiveCurrentBid || effectiveCurrentBid < correctStartingBid) {
+                effectiveCurrentBid = correctStartingBid;
+            }
+        }
+        
+        // minIncrement가 없거나 너무 크면 시작가의 10% 또는 최소 10pt로 설정
+        const effectiveMinIncrement = auction.minIncrement || Math.max(
+            Math.floor(effectiveCurrentBid * 0.1),
+            10
+        );
+        
+        // 입찰자가 없으면 Current Bid 표시하지 않음
+        const hasBids = !!auction.highestBidder;
+        
         return `
             <div class="auction-section">
                 <h3>⚔️ Active Auction</h3>
                 <div class="auction-info">
-                    <div class="current-bid">
-                        <span class="bid-label">Current Bid</span>
-                        <span class="bid-amount">${this.formatNumber(auction.currentBid)} pt</span>
-                    </div>
-                    <div class="highest-bidder">
-                        <span class="bidder-label">Highest Bidder</span>
-                        <span class="bidder-name">${auction.highestBidderName || 'None'}</span>
-                    </div>
+                    ${hasBids ? `
+                        <div class="current-bid">
+                            <span class="bid-label">Current Bid</span>
+                            <span class="bid-amount">${this.formatNumber(effectiveCurrentBid)} pt</span>
+                        </div>
+                        <div class="highest-bidder">
+                            <span class="bidder-label">Highest Bidder</span>
+                            <span class="bidder-name">${auction.highestBidderName || 'Unknown'}</span>
+                        </div>
+                    ` : `
+                        <div class="starting-bid">
+                            <span class="bid-label">Starting Bid</span>
+                            <span class="bid-amount">${this.formatNumber(effectiveCurrentBid)} pt</span>
+                        </div>
+                        <div class="no-bids-notice">
+                            <span class="notice-icon">💡</span>
+                            <span>No bids yet. Be the first to bid!</span>
+                        </div>
+                    `}
                     <div class="time-remaining">
                         <span class="time-label">Time Left</span>
                         <span class="time-value">${this.getTimeRemaining(auction.endTime)}</span>
@@ -391,7 +562,8 @@ class TerritoryPanel {
                 <div class="bid-input-group">
                     <input type="number" id="bid-amount-input" 
                            placeholder="Bid amount" 
-                           min="${auction.currentBid + auction.minIncrement}">
+                           min="${effectiveCurrentBid + effectiveMinIncrement}"
+                           value="${effectiveCurrentBid + effectiveMinIncrement}">
                     <button class="bid-btn" id="place-bid-btn">Place Bid</button>
                 </div>
             </div>
@@ -399,9 +571,45 @@ class TerritoryPanel {
     }
     
     /**
+     * 경매의 유효한 입찰가 계산 (입찰자가 없으면 startingBid 사용)
+     */
+    getEffectiveAuctionBid(auction) {
+        if (!auction) return null;
+        
+        // 영토 정보 가져오기 (실제 가격 계산용)
+        const territory = this.currentTerritory;
+        let realTerritoryPrice = null;
+        
+        if (territory) {
+            const countryCode = territory.country || 
+                              territory.properties?.country || 
+                              territory.properties?.adm0_a3?.toLowerCase() || 
+                              'unknown';
+            realTerritoryPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        }
+        
+        // 실제 영토 가격을 기준으로 startingBid 결정
+        let correctStartingBid = realTerritoryPrice || auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE;
+        
+        // 입찰자가 없으면 경매 시작가 비율 적용 (즉시 구매가의 60%)
+        if (!auction.highestBidder && realTerritoryPrice) {
+            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+            correctStartingBid = Math.max(Math.floor(realTerritoryPrice * auctionRatio), 10); // 최소 10pt
+        }
+        
+        // 입찰자가 없으면 startingBid를 currentBid로 사용
+        if (!auction.highestBidder) {
+            return correctStartingBid;
+        }
+        
+        // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
+        return Math.max(auction.currentBid || correctStartingBid, correctStartingBid);
+    }
+    
+    /**
      * Action Buttons Rendering
      */
-    renderActions(territory, isOwner, auction, realPrice = 100) {
+    renderActions(territory, isOwner, auction, realPrice = 100, effectiveAuctionBid = null) {
         const user = firebaseService.getCurrentUser();
         const isAdmin = this.isAdminMode();
         const isProtected = territoryManager.isProtected(territory.id);
@@ -426,10 +634,107 @@ class TerritoryPanel {
             `;
         }
         
-        // 경매 중인 경우
-        if (territory.sovereignty === SOVEREIGNTY.CONTESTED && auction) {
+        // 경매 중인 경우에도 즉시 구매 가능하도록 "Claim Now" 버튼 표시
+        if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
+            const user = firebaseService.getCurrentUser();
+            const isUserHighestBidder = auction.highestBidder === user?.uid;
+            const hasBids = !!auction.highestBidder;
+            
+            // 가격 비교 정보 (유효한 입찰가 사용 - 입찰자가 없으면 startingBid 사용)
+            const auctionCurrentBid = effectiveAuctionBid !== null 
+                ? effectiveAuctionBid 
+                : this.getEffectiveAuctionBid(auction);
+            const priceDifference = realPrice - auctionCurrentBid;
+            const isCheaper = priceDifference < 0;
+            
+            if (isAdmin) {
+                return `
+                    <div class="action-options-header">
+                        <h4>📋 Choose Your Action</h4>
+                        <p class="action-hint">You can buy now or continue bidding</p>
+                    </div>
+                    <button class="action-btn conquest-btn admin-conquest" id="instant-conquest">
+                        🔧 Buy Now (FREE) - Cancel Auction
+                    </button>
+                    <div class="action-divider">
+                        <span>OR</span>
+                    </div>
+                    <div class="auction-action-hint">
+                        <span class="hint-icon">💡</span>
+                        <span>Place a bid above to participate in the auction</span>
+                    </div>
+                `;
+            }
+            
             return `
-                <span class="auction-notice">⏳ Auction in progress - Place your bid above</span>
+                <div class="action-options-header">
+                    <h4>📋 Choose Your Action</h4>
+                    <p class="action-hint">You have two options to acquire this territory</p>
+                </div>
+                
+                <div class="action-option-card">
+                    <div class="option-header">
+                        <span class="option-icon">⚡</span>
+                        <span class="option-title">Buy Now</span>
+                        <span class="option-badge instant">Instant</span>
+                    </div>
+                    <div class="option-price">
+                        <span class="price-label">Price:</span>
+                        <span class="price-value">${this.formatNumber(realPrice)} pt</span>
+                    </div>
+                    ${isCheaper ? `
+                        <div class="price-comparison save">
+                            <span class="save-icon">💰</span>
+                            <span>Save ${this.formatNumber(Math.abs(priceDifference))} pt vs current bid</span>
+                        </div>
+                    ` : priceDifference > 0 ? `
+                        <div class="price-comparison note">
+                            <span class="note-icon">ℹ️</span>
+                            <span>${this.formatNumber(priceDifference)} pt more than current bid</span>
+                        </div>
+                    ` : ''}
+                    ${hasBids ? `
+                        <div class="auction-warning">
+                            <span class="warning-icon">⚠️</span>
+                            <span>This will cancel the active auction</span>
+                        </div>
+                    ` : ''}
+                    ${isUserHighestBidder ? `
+                        <div class="bidder-notice">
+                            <span class="notice-icon">💬</span>
+                            <span>You are the highest bidder. Your bid will be refunded if you buy now.</span>
+                        </div>
+                    ` : ''}
+                    <button class="action-btn conquest-btn" id="instant-conquest">
+                        ⚔️ Buy Now (${this.formatNumber(realPrice)} pt)
+                    </button>
+                </div>
+                
+                <div class="action-divider">
+                    <span>OR</span>
+                </div>
+                
+                <div class="action-option-card">
+                    <div class="option-header">
+                        <span class="option-icon">⏳</span>
+                        <span class="option-title">Continue Bidding</span>
+                        <span class="option-badge auction">Auction</span>
+                    </div>
+                    <div class="option-price">
+                        <span class="price-label">${hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
+                        <span class="price-value">${this.formatNumber(auctionCurrentBid)} pt</span>
+                    </div>
+                    ${!hasBids ? `
+                        <div class="no-bids-notice">
+                            <span class="notice-icon">💡</span>
+                            <span>No bids yet. Be the first to bid!</span>
+                        </div>
+                    ` : ''}
+                    <div class="auction-action-hint">
+                        <span class="hint-icon">💡</span>
+                        <span>Place your bid in the auction section above</span>
+                    </div>
+                </div>
             `;
         }
         
@@ -449,7 +754,7 @@ class TerritoryPanel {
         }
         
         // 미정복 영토 - 구매 가능
-        if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
+        if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
             if (isAdmin) {
                 // 관리자 모드: 무료 구매
                 return `
@@ -471,12 +776,17 @@ class TerritoryPanel {
             `;
         }
         
-        // 다른 사람 소유 영토 (보호 기간 아님)
-        return `
-            <button class="action-btn challenge-btn" id="challenge-ruler">
-                ⚔️ Challenge Owner
-            </button>
-        `;
+        // 다른 사람 소유 영토 (보호 기간 아님, 경매 없음)
+        if (territory.ruler && !isOwner && !auction) {
+            return `
+                <button class="action-btn challenge-btn" id="challenge-ruler">
+                    ⚔️ Challenge Owner
+                </button>
+            `;
+        }
+        
+        // 기본: 아무 버튼도 표시하지 않음
+        return '';
     }
     
     /**
@@ -587,6 +897,29 @@ class TerritoryPanel {
             return;
         }
         
+        // 경매가 활성화되어 있는지 확인
+        const activeAuction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
+        const isUserHighestBidder = activeAuction && activeAuction.highestBidder === user.uid;
+        
+        // 경매가 활성화되어 있고 입찰자가 있는 경우 확인 다이얼로그
+        if (activeAuction && activeAuction.status === AUCTION_STATUS.ACTIVE && activeAuction.highestBidder) {
+            const confirmMessage = isUserHighestBidder
+                ? `This will cancel the auction and refund your bid of ${this.formatNumber(activeAuction.currentBid)} pt. Continue?`
+                : `This will cancel the active auction. The current highest bidder will be refunded. Continue?`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            // 경매 취소 처리
+            try {
+                await auctionSystem.endAuction(activeAuction.id);
+                log.info(`Auction ${activeAuction.id} cancelled due to instant purchase`);
+            } catch (error) {
+                log.warn('Failed to cancel auction, continuing with purchase:', error);
+            }
+        }
+        
         // 일반 사용자: 결제 처리
         const countryCode = this.currentTerritory.country || 
                            this.currentTerritory.properties?.country || 
@@ -599,7 +932,8 @@ class TerritoryPanel {
                 type: 'conquest',
                 territoryId: this.currentTerritory.id,
                 territoryName: territoryName,
-                amount: price
+                amount: price,
+                cancelAuction: !!activeAuction
             });
             
         } catch (error) {
@@ -707,7 +1041,18 @@ class TerritoryPanel {
             return;
         }
         
-        const minBid = auction.currentBid + auction.minIncrement;
+        // currentBid가 startingBid보다 작거나 없으면 startingBid 사용
+        const effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0) 
+            ? auction.currentBid 
+            : (auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+        
+        // minIncrement 계산
+        const effectiveMinIncrement = auction.minIncrement || Math.max(
+            Math.floor(effectiveCurrentBid * 0.1),
+            10
+        );
+        
+        const minBid = effectiveCurrentBid + effectiveMinIncrement;
         if (bidAmount < minBid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
@@ -821,9 +1166,34 @@ class TerritoryPanel {
     
     getTimeRemaining(endTime) {
         if (!endTime) return '-';
-        const end = endTime instanceof Date ? endTime : new Date(endTime);
+        
+        let end;
+        // Firestore Timestamp 객체 처리
+        if (endTime && typeof endTime === 'object') {
+            if (endTime.toDate && typeof endTime.toDate === 'function') {
+                // Firestore Timestamp
+                end = endTime.toDate();
+            } else if (endTime.seconds) {
+                // Timestamp 객체 (seconds 필드가 있는 경우)
+                end = new Date(endTime.seconds * 1000);
+            } else if (endTime instanceof Date) {
+                end = endTime;
+            } else {
+                // 일반 객체나 다른 형태
+                end = new Date(endTime);
+            }
+        } else {
+            // 문자열이나 숫자
+            end = new Date(endTime);
+        }
+        
+        // 유효한 날짜인지 확인
+        if (isNaN(end.getTime())) {
+            return '시간 계산 오류';
+        }
+        
         const now = new Date();
-        const diff = end - now;
+        const diff = end.getTime() - now.getTime();
         
         if (diff <= 0) return '종료됨';
         

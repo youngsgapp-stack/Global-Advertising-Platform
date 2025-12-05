@@ -33,7 +33,14 @@ export const CONFIG = {
     // PayPal 설정 (Live - World Map Advertising 앱)
     PAYPAL: {
         CLIENT_ID: 'AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp',
-        CURRENCY: 'USD'
+        CURRENCY: 'USD',
+        INTENT: 'capture' // 즉시 결제 캡처 모드
+    },
+    
+    // 디버그 모드 설정
+    DEBUG: {
+        PAYMENT: true, // 결제 관련 상세 로그 및 디버그 메시지 표시
+        PAYMENT_VERBOSE: true // 결제 단계별 상세 로깅
     },
     
     // 영토 기본 설정
@@ -41,7 +48,8 @@ export const CONFIG = {
         DEFAULT_TRIBUTE: 1000,  // 기본 조공 금액 (USD)
         MIN_TRIBUTE: 100,
         MAX_TRIBUTE: 100000,
-        PIXEL_GRID_SIZE: 100    // 픽셀 캔버스 크기
+        PIXEL_GRID_SIZE: 100,    // 픽셀 캔버스 크기
+        AUCTION_STARTING_BID_RATIO: 0.6  // 경매 시작가 = 즉시 구매가의 60% (0.5 = 50%, 0.7 = 70%)
     },
     
     // 버프 설정

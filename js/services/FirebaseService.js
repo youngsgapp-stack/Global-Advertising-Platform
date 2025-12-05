@@ -28,7 +28,7 @@ class FirebaseService {
         try {
             // Firebase 모듈 동적 로드
             const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
             const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
             
             // Firebase 앱 초기화
@@ -44,8 +44,18 @@ class FirebaseService {
             
             // Auth 헬퍼 저장
             this._auth = {
-                signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged
+                signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence
             };
+            
+            // Firebase Auth persistence 설정 (리다이렉트 인증을 위해 필수)
+            // localStorage를 사용하여 리다이렉트 후에도 인증 상태가 유지되도록 함
+            try {
+                await setPersistence(this.auth, browserLocalPersistence);
+                log.info('[FirebaseService] ✅ Auth persistence set to localStorage');
+            } catch (persistenceError) {
+                log.warn('[FirebaseService] ⚠️ Failed to set persistence:', persistenceError);
+                // persistence 설정 실패해도 계속 진행
+            }
             
             // 세션 스토리지에서 리다이렉트 플래그 확인 (초기화 시)
             const redirectStarted = sessionStorage.getItem('firebase_redirect_started');
@@ -188,18 +198,69 @@ class FirebaseService {
             // getRedirectResult는 리다이렉트 후 한 번만 호출 가능
             // 호출하면 리다이렉트 결과를 소비하므로, 반드시 먼저 호출해야 함
             log.info('[FirebaseService] 🔄 Calling getRedirectResult...');
-            const result = await this._auth.getRedirectResult(this.auth);
+            
+            // Firebase Auth 인스턴스 확인
+            log.info('[FirebaseService] 🔍 Auth instance check:', {
+                authExists: !!this.auth,
+                authAppName: this.auth?.app?.name,
+                authAppId: this.auth?.app?.options?.appId,
+                authConfig: {
+                    apiKey: this.auth?.app?.options?.apiKey?.substring(0, 10) + '...',
+                    authDomain: this.auth?.app?.options?.authDomain
+                }
+            });
+            
+            // Local Storage에 Firebase 키가 있는지 확인
+            const firebaseKeys = Object.keys(localStorage).filter(key => key.startsWith('firebase:'));
+            log.info('[FirebaseService] 🔍 Firebase keys in localStorage:', firebaseKeys.length);
+            if (firebaseKeys.length > 0) {
+                log.info('[FirebaseService] 🔍 Firebase keys:', firebaseKeys);
+                // 각 키의 값 일부 확인 (민감한 정보는 제외)
+                firebaseKeys.forEach(key => {
+                    try {
+                        const value = localStorage.getItem(key);
+                        const preview = value ? value.substring(0, 100) + '...' : 'empty';
+                        log.info(`[FirebaseService] 🔍 Key "${key}":`, preview);
+                    } catch (e) {
+                        log.warn(`[FirebaseService] ⚠️ Cannot read key "${key}":`, e);
+                    }
+                });
+            } else {
+                log.warn('[FirebaseService] ⚠️ No Firebase keys found in localStorage!');
+                log.warn('[FirebaseService] ⚠️ This might be why getRedirectResult returns null');
+            }
+            
+            // 리다이렉트 플래그가 있으면 잠시 대기 (Firebase 내부 처리 시간)
+            if (redirectStarted === 'true') {
+                log.info('[FirebaseService] ⏳ Waiting 500ms for Firebase internal processing...');
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            let result;
+            try {
+                result = await this._auth.getRedirectResult(this.auth);
+            } catch (redirectError) {
+                log.error('[FirebaseService] ❌ getRedirectResult error:', redirectError.code, redirectError.message);
+                log.error('[FirebaseService] ❌ Error stack:', redirectError.stack);
+                throw redirectError;
+            }
             
             log.info('[FirebaseService] Redirect result:', result ? `Found (user: ${result.user?.email})` : 'None');
             if (result && result.credential) {
                 log.info('[FirebaseService] ✅ Credential found in redirect result');
             }
+            if (result && result.operationType) {
+                log.info('[FirebaseService] ✅ Operation type:', result.operationType);
+            }
             
-            // 리다이렉트 결과를 확인했으므로 플래그 제거
-            if (redirectStarted === 'true') {
+            // 리다이렉트 결과를 확인했으므로 플래그 제거 (결과가 있을 때만)
+            if (redirectStarted === 'true' && result && result.user) {
                 sessionStorage.removeItem('firebase_redirect_started');
                 sessionStorage.removeItem('firebase_redirect_timestamp');
-                log.info('[FirebaseService] 🧹 Cleared redirect flags');
+                log.info('[FirebaseService] 🧹 Cleared redirect flags (success)');
+            } else if (redirectStarted === 'true' && !result) {
+                log.warn('[FirebaseService] ⚠️ Redirect flag exists but no result - keeping flag for retry');
+                // 플래그를 유지하여 나중에 재시도할 수 있도록 함
             }
             
             if (result && result.user) {
@@ -241,9 +302,11 @@ class FirebaseService {
                 } else {
                     log.info('[FirebaseService] ℹ️ No redirect result and no user (normal if not redirected)');
                     
-                    // 세션 스토리지에서 리다이렉트 시작 플래그 확인
-                    const redirectStarted = sessionStorage.getItem('firebase_redirect_started');
-                    const redirectTimestamp = sessionStorage.getItem('firebase_redirect_timestamp');
+                    // 세션 스토리지에서 리다이렉트 시작 플래그 확인 (이미 위에서 확인했지만 다시 확인)
+                    const redirectStartedCheck = sessionStorage.getItem('firebase_redirect_started');
+                    const redirectTimestampCheck = sessionStorage.getItem('firebase_redirect_timestamp');
+                    
+                    log.info('[FirebaseService] 🔍 Re-checking redirect flag:', redirectStartedCheck);
                     
                     // URL에 인증 관련 파라미터가 있는지 확인
                     const urlParams = new URLSearchParams(window.location.search);
@@ -255,7 +318,7 @@ class FirebaseService {
                                          hash.includes('apiKey');
                     
                     // 리다이렉트가 시작되었거나 인증 파라미터가 있으면 대기
-                    if (redirectStarted === 'true' || hasAuthParams) {
+                    if (redirectStartedCheck === 'true' || hasAuthParams) {
                         log.info('[FirebaseService] 🔗 Redirect detected (flag or params), waiting for onAuthStateChanged...');
                         log.info('[FirebaseService] 🔗 Redirect started:', redirectStarted);
                         log.info('[FirebaseService] 🔗 Has auth params:', hasAuthParams);
@@ -393,15 +456,19 @@ class FirebaseService {
             
             // 로컬 네트워크 IP 감지
             const currentDomain = window.location.hostname;
-            const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^localhost$|^127\.0\.0\.1$/.test(currentDomain);
+            const isLocalNetworkIP = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\./.test(currentDomain);
+            const isLocalhost = currentDomain === 'localhost' || currentDomain === '127.0.0.1';
             
             log.info('[FirebaseService] 📍 Current domain:', currentDomain);
-            log.info('[FirebaseService] 📍 Is local network:', isLocalNetwork);
+            log.info('[FirebaseService] 📍 Is local network IP:', isLocalNetworkIP);
+            log.info('[FirebaseService] 📍 Is localhost:', isLocalhost);
             log.info('[FirebaseService] 📍 Use redirect param:', useRedirect);
             
-            // 로컬 네트워크이거나 리다이렉트가 명시적으로 요청된 경우
-            if (useRedirect || isLocalNetwork) {
-                log.info('[FirebaseService] 🔄 Using redirect method for sign-in');
+            // localhost에서는 팝업 방식 사용 (프로덕션과 동일하게)
+            // 리다이렉트는 localhost에서 제대로 작동하지 않음
+            // 로컬 네트워크 IP(192.168.x.x 등)에서만 리다이렉트 사용
+            if (useRedirect || (isLocalNetworkIP && !isLocalhost)) {
+                log.info('[FirebaseService] 🔄 Using redirect method for sign-in (local network IP, not localhost)');
                 
                 // 리다이렉트 시작 플래그를 세션 스토리지에 저장
                 sessionStorage.setItem('firebase_redirect_started', 'true');
@@ -415,8 +482,16 @@ class FirebaseService {
                 });
                 
                 try {
+                    // 리다이렉트 URL 명시적으로 설정 (localhost에서 리다이렉트 인증이 작동하도록)
+                    const redirectUrl = window.location.origin + window.location.pathname;
+                    log.info('[FirebaseService] 📍 Setting redirect URL:', redirectUrl);
+                    
                     // 리다이렉트 방식 사용
                     log.info('[FirebaseService] 🚀 Calling signInWithRedirect...');
+                    log.info('[FirebaseService] 📍 Current origin:', window.location.origin);
+                    log.info('[FirebaseService] 📍 Current pathname:', window.location.pathname);
+                    log.info('[FirebaseService] 📍 Full URL:', window.location.href);
+                    
                     await this._auth.signInWithRedirect(this.auth, provider);
                     log.info('[FirebaseService] ✅ Redirect initiated, user will be redirected to Google sign-in');
                     // 리다이렉트는 페이지를 이동시키므로 여기서는 반환하지 않음
@@ -424,6 +499,7 @@ class FirebaseService {
                     return null;
                 } catch (redirectError) {
                     log.error('[FirebaseService] ❌ Redirect failed:', redirectError.code, redirectError.message);
+                    log.error('[FirebaseService] ❌ Redirect error details:', redirectError);
                     // 리다이렉트 실패 시 플래그 제거
                     sessionStorage.removeItem('firebase_redirect_started');
                     sessionStorage.removeItem('firebase_redirect_timestamp');
@@ -432,7 +508,12 @@ class FirebaseService {
                 }
             }
             
-            // 팝업 방식 시도 (일반 도메인에서만)
+            // 팝업 방식 시도 (일반 도메인 또는 localhost)
+            // localhost에서는 리다이렉트가 작동하지 않으므로 팝업 방식 사용
+            if (isLocalhost) {
+                log.info('[FirebaseService] 🏠 Using popup method for localhost (redirect doesn\'t work on localhost)');
+            }
+            
             try {
                 log.info('[FirebaseService] 🪟 Attempting popup sign-in...');
                 const result = await this._auth.signInWithPopup(this.auth, provider);

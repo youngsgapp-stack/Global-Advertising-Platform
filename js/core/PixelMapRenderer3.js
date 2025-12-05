@@ -624,11 +624,21 @@ class PixelMapRenderer3 {
             // TerritoryViewState에서 feature state 가져오기
             const featureState = viewState.toFeatureState();
             
+            // 소스 존재 여부 확인
+            if (!this.map.getSource(sourceId)) {
+                log.debug(`[PixelMapRenderer3] Source ${sourceId} not found in map, skipping feature state update`);
+                return;
+            }
+            
             // Mapbox feature state 업데이트
-            this.map.setFeatureState(
-                { source: sourceId, id: featureId },
-                featureState
-            );
+            try {
+                this.map.setFeatureState(
+                    { source: sourceId, id: featureId },
+                    featureState
+                );
+            } catch (error) {
+                log.debug(`[PixelMapRenderer3] Failed to set feature state for ${territory.id}:`, error);
+            }
             
             // fill-opacity가 즉시 반영되도록 맵 강제 새로고침
             this.map.triggerRepaint();
