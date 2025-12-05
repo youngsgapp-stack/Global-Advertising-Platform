@@ -1059,28 +1059,72 @@ class PaymentService {
             
             // 렌더링 전에 컨테이너 존재 여부 최종 확인
             const finalContainer = document.getElementById('paypal-button-container');
+            console.log('🔵 [PayPal] ============================================');
+            console.log('🔵 [PayPal] 렌더링 전 컨테이너 확인...');
+            console.log('🔵 [PayPal] Container element:', finalContainer);
+            console.log('🔵 [PayPal] Container exists:', !!finalContainer);
+            console.log('🔵 [PayPal] Container connected:', finalContainer?.isConnected);
+            console.log('🔵 [PayPal] Container innerHTML length:', finalContainer?.innerHTML?.length || 0);
+            console.log('🔵 [PayPal] PayPal SDK available:', typeof paypal !== 'undefined');
+            console.log('🔵 [PayPal] paypal.Buttons available:', typeof paypal?.Buttons === 'function');
+            console.log('🔵 [PayPal] Buttons instance:', this.paypalButtonsInstance);
+            console.log('🔵 [PayPal] ============================================');
+            
             if (!finalContainer || !finalContainer.isConnected) {
+                console.error('🔴 [PayPal] 컨테이너가 DOM에 없거나 연결되지 않음!');
                 log.warn('PayPal button container removed from DOM during render setup');
                 this.paypalButtonsInstance = null;
                 return;
             }
             
+            if (!this.paypalButtonsInstance) {
+                console.error('🔴 [PayPal] PayPal 버튼 인스턴스가 없음!');
+                log.error('PayPal buttons instance is null');
+                return;
+            }
+            
             // 버튼 렌더링
             log.info('Rendering PayPal button to container...');
+            console.log('🔵 [PayPal] ============================================');
+            console.log('🔵 [PayPal] 버튼 렌더링 시작...');
+            console.log('🔵 [PayPal] Container ID: #paypal-button-container');
+            console.log('🔵 [PayPal] ============================================');
+            
             this.paypalButtonsInstance.render('#paypal-button-container').then(() => {
+                console.log('✅✅✅ [PayPal] ============================================');
+                console.log('✅✅✅ [PayPal] 버튼 렌더링 성공!');
+                console.log('✅✅✅ [PayPal] ============================================');
                 log.info('✅ PayPal button rendered successfully');
             }).catch(error => {
+                console.error('🔴🔴🔴 [PayPal] ============================================');
+                console.error('🔴🔴🔴 [PayPal] ❌ 버튼 렌더링 실패!');
+                console.error('🔴🔴🔴 [PayPal] Error object:', error);
+                console.error('🔴🔴🔴 [PayPal] Error message:', error.message || String(error));
+                console.error('🔴🔴🔴 [PayPal] Error name:', error.name);
+                console.error('🔴🔴🔴 [PayPal] Error stack:', error.stack);
+                console.error('🔴🔴🔴 [PayPal] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+                console.error('🔴🔴🔴 [PayPal] Error type:', error.constructor?.name);
+                console.error('🔴🔴🔴 [PayPal] Full error:', error);
+                console.error('🔴🔴🔴 [PayPal] ============================================');
+                
                 log.error('❌ PayPal button render failed:', {
                     error: error.message || error,
+                    errorName: error.name,
+                    errorType: error.constructor?.name,
                     stack: error.stack,
-                    details: error
+                    details: error,
+                    fullError: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
                 });
+                
                 const container = document.getElementById('paypal-button-container');
                 if (container) {
                     container.innerHTML = `
                         <div style="padding: 20px; text-align: center; color: #e74c3c; border: 2px dashed #e74c3c; border-radius: 8px;">
                             <p style="font-weight: bold; margin-bottom: 10px;">PayPal 버튼을 렌더링할 수 없습니다</p>
-                            <p style="font-size: 12px;">${error.message || '알 수 없는 오류'}</p>
+                            <p style="font-size: 12px; margin-bottom: 10px;">${error.message || '알 수 없는 오류'}</p>
+                            <p style="font-size: 11px; color: #7f8c8d; margin-top: 10px;">
+                                브라우저 콘솔을 확인하여 상세 오류 정보를 확인하세요.
+                            </p>
                         </div>
                     `;
                 }
