@@ -9,6 +9,7 @@ import { eventBus, EVENTS } from './EventBus.js';
 import { pixelDataService } from '../services/PixelDataService.js';
 import { territoryManager } from './TerritoryManager.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { localCacheService } from '../services/LocalCacheService.js';
 import mapController from './MapController.js';
 
 // 픽셀 도구
@@ -61,13 +62,28 @@ class PixelCanvas3 {
         // 히스토리
         this.history = [];
         this.historyIndex = -1;
-        this.maxHistory = 50;
+        this.maxHistory = 30; // 전문가 권장: 20~50단계로 제한하여 메모리 최적화
         
         // 자동 저장
         this.saveTimeout = null;
-        this.saveDelay = 800;
+        this.saveDelay = 1000; // 1초로 단축 (기존 800ms)
         this.lastSavedState = null;
         this.hasUnsavedChangesFlag = false;
+        this.isSaving = false; // 저장 중 플래그
+        this.lastSaveTime = null; // 마지막 저장 시각
+        
+        // 세션 저장 (미완성 작업 복원용)
+        this.sessionSaveInterval = null;
+        this.sessionSaveDelay = 5000; // 5초마다 세션 저장 (전문가 권장: 5~8초)
+        this.lastSessionSaveTime = 0; // 마지막 세션 저장 시각 (최소 간격 제어용)
+        this.sessionSaveMinInterval = 5000; // 최소 저장 간격 5초
+        
+        // Delta 저장 (변경된 픽셀만 추적)
+        this.lastSavedPixels = new Map(); // 마지막 전체 저장 시점의 픽셀 상태 (snapshot)
+        this.changedPixels = new Set(); // 변경된 픽셀 키 추적
+        this.lastFullSaveTime = null; // 마지막 전체 저장 시각
+        this.DELTA_SAVE_THRESHOLD_ABSOLUTE = 400; // Delta 저장 절대 임계값 (300~500개 권장)
+        this.DELTA_SAVE_THRESHOLD_RATIO = 0.3; // Delta 저장 상대 임계값 (30%)
         
         // 캔버스 래퍼 (줌/패닝용)
         this.wrapper = null;
@@ -116,11 +132,17 @@ class PixelCanvas3 {
         // 터치 이벤트 설정 (모바일)
         this.setupTouchEvents();
         
+        // 미완성 세션 확인 및 복원
+        await this.checkAndRestoreSession();
+        
         // 초기 렌더링
         this.render();
         
         // 초기 줌 설정 (영토가 전체 보이도록)
         this.fitToView();
+        
+        // 세션 자동 저장 시작
+        this.startSessionAutoSave();
         
         log.info(`[PixelCanvas3] Initialized for ${territoryId}`);
     }
@@ -515,6 +537,11 @@ class PixelCanvas3 {
                 for (const pixel of data.pixels) {
                     const key = `${pixel.x},${pixel.y}`;
                     if (!this.territoryMask || this.territoryMask.has(key)) {
+                        // 삭제된 픽셀 (c가 null)은 건너뛰기
+                        if (pixel.c === null) {
+                            continue;
+                        }
+                        
                         this.pixels.set(key, {
                             color: pixel.c || pixel.color,
                             userId: pixel.u || pixel.userId,
@@ -522,10 +549,156 @@ class PixelCanvas3 {
                         });
                     }
                 }
+                
+                // 마지막 저장 시점의 픽셀 상태 저장 (Delta 추적용)
+                this.lastSavedPixels.clear();
+                for (const [key, pixel] of this.pixels.entries()) {
+                    this.lastSavedPixels.set(key, { ...pixel });
+                }
+                this.changedPixels.clear();
+                
                 log.info(`[PixelCanvas3] Loaded ${this.pixels.size} pixels`);
             }
         } catch (error) {
             log.error('[PixelCanvas3] Load failed:', error);
+        }
+    }
+    
+    /**
+     * 미완성 세션 확인 및 복원
+     */
+    async checkAndRestoreSession() {
+        try {
+            const session = await localCacheService.loadSession(this.territoryId);
+            if (!session) {
+                return; // 세션이 없으면 그냥 진행
+            }
+            
+            // Firebase에서 최신 데이터 가져오기
+            const firestoreData = await pixelDataService.loadPixelData(this.territoryId);
+            const firestoreLastUpdated = firestoreData?.lastUpdated || 0;
+            const sessionLastModified = session.lastModified || 0;
+            
+            // 세션이 Firebase보다 최신이면 복원 제안
+            if (sessionLastModified > firestoreLastUpdated) {
+                const shouldRestore = await this.showRestoreDialog(session);
+                if (shouldRestore) {
+                    await this.restoreSession(session);
+                } else {
+                    // 복원하지 않으면 세션 삭제
+                    await localCacheService.clearSession(this.territoryId);
+                }
+            } else {
+                // Firebase가 최신이면 세션 삭제
+                await localCacheService.clearSession(this.territoryId);
+            }
+        } catch (error) {
+            log.error('[PixelCanvas3] Failed to check session:', error);
+        }
+    }
+    
+    /**
+     * 복원 다이얼로그 표시
+     * @param {Object} session - 세션 데이터
+     * @returns {Promise<boolean>} 복원 여부
+     */
+    async showRestoreDialog(session) {
+        return new Promise((resolve) => {
+            const sessionTime = new Date(session.lastModified).toLocaleString('ko-KR');
+            const message = `마지막 미완성 작업을 발견했습니다.\n\n` +
+                          `작업 시간: ${sessionTime}\n` +
+                          `채워진 픽셀: ${session.pixels?.length || 0}개\n\n` +
+                          `이 작업을 이어서 불러오시겠습니까?`;
+            
+            const confirmed = confirm(message);
+            resolve(confirmed);
+        });
+    }
+    
+    /**
+     * 세션 복원
+     * @param {Object} session - 세션 데이터
+     */
+    async restoreSession(session) {
+        try {
+            if (session.pixels) {
+                this.pixels.clear();
+                for (const pixel of session.pixels) {
+                    const key = `${pixel.x},${pixel.y}`;
+                    if (!this.territoryMask || this.territoryMask.has(key)) {
+                        this.pixels.set(key, {
+                            color: pixel.c || pixel.color,
+                            userId: pixel.u || pixel.userId,
+                            timestamp: pixel.t || pixel.timestamp
+                        });
+                    }
+                }
+                
+                // 렌더링
+                this.render();
+                
+                // 상태 업데이트
+                this.hasUnsavedChangesFlag = true;
+                this.updateStats();
+                
+                log.info(`[PixelCanvas3] Restored session with ${this.pixels.size} pixels`);
+                
+                // 이벤트 발행
+                eventBus.emit(EVENTS.PIXEL_UPDATE, {
+                    type: 'sessionRestored',
+                    pixelCount: this.pixels.size
+                });
+            }
+        } catch (error) {
+            log.error('[PixelCanvas3] Failed to restore session:', error);
+        }
+    }
+    
+    /**
+     * 세션 자동 저장 시작
+     */
+    startSessionAutoSave() {
+        // 기존 인터벌 제거
+        if (this.sessionSaveInterval) {
+            clearInterval(this.sessionSaveInterval);
+        }
+        
+        // 5초마다 세션 저장 (전문가 권장: 5~8초)
+        // 최소 간격 체크는 saveSession 내부에서 처리
+        this.sessionSaveInterval = setInterval(() => {
+            this.saveSession();
+        }, this.sessionSaveDelay);
+    }
+    
+    /**
+     * 세션 저장 (미완성 작업)
+     * 전문가 권장: 최소 간격 체크로 과도 저장 방지
+     */
+    async saveSession() {
+        if (!this.territoryId || this.pixels.size === 0) {
+            return; // 픽셀이 없으면 저장하지 않음
+        }
+        
+        // 최소 간격 체크 (전문가 권장: 유휴 3초 + 최소 간격 5초)
+        const now = Date.now();
+        if (now - this.lastSessionSaveTime < this.sessionSaveMinInterval) {
+            return; // 최소 간격 미달 시 스킵
+        }
+        
+        try {
+            const sessionData = {
+                pixels: this.encodePixels(),
+                filledPixels: this.pixels.size,
+                width: this.width,
+                height: this.height,
+                bounds: this.territoryBounds
+            };
+            
+            await localCacheService.saveSession(this.territoryId, sessionData);
+            this.lastSessionSaveTime = now;
+            log.debug(`[PixelCanvas3] Saved session for ${this.territoryId}`);
+        } catch (error) {
+            log.warn('[PixelCanvas3] Failed to save session:', error);
         }
     }
     
@@ -723,6 +896,8 @@ class PixelCanvas3 {
         if (this.tool === TOOLS.ERASER) {
             const key = `${x},${y}`;
             if (this.pixels.has(key)) {
+                // Delta 추적: 삭제된 픽셀도 변경으로 기록
+                this.changedPixels.add(key);
                 this.pixels.delete(key);
                 this.drawPixelOnCanvas(x, y, null);
                 this.updateStats();
@@ -753,6 +928,12 @@ class PixelCanvas3 {
         
         const key = `${x},${y}`;
         const user = firebaseService.getCurrentUser();
+        
+        // Delta 추적: 변경된 픽셀 기록
+        const previousPixel = this.pixels.get(key);
+        if (!previousPixel || previousPixel.color !== color) {
+            this.changedPixels.add(key);
+        }
         
         this.pixels.set(key, {
             color,
@@ -896,37 +1077,148 @@ class PixelCanvas3 {
     }
     
     /**
-     * 자동 저장
+     * 자동 저장 (debounced)
+     * 저장 중이면 스킵
+     * Delta 저장 사용: 변경된 픽셀이 전체의 30% 미만이면 Delta 저장
      */
     autoSave() {
+        // 이미 저장 중이면 스킵
+        if (this.isSaving) {
+            return;
+        }
+        
         if (this.saveTimeout) {
             clearTimeout(this.saveTimeout);
         }
         
+        // 저장 상태 이벤트 발행 (저장 예정)
+        eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+            type: 'saveStatus', 
+            status: 'pending',
+            message: '저장 예정...'
+        });
+        
         this.saveTimeout = setTimeout(() => {
-            this.save();
+            // Delta 저장 여부 결정 (전문가 권장: 절대치 + 상대치 조합)
+            const totalPixels = this.width * this.height;
+            const changedCount = this.changedPixels.size;
+            const changedRatio = changedCount / totalPixels;
+            
+            // 절대치 체크: 400개 이상이면 전체 저장
+            // 상대치 체크: 30% 이상이면 전체 저장
+            // 둘 다 통과하면 Delta 저장
+            const useDelta = changedCount > 0 && 
+                           changedCount < this.DELTA_SAVE_THRESHOLD_ABSOLUTE && 
+                           changedRatio < this.DELTA_SAVE_THRESHOLD_RATIO;
+            
+            this.save(useDelta);
         }, this.saveDelay);
     }
     
     /**
-     * 저장
+     * 저장 (무조건 Firebase에 저장)
+     * Delta 저장 모드: 변경된 픽셀만 저장 (선택적)
      */
-    async save() {
+    async save(useDelta = false) {
         if (!this.territoryId) return;
         
+        // 이미 저장 중이면 스킵
+        if (this.isSaving) {
+            log.debug('[PixelCanvas3] Already saving, skipping...');
+            return;
+        }
+        
+        this.isSaving = true;
+        
         try {
-            eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'saveStatus', status: 'saving' });
+            // 저장 시작 이벤트
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+                type: 'saveStatus', 
+                status: 'saving',
+                message: '저장 중...'
+            });
             
-            const pixelData = {
-                territoryId: this.territoryId,
-                pixels: this.encodePixels(),
-                filledPixels: this.pixels.size,
-                width: this.width,
-                height: this.height,
-                bounds: this.territoryBounds
-            };
+            let pixelData;
             
-            await pixelDataService.savePixelData(this.territoryId, pixelData);
+            // Delta 저장은 최근 전체 저장(snapshot) 기준으로만 diff
+            // 전문가 권장: 두 번 연속 Delta 저장 시 병합 문제 방지
+            if (useDelta && this.changedPixels.size > 0 && this.lastFullSaveTime !== null) {
+                // Delta 저장: 변경된 픽셀만 인코딩 (lastSavedPixels 기준)
+                const changedPixelsArray = [];
+                for (const key of this.changedPixels) {
+                    const pixel = this.pixels.get(key);
+                    const lastSavedPixel = this.lastSavedPixels.get(key);
+                    
+                    // 현재 픽셀과 마지막 저장 시점의 픽셀 비교
+                    if (pixel) {
+                        const [x, y] = key.split(',').map(Number);
+                        // 마지막 저장과 다르면 변경으로 기록
+                        if (!lastSavedPixel || lastSavedPixel.color !== pixel.color) {
+                            changedPixelsArray.push({
+                                x, y,
+                                c: pixel.color,
+                                u: pixel.userId,
+                                t: pixel.timestamp
+                            });
+                        }
+                    } else if (lastSavedPixel) {
+                        // 삭제된 픽셀 (마지막 저장에는 있었지만 현재는 없음)
+                        const [x, y] = key.split(',').map(Number);
+                        changedPixelsArray.push({
+                            x, y,
+                            c: null, // 삭제 표시
+                            u: null,
+                            t: Date.now()
+                        });
+                    }
+                }
+                
+                pixelData = {
+                    territoryId: this.territoryId,
+                    pixels: changedPixelsArray,
+                    filledPixels: this.pixels.size,
+                    width: this.width,
+                    height: this.height,
+                    bounds: this.territoryBounds,
+                    isDelta: true, // Delta 저장 플래그
+                    changedCount: changedPixelsArray.length,
+                    baseSnapshotTime: this.lastFullSaveTime // 기준 snapshot 시각
+                };
+            } else {
+                // 전체 저장: 모든 픽셀 저장
+                pixelData = {
+                    territoryId: this.territoryId,
+                    pixels: this.encodePixels(),
+                    filledPixels: this.pixels.size,
+                    width: this.width,
+                    height: this.height,
+                    bounds: this.territoryBounds,
+                    isDelta: false
+                };
+            }
+            
+            // 무조건 Firebase에 저장 (debounce 없이 즉시)
+            // Delta 저장 실패 시 전체 저장으로 fallback (전문가 권장)
+            try {
+                await pixelDataService.savePixelDataImmediate(this.territoryId, pixelData);
+            } catch (error) {
+                // Delta 저장 실패 시 전체 저장으로 fallback
+                if (useDelta && pixelData.isDelta) {
+                    log.warn('[PixelCanvas3] Delta save failed, falling back to full save:', error);
+                    pixelData = {
+                        territoryId: this.territoryId,
+                        pixels: this.encodePixels(),
+                        filledPixels: this.pixels.size,
+                        width: this.width,
+                        height: this.height,
+                        bounds: this.territoryBounds,
+                        isDelta: false
+                    };
+                    await pixelDataService.savePixelDataImmediate(this.territoryId, pixelData);
+                } else {
+                    throw error; // 전체 저장도 실패하면 에러 전파
+                }
+            }
             
             const metadata = {
                 pixelCanvas: {
@@ -961,17 +1253,49 @@ class PixelCanvas3 {
             
             this.lastSavedState = JSON.stringify(this.encodePixels());
             this.hasUnsavedChangesFlag = false;
+            this.lastSaveTime = Date.now();
             
-            eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'saveStatus', status: 'saved' });
+            // 저장 후 변경 추적 초기화 및 snapshot 업데이트
+            // 전문가 권장: 전체 저장 시에만 snapshot 업데이트
+            if (!useDelta || !pixelData.isDelta) {
+                // 전체 저장 시 snapshot 업데이트
+                this.lastSavedPixels.clear();
+                for (const [key, pixel] of this.pixels.entries()) {
+                    this.lastSavedPixels.set(key, { ...pixel });
+                }
+                this.lastFullSaveTime = Date.now();
+                this.changedPixels.clear();
+            } else {
+                // Delta 저장 시에는 snapshot 유지, 변경 추적만 초기화
+                this.changedPixels.clear();
+            }
+            
+            // Firebase 저장 완료 후 세션 삭제 (저장된 작업은 세션에 보관할 필요 없음)
+            await localCacheService.clearSession(this.territoryId);
+            
+            // 저장 완료 이벤트
+            const saveTime = new Date(this.lastSaveTime).toLocaleTimeString('ko-KR', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+            
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+                type: 'saveStatus', 
+                status: 'saved',
+                message: `저장됨 · ${saveTime}`,
+                saveTime: this.lastSaveTime
+            });
             eventBus.emit(EVENTS.PIXEL_DATA_SAVED);
             
-            log.info(`[PixelCanvas3] Saved ${this.pixels.size} pixels`);
+            log.info(`[PixelCanvas3] Saved ${this.pixels.size} pixels to Firebase`);
         } catch (error) {
             log.error('[PixelCanvas3] Save failed:', error);
             eventBus.emit(EVENTS.PIXEL_UPDATE, { 
                 type: 'saveStatus', 
                 status: 'error',
-                error: error.message 
+                error: error.message,
+                message: '저장 실패'
             });
             
             // 사용자에게 알림
@@ -981,6 +1305,8 @@ class PixelCanvas3 {
             });
             
             throw error;
+        } finally {
+            this.isSaving = false;
         }
     }
     
@@ -1118,6 +1444,18 @@ class PixelCanvas3 {
      * 정리
      */
     cleanup() {
+        // 저장 중이면 완료될 때까지 대기
+        if (this.isSaving) {
+            log.debug('[PixelCanvas3] Waiting for save to complete before cleanup...');
+            // 저장 완료를 기다리지 않고 타임아웃 설정
+            setTimeout(() => {
+                if (this.isSaving) {
+                    log.warn('[PixelCanvas3] Save timeout, forcing cleanup');
+                    this.isSaving = false;
+                }
+            }, 5000);
+        }
+        
         this.pixels.clear();
         this.history = [];
         this.historyIndex = -1;
@@ -1129,9 +1467,23 @@ class PixelCanvas3 {
         this.zoom = 1.0;
         this.panX = 0;
         this.panY = 0;
+        this.isSaving = false;
+        this.lastSaveTime = null;
         
         if (this.saveTimeout) {
             clearTimeout(this.saveTimeout);
+            this.saveTimeout = null;
+        }
+        
+        // 세션 저장 인터벌 제거
+        if (this.sessionSaveInterval) {
+            clearInterval(this.sessionSaveInterval);
+            this.sessionSaveInterval = null;
+        }
+        
+        // 정리 전에 마지막 세션 저장
+        if (this.territoryId && this.pixels.size > 0) {
+            this.saveSession();
         }
     }
 }

@@ -111,8 +111,11 @@ self.addEventListener('fetch', (event) => {
         url.pathname.endsWith('/robots.txt') ||
         url.pathname.includes('/.well-known/')) {
         event.respondWith(handleOptionalFile(request).catch(() => {
-            // 완전히 실패해도 빈 응답 반환
-            return new Response('', { status: 204 });
+            // 완전히 실패해도 빈 응답 반환 (204는 body 없음)
+            return new Response(null, { 
+                status: 204,
+                statusText: 'No Content'
+            });
         }));
         return;
     }
@@ -121,7 +124,10 @@ self.addEventListener('fetch', (event) => {
     if (NETWORK_FIRST_PATTERNS.some(pattern => pattern.test(url.href))) {
         event.respondWith(networkFirst(request).catch(() => {
             // 에러 발생 시 빈 응답 반환 (에러 방지)
-            return new Response('', { status: 503 });
+            return new Response(null, { 
+                status: 503,
+                statusText: 'Service Unavailable'
+            });
         }));
         return;
     }
@@ -130,7 +136,10 @@ self.addEventListener('fetch', (event) => {
     if (CACHE_FIRST_PATTERNS.some(pattern => pattern.test(url.pathname))) {
         event.respondWith(cacheFirst(request).catch(() => {
             // 에러 발생 시 빈 응답 반환
-            return new Response('', { status: 503 });
+            return new Response(null, { 
+                status: 503,
+                statusText: 'Service Unavailable'
+            });
         }));
         return;
     }
@@ -140,7 +149,10 @@ self.addEventListener('fetch', (event) => {
     if (acceptHeader && acceptHeader.includes('text/html')) {
         event.respondWith(networkFirst(request, true).catch(() => {
             // 에러 발생 시 빈 응답 반환
-            return new Response('', { status: 503 });
+            return new Response(null, { 
+                status: 503,
+                statusText: 'Service Unavailable'
+            });
         }));
         return;
     }
@@ -148,7 +160,10 @@ self.addEventListener('fetch', (event) => {
     // 기본: 네트워크 우선 (에러 처리 포함)
     event.respondWith(networkFirst(request).catch(() => {
         // 에러 발생 시 빈 응답 반환
-        return new Response('', { status: 503 });
+        return new Response(null, { 
+            status: 503,
+            statusText: 'Service Unavailable'
+        });
     }));
 });
 
@@ -170,7 +185,8 @@ async function handleOptionalFile(request) {
     }
     
     // 파일이 없으면 빈 응답 반환 (404 에러 방지)
-    return new Response('', {
+    // 204 No Content는 body를 가질 수 없으므로 null 사용
+    return new Response(null, {
         status: 204, // No Content
         statusText: 'No Content',
         headers: { 'Content-Type': 'image/x-icon' }
@@ -227,7 +243,7 @@ async function networkFirst(request, isHtml = false) {
         
         // 에러를 다시 throw하지 않고 빈 응답 반환 (콘솔 에러 방지)
         // 에러는 이미 catch 블록에서 처리되었으므로 throw하지 않음
-        return new Response('', {
+        return new Response(null, {
             status: 503,
             statusText: 'Service Unavailable'
         });

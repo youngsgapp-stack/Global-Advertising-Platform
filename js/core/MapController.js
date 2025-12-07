@@ -1400,8 +1400,10 @@ class MapController {
                 ],
                 'fill-opacity': [
                     'case',
-                    // 컨설팅 원칙: 배경색 숨김 조건을 hasPixelArt = true 하나로 단순화
-                    // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
+                    // 전문가 조언 반영: properties 기반 접근 (feature-state와 병행)
+                    // properties.hasPixelArt를 우선 확인 (더 안정적)
+                    ['boolean', ['get', 'hasPixelArt'], false], 0,
+                    // feature-state도 확인 (호환성 유지)
                     ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
                     // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절
                     ['boolean', ['feature-state', 'hover'], false], 0.7,

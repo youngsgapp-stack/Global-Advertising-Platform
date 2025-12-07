@@ -29,6 +29,11 @@ import { notificationService } from './services/NotificationService.js';
 import { i18nService } from './services/I18nService.js';
 import { abTestService } from './services/ABTestService.js';
 import { feedbackService } from './services/FeedbackService.js';
+import { localCacheService } from './services/LocalCacheService.js';
+import { cacheService } from './services/CacheService.js';
+import { monitoringService } from './services/MonitoringService.js';
+import { serviceModeManager } from './services/ServiceModeManager.js';
+import { rateLimiter } from './services/RateLimiter.js';
 import './utils/ResetData.js'; // 데이터 초기화 유틸리티 (전역 함수로 등록)
 
 class BillionaireApp {
@@ -60,6 +65,24 @@ class BillionaireApp {
             }, 1000);
             
             await territoryDataService.initialize();
+            
+            // 2.4. Initialize Local Cache Service (IndexedDB)
+            await localCacheService.initialize();
+            
+            // 2.4.1. Initialize Cache Service
+            await cacheService.initialize();
+            
+            // 2.4.2. Initialize Monitoring Service
+            await monitoringService.initialize();
+            
+            // 2.4.3. Initialize Service Mode Manager
+            await serviceModeManager.initialize();
+            
+            // 2.4.4. Initialize Rate Limiter
+            await rateLimiter.initialize();
+            
+            // 2.4.5. Make monitoringService globally available for FirebaseService
+            window.monitoringService = monitoringService;
             
             // 2.5. Initialize Services
             await analyticsService.initialize();
@@ -571,8 +594,7 @@ class BillionaireApp {
         });
         
         document.getElementById('side-my-territories-btn')?.addEventListener('click', () => {
-            rankingBoard.open();
-            rankingBoard.switchTab('territories');
+            territoryListPanel.open();
             // 사이드 메뉴 닫기
             const sideMenu = document.getElementById('side-menu');
             if (sideMenu) {

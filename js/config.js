@@ -70,7 +70,7 @@ export const CONFIG = {
         DEFAULT_TRIBUTE: 1000,  // 기본 조공 금액 (USD)
         MIN_TRIBUTE: 100,
         MAX_TRIBUTE: 100000,
-        PIXEL_GRID_SIZE: 100,    // 픽셀 캔버스 크기
+        PIXEL_GRID_SIZE: 64,     // 픽셀 캔버스 크기 (고정 해상도: 64×64)
         AUCTION_STARTING_BID_RATIO: 0.6  // 경매 시작가 = 즉시 구매가의 60% (0.5 = 50%, 0.7 = 70%)
     },
     

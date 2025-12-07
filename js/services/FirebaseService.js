@@ -6,6 +6,15 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 
+// 모니터링 서비스는 전역에서 접근 (순환 참조 방지)
+let monitoringService = null;
+const getMonitoringService = () => {
+    if (!monitoringService && typeof window !== 'undefined' && window.monitoringService) {
+        monitoringService = window.monitoringService;
+    }
+    return monitoringService;
+};
+
 class FirebaseService {
     constructor() {
         this.app = null;
@@ -704,6 +713,12 @@ class FirebaseService {
         }
         
         try {
+            // 모니터링: Firestore 읽기 기록
+            const monitoring = getMonitoringService();
+            if (monitoring) {
+                monitoring.recordFirestoreRead(1);
+            }
+            
             const docRef = this._firestore.doc(this.db, collectionName, docId);
             const docSnap = await this._firestore.getDoc(docRef);
             
@@ -745,14 +760,13 @@ class FirebaseService {
         }
         
         try {
-            // undefined 필드 제거
-            const cleanData = {};
-            for (const [key, value] of Object.entries(data)) {
-                if (value !== undefined) {
-                    cleanData[key] = value;
-                } else {
-                    log.warn(`[FirebaseService] Removing undefined field: ${key} from ${collectionName}/${docId}`);
-                }
+            // undefined 필드 제거 (재귀적으로 처리)
+            const cleanData = this._removeUndefinedFields(data);
+            
+            // 모니터링: Firestore 쓰기 기록
+            const monitoring = getMonitoringService();
+            if (monitoring) {
+                monitoring.recordFirestoreWrite(1);
             }
             
             const docRef = this._firestore.doc(this.db, collectionName, docId);
@@ -777,6 +791,36 @@ class FirebaseService {
     }
     
     /**
+     * undefined 필드를 재귀적으로 제거하는 헬퍼 함수
+     */
+    _removeUndefinedFields(obj) {
+        if (obj === null || obj === undefined) {
+            return null;
+        }
+        
+        if (Array.isArray(obj)) {
+            return obj
+                .map(item => this._removeUndefinedFields(item))
+                .filter(item => item !== undefined);
+        }
+        
+        if (typeof obj === 'object' && obj.constructor === Object) {
+            const cleaned = {};
+            for (const [key, value] of Object.entries(obj)) {
+                if (value !== undefined) {
+                    const cleanedValue = this._removeUndefinedFields(value);
+                    if (cleanedValue !== undefined) {
+                        cleaned[key] = cleanedValue;
+                    }
+                }
+            }
+            return cleaned;
+        }
+        
+        return obj;
+    }
+    
+    /**
      * 문서 필드 업데이트 (특정 필드만 업데이트)
      * 문서가 없으면 생성 (안전한 업데이트)
      */
@@ -789,17 +833,20 @@ class FirebaseService {
             const docRef = this._firestore.doc(this.db, collectionName, docId);
             const docSnap = await this._firestore.getDoc(docRef);
             
+            // undefined 필드 제거 (재귀적으로 처리)
+            const cleanData = this._removeUndefinedFields(data);
+            
             if (docSnap.exists()) {
                 // 문서가 존재하면 업데이트
                 await this._firestore.updateDoc(docRef, {
-                    ...data,
+                    ...cleanData,
                     updatedAt: this._firestore.Timestamp.now()
                 });
                 log.debug(`Document updated: ${collectionName}/${docId}`);
             } else {
                 // 문서가 없으면 생성 (merge=true로 안전하게)
                 await this._firestore.setDoc(docRef, {
-                    ...data,
+                    ...cleanData,
                     updatedAt: this._firestore.Timestamp.now()
                 }, { merge: true });
                 log.debug(`Document created: ${collectionName}/${docId}`);
@@ -910,6 +957,52 @@ class FirebaseService {
      */
     getTimestamp() {
         return this._firestore.Timestamp;
+    }
+    
+    /**
+     * 사용자 프로필 가져오기
+     * @param {string} userId - 사용자 ID
+     * @returns {Promise<Object|null>} 사용자 프로필 데이터
+     */
+    async getUserProfile(userId) {
+        if (!userId) return null;
+        
+        try {
+            const userDoc = await this.getDocument('users', userId);
+            if (userDoc) {
+                return {
+                    userId,
+                    userName: userDoc.userName || userDoc.displayName || null,
+                    email: userDoc.email || null,
+                    photoURL: userDoc.photoURL || null,
+                    ...userDoc
+                };
+            }
+            return null;
+        } catch (error) {
+            log.warn(`[FirebaseService] Failed to get user profile for ${userId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * 여러 사용자 프로필 일괄 가져오기 (배치)
+     * @param {string[]} userIds - 사용자 ID 배열
+     * @returns {Promise<Map<string, Object>>} userId -> 프로필 매핑
+     */
+    async getUserProfilesBatch(userIds) {
+        if (!userIds || userIds.length === 0) return new Map();
+        
+        const profiles = new Map();
+        const promises = userIds.map(async (userId) => {
+            const profile = await this.getUserProfile(userId);
+            if (profile) {
+                profiles.set(userId, profile);
+            }
+        });
+        
+        await Promise.all(promises);
+        return profiles;
     }
     
     /**

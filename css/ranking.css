@@ -1,6 +1,7 @@
 /**
  * Billionaire Homepage v2 - Ranking CSS
- * 랭킹 보드 전용 스타일
+ * Top Spaces & Top Owners 디스커버리 보드
+ * 카드 기반 쇼케이스 UI
  */
 
 /* === 랭킹 보드 (사이드바) === */
@@ -26,14 +27,15 @@
     justify-content: space-between;
     align-items: center;
     padding: var(--spacing-md) var(--spacing-lg);
-    background: rgba(255, 215, 0, 0.1);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15) 0%, rgba(78, 205, 196, 0.05) 100%);
     border-bottom: var(--border-subtle);
 }
 
 .ranking-header h3 {
     font-size: var(--font-size-lg);
-    color: var(--color-rank-gold);
+    color: var(--color-primary);
     margin: 0;
+    font-weight: 600;
 }
 
 .ranking-refresh-btn {
@@ -100,7 +102,199 @@
     font-size: var(--font-size-sm);
 }
 
-/* === 랭크 아이템 === */
+/* === 오너 카드 (카드 기반 쇼케이스) === */
+.owner-card {
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    border: var(--border-subtle);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    transition: var(--transition-normal);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.owner-thumbnail {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    overflow: hidden;
+    background: var(--color-bg-deep);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    margin: calc(-1 * var(--spacing-md)) calc(-1 * var(--spacing-md)) var(--spacing-sm) calc(-1 * var(--spacing-md));
+    opacity: 0.3;
+    z-index: 0;
+}
+
+.owner-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.owner-card-header,
+.owner-card-body {
+    position: relative;
+    z-index: 1;
+}
+
+.owner-card:hover {
+    background: var(--color-bg-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+    border-color: var(--color-primary);
+}
+
+.owner-card.rank-1 {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 215, 0, 0.05) 100%);
+    border-color: var(--color-rank-gold);
+    border-width: 2px;
+}
+
+.owner-card.rank-2 {
+    background: linear-gradient(135deg, rgba(192, 192, 192, 0.12) 0%, rgba(192, 192, 192, 0.05) 100%);
+    border-color: var(--color-rank-silver);
+    border-width: 2px;
+}
+
+.owner-card.rank-3 {
+    background: linear-gradient(135deg, rgba(205, 127, 50, 0.12) 0%, rgba(205, 127, 50, 0.05) 100%);
+    border-color: var(--color-rank-bronze);
+    border-width: 2px;
+}
+
+.owner-card-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.owner-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    border: 2px solid var(--color-primary);
+    background: var(--color-bg-deep);
+}
+
+.owner-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.owner-rank-badge {
+    min-width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg-deep);
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+}
+
+.owner-card.rank-1 .owner-rank-badge {
+    background: var(--color-rank-gold);
+    color: #1a1a1a;
+}
+
+.owner-card.rank-2 .owner-rank-badge {
+    background: var(--color-rank-silver);
+    color: #1a1a1a;
+}
+
+.owner-card.rank-3 .owner-rank-badge {
+    background: var(--color-rank-bronze);
+    color: #1a1a1a;
+}
+
+.owner-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.owner-name {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 2px;
+}
+
+.owner-tag {
+    font-size: var(--font-size-xs);
+    color: var(--color-primary);
+    font-weight: 500;
+}
+
+.owner-card-body {
+    margin-top: var(--spacing-sm);
+}
+
+.owner-metrics {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
+}
+
+.metric-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xs);
+    background: var(--color-bg-deep);
+    border-radius: var(--radius-sm);
+}
+
+.metric-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    margin-bottom: 2px;
+}
+
+.metric-value {
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+}
+
+.owner-countries {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
+}
+
+.country-flag-badge {
+    font-size: var(--font-size-md);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.country-flag-badge:hover {
+    transform: scale(1.2);
+}
+
+.more-countries {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
+/* === 하위 호환성: 기존 rank-item 스타일 유지 === */
 .rank-item {
     display: flex;
     align-items: center;
@@ -115,21 +309,6 @@
 .rank-item:hover {
     background: var(--color-bg-hover);
     transform: translateX(4px);
-}
-
-.rank-item.rank-1 {
-    background: rgba(255, 215, 0, 0.15);
-    border-color: var(--color-rank-gold);
-}
-
-.rank-item.rank-2 {
-    background: rgba(192, 192, 192, 0.1);
-    border-color: var(--color-rank-silver);
-}
-
-.rank-item.rank-3 {
-    background: rgba(205, 127, 50, 0.1);
-    border-color: var(--color-rank-bronze);
 }
 
 .rank-number {
@@ -246,7 +425,7 @@
     color: var(--color-text-muted);
 }
 
-/* === 내 랭킹 === */
+/* === 내 랭킹 (리포트 카드) === */
 .my-ranking {
     padding: var(--spacing-md);
     border-top: var(--border-subtle);
@@ -274,6 +453,82 @@
     border: var(--border-primary);
 }
 
+/* 리포트 카드 스타일 */
+.report-card {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.1) 0%, rgba(78, 205, 196, 0.05) 100%);
+    border: 2px solid var(--color-primary);
+}
+
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: var(--border-subtle);
+}
+
+.report-title {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.report-rank {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.report-stats {
+    display: flex;
+    justify-content: space-around;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.report-stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-sm);
+    background: var(--color-bg-deep);
+    border-radius: var(--radius-sm);
+}
+
+.report-stat .stat-value {
+    font-weight: 700;
+    font-size: var(--font-size-md);
+    color: var(--color-text);
+    margin-bottom: 2px;
+}
+
+.report-stat .stat-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.report-percentile {
+    text-align: center;
+    padding-top: var(--spacing-sm);
+    border-top: var(--border-subtle);
+}
+
+.percentile-label {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--color-primary);
+    display: block;
+    margin-bottom: 2px;
+}
+
+.percentile-desc {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+/* 하위 호환성: 기존 스타일 유지 */
 .my-rank-header {
     display: flex;
     justify-content: space-between;

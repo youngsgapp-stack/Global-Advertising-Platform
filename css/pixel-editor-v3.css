@@ -51,16 +51,32 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 24px;
+    padding: 16px 24px;
     background: linear-gradient(135deg, rgba(78, 205, 196, 0.1), rgba(78, 205, 196, 0.05));
     border-bottom: 1px solid rgba(78, 205, 196, 0.2);
 }
 
+.pixel-editor-3-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .pixel-editor-3-header h2 {
     margin: 0;
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 600;
     color: #4ecdc4;
+}
+
+.pixel-editor-3-territory-info {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.pixel-editor-3-territory-info .territory-name {
+    color: #fff;
+    font-weight: 500;
 }
 
 .pixel-editor-3-actions {
@@ -99,6 +115,18 @@
 .pixel-editor-3-btn-primary:hover {
     background: #45b8b0;
     border-color: #45b8b0;
+}
+
+.pixel-editor-3-btn-save {
+    background: rgba(0, 184, 148, 0.2);
+    border-color: rgba(0, 184, 148, 0.4);
+    color: #00b894;
+    font-weight: 600;
+}
+
+.pixel-editor-3-btn-save:hover {
+    background: rgba(0, 184, 148, 0.3);
+    border-color: #00b894;
 }
 
 .pixel-editor-3-save-status {
@@ -190,8 +218,20 @@
 /* === 도구 그리드 === */
 .pixel-editor-3-tool-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
+}
+
+.pixel-editor-3-tool-hint {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(78, 205, 196, 0.1);
+    text-align: center;
+}
+
+.pixel-editor-3-tool-hint small {
+    color: #888;
+    font-size: 10px;
 }
 
 .pixel-editor-3-tool-btn {
@@ -300,8 +340,18 @@
 /* === 팔레트 === */
 .pixel-editor-3-palette {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
+}
+
+.pixel-editor-3-palette-hint {
+    margin-top: 8px;
+    text-align: center;
+}
+
+.pixel-editor-3-palette-hint small {
+    color: #888;
+    font-size: 10px;
 }
 
 .pixel-editor-3-palette-color {

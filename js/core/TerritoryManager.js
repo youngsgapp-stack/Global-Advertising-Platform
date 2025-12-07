@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from './EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { analyticsService } from '../services/AnalyticsService.js';
 
 // 주권 상태 열거형
 export const SOVEREIGNTY = {
@@ -367,6 +368,11 @@ class TerritoryManager {
             
             this.currentTerritory = territory;
             
+            // 영토 조회수 증가 (비동기, 에러 무시)
+            this.incrementViewCount(territoryId).catch(err => {
+                log.warn(`[TerritoryManager] Failed to increment view count for ${territoryId}:`, err);
+            });
+            
             // 영토 패널 열기 이벤트 발행 (TERRITORY_SELECT는 다시 발행하지 않음 - 무한 루프 방지)
             eventBus.emit(EVENTS.UI_PANEL_OPEN, {
                 type: 'territory',
@@ -647,6 +653,43 @@ class TerritoryManager {
         }
         
         return userTerritories;
+    }
+    
+    /**
+     * 영토 조회수 증가
+     * @param {string} territoryId - 영토 ID
+     */
+    async incrementViewCount(territoryId) {
+        if (!territoryId) return;
+        
+        try {
+            // Firestore에서 현재 조회수 가져오기
+            const territory = await firebaseService.getDocument('territories', territoryId);
+            const currentViews = territory?.viewCount || 0;
+            
+            // 조회수 증가 (Firestore increment 연산 사용)
+            await firebaseService.updateDocument('territories', territoryId, {
+                viewCount: currentViews + 1,
+                lastViewedAt: new Date()
+            }, true); // merge=true로 기존 데이터 유지
+            
+            // 로컬 캐시도 업데이트
+            const localTerritory = this.territories.get(territoryId);
+            if (localTerritory) {
+                localTerritory.viewCount = currentViews + 1;
+                localTerritory.lastViewedAt = new Date();
+            }
+            
+            // Analytics 이벤트 추적
+            if (typeof analyticsService !== 'undefined') {
+                analyticsService.trackEvent('territory_viewed', {
+                    territory_id: territoryId
+                });
+            }
+        } catch (error) {
+            log.warn(`[TerritoryManager] Failed to increment view count:`, error);
+            // 에러가 발생해도 앱은 계속 작동
+        }
     }
     
     /**

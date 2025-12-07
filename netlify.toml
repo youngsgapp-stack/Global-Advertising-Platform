@@ -28,3 +28,65 @@
     Content-Type = "application/geo+json"
     Cache-Control = "public, max-age=3600"
 
+# 정적 자산 캐싱 (JS, CSS, 이미지)
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.jpeg"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000"
+    X-Content-Type-Options = "nosniff"
+
+# HTML 파일은 짧은 캐시 (SPA 업데이트 대비)
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=300, must-revalidate"
+
+# JSON 데이터 (랭킹, 통계 등)
+[[headers]]
+  for = "/api/rankings/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+    Content-Type = "application/json"
+
+[[headers]]
+  for = "/api/stats/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+    Content-Type = "application/json"
+

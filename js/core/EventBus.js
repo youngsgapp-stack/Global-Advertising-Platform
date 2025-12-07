@@ -173,7 +173,20 @@ export const EVENTS = {
     PAYMENT_START: 'payment:start',
     PAYMENT_SUCCESS: 'payment:success',
     PAYMENT_ERROR: 'payment:error',
-    PAYMENT_CANCEL: 'payment:cancel'
+    PAYMENT_CANCEL: 'payment:cancel',
+    
+    // 서비스 모드
+    SERVICE_MODE_CHANGED: 'service:modeChanged',
+    
+    // 보안 & Rate Limiting
+    SUSPICIOUS_ACTIVITY: 'security:suspiciousActivity',
+    RATE_LIMIT_EXCEEDED: 'security:rateLimitExceeded',
+    
+    // 소유권
+    TERRITORY_OWNERSHIP_TRANSFERRED: 'territory:ownershipTransferred',
+    
+    // API
+    API_ERROR: 'api:error'
 };
 
 // 싱글톤 인스턴스 생성 및 내보내기

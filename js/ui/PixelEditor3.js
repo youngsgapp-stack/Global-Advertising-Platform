@@ -7,12 +7,24 @@ import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { pixelCanvas3, TOOLS } from '../core/PixelCanvas3.js';
 
-// 색상 팔레트
+// 색상 팔레트 (16색으로 제한 - Wplace 스타일)
 const PALETTE = [
-    '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00',
-    '#ff00ff', '#00ffff', '#ff6b6b', '#4ecdc4', '#feca57', '#a29bfe',
-    '#fd79a8', '#00b894', '#e17055', '#74b9ff', '#dfe6e9', '#636e72',
-    '#2d3436', '#fab1a0', '#81ecec', '#55efc4', '#fdcb6e', '#e84393'
+    '#000000', // 검정
+    '#ffffff', // 흰색
+    '#ff0000', // 빨강
+    '#00ff00', // 초록
+    '#0000ff', // 파랑
+    '#ffff00', // 노랑
+    '#ff00ff', // 마젠타
+    '#00ffff', // 시안
+    '#ff6b6b', // 연한 빨강
+    '#4ecdc4', // 청록
+    '#feca57', // 주황
+    '#a29bfe', // 보라
+    '#fd79a8', // 분홍
+    '#00b894', // 민트
+    '#e17055', // 갈색
+    '#74b9ff'  // 하늘색
 ];
 
 class PixelEditor3 {
@@ -21,7 +33,8 @@ class PixelEditor3 {
         this.isOpen = false;
         this.currentTerritory = null;
         this.tool = TOOLS.BRUSH;
-        this.color = '#4ecdc4';
+        // Wplace 스타일: 기본 색상을 팔레트 첫 번째 색으로 설정
+        this.color = PALETTE.length > 0 ? PALETTE[2] : '#4ecdc4'; // 빨강으로 시작
         this.brushSize = 1;
         this.customColors = [];
         this.shortcutsModalVisible = false;
@@ -59,10 +72,23 @@ class PixelEditor3 {
         return `
             <div class="pixel-editor-3-overlay"></div>
             <div class="pixel-editor-3-content">
-                <!-- 헤더 -->
+                <!-- 헤더 (Wplace 스타일 - 간결하게) -->
                 <div class="pixel-editor-3-header">
-                    <h2>🎨 영토 꾸미기</h2>
+                    <div class="pixel-editor-3-header-left">
+                        <h2>🎨 픽셀 아트 편집</h2>
+                        <div class="pixel-editor-3-territory-info" id="pixel-territory-info-3">
+                            <span class="territory-name">영토 선택됨</span>
+                        </div>
+                    </div>
                     <div class="pixel-editor-3-actions">
+                        <button class="pixel-editor-3-btn pixel-editor-3-btn-save" id="pixel-save-btn-3" title="저장 (Ctrl+S)">
+                            <span>💾</span>
+                            <span>저장</span>
+                        </button>
+                        <div class="pixel-editor-3-save-status" id="pixel-save-status-3">
+                            <span>✅</span>
+                            <span>저장됨</span>
+                        </div>
                         <button class="pixel-editor-3-btn" id="pixel-undo-3" title="실행 취소 (Ctrl+Z)">
                             <span>↩</span>
                         </button>
@@ -72,11 +98,6 @@ class PixelEditor3 {
                         <button class="pixel-editor-3-btn" id="pixel-clear-3" title="전체 지우기">
                             <span>🗑</span>
                         </button>
-                        <button class="pixel-editor-3-btn" id="pixel-shortcuts-3" title="키보드 단축키 가이드">⌨️</button>
-                        <div class="pixel-editor-3-save-status" id="pixel-save-status-3">
-                            <span>✅</span>
-                            <span>저장됨</span>
-                        </div>
                         <button class="pixel-editor-3-close" id="pixel-close-3">×</button>
                     </div>
                 </div>
@@ -85,30 +106,25 @@ class PixelEditor3 {
                 <div class="pixel-editor-3-body">
                     <!-- 좌측: 도구 -->
                     <div class="pixel-editor-3-sidebar pixel-editor-3-tools">
-                        <!-- 도구 -->
+                        <!-- 도구 (3개로 최소화 - Wplace 스타일) -->
                         <div class="pixel-editor-3-section">
                             <h3>도구</h3>
                             <div class="pixel-editor-3-tool-grid">
-                                <button class="pixel-editor-3-tool-btn active" data-tool="brush" title="브러시">
+                                <button class="pixel-editor-3-tool-btn active" data-tool="brush" title="브러시 (B)">
                                     <span class="tool-icon">✏</span>
                                     <span>브러시</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="eraser" title="지우개">
+                                <button class="pixel-editor-3-tool-btn" data-tool="eraser" title="지우개 (E)">
                                     <span class="tool-icon">🧹</span>
                                     <span>지우개</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="fill" title="채우기">
+                                <button class="pixel-editor-3-tool-btn" data-tool="fill" title="채우기 (F)">
                                     <span class="tool-icon">🪣</span>
                                     <span>채우기</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="picker" title="스포이드">
-                                    <span class="tool-icon">💉</span>
-                                    <span>스포이드</span>
-                                </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="pan" title="이동 (Space)">
-                                    <span class="tool-icon">✋</span>
-                                    <span>이동</span>
-                                </button>
+                            </div>
+                            <div class="pixel-editor-3-tool-hint">
+                                <small>Space: 이동 | I: 스포이드</small>
                             </div>
                         </div>
                         
@@ -130,13 +146,16 @@ class PixelEditor3 {
                             </div>
                         </div>
                         
-                        <!-- 팔레트 -->
+                        <!-- 팔레트 (16색) -->
                         <div class="pixel-editor-3-section">
-                            <h3>팔레트</h3>
+                            <h3>팔레트 (16색)</h3>
                             <div class="pixel-editor-3-palette">
                                 ${PALETTE.map(color => `
-                                    <div class="pixel-editor-3-palette-color" data-color="${color}" style="background: ${color}"></div>
+                                    <div class="pixel-editor-3-palette-color" data-color="${color}" style="background: ${color}" title="${color}"></div>
                                 `).join('')}
+                            </div>
+                            <div class="pixel-editor-3-palette-hint">
+                                <small>클릭하여 색상 선택</small>
                             </div>
                         </div>
                     </div>
@@ -219,9 +238,28 @@ class PixelEditor3 {
         // 저장 상태 이벤트 리스너
         eventBus.on(EVENTS.PIXEL_UPDATE, (data) => {
             if (data.type === 'saveStatus') {
-                this.updateSaveStatus(data.status, data.error);
+                this.updateSaveStatus(data.status, data.error, data.message, data.saveTime);
             }
         });
+        
+        // beforeunload 이벤트 - 저장되지 않은 변경사항이 있으면 경고
+        this.beforeUnloadHandler = (e) => {
+            if (this.isOpen && pixelCanvas3 && pixelCanvas3.hasUnsavedChanges()) {
+                // 저장 중이면 경고
+                if (pixelCanvas3.isSaving) {
+                    e.preventDefault();
+                    e.returnValue = '저장 중입니다. 나가면 최근 변경이 일부 사라질 수 있습니다.';
+                    return e.returnValue;
+                }
+                
+                // 저장되지 않은 변경사항이 있으면 경고
+                e.preventDefault();
+                e.returnValue = '저장되지 않은 변경사항이 있습니다. 정말로 나가시겠습니까?';
+                return e.returnValue;
+            }
+        };
+        
+        window.addEventListener('beforeunload', this.beforeUnloadHandler);
     }
     
     /**
@@ -258,6 +296,9 @@ class PixelEditor3 {
                 filledPixels: pixelCanvas3.pixels.size,
                 value: pixelCanvas3.calculateValue()
             });
+            
+            // 영토 정보 업데이트
+            this.updateTerritoryInfo();
             
             log.info(`[PixelEditor3] Opened for ${territory.id}`);
         } catch (error) {
@@ -298,6 +339,30 @@ class PixelEditor3 {
      * 닫기
      */
     close() {
+        // 저장 중이면 완료될 때까지 대기
+        if (pixelCanvas3?.isSaving) {
+            const confirmed = confirm(
+                '저장 중입니다.\n\n' +
+                '저장이 완료될 때까지 기다리시겠습니까?\n' +
+                '(취소를 누르면 저장을 취소하고 닫습니다)'
+            );
+            if (confirmed) {
+                // 저장 완료를 기다림
+                const checkSave = setInterval(() => {
+                    if (!pixelCanvas3.isSaving) {
+                        clearInterval(checkSave);
+                        this.close();
+                    }
+                }, 100);
+                
+                // 최대 5초 대기
+                setTimeout(() => {
+                    clearInterval(checkSave);
+                }, 5000);
+                return;
+            }
+        }
+        
         if (pixelCanvas3?.hasUnsavedChanges && pixelCanvas3.hasUnsavedChanges()) {
             const confirmed = confirm(
                 '저장되지 않은 변경사항이 있습니다.\n\n' +
@@ -314,6 +379,12 @@ class PixelEditor3 {
         }
         this.currentTerritory = null;
         this.hideShortcutsModal();
+        
+        // beforeunload 이벤트 리스너 제거
+        if (this.beforeUnloadHandler) {
+            window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+            this.beforeUnloadHandler = null;
+        }
     }
     
     /**
@@ -389,6 +460,16 @@ class PixelEditor3 {
             };
         }
         
+        // 저장 버튼
+        const saveBtn = this.container.querySelector('#pixel-save-btn-3');
+        if (saveBtn) {
+            saveBtn.onclick = () => {
+                if (pixelCanvas3 && !pixelCanvas3.isSaving) {
+                    pixelCanvas3.save();
+                }
+            };
+        }
+        
         // 내보내기
         const exportBtn = this.container.querySelector('#pixel-export-3');
         if (exportBtn) {
@@ -400,6 +481,9 @@ class PixelEditor3 {
                 link.click();
             };
         }
+        
+        // 영토 정보 업데이트
+        this.updateTerritoryInfo();
         
         // 줌 컨트롤
         const zoomInBtn = this.container.querySelector('#pixel-zoom-in-3');
@@ -505,18 +589,18 @@ class PixelEditor3 {
             } else if (e.key === 'f' || e.key === 'F') {
                 if (!e.ctrlKey && !e.metaKey) {
                     e.preventDefault();
-                    if (pixelCanvas3) {
-                        pixelCanvas3.fitToView();
+                    // F키는 채우기 도구로 사용
+                    this.setTool(TOOLS.FILL);
+                    const fillBtn = this.container.querySelector('[data-tool="fill"]');
+                    if (fillBtn) {
+                        this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                        fillBtn.classList.add('active');
                     }
                 }
             } else if (e.key === 'i' || e.key === 'I') {
                 e.preventDefault();
+                // 스포이드는 숨겨진 도구로 사용 가능
                 this.setTool(TOOLS.PICKER);
-                const pickerBtn = this.container.querySelector('[data-tool="picker"]');
-                if (pickerBtn) {
-                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                    pickerBtn.classList.add('active');
-                }
             }
             
             // 줌 단축키
@@ -604,7 +688,7 @@ class PixelEditor3 {
     /**
      * 저장 상태 업데이트
      */
-    updateSaveStatus(status, error = null) {
+    updateSaveStatus(status, error = null, message = null, saveTime = null) {
         const statusEl = this.container?.querySelector('#pixel-save-status-3');
         if (!statusEl) return;
         
@@ -612,31 +696,53 @@ class PixelEditor3 {
         const text = statusEl.querySelector('span:last-child');
         
         // 기존 클래스 제거
-        statusEl.classList.remove('saving', 'saved', 'error');
+        statusEl.classList.remove('saving', 'saved', 'error', 'pending');
         
         if (status === 'saving') {
             icon.textContent = '💾';
-            text.textContent = '저장 중...';
+            text.textContent = message || '저장 중...';
             statusEl.classList.add('saving');
         } else if (status === 'saved') {
             icon.textContent = '✅';
-            text.textContent = '저장됨';
+            if (saveTime) {
+                const timeStr = new Date(saveTime).toLocaleTimeString('ko-KR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                });
+                text.textContent = message || `저장됨 · ${timeStr}`;
+            } else {
+                text.textContent = message || '저장됨';
+            }
             statusEl.classList.add('saved');
             // 3초 후 약하게 표시
             setTimeout(() => {
                 if (this.container?.querySelector('#pixel-save-status-3')) {
                     icon.textContent = '💾';
-                    text.textContent = '저장됨';
+                    if (saveTime) {
+                        const timeStr = new Date(saveTime).toLocaleTimeString('ko-KR', { 
+                            hour: '2-digit', 
+                            minute: '2-digit', 
+                            second: '2-digit' 
+                        });
+                        text.textContent = `저장됨 · ${timeStr}`;
+                    } else {
+                        text.textContent = '저장됨';
+                    }
                 }
             }, 3000);
+        } else if (status === 'pending') {
+            icon.textContent = '⏳';
+            text.textContent = message || '저장 예정...';
+            statusEl.classList.add('pending');
         } else if (status === 'error') {
             icon.textContent = '⚠️';
-            text.textContent = '저장 실패';
+            text.textContent = message || '저장 실패';
             statusEl.classList.add('error');
             statusEl.title = error || '저장 중 오류가 발생했습니다. 다시 시도해주세요.';
             // 5초 후 자동으로 다시 저장 시도
             setTimeout(() => {
-                if (pixelCanvas3 && this.isOpen) {
+                if (pixelCanvas3 && this.isOpen && !pixelCanvas3.isSaving) {
                     pixelCanvas3.save();
                 }
             }, 5000);
@@ -733,6 +839,22 @@ class PixelEditor3 {
             modal.remove();
         }
         this.shortcutsModalVisible = false;
+    }
+    
+    /**
+     * 영토 정보 업데이트
+     */
+    updateTerritoryInfo() {
+        const infoEl = this.container?.querySelector('#pixel-territory-info-3');
+        if (infoEl && this.currentTerritory) {
+            const nameEl = infoEl.querySelector('.territory-name');
+            if (nameEl) {
+                const name = this.currentTerritory.name?.ko || 
+                            this.currentTerritory.name?.en || 
+                            this.currentTerritory.id;
+                nameEl.textContent = name;
+            }
+        }
     }
 }
 

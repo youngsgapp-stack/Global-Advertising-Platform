@@ -72,10 +72,22 @@ class TerritoryUpdatePipeline {
             // 3. TerritoryViewState 생성 (상태 계산)
             const viewState = new TerritoryViewState(territoryId, territory, pixelData);
             
-            // 4. 맵 feature state 업데이트
+            // 4. 전문가 조언 반영: Properties 기반 접근으로 전환
+            // GeoJSON feature의 properties에 hasPixelArt 플래그 추가
+            await this.updateTerritoryProperties(territory, viewState);
+            
+            // 5. 맵 feature state 업데이트 (기존 방식 유지 - 호환성)
             await this.updateMapFeatureState(territory, viewState);
             
-            // 5. 픽셀 아트 표시 (있는 경우)
+            // 6. feature state가 반영되도록 약간의 지연 (맵 렌더링 대기)
+            if (viewState.hasPixelArt && this.map) {
+                // feature state가 즉시 반영되도록 맵 강제 새로고침
+                this.map.triggerRepaint();
+                // 약간의 지연 후 픽셀 아트 표시
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            // 7. 픽셀 아트 표시 (있는 경우)
             if (viewState.hasPixelArt) {
                 console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
                 await this.displayPixelArt(territory, pixelData);
@@ -202,8 +214,71 @@ class TerritoryUpdatePipeline {
     }
     
     /**
+     * GeoJSON feature의 properties 업데이트 (전문가 조언: properties 기반 접근)
+     * fill-opacity 표현식이 properties를 직접 참조하도록 변경
+     */
+    async updateTerritoryProperties(territory, viewState) {
+        if (!this.map || !territory) return;
+        
+        let sourceId = territory.sourceId;
+        let featureId = territory.featureId;
+        
+        // sourceId/featureId가 없으면 재검색
+        if (!sourceId || !featureId) {
+            const found = await this.findTerritoryInMap(territory.id);
+            if (found) {
+                sourceId = found.sourceId;
+                featureId = found.featureId;
+                territory.sourceId = sourceId;
+                territory.featureId = featureId;
+            } else {
+                return;
+            }
+        }
+        
+        try {
+            const source = this.map.getSource(sourceId);
+            if (!source || source.type !== 'geojson' || !source._data) {
+                return;
+            }
+            
+            // GeoJSON feature 찾기
+            const feature = source._data.features?.find(f => {
+                const propsId = f.properties?.id || f.properties?.territoryId;
+                return String(propsId) === String(territory.id) || String(f.id) === String(featureId);
+            });
+            
+            if (feature) {
+                // properties에 hasPixelArt 플래그 추가 (픽셀 아트가 있든 없든 항상 업데이트)
+                if (!feature.properties) {
+                    feature.properties = {};
+                }
+                
+                // 항상 업데이트 (픽셀 아트가 없는 경우 false로 설정)
+                feature.properties.hasPixelArt = viewState.hasPixelArt;
+                feature.properties.pixelFillRatio = viewState.fillRatio;
+                
+                // GeoJSON 소스 업데이트 (setData로 전체 재설정)
+                // 주의: setData는 전체 소스를 재설정하므로 다른 영토의 properties도 유지됨
+                this.map.getSource(sourceId).setData(source._data);
+                
+                if (viewState.hasPixelArt) {
+                    console.log(`[TerritoryUpdatePipeline] ✅ Updated properties for ${territory.id}: hasPixelArt=${viewState.hasPixelArt}`);
+                } else {
+                    console.debug(`[TerritoryUpdatePipeline] Updated properties for ${territory.id}: hasPixelArt=${viewState.hasPixelArt}`);
+                }
+            } else {
+                console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature not found for ${territory.id} in source ${sourceId}`);
+            }
+        } catch (error) {
+            log.error(`[TerritoryUpdatePipeline] Failed to update properties for ${territory.id}:`, error);
+        }
+    }
+    
+    /**
      * 맵 feature state 업데이트
      * 핵심: sourceId/featureId가 없으면 재검색하여 매핑 확립
+     * 전문가 조언 반영: 실제 렌더링된 feature와 state 대상이 일치하는지 검증
      */
     async updateMapFeatureState(territory, viewState) {
         if (!this.map || !territory) return;
@@ -239,18 +314,75 @@ class TerritoryUpdatePipeline {
                 return;
             }
             
+            // 전문가 조언 반영: 실제 GeoJSON feature 확인
+            try {
+                const source = this.map.getSource(sourceId);
+                if (source && source.type === 'geojson' && source._data) {
+                    const actualFeature = source._data.features?.find(f => {
+                        const propsId = f.properties?.id || f.properties?.territoryId;
+                        return String(propsId) === String(territory.id) || String(f.id) === String(featureId);
+                    });
+                    
+                    if (actualFeature) {
+                        const actualFeatureId = actualFeature.id;
+                        const actualSourceId = sourceId;
+                        
+                        // 실제 feature ID와 저장된 feature ID가 다른 경우 수정
+                        if (String(actualFeatureId) !== String(featureId)) {
+                            console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature ID mismatch for ${territory.id}: stored=${featureId}, actual=${actualFeatureId}`);
+                            featureId = actualFeatureId;
+                            territory.featureId = actualFeatureId;
+                            territoryManager.territories.set(territory.id, territory);
+                        }
+                        
+                        console.log(`[TerritoryUpdatePipeline] ✅ Verified feature for ${territory.id}: source=${actualSourceId}, id=${actualFeatureId}`);
+                    } else {
+                        console.warn(`[TerritoryUpdatePipeline] ⚠️ Cannot find actual feature in GeoJSON for ${territory.id}`);
+                    }
+                }
+            } catch (error) {
+                log.debug(`[TerritoryUpdatePipeline] Feature verification failed for ${territory.id}:`, error);
+            }
+            
             // Mapbox feature state 업데이트
             try {
                 this.map.setFeatureState(
                     { source: sourceId, id: featureId },
                     featureState
                 );
+                
+                // feature state가 제대로 설정되었는지 확인
+                const verifyState = this.map.getFeatureState({ source: sourceId, id: featureId });
+                if (verifyState && verifyState.hasPixelArt !== featureState.hasPixelArt) {
+                    console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature state mismatch for ${territory.id}: expected hasPixelArt=${featureState.hasPixelArt}, got ${verifyState.hasPixelArt}`);
+                } else if (verifyState && verifyState.hasPixelArt === featureState.hasPixelArt) {
+                    console.log(`[TerritoryUpdatePipeline] ✅ Feature state verified for ${territory.id}: hasPixelArt=${verifyState.hasPixelArt}`);
+                }
             } catch (error) {
+                console.error(`[TerritoryUpdatePipeline] ❌ Failed to set feature state for ${territory.id}:`, error);
                 log.debug(`[TerritoryUpdatePipeline] Failed to set feature state for ${territory.id}:`, error);
             }
             
-            // fill-opacity가 즉시 반영되도록 맵 강제 새로고침
+            // fill-opacity가 즉시 반영되도록 맵 강제 새로고침 (여러 번 호출하여 확실하게)
             this.map.triggerRepaint();
+            
+            // feature state가 확실히 반영되도록 추가 새로고침
+            setTimeout(() => {
+                if (this.map) {
+                    this.map.triggerRepaint();
+                }
+            }, 10);
+            
+            // 강제로 레이어 다시 그리기 (더 확실한 방법)
+            try {
+                const fillLayerId = `${sourceId}-fill`;
+                if (this.map.getLayer(fillLayerId)) {
+                    // 레이어를 다시 추가하여 강제로 업데이트
+                    this.map.triggerRepaint();
+                }
+            } catch (error) {
+                // 레이어가 없으면 무시
+            }
             
             // 로그를 줄이기 위해 hasPixelArt가 true인 경우만 상세 로그 출력
             if (featureState.hasPixelArt) {
@@ -489,7 +621,7 @@ class TerritoryUpdatePipeline {
         }
         
         this.initialLoadInProgress = true;
-        console.log('[TerritoryUpdatePipeline] 🚀 Starting initial load (pixel art territories only)...');
+        console.log('[TerritoryUpdatePipeline] 🚀 Starting initial load (all owned territories with pixel art)...');
         
         try {
             // 0. 먼저 맵의 모든 영토 매핑 확립 (핵심!)
@@ -499,28 +631,51 @@ class TerritoryUpdatePipeline {
             const territoriesWithPixelArt = await this.getTerritoriesWithPixelArt();
             console.log(`[TerritoryUpdatePipeline] Found ${territoriesWithPixelArt.length} territories with pixel art`);
             
-            if (territoriesWithPixelArt.length === 0) {
-                console.log('[TerritoryUpdatePipeline] No territories with pixel art found');
+            // 2. Firestore에서 소유된 영토(ruled/protected) 가져오기
+            const ownedTerritories = await this.getOwnedTerritories();
+            console.log(`[TerritoryUpdatePipeline] Found ${ownedTerritories.length} owned territories`);
+            
+            // 3. 픽셀 아트가 있는 소유 영토와 픽셀 아트가 없는 소유 영토 모두 처리
+            const allTerritoriesToRefresh = new Set([
+                ...territoriesWithPixelArt,
+                ...ownedTerritories
+            ]);
+            console.log(`[TerritoryUpdatePipeline] Total territories to refresh: ${allTerritoriesToRefresh.size}`);
+            
+            if (allTerritoriesToRefresh.size === 0) {
+                console.log('[TerritoryUpdatePipeline] No territories to refresh');
                 this.initialLoadCompleted = true;
                 return;
             }
             
-            // 2. 뷰포트 내 영토 우선 로드
+            // 4. 뷰포트 내 영토 우선 로드
             const viewportTerritories = this.getViewportTerritoryIds();
-            const viewportWithArt = territoriesWithPixelArt.filter(id => viewportTerritories.includes(id));
-            const remainingWithArt = territoriesWithPixelArt.filter(id => !viewportTerritories.includes(id));
+            const viewportToRefresh = Array.from(allTerritoriesToRefresh).filter(id => viewportTerritories.includes(id));
+            const remainingToRefresh = Array.from(allTerritoriesToRefresh).filter(id => !viewportTerritories.includes(id));
             
-            // 3. 뷰포트 내 영토 즉시 로드
-            if (viewportWithArt.length > 0) {
-                console.log(`[TerritoryUpdatePipeline] Loading ${viewportWithArt.length} viewport territories with pixel art...`);
-                await this.refreshTerritories(viewportWithArt, { batchSize: 10 });
+            // 5. 뷰포트 내 영토 즉시 로드
+            if (viewportToRefresh.length > 0) {
+                console.log(`[TerritoryUpdatePipeline] Loading ${viewportToRefresh.length} viewport territories...`);
+                await this.refreshTerritories(viewportToRefresh, { batchSize: 10 });
+                
+                // 뷰포트 영토 로드 후 맵 강제 새로고침
+                if (this.map) {
+                    this.map.triggerRepaint();
+                    console.log(`[TerritoryUpdatePipeline] 🎨 Triggered map repaint after viewport load`);
+                }
             }
             
-            // 4. 나머지 영토는 백그라운드에서 배치 로드
-            if (remainingWithArt.length > 0) {
-                console.log(`[TerritoryUpdatePipeline] Loading ${remainingWithArt.length} remaining territories with pixel art in background...`);
+            // 6. 나머지 영토는 백그라운드에서 배치 로드
+            if (remainingToRefresh.length > 0) {
+                console.log(`[TerritoryUpdatePipeline] Loading ${remainingToRefresh.length} remaining territories in background...`);
                 // 백그라운드에서 실행 (await 하지 않음)
-                this.refreshTerritories(remainingWithArt, { batchSize: 10 }).catch(error => {
+                this.refreshTerritories(remainingToRefresh, { batchSize: 10 }).then(() => {
+                    // 백그라운드 로드 완료 후 맵 새로고침
+                    if (this.map) {
+                        this.map.triggerRepaint();
+                        console.log(`[TerritoryUpdatePipeline] 🎨 Triggered map repaint after background load`);
+                    }
+                }).catch(error => {
                     log.error('[TerritoryUpdatePipeline] Background load failed:', error);
                 });
             }
@@ -597,6 +752,38 @@ class TerritoryUpdatePipeline {
             
         } catch (error) {
             log.error('[TerritoryUpdatePipeline] Failed to establish territory mappings:', error);
+        }
+    }
+    
+    /**
+     * Firestore에서 소유된 영토(ruled/protected) 가져오기
+     */
+    async getOwnedTerritories() {
+        try {
+            // ruled와 protected를 각각 조회하여 합치기 (or 쿼리 대신)
+            const ruledTerritories = await firebaseService.queryCollection('territories', [
+                { field: 'sovereignty', op: '==', value: 'ruled' }
+            ]);
+            
+            const protectedTerritories = await firebaseService.queryCollection('territories', [
+                { field: 'sovereignty', op: '==', value: 'protected' }
+            ]);
+            
+            // 중복 제거를 위해 Set 사용
+            const territoryIds = new Set();
+            
+            ruledTerritories.forEach(doc => {
+                territoryIds.add(doc.id);
+            });
+            
+            protectedTerritories.forEach(doc => {
+                territoryIds.add(doc.id);
+            });
+            
+            return Array.from(territoryIds);
+        } catch (error) {
+            log.error('[TerritoryUpdatePipeline] Failed to get owned territories:', error);
+            return [];
         }
     }
     
