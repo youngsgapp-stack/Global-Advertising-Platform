@@ -372,6 +372,9 @@ class PixelEditor3 {
             if (!confirmed) return;
         }
         
+        // 편집기를 닫기 전에 현재 영토 ID 저장
+        const territoryId = this.currentTerritory?.id;
+        
         this.isOpen = false;
         this.container?.classList.add('hidden');
         if (pixelCanvas3) {
@@ -384,6 +387,45 @@ class PixelEditor3 {
         if (this.beforeUnloadHandler) {
             window.removeEventListener('beforeunload', this.beforeUnloadHandler);
             this.beforeUnloadHandler = null;
+        }
+        
+        // 편집기를 닫은 후 맵에 픽셀 아트가 즉시 반영되도록 영토 새로고침
+        // 모바일에서 편집 후 저장했을 때 맵에 즉시 보이도록 하는 핵심 로직
+        if (territoryId) {
+            // 캐시 무효화하여 최신 데이터를 가져오도록 보장
+            const { pixelDataService } = await import('../services/PixelDataService.js');
+            pixelDataService.clearMemoryCache(territoryId);
+            
+            // processedTerritories에서 제거하여 재처리 보장 (MapController를 통해 접근)
+            try {
+                const mapController = (await import('../core/MapController.js')).default;
+                if (mapController && mapController.pixelMapRenderer && mapController.pixelMapRenderer.processedTerritories) {
+                    mapController.pixelMapRenderer.processedTerritories.delete(territoryId);
+                    log.info(`[PixelEditor3] Removed ${territoryId} from processedTerritories`);
+                }
+            } catch (error) {
+                log.warn(`[PixelEditor3] Failed to access pixelMapRenderer:`, error);
+            }
+            
+            // 약간의 지연 후 새로고침 (모달이 완전히 닫힌 후)
+            setTimeout(() => {
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territoryId: territoryId,
+                    territory: { id: territoryId },
+                    forceRefresh: true // 강제 새로고침 플래그
+                });
+                log.info(`[PixelEditor3] Triggered territory refresh for ${territoryId} after closing editor (cache cleared)`);
+            }, 100);
+            
+            // 추가로 더 긴 지연 후 한 번 더 새로고침 (모바일에서 확실하게 반영되도록)
+            setTimeout(() => {
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territoryId: territoryId,
+                    territory: { id: territoryId },
+                    forceRefresh: true
+                });
+                log.info(`[PixelEditor3] Triggered second territory refresh for ${territoryId} after closing editor`);
+            }, 500);
         }
     }
     

@@ -1249,6 +1249,21 @@ class PixelCanvas3 {
                         featureId: territory.featureId
                     }
                 });
+                
+                // 모바일에서도 맵에 즉시 반영되도록 추가 이벤트 발행
+                // 편집기 모달이 열려있어도 맵 업데이트가 실행되도록 보장
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territoryId: this.territoryId,
+                    territory: {
+                        ...territory,
+                        pixelCanvas: metadata.pixelCanvas,
+                        territoryValue: metadata.territoryValue,
+                        sourceId: territory.sourceId,
+                        featureId: territory.featureId
+                    }
+                });
+                
+                log.info(`[PixelCanvas3] Emitted TERRITORY_UPDATE event for ${this.territoryId} to ensure map refresh`);
             }
             
             this.lastSavedState = JSON.stringify(this.encodePixels());
@@ -1272,6 +1287,11 @@ class PixelCanvas3 {
             
             // Firebase 저장 완료 후 세션 삭제 (저장된 작업은 세션에 보관할 필요 없음)
             await localCacheService.clearSession(this.territoryId);
+            
+            // 저장 후 캐시 무효화하여 다음 로드 시 최신 데이터를 가져오도록 보장
+            // 모바일에서 편집 후 저장했을 때 맵에 즉시 반영되도록 하는 핵심 로직
+            pixelDataService.clearMemoryCache(this.territoryId);
+            log.info(`[PixelCanvas3] Cleared memory cache for ${this.territoryId} after save`);
             
             // 저장 완료 이벤트
             const saveTime = new Date(this.lastSaveTime).toLocaleTimeString('ko-KR', { 

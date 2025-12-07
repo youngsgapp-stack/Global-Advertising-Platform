@@ -49,8 +49,11 @@ class TerritoryUpdatePipeline {
             return;
         }
         
-        // 중복 처리 방지
-        if (this.processingTerritories.has(territoryId)) {
+        // forceRefresh 플래그가 있으면 중복 처리 방지 스킵
+        const forceRefresh = context.forceRefresh || false;
+        
+        // 중복 처리 방지 (forceRefresh가 아닌 경우에만)
+        if (!forceRefresh && this.processingTerritories.has(territoryId)) {
             log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} is already being processed, skipping`);
             return;
         }
@@ -93,6 +96,23 @@ class TerritoryUpdatePipeline {
                 await this.displayPixelArt(territory, pixelData);
             } else {
                 console.debug(`[TerritoryUpdatePipeline] No pixel art for ${territoryId}`);
+            }
+            
+            // 모바일에서도 맵에 즉시 반영되도록 추가 새로고침
+            // 편집 후 저장했을 때 맵이 보이지 않는 상태에서도 업데이트가 확실히 반영되도록
+            if (viewState.hasPixelArt && this.map) {
+                // 여러 번 새로고침하여 확실하게 반영
+                this.map.triggerRepaint();
+                setTimeout(() => {
+                    if (this.map) {
+                        this.map.triggerRepaint();
+                    }
+                }, 100);
+                setTimeout(() => {
+                    if (this.map) {
+                        this.map.triggerRepaint();
+                    }
+                }, 300);
             }
             
             // 로그를 줄이기 위해 hasPixelArt가 true인 경우만 상세 로그 출력

@@ -136,7 +136,10 @@ class PixelMapRenderer3 {
         eventBus.on(EVENTS.TERRITORY_UPDATE, async (data) => {
             const territoryId = data.territory?.id || data.territoryId;
             if (territoryId) {
-                await this.updatePipeline.refreshTerritory(territoryId);
+                // forceRefresh 플래그 전달
+                await this.updatePipeline.refreshTerritory(territoryId, {
+                    forceRefresh: data.forceRefresh || false
+                });
             }
         });
         
@@ -405,7 +408,11 @@ class PixelMapRenderer3 {
         if (!this.map || !territory) return;
         
         try {
-            // 픽셀 데이터 로드
+            // processedTerritories에서 제거하여 재처리 보장
+            // 모바일에서 편집 후 저장했을 때 맵에 즉시 반영되도록 하는 핵심 로직
+            this.processedTerritories.delete(territory.id);
+            
+            // 픽셀 데이터 로드 (캐시 무효화 후 최신 데이터)
             const pixelData = await pixelDataService.loadPixelData(territory.id);
             if (!pixelData || !pixelData.pixels || pixelData.pixels.length === 0) {
                 return; // 픽셀 데이터가 없으면 종료
@@ -424,6 +431,17 @@ class PixelMapRenderer3 {
             const imageDataUrl = await this.renderPixelsToImage(pixelData, bounds);
             if (imageDataUrl) {
                 await this.updatePixelOverlay(territory, imageDataUrl, bounds);
+                
+                // 모바일에서도 즉시 반영되도록 맵 강제 새로고침
+                if (this.map) {
+                    this.map.triggerRepaint();
+                    // 약간의 지연 후 다시 새로고침하여 확실하게 반영
+                    setTimeout(() => {
+                        if (this.map) {
+                            this.map.triggerRepaint();
+                        }
+                    }, 50);
+                }
                 
             // feature state 업데이트 - 픽셀 아트 존재 표시 (기존 fill 색상 투명하게)
             // 핵심: sourceId/featureId가 없으면 재검색
