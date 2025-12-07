@@ -1015,7 +1015,7 @@ class PaymentService {
                     label: 'pay'
                 },
                 
-                createOrder: (data, actions) => {
+                createOrder: async (data, actions) => {
                     console.log('🔵 [PayPal] ============================================');
                     console.log('🔵 [PayPal] createOrder 콜백 호출됨!');
                     console.log('🔵 [PayPal] Data:', data);
@@ -1025,53 +1025,50 @@ class PaymentService {
                         // PayPal은 소수점 2자리까지 지원하므로 정확히 포맷팅
                         const formattedAmount = parseFloat(amount).toFixed(2);
                         
-                        log.info('Creating PayPal order...', {
+                        log.info('Creating PayPal order via server API...', {
                             amount: formattedAmount,
-                            description: description,
-                            actions: actions ? 'available' : 'null'
+                            description: description
                         });
                         
-                        // application_context 추가: return_url 명시
-                        const orderPromise = actions.order.create({
-                            purchase_units: [{
-                                description: description,
-                                amount: {
-                                    value: formattedAmount,
-                                    currency_code: 'USD'
-                                }
-                            }],
-                            application_context: {
-                                return_url: window.location.origin + window.location.pathname,
-                                cancel_url: window.location.origin + window.location.pathname,
-                                brand_name: 'World Map Advertising',
-                                landing_page: 'NO_PREFERENCE',
-                                user_action: 'PAY_NOW'
-                            }
+                        // 서버 API로 Order 생성
+                        const response = await fetch('/api/paypal/create-order', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                amount: formattedAmount,
+                                currency: 'USD',
+                                description: description
+                            })
                         });
                         
-                        orderPromise.then(orderID => {
-                            console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] ✅ Order 생성 성공!');
-                            console.log('🔵 [PayPal] Order ID:', orderID);
-                            console.log('🔵 [PayPal] 이제 사용자가 PayPal에서 결제를 승인하면 onApprove가 호출됩니다.');
-                            console.log('🔵 [PayPal] ============================================');
-                            log.info('PayPal order created successfully:', { orderID });
-                        }).catch(error => {
-                            console.error('🔴 [PayPal] ============================================');
-                            console.error('🔴 [PayPal] ❌ Order 생성 실패!');
-                            console.error('🔴 [PayPal] Error:', error);
-                            console.error('🔴 [PayPal] ============================================');
-                            log.error('PayPal createOrder failed:', {
-                                error: error.message || error,
-                                stack: error.stack,
-                                details: error,
-                                errorType: error.constructor?.name
-                            });
-                        });
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.error || 'Failed to create PayPal order');
+                        }
                         
-                        return orderPromise;
+                        const result = await response.json();
+                        
+                        if (!result.success || !result.orderID) {
+                            throw new Error(result.error || 'Invalid response from server');
+                        }
+                        
+                        console.log('🔵 [PayPal] ============================================');
+                        console.log('🔵 [PayPal] ✅ Order 생성 성공!');
+                        console.log('🔵 [PayPal] Order ID:', result.orderID);
+                        console.log('🔵 [PayPal] 이제 사용자가 PayPal에서 결제를 승인하면 onApprove가 호출됩니다.');
+                        console.log('🔵 [PayPal] ============================================');
+                        log.info('PayPal order created successfully via server:', { orderID: result.orderID });
+                        
+                        return result.orderID;
+                        
                     } catch (error) {
-                        log.error('Error in createOrder (catch block):', {
+                        console.error('🔴 [PayPal] ============================================');
+                        console.error('🔴 [PayPal] ❌ Order 생성 실패!');
+                        console.error('🔴 [PayPal] Error:', error);
+                        console.error('🔴 [PayPal] ============================================');
+                        log.error('PayPal createOrder failed:', {
                             error: error.message || error,
                             stack: error.stack,
                             errorType: error.constructor?.name
@@ -1124,36 +1121,61 @@ class PaymentService {
                     
                     try {
                         // ============================================
-                        // 단계 2: PayPal SDK Capture 요청
+                        // 단계 2: 서버 API로 PayPal Capture 요청
                         // ============================================
                         const step2Log = {
                             step: '2/3',
-                            stage: 'PayPal Capture 요청',
+                            stage: 'PayPal Capture 요청 (서버 API)',
                             orderID: data.orderID,
                             timestamp: new Date().toISOString()
                         };
                         
                         if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
                             console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] 단계 2/3: Capture 요청 시작');
+                            console.log('🔵 [PayPal] 단계 2/3: 서버 API로 Capture 요청 시작');
                             console.log('🔵 [PayPal]', step2Log);
                             console.log('🔵 [PayPal] ============================================');
                         }
-                        log.info('[PayPal] Step 2/3: Starting capture request', step2Log);
+                        log.info('[PayPal] Step 2/3: Starting capture request via server API', step2Log);
                         
-                        // PayPal 결제 캡처
-                        const details = await actions.order.capture();
+                        // 사용자 정보 가져오기
+                        const user = firebaseService.getCurrentUser();
+                        if (!user) {
+                            throw new Error('User not authenticated');
+                        }
+                        
+                        // 서버 API로 Capture 요청
+                        const captureResponse = await fetch('/api/paypal/capture-order', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                orderID: data.orderID,
+                                userId: user.uid,
+                                amount: amount,
+                                points: points
+                            })
+                        });
+                        
+                        if (!captureResponse.ok) {
+                            const errorData = await captureResponse.json();
+                            throw new Error(errorData.error || 'Failed to capture PayPal order');
+                        }
+                        
+                        const captureResult = await captureResponse.json();
+                        
+                        if (!captureResult.success) {
+                            throw new Error(captureResult.error || 'Capture failed');
+                        }
                         
                         const step2SuccessLog = {
                             step: '2/3',
-                            stage: 'PayPal Capture 성공',
-                            orderID: details.id,
-                            status: details.status,
-                            payerID: details.payer?.payer_id,
-                            amount: details.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value,
-                            currency: details.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.currency_code,
-                            timestamp: new Date().toISOString(),
-                            fullResponse: CONFIG.DEBUG.PAYMENT_VERBOSE ? details : undefined
+                            stage: 'PayPal Capture 성공 (서버 API)',
+                            orderID: captureResult.orderID,
+                            status: captureResult.status,
+                            points: captureResult.points,
+                            timestamp: new Date().toISOString()
                         };
                         
                         if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
@@ -1162,15 +1184,15 @@ class PaymentService {
                             console.log('🔵 [PayPal]', step2SuccessLog);
                             console.log('🔵 [PayPal] ============================================');
                         }
-                        log.info('[PayPal] Step 2/3: Capture successful', step2SuccessLog);
+                        log.info('[PayPal] Step 2/3: Capture successful via server API', step2SuccessLog);
                         
                         // ============================================
-                        // 단계 3: 비즈니스 로직 실행 (포인트 충전)
+                        // 단계 3: UI 업데이트 및 완료 처리
                         // ============================================
                         const step3Log = {
                             step: '3/3',
-                            stage: '비즈니스 로직 실행',
-                            orderID: details.id,
+                            stage: 'UI 업데이트 및 완료',
+                            orderID: captureResult.orderID,
                             amount: amount,
                             points: points,
                             timestamp: new Date().toISOString()
@@ -1178,22 +1200,48 @@ class PaymentService {
                         
                         if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
                             console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] 단계 3/3: 포인트 충전 로직 시작');
+                            console.log('🔵 [PayPal] 단계 3/3: UI 업데이트 시작');
                             console.log('🔵 [PayPal]', step3Log);
                             console.log('🔵 [PayPal] ============================================');
                         }
-                        log.info('[PayPal] Step 3/3: Starting business logic', step3Log);
+                        log.info('[PayPal] Step 3/3: Updating UI', step3Log);
                         
-                        // 결제 성공 - 포인트 충전
-                        await this.handlePayPalSuccess(details, amount, points);
+                        // 서버에서 이미 포인트 충전을 완료했으므로, 지갑 새로고침만 필요
+                        await walletService.refreshBalance();
+                        
+                        // 성공 화면 표시
+                        this.showScreen('success-screen');
+                        const successMsg = document.getElementById('success-message');
+                        if (successMsg) {
+                            successMsg.textContent = `${points.toLocaleString()} points have been added to your wallet!`;
+                        }
+                        
+                        // 성공 이벤트 발행
+                        eventBus.emit(EVENTS.PAYMENT_SUCCESS, {
+                            type: PRODUCT_TYPE.POINTS,
+                            amount: amount,
+                            points: points,
+                            isCustomAmount: this.isCustomAmount,
+                            method: 'paypal'
+                        });
+                        
+                        eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                            type: 'success',
+                            message: `${points.toLocaleString()} points added! 🎉`
+                        });
+                        
+                        // 커스텀 금액 초기화
+                        this.isCustomAmount = false;
+                        this.customAmount = null;
+                        this.selectedPackage = null;
                         
                         if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
                             console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] 단계 3/3: 포인트 충전 완료');
+                            console.log('🔵 [PayPal] 단계 3/3: UI 업데이트 완료');
                             console.log('🔵 [PayPal] 모든 단계 성공적으로 완료!');
                             console.log('🔵 [PayPal] ============================================');
                         }
-                        log.info('[PayPal] Step 3/3: Business logic completed successfully');
+                        log.info('[PayPal] Step 3/3: UI update completed successfully');
                         
                     } catch (error) {
                         // 오류 발생 시 어느 단계에서 실패했는지 명확히 표시

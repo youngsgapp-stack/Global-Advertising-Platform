@@ -1,0 +1,18 @@
+{
+  "name": "global-advertising-platform",
+  "version": "2.0.0",
+  "description": "World Map Advertising Platform with PayPal Payment Integration",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'No build step required'",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.x"
+  }
+}
+

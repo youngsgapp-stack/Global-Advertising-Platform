@@ -175,6 +175,24 @@ class WalletService {
     }
     
     /**
+     * 잔액 새로고침 (서버에서 업데이트된 경우)
+     */
+    async refreshBalance() {
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            log.warn('[WalletService] Cannot refresh balance: user not authenticated');
+            return;
+        }
+        
+        try {
+            await this.loadUserWallet(user.uid);
+            log.info('[WalletService] Balance refreshed');
+        } catch (error) {
+            log.error('[WalletService] Failed to refresh balance:', error);
+        }
+    }
+    
+    /**
      * 잔액 충분 여부 확인
      */
     hasBalance(amount) {
