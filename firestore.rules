@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 개발/테스트용 규칙 (프로덕션에서는 더 엄격하게!)
+    // 모든 인증된 사용자에게 읽기/쓰기 허용
+    
+    // 사용자 컬렉션
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // 영토 컬렉션
+    match /territories/{territoryId} {
+      allow read: if true;  // 누구나 읽기 가능
+      allow write: if true;  // ⚠️ 임시: 데이터 초기화를 위해 모든 작업 허용
+      allow update: if true;  // ⚠️ 임시: 데이터 초기화를 위해 업데이트 허용
+    }
+    
+    // 옥션 컬렉션
+    match /auctions/{auctionId} {
+      allow read: if true;  // 누구나 읽기 가능 (경매 정보 공개)
+      allow create: if request.auth != null;  // 인증된 사용자만 생성 가능
+      allow update: if request.auth != null;  // 인증된 사용자만 업데이트 가능
+      allow delete: if request.auth != null;  // 인증된 사용자만 삭제 가능
+    }
+    
+    // 랭킹 컬렉션
+    match /rankings/{rankingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 히스토리 컬렉션
+    match /history/{historyId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 협업 컬렉션
+    match /collaborations/{collabId} {
+      allow read: if true;  // 누구나 읽기 가능
+      allow write: if request.auth != null;
+    }
+    
+    // 픽셀 캔버스 컬렉션
+    match /pixelCanvases/{canvasId} {
+      allow read: if true;  // 누구나 읽기 가능 (실시간 협업)
+      allow write: if true;  // ⚠️ 임시: 데이터 초기화를 위해 모든 작업 허용
+      allow delete: if true;  // ⚠️ 임시: 데이터 초기화를 위해 삭제 허용
+    }
+    
+    // 지갑 컬렉션
+    match /wallets/{walletId} {
+      allow read: if request.auth != null && request.auth.uid == walletId;
+      allow write: if request.auth != null && request.auth.uid == walletId;
+    }
+    
+    // 결제 컬렉션
+    match /payments/{paymentId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow delete: if false; // 결제 기록은 삭제 불가
+    }
+    
+    // 관리자 로그 컬렉션
+    match /admin_logs/{logId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // 기본: 인증된 사용자에게 허용
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
+

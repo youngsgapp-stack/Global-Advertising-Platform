@@ -3,8 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Own a Piece of Earth - Own Piece</title>
-    <meta name="description" content="Claim your spot on the world map, decorate with pixels, and climb the rankings!">
+    <title>Own a Piece of Earth - Own Piece | Claim Territories on World Map</title>
+    
+    <!-- Performance: Preconnect to external domains -->
+    <link rel="preconnect" href="https://api.mapbox.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://www.googletagmanager.com">
+    <meta name="description" content="Claim your spot on the world map, decorate with pixels, and climb the rankings! Buy territories, create pixel art, and compete for global dominance.">
+    <meta name="keywords" content="world map, territory game, pixel art, map game, geography game, own territory, buy territory">
+    <meta name="author" content="Own a Piece of Earth">
+    <meta name="theme-color" content="#4ecdc4">
+    <link rel="canonical" href="https://yourdomain.com/">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://yourdomain.com/">
+    <meta property="og:title" content="Own a Piece of Earth - Claim Your Territory">
+    <meta property="og:description" content="Own territories on a real world map, decorate with pixel art, and compete for rankings! Buy, paint, and conquer territories worldwide.">
+    <meta property="og:image" content="https://yourdomain.com/og-image.png">
+    <meta property="og:site_name" content="Own a Piece of Earth">
+    <meta property="og:locale" content="en_US">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://yourdomain.com/">
+    <meta name="twitter:title" content="Own a Piece of Earth - Claim Your Territory">
+    <meta name="twitter:description" content="Own territories on a real world map, decorate with pixel art, and compete for rankings!">
+    <meta name="twitter:image" content="https://yourdomain.com/twitter-image.png">
+    
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Own a Piece of Earth",
+        "alternateName": "Own Piece",
+        "description": "Interactive world map game where you can own territories, create pixel art, and compete for rankings",
+        "applicationCategory": "Game",
+        "operatingSystem": "Web Browser",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "creator": {
+            "@type": "Organization",
+            "name": "Own a Piece of Earth"
+        },
+        "url": "https://yourdomain.com",
+        "genre": "Geography Game, Pixel Art, Strategy Game"
+    }
+    </script>
     
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
@@ -48,14 +97,14 @@
         <div id="map"></div>
         
         <!-- Hamburger Menu Button -->
-        <button id="hamburger-menu-btn" class="hamburger-menu-btn" aria-label="Open menu">
+        <button id="hamburger-menu-btn" class="hamburger-menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="side-menu">
             <span></span>
             <span></span>
             <span></span>
         </button>
         
         <!-- Side Menu -->
-        <aside id="side-menu" class="side-menu hidden">
+        <aside id="side-menu" class="side-menu hidden" role="navigation" aria-label="Main navigation">
             <div class="side-menu-header">
                 <h3>📍 Menu</h3>
                 <button id="close-side-menu" class="close-btn" aria-label="Close menu">&times;</button>
@@ -381,8 +430,26 @@
     
     <!-- PayPal SDK는 PaymentService에서 동적으로 로드됩니다 -->
     
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4ecdc4">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Own Piece">
+    
     <!-- v2 App Module - 캐시 무효화를 위한 버전 추가 -->
     <script type="module" src="js/app.js?v=20251203-12"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered:', reg))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>
 

@@ -50,6 +50,7 @@ class PaymentService {
         this.customAmount = null;
         this.isCustomAmount = false;
         this.paypalButtonsInstance = null; // PayPal 버튼 인스턴스 추적
+        this.isRenderingPayPal = false; // PayPal 버튼 렌더링 중 플래그
     }
     
     /**
@@ -70,6 +71,9 @@ class PaymentService {
             
             // 이벤트 리스너 설정
             this.setupEventListeners();
+            
+            // Payoneer 리다이렉트 처리 확인 (URL 파라미터 확인)
+            this.handlePayoneerReturn();
             
             this.initialized = true;
             log.info('PaymentService initialized (PayPal SDK will load on demand)');
@@ -275,10 +279,32 @@ class PaymentService {
             return;
         }
         
-        // 관리자 모드: 무료 구매 (바로 확인 모달로)
+        // 관리자 모드: 잔액이 부족하면 자동으로 포인트 충전
         if (this.isAdminMode()) {
-            this.openConfirmModal({ ...data, isAdmin: true });
-            return;
+            const currentBalance = walletService.getBalance();
+            if (currentBalance < amount) {
+                // 부족한 포인트만큼 자동 충전
+                const shortage = amount - currentBalance;
+                try {
+                    await walletService.addPoints(
+                        shortage,
+                        `Admin auto-charge for territory purchase`,
+                        TRANSACTION_TYPE.ADMIN,
+                        { territoryId: data.territoryId, autoCharge: true }
+                    );
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'info',
+                        message: `🔧 Admin: Auto-charged ${shortage} pt`
+                    });
+                } catch (error) {
+                    log.error('Admin auto-charge failed:', error);
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: 'Failed to auto-charge points'
+                    });
+                    return;
+                }
+            }
         }
         
         // 잔액 확인
@@ -363,11 +389,36 @@ class PaymentService {
                     
                     <div class="payment-methods">
                         <h4>💳 Payment Method</h4>
-                        <div id="paypal-button-container"></div>
+                        
+                        <!-- 카드 결제 버튼 (메인) -->
+                        <div class="payment-button-group">
+                            <button id="card-payment-btn" class="payment-btn payment-btn-primary payment-btn-card" disabled>
+                                <span class="payment-btn-icon">💳</span>
+                                <div class="payment-btn-content">
+                                    <div class="payment-btn-title">카드로 간편 결제</div>
+                                    <div class="payment-btn-subtitle">Visa, MasterCard, Amex, Discover, JCB</div>
+                                </div>
+                                <span class="payment-btn-badge">추천</span>
+                            </button>
+                        </div>
+                        
+                        <div class="payment-divider">
+                            <span>또는</span>
+                        </div>
+                        
+                        <!-- PayPal 버튼 (서브) -->
+                        <div class="payment-button-group">
+                            <div id="paypal-button-container"></div>
+                        </div>
                     </div>
                     
                     <div class="payment-notice">
-                        <small>🔒 Secure payment via PayPal. Points are non-refundable.</small>
+                        <small>
+                            🔒 Secure payment via Payoneer Checkout & PayPal. 
+                            <a href="pages/refund-policy.html" target="_blank" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">
+                                환불 정책
+                            </a>을 확인하세요. 포인트는 사용 전 7일 이내에만 환불 가능합니다.
+                        </small>
                     </div>
                 </div>
                 
@@ -461,6 +512,8 @@ class PaymentService {
                     this.updateCustomAmountPreview(0);
                 }
                 
+                // 결제 버튼 업데이트
+                this.updatePaymentButtons();
                 this.renderPayPalButton();
             });
         });
@@ -478,6 +531,14 @@ class PaymentService {
                 if (value > 0) {
                     this.handleCustomAmountInput(value);
                 }
+            });
+        }
+        
+        // 카드 결제 버튼 이벤트
+        const cardPaymentBtn = document.getElementById('card-payment-btn');
+        if (cardPaymentBtn) {
+            cardPaymentBtn.addEventListener('click', () => {
+                this.handleCardPaymentClick();
             });
         }
         
@@ -515,7 +576,7 @@ class PaymentService {
             this.updateCustomAmountPreview(0);
         }
         
-        // 적합한 패키지 자동 선택 (필요 금액보다 큰 첫 번째 패키지)
+            // 적합한 패키지 자동 선택 (필요 금액보다 큰 첫 번째 패키지)
         if (requiredAmount > 0) {
             const suitablePackage = POINT_PACKAGES.find(pkg => pkg.points >= requiredAmount);
             if (suitablePackage) {
@@ -525,6 +586,12 @@ class PaymentService {
                 }
             }
         }
+        
+        // 결제 버튼 초기 상태 업데이트
+        this.updatePaymentButtons();
+        
+        // Payoneer 리다이렉트 처리 확인
+        this.handlePayoneerReturn();
         
         this.modalContainer.classList.remove('hidden');
         
@@ -655,6 +722,9 @@ class PaymentService {
             if (container) {
                 container.innerHTML = '';
             }
+            
+            // 결제 버튼 업데이트
+            this.updatePaymentButtons();
             return;
         }
         
@@ -690,6 +760,8 @@ class PaymentService {
         const points = Math.floor(value * CUSTOM_AMOUNT_CONFIG.POINT_RATE);
         this.updateCustomAmountPreview(points);
         
+        // 결제 버튼 업데이트
+        this.updatePaymentButtons();
         // PayPal 버튼 렌더링
         this.renderPayPalButton();
     }
@@ -705,9 +777,75 @@ class PaymentService {
     }
     
     /**
+     * 카드 결제 버튼 클릭 처리
+     */
+    async handleCardPaymentClick() {
+        // 선택된 패키지 또는 커스텀 금액 확인
+        if (!this.selectedPackage && !this.customAmount) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please select a package or enter a custom amount'
+            });
+            return;
+        }
+        
+        let amount, points;
+        
+        if (this.isCustomAmount && this.customAmount) {
+            amount = this.customAmount;
+            points = Math.floor(amount * CUSTOM_AMOUNT_CONFIG.POINT_RATE);
+        } else if (this.selectedPackage) {
+            amount = this.selectedPackage.amount;
+            points = this.selectedPackage.points;
+        } else {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please select a package or enter a custom amount'
+            });
+            return;
+        }
+        
+        // 금액 검증
+        if (amount < CUSTOM_AMOUNT_CONFIG.MIN_AMOUNT || amount > CUSTOM_AMOUNT_CONFIG.MAX_AMOUNT) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: `Invalid amount. Please enter between $${CUSTOM_AMOUNT_CONFIG.MIN_AMOUNT} and $${CUSTOM_AMOUNT_CONFIG.MAX_AMOUNT}.`
+            });
+            return;
+        }
+        
+        // Payoneer Checkout 시작
+        await this.initiatePayoneerCheckout(amount, points);
+    }
+    
+    /**
+     * 결제 버튼 활성화/비활성화 업데이트
+     */
+    updatePaymentButtons() {
+        const cardBtn = document.getElementById('card-payment-btn');
+        const hasSelection = this.selectedPackage || this.customAmount;
+        
+        if (cardBtn) {
+            if (hasSelection) {
+                cardBtn.disabled = false;
+                cardBtn.classList.remove('disabled');
+            } else {
+                cardBtn.disabled = true;
+                cardBtn.classList.add('disabled');
+            }
+        }
+    }
+    
+    /**
      * PayPal 버튼 렌더링
      */
     renderPayPalButton() {
+        // 이미 렌더링 중이면 스킵 (중복 렌더링 방지)
+        if (this.isRenderingPayPal) {
+            log.warn('PayPal button is already being rendered, skipping...');
+            return;
+        }
+        
         // PayPal SDK 로드 확인
         if (typeof paypal === 'undefined') {
             log.warn('PayPal SDK not loaded yet, waiting...');
@@ -767,17 +905,37 @@ class PaymentService {
             return;
         }
         
-        // 기존 PayPal 버튼 정리
+        // 기존 PayPal 버튼 인스턴스 완전히 정리
         if (this.paypalButtonsInstance) {
             try {
-                // PayPal 버튼 인스턴스가 있으면 정리
-                container.innerHTML = '';
+                // PayPal 버튼 인스턴스가 있으면 완전히 정리
+                if (container && container.isConnected) {
+                    container.innerHTML = '';
+                }
+                // 인스턴스 정리 (close 메서드가 있으면 호출)
+                if (typeof this.paypalButtonsInstance.close === 'function') {
+                    try {
+                        this.paypalButtonsInstance.close();
+                    } catch (e) {
+                        // close()가 실패해도 무시
+                    }
+                }
             } catch (error) {
                 log.warn('Error cleaning up PayPal buttons:', error);
             }
             this.paypalButtonsInstance = null;
-        } else {
-            container.innerHTML = ''; // 기존 버튼 제거
+        }
+        
+        // 컨테이너가 여전히 DOM에 존재하는지 재확인
+        const currentContainer = document.getElementById('paypal-button-container');
+        if (!currentContainer || !currentContainer.isConnected) {
+            log.warn('PayPal button container removed from DOM before rendering');
+            return;
+        }
+        
+        // 컨테이너 내용 비우기 (안전하게)
+        if (currentContainer && currentContainer.isConnected) {
+            currentContainer.innerHTML = '';
         }
         
         // 결제 정보 결정
@@ -795,10 +953,10 @@ class PaymentService {
             return;
         }
         
-        // 컨테이너가 여전히 DOM에 존재하는지 재확인
-        const currentContainer = document.getElementById('paypal-button-container');
-        if (!currentContainer || !currentContainer.isConnected) {
-            log.warn('PayPal button container removed from DOM before rendering');
+        // 컨테이너가 여전히 DOM에 존재하는지 최종 확인
+        const verifyContainer = document.getElementById('paypal-button-container');
+        if (!verifyContainer || !verifyContainer.isConnected) {
+            log.warn('PayPal button container removed from DOM after cleanup');
             return;
         }
         
@@ -826,6 +984,29 @@ class PaymentService {
             console.log('🔵 [PayPal] Points:', points);
             console.log('🔵 [PayPal] ============================================');
             
+            // PayPal 버튼 생성 전에 글로벌 이벤트 리스너 추가 (디버깅용)
+            if (!window.__paypalEventListenersAdded) {
+                window.__paypalEventListenersAdded = true;
+                
+                // 페이지 포커스 이벤트 (PayPal에서 돌아올 때)
+                window.addEventListener('focus', () => {
+                    console.log('🟡 [PayPal] Window focused - PayPal에서 돌아왔을 수 있음');
+                    console.log('🟡 [PayPal] onApprove called:', window.__paypalOnApproveCalled);
+                });
+                
+                // 메시지 이벤트 (PayPal iframe 통신)
+                window.addEventListener('message', (event) => {
+                    if (event.origin.includes('paypal.com') || event.origin.includes('paypalobjects.com')) {
+                        console.log('🟡 [PayPal] Message from PayPal:', event.origin, event.data);
+                    }
+                });
+                
+                // 페이지 언로드 이벤트
+                window.addEventListener('beforeunload', () => {
+                    console.log('🟡 [PayPal] Page unloading');
+                });
+            }
+            
             this.paypalButtonsInstance = paypal.Buttons({
                 style: {
                     layout: 'vertical',
@@ -850,6 +1031,7 @@ class PaymentService {
                             actions: actions ? 'available' : 'null'
                         });
                         
+                        // application_context 추가: return_url 명시
                         const orderPromise = actions.order.create({
                             purchase_units: [{
                                 description: description,
@@ -857,7 +1039,14 @@ class PaymentService {
                                     value: formattedAmount,
                                     currency_code: 'USD'
                                 }
-                            }]
+                            }],
+                            application_context: {
+                                return_url: window.location.origin + window.location.pathname,
+                                cancel_url: window.location.origin + window.location.pathname,
+                                brand_name: 'World Map Advertising',
+                                landing_page: 'NO_PREFERENCE',
+                                user_action: 'PAY_NOW'
+                            }
                         });
                         
                         orderPromise.then(orderID => {
@@ -897,11 +1086,19 @@ class PaymentService {
                     // ============================================
                     // 즉시 콘솔에 출력 (디버그 모드와 무관하게 항상 표시)
                     console.log('🔵🔵🔵 [PayPal] ============================================');
-                    console.log('🔵🔵🔵 [PayPal] ⚠️ onApprove 콜백 호출됨!');
+                    console.log('🔵🔵🔵 [PayPal] ⚠️⚠️⚠️ onApprove 콜백 호출됨! ⚠️⚠️⚠️');
                     console.log('🔵🔵🔵 [PayPal] Order ID:', data.orderID);
                     console.log('🔵🔵🔵 [PayPal] Payer ID:', data.payerID);
+                    console.log('🔵🔵🔵 [PayPal] Full data:', JSON.stringify(data, null, 2));
+                    console.log('🔵🔵🔵 [PayPal] Actions available:', !!actions);
                     console.log('🔵🔵🔵 [PayPal] Timestamp:', new Date().toISOString());
+                    console.log('🔵🔵🔵 [PayPal] Current URL:', window.location.href);
                     console.log('🔵🔵🔵 [PayPal] ============================================');
+                    
+                    // 글로벌 변수에 저장 (디버깅용)
+                    window.__paypalOnApproveCalled = true;
+                    window.__paypalOnApproveData = data;
+                    window.__paypalOnApproveTimestamp = new Date().toISOString();
                     
                     const step1Log = {
                         step: '1/3',
@@ -1021,11 +1218,19 @@ class PaymentService {
                     }
                 },
                 
-                onCancel: () => {
+                onCancel: (data) => {
                     console.log('🟡 [PayPal] ============================================');
-                    console.log('🟡 [PayPal] ⚠️ onCancel 콜백 호출됨!');
-                    console.log('🟡 [PayPal] 사용자가 결제를 취소했습니다.');
+                    console.log('🟡 [PayPal] ⚠️⚠️⚠️ onCancel 콜백 호출됨! ⚠️⚠️⚠️');
+                    console.log('🟡 [PayPal] Cancel data:', data);
+                    console.log('🟡 [PayPal] Full cancel data:', JSON.stringify(data, null, 2));
+                    console.log('🟡 [PayPal] Current URL:', window.location.href);
+                    console.log('🟡 [PayPal] Timestamp:', new Date().toISOString());
                     console.log('🟡 [PayPal] ============================================');
+                    
+                    // 글로벌 변수에 저장 (디버깅용)
+                    window.__paypalOnCancelCalled = true;
+                    window.__paypalOnCancelData = data;
+                    window.__paypalOnCancelTimestamp = new Date().toISOString();
                     
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'info',
@@ -1036,18 +1241,30 @@ class PaymentService {
                 
                 onError: (err) => {
                     console.error('🔴🔴🔴 [PayPal] ============================================');
-                    console.error('🔴🔴🔴 [PayPal] ⚠️ onError 콜백 호출됨!');
-                    console.error('🔴🔴🔴 [PayPal] Error:', err);
+                    console.error('🔴🔴🔴 [PayPal] ⚠️⚠️⚠️ onError 콜백 호출됨! ⚠️⚠️⚠️');
+                    console.error('🔴🔴🔴 [PayPal] Error object:', err);
                     console.error('🔴🔴🔴 [PayPal] Error message:', err.message || String(err));
+                    console.error('🔴🔴🔴 [PayPal] Error name:', err.name);
                     console.error('🔴🔴🔴 [PayPal] Error type:', err.constructor?.name);
+                    console.error('🔴🔴🔴 [PayPal] Error stack:', err.stack);
+                    console.error('🔴🔴🔴 [PayPal] Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+                    console.error('🔴🔴🔴 [PayPal] Current URL:', window.location.href);
+                    console.error('🔴🔴🔴 [PayPal] Timestamp:', new Date().toISOString());
                     console.error('🔴🔴🔴 [PayPal] ============================================');
+                    
+                    // 글로벌 변수에 저장 (디버깅용)
+                    window.__paypalOnErrorCalled = true;
+                    window.__paypalOnErrorData = err;
+                    window.__paypalOnErrorTimestamp = new Date().toISOString();
                     
                     log.error('PayPal button error:', {
                         error: err.message || err,
+                        errorName: err.name,
                         errorType: err.constructor?.name,
                         stack: err.stack,
                         details: err,
-                        errorString: String(err)
+                        errorString: String(err),
+                        fullError: JSON.stringify(err, Object.getOwnPropertyNames(err), 2)
                     });
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'error',
@@ -1057,7 +1274,7 @@ class PaymentService {
                 }
             });
             
-            // 렌더링 전에 컨테이너 존재 여부 최종 확인
+            // 렌더링 전에 컨테이너 존재 여부 최종 확인 및 DOM 안정화 대기
             const finalContainer = document.getElementById('paypal-button-container');
             console.log('🔵 [PayPal] ============================================');
             console.log('🔵 [PayPal] 렌더링 전 컨테이너 확인...');
@@ -1083,19 +1300,37 @@ class PaymentService {
                 return;
             }
             
-            // 버튼 렌더링
-            log.info('Rendering PayPal button to container...');
-            console.log('🔵 [PayPal] ============================================');
-            console.log('🔵 [PayPal] 버튼 렌더링 시작...');
-            console.log('🔵 [PayPal] Container ID: #paypal-button-container');
-            console.log('🔵 [PayPal] ============================================');
+            // DOM이 안정화될 때까지 짧은 딜레이 후 렌더링
+            // 이렇게 하면 다른 코드가 컨테이너를 조작하는 것을 방지할 수 있음
+            this.isRenderingPayPal = true; // 렌더링 시작 플래그 설정
             
-            this.paypalButtonsInstance.render('#paypal-button-container').then(() => {
+            setTimeout(() => {
+                // 렌더링 직전에 다시 한 번 컨테이너 확인
+                const renderContainer = document.getElementById('paypal-button-container');
+                if (!renderContainer || !renderContainer.isConnected) {
+                    console.error('🔴 [PayPal] 렌더링 직전에 컨테이너가 DOM에서 제거됨!');
+                    log.warn('PayPal button container removed from DOM just before rendering');
+                    this.paypalButtonsInstance = null;
+                    this.isRenderingPayPal = false; // 렌더링 실패 시 플래그 해제
+                    return;
+                }
+                
+                // 버튼 렌더링
+                log.info('Rendering PayPal button to container...');
+                console.log('🔵 [PayPal] ============================================');
+                console.log('🔵 [PayPal] 버튼 렌더링 시작...');
+                console.log('🔵 [PayPal] Container ID: #paypal-button-container');
+                console.log('🔵 [PayPal] Container verified:', renderContainer.isConnected);
+                console.log('🔵 [PayPal] ============================================');
+                
+                this.paypalButtonsInstance.render('#paypal-button-container').then(() => {
+                    this.isRenderingPayPal = false; // 렌더링 완료 시 플래그 해제
                 console.log('✅✅✅ [PayPal] ============================================');
                 console.log('✅✅✅ [PayPal] 버튼 렌더링 성공!');
                 console.log('✅✅✅ [PayPal] ============================================');
                 log.info('✅ PayPal button rendered successfully');
             }).catch(error => {
+                this.isRenderingPayPal = false; // 렌더링 실패 시 플래그 해제
                 console.error('🔴🔴🔴 [PayPal] ============================================');
                 console.error('🔴🔴🔴 [PayPal] ❌ 버튼 렌더링 실패!');
                 console.error('🔴🔴🔴 [PayPal] Error object:', error);
@@ -1128,9 +1363,11 @@ class PaymentService {
                         </div>
                     `;
                 }
-            });
+                });
+            }, 100); // 100ms 딜레이로 DOM 안정화 대기
             
         } catch (error) {
+            this.isRenderingPayPal = false; // 렌더링 실패 시 플래그 해제
             log.error('Failed to render PayPal button:', {
                 error: error.message || error,
                 stack: error.stack,
@@ -1150,8 +1387,179 @@ class PaymentService {
     }
     
     /**
+     * 공통 결제 성공 처리 핸들러
+     * PayPal과 Payoneer 모두 이 핸들러를 통해 포인트를 지급합니다
+     */
+    async handlePaymentSuccess(paymentData) {
+        const {
+            transactionId,
+            method, // 'paypal' | 'card'
+            amount,
+            points,
+            payerId = null,
+            paymentDetails = {},
+            validation = {}
+        } = paymentData;
+        
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            throw new Error('User not authenticated');
+        }
+        
+        log.info('[Payment] Processing payment success (common handler)...', {
+            transactionId: transactionId,
+            method: method,
+            amount: amount,
+            points: points,
+            userId: user.uid
+        });
+        
+        // 중복 결제 방지
+        try {
+            const existingPayment = await firebaseService.getDocument('payments', `payment_${transactionId}`);
+            if (existingPayment) {
+                if (existingPayment.pointStatus === 'completed') {
+                    log.warn('[Payment] Duplicate payment detected - already processed', {
+                        transactionId: transactionId,
+                        existingStatus: existingPayment.status,
+                        existingPointStatus: existingPayment.pointStatus
+                    });
+                    throw new Error(`이미 처리된 결제입니다. 주문번호: ${transactionId}`);
+                } else if (existingPayment.pointStatus === 'pending') {
+                    log.info('[Payment] Retrying payment processing for pending order', {
+                        transactionId: transactionId
+                    });
+                }
+            }
+        } catch (error) {
+            if (!error.message?.includes('not found') && !error.message?.includes('does not exist')) {
+                log.warn('[Payment] Error checking duplicate payment:', error);
+            }
+        }
+        
+        const Timestamp = firebaseService.getTimestamp();
+        
+        // 결제 로그 저장
+        const paymentRecord = {
+            transactionId: transactionId,
+            method: method,
+            amount: amount,
+            points: points,
+            isCustomAmount: this.isCustomAmount,
+            status: PAYMENT_STATUS.COMPLETED,
+            pointStatus: 'pending',
+            processingStage: 'validation',
+            userId: user.uid,
+            createdAt: Timestamp ? Timestamp.now() : new Date(),
+            updatedAt: Timestamp ? Timestamp.now() : new Date(),
+            paymentDetails: paymentDetails,
+            validation: validation,
+            ...(method === 'paypal' ? { paypalOrderId: transactionId, paypalPayerId: payerId } : {}),
+            ...(method === 'card' ? { payoneerTransactionId: transactionId } : {})
+        };
+        
+        try {
+            paymentRecord.processingStage = 'saving';
+            await firebaseService.setDocument(
+                'payments',
+                `payment_${transactionId}`,
+                paymentRecord
+            );
+            log.info('[Payment] Payment record saved to Firestore', {
+                transactionId: transactionId,
+                method: method,
+                status: paymentRecord.status
+            });
+        } catch (firestoreError) {
+            log.error('[Payment] Failed to save payment record:', firestoreError);
+            throw new Error(`Failed to save payment record: ${firestoreError.message}`);
+        }
+        
+        // 포인트 충전
+        try {
+            await firebaseService.updateDocument(
+                'payments',
+                `payment_${transactionId}`,
+                { 
+                    processingStage: 'points',
+                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                }
+            );
+            
+            const methodName = method === 'paypal' ? 'PayPal' : 'Card';
+            await walletService.addPoints(
+                points,
+                `${methodName} charge: $${amount}${this.isCustomAmount ? ' (Custom)' : ''}`,
+                TRANSACTION_TYPE.CHARGE,
+                { 
+                    transactionId: transactionId,
+                    method: method,
+                    isCustomAmount: this.isCustomAmount 
+                }
+            );
+            
+            await firebaseService.updateDocument(
+                'payments',
+                `payment_${transactionId}`,
+                { 
+                    pointStatus: 'completed',
+                    processingStage: 'completed',
+                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                }
+            );
+            
+            log.info('[Payment] Points added to wallet successfully', {
+                transactionId: transactionId,
+                points: points,
+                method: method
+            });
+            
+            // 성공 화면 표시
+            this.showScreen('success-screen');
+            document.getElementById('success-message').textContent = 
+                `${points.toLocaleString()} points have been added to your wallet!`;
+            
+            // 성공 이벤트 발행
+            eventBus.emit(EVENTS.PAYMENT_SUCCESS, {
+                type: PRODUCT_TYPE.POINTS,
+                amount: amount,
+                points: points,
+                isCustomAmount: this.isCustomAmount,
+                method: method
+            });
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: `${points.toLocaleString()} points added! 🎉`
+            });
+            
+            // 커스텀 금액 초기화
+            this.isCustomAmount = false;
+            this.customAmount = null;
+            this.selectedPackage = null;
+            
+        } catch (walletError) {
+            log.error('[Payment] Failed to add points to wallet:', walletError);
+            
+            await firebaseService.updateDocument(
+                'payments',
+                `payment_${transactionId}`,
+                { 
+                    pointStatus: 'failed',
+                    processingStage: 'points_failed',
+                    pointError: walletError.message,
+                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                }
+            );
+            
+            throw new Error(`결제는 완료되었지만 포인트 반영에 실패했습니다. 주문번호: ${transactionId}. 관리자에게 문의해주세요.`);
+        }
+    }
+    
+    /**
      * PayPal 결제 성공 처리
      * 전문가 조언 반영: 결제 로그 저장과 포인트 반영을 분리
+     * 이제 공통 핸들러를 사용합니다
      */
     async handlePayPalSuccess(details, amount, points) {
         const user = firebaseService.getCurrentUser();
@@ -1161,78 +1569,27 @@ class PaymentService {
         
         const orderID = details.id;
         
-        log.info('[Payment] Processing PayPal payment success...', {
-            orderID: orderID,
-            amount: amount,
-            points: points,
-            userId: user.uid,
-            paypalStatus: details.status
-        });
-        
-        // 중복 결제 방지: 이미 처리된 orderID인지 확인
-        try {
-            const existingPayment = await firebaseService.getDocument('payments', `payment_${orderID}`);
-            if (existingPayment) {
-                // 이미 처리된 결제인 경우
-                if (existingPayment.pointStatus === 'completed') {
-                    log.warn('[Payment] Duplicate payment detected - already processed', {
-                        orderID: orderID,
-                        existingStatus: existingPayment.status,
-                        existingPointStatus: existingPayment.pointStatus
-                    });
-                    throw new Error(`이미 처리된 결제입니다. 주문번호: ${orderID}`);
-                } else if (existingPayment.pointStatus === 'pending') {
-                    // PENDING 상태인 경우 재처리 시도
-                    log.info('[Payment] Retrying payment processing for pending order', {
-                        orderID: orderID
-                    });
-                }
-            }
-        } catch (error) {
-            // 문서가 없으면 정상 (새로운 결제)
-            if (!error.message?.includes('not found') && !error.message?.includes('does not exist')) {
-                log.warn('[Payment] Error checking duplicate payment:', error);
-                // 중복 체크 실패해도 계속 진행 (네트워크 오류 등)
-            }
-        }
-        
-        // Firestore Timestamp 가져오기
-        const Timestamp = firebaseService.getTimestamp();
-        
-        // PayPal 응답 검증 완화: COMPLETED 외에도 성공 가능한 상태 허용
+        // PayPal 응답 검증
         const successStatuses = ['COMPLETED', 'APPROVED', 'PENDING'];
         const isPaymentSuccessful = successStatuses.includes(details.status) || 
                                    details.status === 'COMPLETED' ||
                                    (details.purchase_units?.[0]?.payments?.captures?.[0]?.status === 'COMPLETED');
         
-        // 결제 금액 검증 (1차 기준)
         const capturedAmount = parseFloat(details.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value || 0);
-        const amountMatches = Math.abs(capturedAmount - amount) < 0.01; // 소수점 오차 허용
-        
-        // 결제 상태 검증 (2차 기준: 명백히 실패/취소가 아닌지)
+        const amountMatches = Math.abs(capturedAmount - amount) < 0.01;
         const isNotFailed = !['CANCELLED', 'FAILED', 'VOIDED', 'DENIED'].includes(details.status);
         
-        // 결제 로그는 항상 저장 (포인트 반영과 분리)
-        const paymentRecord = {
-            paypalOrderId: orderID,
-            paypalPayerId: details.payer?.payer_id,
+        // 공통 핸들러 사용
+        await this.handlePaymentSuccess({
+            transactionId: orderID,
+            method: 'paypal',
             amount: amount,
-            capturedAmount: capturedAmount,
             points: points,
-            isCustomAmount: this.isCustomAmount,
-            status: isPaymentSuccessful && amountMatches && isNotFailed 
-                ? PAYMENT_STATUS.COMPLETED 
-                : PAYMENT_STATUS.PENDING, // 애매한 경우 PENDING으로 기록
-            pointStatus: 'pending', // 포인트 반영 상태 (pending/completed/failed)
-            processingStage: 'validation', // 처리 단계 추적 (validation -> saving -> points -> completed)
-            userId: user.uid,
-            createdAt: Timestamp ? Timestamp.now() : new Date(),
-            updatedAt: Timestamp ? Timestamp.now() : new Date(),
-            paypalDetails: {
+            payerId: details.payer?.payer_id,
+            paymentDetails: {
                 status: details.status,
                 payer: details.payer,
                 purchase_units: details.purchase_units,
-                // 전체 응답 저장 (디버깅용)
                 fullResponse: CONFIG.DEBUG.PAYMENT ? details : undefined
             },
             validation: {
@@ -1242,167 +1599,7 @@ class PaymentService {
                 capturedAmount,
                 expectedAmount: amount
             }
-        };
-        
-        // 1단계: 결제 로그 저장 (항상 실행)
-        try {
-            paymentRecord.processingStage = 'saving';
-            await firebaseService.setDocument(
-                'payments',
-                `payment_${orderID}`,
-                paymentRecord
-            );
-            log.info('[Payment] Payment record saved to Firestore', {
-                orderID: orderID,
-                status: paymentRecord.status,
-                pointStatus: paymentRecord.pointStatus
-            });
-        } catch (firestoreError) {
-            log.error('[Payment] Failed to save payment record to Firestore:', firestoreError);
-            
-            // 에러 로그도 Firestore에 저장 시도
-            try {
-                await this.logPaymentErrorToFirestore(orderID, {
-                    stage: 'saving_payment_record',
-                    error: firestoreError.message || String(firestoreError),
-                    errorName: firestoreError.name,
-                    stack: CONFIG.DEBUG.PAYMENT ? firestoreError.stack : undefined
-                });
-            } catch (logError) {
-                log.error('[Payment] Failed to save error log:', logError);
-            }
-            
-            // Firestore 저장 실패는 치명적이므로 재시도
-            throw new Error(`Failed to save payment record: ${firestoreError.message}`);
-        }
-        
-        // 2단계: 포인트 충전 (검증 통과 시에만)
-        if (isPaymentSuccessful && amountMatches && isNotFailed) {
-            try {
-                // 처리 단계 업데이트
-                await firebaseService.updateDocument(
-                    'payments',
-                    `payment_${orderID}`,
-                    { 
-                        processingStage: 'points',
-                        updatedAt: Timestamp ? Timestamp.now() : new Date()
-                    }
-                );
-                
-                await walletService.addPoints(
-                    points,
-                    `PayPal charge: $${amount}${this.isCustomAmount ? ' (Custom)' : ''}`,
-                    TRANSACTION_TYPE.CHARGE,
-                    { paypalOrderId: orderID, isCustomAmount: this.isCustomAmount }
-                );
-                
-                // 포인트 반영 성공 시 상태 업데이트
-                await firebaseService.updateDocument(
-                    'payments',
-                    `payment_${orderID}`,
-                    { 
-                        pointStatus: 'completed',
-                        processingStage: 'completed',
-                        updatedAt: Timestamp ? Timestamp.now() : new Date()
-                    }
-                );
-                
-                log.info('[Payment] Points added to wallet successfully', {
-                    orderID: details.id,
-                    points: points
-                });
-                
-                // 성공 화면 표시
-                this.showScreen('success-screen');
-                document.getElementById('success-message').textContent = 
-                    `${points.toLocaleString()} points have been added to your wallet!`;
-                
-                // 성공 이벤트 발행
-                eventBus.emit(EVENTS.PAYMENT_SUCCESS, {
-                    type: PRODUCT_TYPE.POINTS,
-                    amount: amount,
-                    points: points,
-                    isCustomAmount: this.isCustomAmount
-                });
-                
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'success',
-                    message: `${points.toLocaleString()} points added! 🎉`
-                });
-                
-                log.info(`[Payment] Payment success: ${points} points ($${amount})`);
-                
-            } catch (walletError) {
-                log.error('[Payment] Failed to add points to wallet:', walletError);
-                
-                // 포인트 반영 실패 시 상태 업데이트
-                try {
-                    await firebaseService.updateDocument(
-                        'payments',
-                        `payment_${orderID}`,
-                        { 
-                            pointStatus: 'failed',
-                            processingStage: 'points_failed',
-                            pointError: walletError.message,
-                            updatedAt: Timestamp ? Timestamp.now() : new Date()
-                        }
-                    );
-                    
-                    // 에러 로그도 저장
-                    await this.logPaymentErrorToFirestore(orderID, {
-                        stage: 'adding_points',
-                        error: walletError.message || String(walletError),
-                        errorName: walletError.name,
-                        stack: CONFIG.DEBUG.PAYMENT ? walletError.stack : undefined
-                    });
-                } catch (updateError) {
-                    log.error('[Payment] Failed to update payment record:', updateError);
-                }
-                
-                // 결제는 성공했지만 포인트 반영 실패 - 중간 상태 메시지
-                throw new Error(`결제는 완료되었지만 포인트 반영에 실패했습니다. 주문번호: ${orderID}. 관리자에게 문의해주세요.`);
-            }
-        } else {
-            // 검증 실패: 결제는 됐을 수도 있지만 확인 필요
-            const validationIssues = [];
-            if (!isPaymentSuccessful) validationIssues.push(`PayPal 상태: ${details.status}`);
-            if (!amountMatches) validationIssues.push(`금액 불일치: 예상 ${amount}, 실제 ${capturedAmount}`);
-            if (!isNotFailed) validationIssues.push(`결제 실패 상태: ${details.status}`);
-            
-            log.warn('[Payment] Payment validation failed', {
-                orderID: details.id,
-                issues: validationIssues,
-                details: paymentRecord.validation
-            });
-            
-            // 포인트 반영 상태를 'pending'으로 유지 (관리자 확인 필요)
-            await firebaseService.updateDocument(
-                'payments',
-                `payment_${orderID}`,
-                { 
-                    pointStatus: 'pending',
-                    processingStage: 'validation_failed',
-                    validationIssues: validationIssues,
-                    updatedAt: Timestamp ? Timestamp.now() : new Date()
-                }
-            );
-            
-            // 검증 실패 로그 저장
-            await this.logPaymentErrorToFirestore(orderID, {
-                stage: 'validation',
-                error: 'Payment validation failed',
-                validationIssues: validationIssues,
-                details: paymentRecord.validation
-            });
-            
-            // 사용자에게 중간 상태 메시지 표시
-            throw new Error(`결제가 완료되었지만 확인이 필요합니다. 주문번호: ${details.id}. 관리자 확인 후 포인트가 반영됩니다.`);
-        }
-        
-        // 커스텀 금액 초기화
-        this.isCustomAmount = false;
-        this.customAmount = null;
-        this.selectedPackage = null;
+        });
     }
     
     /**
@@ -1420,43 +1617,34 @@ class PaymentService {
             return;
         }
         
-        const isAdmin = this.isAdminMode();
-        
         this.showScreen('processing-screen');
-        document.getElementById('processing-message').textContent = 
-            isAdmin ? 'Processing (Admin Mode - Free)...' : 'Processing your purchase...';
+        document.getElementById('processing-message').textContent = 'Processing your purchase...';
         
         try {
-            // 관리자 모드가 아닌 경우에만 포인트 차감
-            if (!isAdmin) {
-                await walletService.deductPoints(
-                    this.currentPayment.amount,
-                    `Territory purchase: ${this.currentPayment.territoryName || this.currentPayment.territoryId}`,
-                    TRANSACTION_TYPE.PURCHASE,
-                    { territoryId: this.currentPayment.territoryId }
-                );
-            }
+            // 포인트 차감 (관리자도 일반 사용자와 동일하게 차감)
+            await walletService.deductPoints(
+                this.currentPayment.amount,
+                `Territory purchase: ${this.currentPayment.territoryName || this.currentPayment.territoryId}`,
+                TRANSACTION_TYPE.PURCHASE,
+                { territoryId: this.currentPayment.territoryId }
+            );
             
             // 구매 성공 이벤트 발행 (영토 정복 처리)
             eventBus.emit(EVENTS.PAYMENT_SUCCESS, {
                 type: PRODUCT_TYPE.TERRITORY,
                 territoryId: this.currentPayment.territoryId,
-                amount: isAdmin ? 0 : this.currentPayment.amount,
-                isAdmin: isAdmin
+                amount: this.currentPayment.amount,
+                isAdmin: false // 관리자도 일반 구매로 처리
             });
             
             // 성공 화면
             this.showScreen('success-screen');
             document.getElementById('success-message').textContent = 
-                isAdmin 
-                    ? `🔧 Admin: ${this.currentPayment.territoryName || 'Territory'} claimed for FREE!`
-                    : `You now own ${this.currentPayment.territoryName || 'this territory'}! 🎉`;
+                `You now own ${this.currentPayment.territoryName || 'this territory'}! 🎉`;
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: isAdmin 
-                    ? `🔧 Admin claimed: ${this.currentPayment.territoryName || 'Territory'}`
-                    : 'Territory claimed successfully! 🎉'
+                message: 'Territory claimed successfully! 🎉'
             });
             
         } catch (error) {
@@ -1587,6 +1775,132 @@ class PaymentService {
             type: isPartialSuccess ? 'warning' : 'error',
             message: errorMessage
         });
+    }
+    
+    /**
+     * Payoneer Checkout으로 카드 결제 시작
+     */
+    async initiatePayoneerCheckout(amount, points) {
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to make a payment'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        // Payoneer 설정 확인
+        if (!CONFIG.PAYONEER.MERCHANT_ID || !CONFIG.PAYONEER.API_KEY) {
+            log.error('[Payment] Payoneer not configured');
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'Card payment is not available. Please contact support.'
+            });
+            return;
+        }
+        
+        try {
+            this.showScreen('processing-screen');
+            document.getElementById('processing-message').textContent = 
+                'Initializing card payment...';
+            
+            // 결제 정보 준비
+            const transactionId = `payoneer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const description = `Own a Piece of Earth - ${points.toLocaleString()} Points${this.isCustomAmount ? ' (Custom)' : ''}`;
+            
+            // Return URL 동적 생성
+            const returnUrl = window.location.origin + window.location.pathname;
+            const cancelUrl = window.location.origin + window.location.pathname;
+            
+            // Payoneer Checkout URL 생성
+            // 실제 구현 시 서버 API를 통해 Checkout Session을 생성해야 합니다
+            // 여기서는 클라이언트 사이드에서 직접 호출하는 방식으로 구현합니다
+            const checkoutParams = new URLSearchParams({
+                merchantId: CONFIG.PAYONEER.MERCHANT_ID,
+                amount: amount.toFixed(2),
+                currency: CONFIG.PAYONEER.CURRENCY,
+                description: description,
+                transactionId: transactionId,
+                returnUrl: returnUrl,
+                cancelUrl: cancelUrl,
+                userId: user.uid,
+                points: points.toString(),
+                isCustomAmount: this.isCustomAmount.toString()
+            });
+            
+            // Payoneer Checkout 페이지로 리다이렉트
+            // 실제 구현 시 Payoneer API를 통해 세션을 생성하고 리다이렉트해야 합니다
+            const checkoutUrl = `${CONFIG.PAYONEER.CHECKOUT_URL}/checkout?${checkoutParams.toString()}`;
+            
+            log.info('[Payment] Initiating Payoneer Checkout', {
+                transactionId: transactionId,
+                amount: amount,
+                points: points,
+                userId: user.uid
+            });
+            
+            // 현재 창에서 리다이렉트
+            window.location.href = checkoutUrl;
+            
+        } catch (error) {
+            log.error('[Payment] Payoneer Checkout initiation failed:', error);
+            this.handlePaymentError(error);
+        }
+    }
+    
+    /**
+     * Payoneer 결제 성공 처리 (리다이렉트 콜백에서 호출)
+     * URL 파라미터에서 결제 정보를 받아 처리합니다
+     */
+    async handlePayoneerReturn() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const status = urlParams.get('status');
+        const transactionId = urlParams.get('transactionId');
+        const amount = parseFloat(urlParams.get('amount') || '0');
+        const points = parseInt(urlParams.get('points') || '0');
+        
+        // URL에서 파라미터 제거 (깔끔한 URL 유지)
+        if (status || transactionId) {
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+        }
+        
+        if (status === 'success' && transactionId && amount > 0 && points > 0) {
+            try {
+                this.showScreen('processing-screen');
+                document.getElementById('processing-message').textContent = 
+                    'Processing your payment...';
+                
+                // 공통 핸들러 사용
+                await this.handlePaymentSuccess({
+                    transactionId: transactionId,
+                    method: 'card',
+                    amount: amount,
+                    points: points,
+                    paymentDetails: {
+                        status: status,
+                        returnParams: Object.fromEntries(urlParams.entries())
+                    },
+                    validation: {
+                        isPaymentSuccessful: true,
+                        amountMatches: true,
+                        isNotFailed: true
+                    }
+                });
+                
+            } catch (error) {
+                log.error('[Payment] Payoneer return processing failed:', error);
+                this.handlePaymentError(error, transactionId);
+            }
+        } else if (status === 'cancel') {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'info',
+                message: 'Payment was cancelled'
+            });
+            this.showScreen('charge-screen');
+        }
     }
     
     /**

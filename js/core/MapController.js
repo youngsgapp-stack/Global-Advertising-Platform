@@ -8,6 +8,7 @@ import { eventBus, EVENTS } from './EventBus.js';
 import { territoryManager } from './TerritoryManager.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { initPixelMapRenderer3 } from './PixelMapRenderer3.js';
+import { auctionSystem } from '../features/AuctionSystem.js';
 
 class MapController {
     constructor() {
@@ -22,6 +23,14 @@ class MapController {
         this.globalAdminLoaded = false;
         this.viewMode = 'country';  // 'world' or 'country'
         this.activeLayerIds = new Set();  // Track active layers
+        
+        // ⚠️ 중요: Territory ID → Feature 인덱스 테이블
+        // 이 테이블을 통해 O(1)로 feature를 찾을 수 있으며, 이름 기반 매칭 문제를 해결합니다.
+        // Map<territoryId, { sourceId, featureId, feature }>
+        this.territoryIndex = new Map();
+        
+        // 경매 애니메이션 프레임 ID
+        this.auctionAnimationFrame = null;
     }
     
     /**
@@ -55,8 +64,14 @@ class MapController {
             // 네비게이션 컨트롤 추가
             this.map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
             
+            // 모바일 최적화
+            this.initMobileOptimizations();
+            
             // 이벤트 리스너 설정
             this.setupEventListeners();
+            
+            // 경매 이벤트 리스너 설정
+            this.setupAuctionEventListeners();
             
             // PixelMapRenderer3 초기화 (완전히 새로 구축된 맵 렌더링 시스템)
             this.pixelMapRenderer = initPixelMapRenderer3(this);
@@ -84,6 +99,27 @@ class MapController {
                 this.map.on('load', resolve);
             }
         });
+    }
+    
+    /**
+     * 모바일 최적화 설정
+     */
+    initMobileOptimizations() {
+        if (!this.map) return;
+        
+        // 모바일 디바이스 감지
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobile) {
+            // 모바일에서 터치 제스처 최적화
+            this.map.dragRotate = false; // 드래그 회전 비활성화
+            this.map.touchZoomRotate = true; // 터치 줌/회전 활성화
+            
+            // 터치 이벤트 최적화
+            this.map.touchPitch = false; // 터치 피치 비활성화
+            
+            log.info('[MapController] Mobile optimizations applied');
+        }
     }
     
     /**
@@ -975,6 +1011,9 @@ class MapController {
     
     /**
      * GeoJSON 데이터 정규화
+     * 
+     * ⚠️ 중요: 각 feature에 새로운 Territory ID 형식("COUNTRY_ISO3::ADMIN_CODE")을 생성합니다.
+     * 이는 이름 기반 매칭 문제를 해결하기 위한 핵심 변경사항입니다.
      */
     normalizeGeoJson(data, country) {
         if (data.type === 'Feature') {
@@ -988,14 +1027,58 @@ class MapController {
             data.features = data.features.map((feature, index) => {
                 const rawId = feature.properties?.id || feature.id || `${country}-${index}`;
                 const name = feature.properties?.name || feature.properties?.NAME || feature.properties?.name_en || feature.properties?.NAME_1;
-                const normalizedId = this.normalizeTerritoryId(rawId, name, country);
+                
+                // 새로운 Territory ID 생성 시도 (COUNTRY_ISO3::ADMIN_CODE 형식)
+                let territoryId = null;
+                let legacyId = null;
+                
+                // TerritoryIdUtils를 사용하여 새로운 ID 생성
+                try {
+                    const props = feature.properties || {};
+                    
+                    // 1. countryIso 추출 (adm0_a3 우선)
+                    let countryIso = props.adm0_a3 || props.country_code || props.iso_a3;
+                    if (countryIso) {
+                        countryIso = String(countryIso).toUpperCase().trim();
+                        
+                        // 2. adminCode 추출 (우선순위: adm1_code > ne_id > gid > id)
+                        let adminCode = props.adm1_code || props.ne_id || props.gid || props.id || feature.id;
+                        
+                        if (countryIso.length === 3 && adminCode) {
+                            adminCode = String(adminCode).trim();
+                            territoryId = `${countryIso}::${adminCode}`;
+                            
+                            // Legacy ID 생성 (이름 기반)
+                            if (name) {
+                                legacyId = String(name)
+                                    .toLowerCase()
+                                    .trim()
+                                    .replace(/[^\w\s-]/g, '')
+                                    .replace(/\s+/g, '-')
+                                    .replace(/-+/g, '-')
+                                    .replace(/^-|-$/g, '');
+                            }
+                            
+                            log.debug(`[MapController] Created new Territory ID: ${territoryId} (legacy: ${legacyId || 'N/A'})`);
+                        }
+                    }
+                } catch (error) {
+                    log.warn(`[MapController] Failed to create Territory ID from feature:`, error);
+                }
+                
+                // Territory ID 생성 실패 시 기존 방식 사용 (하위 호환)
+                if (!territoryId) {
+                    territoryId = this.normalizeTerritoryId(rawId, name, country);
+                    legacyId = territoryId; // 기존 방식은 legacy ID와 동일
+                }
                 
                 return {
                     ...feature,
                     id: feature.id ?? index,
                     properties: {
                         ...feature.properties,
-                        id: normalizedId,  // 정규화된 ID 사용
+                        territoryId: territoryId,  // 새로운 Territory ID (COUNTRY_ISO3::ADMIN_CODE)
+                        id: legacyId || territoryId,  // 하위 호환을 위한 기존 ID (legacy)
                         originalId: rawId, // 원본 ID 보존
                         name: name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`,
                         country: country,
@@ -1028,9 +1111,47 @@ class MapController {
     /**
      * Clear all territory layers (for Country View mode)
      */
+    /**
+     * Territory ID로 Feature 조회 (O(1) 인덱스 테이블 사용)
+     * 
+     * ⚠️ 중요: 이 메서드는 이름 기반 매칭 대신 인덱스 테이블을 사용하여
+     * 정확하고 빠르게 feature를 찾습니다.
+     * 
+     * @param {string} territoryId - Territory ID (새로운 형식: "SGP::ADM1_003" 또는 legacy: "south-east")
+     * @returns {{ sourceId: string, featureId: string|number, feature: object } | null}
+     */
+    getTerritoryFeature(territoryId) {
+        if (!territoryId) {
+            return null;
+        }
+        
+        // 인덱스 테이블에서 직접 조회 (O(1))
+        const indexEntry = this.territoryIndex.get(territoryId);
+        if (indexEntry) {
+            log.debug(`[MapController] Found territory in index: ${territoryId} -> ${indexEntry.sourceId}:${indexEntry.featureId}`);
+            return indexEntry;
+        }
+        
+        // 인덱스에 없으면 null 반환 (이름 기반 매칭은 더 이상 사용하지 않음)
+        log.debug(`[MapController] Territory not found in index: ${territoryId}`);
+        return null;
+    }
+    
+    /**
+     * Territory ID 인덱스 테이블 초기화
+     * 모든 소스가 제거될 때 인덱스도 함께 초기화
+     */
+    clearTerritoryIndex() {
+        this.territoryIndex.clear();
+        log.debug('[MapController] Territory index cleared');
+    }
+    
     clearAllTerritoryLayers() {
         // 경매 애니메이션 중지
         this.stopAuctionAnimation();
+        
+        // Territory 인덱스 테이블도 초기화
+        this.clearTerritoryIndex();
         
         for (const sourceId of this.activeLayerIds) {
             const fillLayerId = `${sourceId}-fill`;
@@ -1123,8 +1244,22 @@ class MapController {
                 
                 // 3. properties에 territoryId 명시적으로 설정 (항상)
                 feature.properties = feature.properties || {};
-                feature.properties.id = territoryId;  // 명시적으로 설정
-                feature.properties.territoryId = territoryId;  // 별칭으로도 저장
+                
+                // 새로운 Territory ID 형식이 있으면 우선 사용 (properties.territoryId는 normalizeGeoJson에서 생성됨)
+                const featureNewTerritoryId = feature.properties?.territoryId;
+                let finalTerritoryId = territoryId;
+                
+                if (featureNewTerritoryId && featureNewTerritoryId.includes('::')) {
+                    // 새로운 형식 사용
+                    feature.properties.id = featureNewTerritoryId;
+                    feature.properties.territoryId = featureNewTerritoryId;
+                    feature.properties.legacyId = territoryId;  // 하위 호환을 위한 legacy ID 보존
+                    finalTerritoryId = featureNewTerritoryId;
+                } else {
+                    // Legacy 형식 사용
+                    feature.properties.id = territoryId;
+                    feature.properties.territoryId = territoryId;
+                }
                 
                 // 4. feature.id도 설정 (Mapbox 매칭용)
                 feature.id = featureId;
@@ -1133,18 +1268,18 @@ class MapController {
                 const name = feature.properties.name || 
                              feature.properties.NAME_1 || 
                              feature.properties.NAME_2 ||
-                             territoryId;
+                             finalTerritoryId;
                 feature.properties.hashColor = this.stringToColor(name);
                 
                 // 6. TerritoryManager에 매핑 확립 (핵심!)
-                let territory = territoryManager.getTerritory(territoryId);
+                let territory = territoryManager.getTerritory(finalTerritoryId);
                 if (!territory) {
                     // TerritoryManager에 없는 경우 생성
                     territory = territoryManager.createTerritoryFromProperties(
-                        territoryId,
+                        finalTerritoryId,
                         feature.properties
                     );
-                    territoryManager.territories.set(territoryId, territory);
+                    territoryManager.territories.set(finalTerritoryId, territory);
                 }
                 
                 // 7. sourceId/featureId 매핑 확립 (항상 업데이트)
@@ -1152,6 +1287,28 @@ class MapController {
                 territory.featureId = featureId;
                 territory.geometry = feature.geometry;
                 territory.properties = feature.properties;
+                
+                // 7-1. Territory ID 인덱스 테이블에 추가 (새로운 Territory ID 체계)
+                // 새로운 형식이면 인덱스에 추가
+                if (featureNewTerritoryId && featureNewTerritoryId.includes('::')) {
+                    this.territoryIndex.set(featureNewTerritoryId, {
+                        sourceId: sourceId,
+                        featureId: featureId,
+                        feature: feature,
+                        legacyId: territoryId  // 하위 호환을 위한 legacy ID
+                    });
+                    log.debug(`[MapController] Added to territoryIndex: ${featureNewTerritoryId} -> ${sourceId}:${featureId}`);
+                }
+                
+                // Legacy ID도 인덱스에 추가 (하위 호환)
+                if (territoryId && territoryId !== featureNewTerritoryId) {
+                    this.territoryIndex.set(territoryId, {
+                        sourceId: sourceId,
+                        featureId: featureId,
+                        feature: feature,
+                        newTerritoryId: featureNewTerritoryId  // 새로운 ID 참조
+                    });
+                }
                 
                 // 8. 픽셀 정보 동기화 (TerritoryManager에서)
                 if (territory.pixelCanvas) {
@@ -1276,49 +1433,37 @@ class MapController {
             }
         });
         
-        // 경매 중 영역 - 글로우 효과 (외곽 후광)
+        // 경매 중 영역 - 내부 펄스 애니메이션 (fill layer)
+        // ⚠️ 단계별 검증: 1단계 - 레이어 자체가 보이는지 확인
+        // 모든 필터/조건 제거하고 고정 opacity로 테스트
         this.map.addLayer({
-            id: `${sourceId}-auction-glow`,
-            type: 'line',
+            id: `${sourceId}-auction-pulse`,
+            type: 'fill',
             source: sourceId,
-            filter: ['==', ['get', 'sovereignty'], 'contested'],
+            // 1단계: 필터 완전 제거 (모든 territory 표시)
+            // filter: ['==', ['get', 'auctionStatus'], 'active'],  // 임시 주석
             paint: {
-                'line-color': '#ff6600',  // 주황색 글로우
-                'line-width': 12,
-                'line-opacity': 0.4,
-                'line-blur': 4
+                'fill-color': '#ff6600',  // 주황색
+                // 1단계: 고정 opacity로 테스트 (feature-state 제거)
+                'fill-opacity': 0.5  // 고정값으로 테스트
+                // 원래 코드 (나중에 단계별로 복구):
+                // 'fill-opacity': [
+                //     'case',
+                //     ['!', ['boolean', ['feature-state', 'selected'], false]], 0,
+                //     [
+                //         'interpolate',
+                //         ['linear'],
+                //         ['feature-state', 'pulseOpacity'],
+                //         0, 0.2,
+                //         1, 0.6
+                //     ]
+                // ]
             }
         });
         
-        // 경매 중 영역 - 중간 테두리 (밝은 주황)
-        this.map.addLayer({
-            id: `${sourceId}-auction-border`,
-            type: 'line',
-            source: sourceId,
-            filter: ['==', ['get', 'sovereignty'], 'contested'],
-            paint: {
-                'line-color': '#ff9500',  // 밝은 주황색
-                'line-width': 6,
-                'line-opacity': 0.9
-            }
-        });
-        
-        // 경매 중 영역 - 내부 점선 (흰색)
-        this.map.addLayer({
-            id: `${sourceId}-auction-inner`,
-            type: 'line',
-            source: sourceId,
-            filter: ['==', ['get', 'sovereignty'], 'contested'],
-            paint: {
-                'line-color': '#ffffff',
-                'line-width': 2,
-                'line-opacity': 1,
-                'line-dasharray': [4, 3]
-            }
-        });
-        
-        // 경매 중 영역 애니메이션 시작
-        this.startAuctionAnimation(sourceId);
+        // 경매 중 영역 애니메이션 시작 (레이어가 추가될 때마다 호출되지만, 실제로는 경매가 있는 territory만 표시됨)
+        // 애니메이션은 AUCTION_START/UPDATE 이벤트에서 시작되므로 여기서는 호출하지 않음
+        // this.startAuctionAnimation(sourceId);
         
         // 소유된 영역 특별 테두리 (빨간색)
         this.map.addLayer({
@@ -1488,9 +1633,10 @@ class MapController {
             { selected: true }
         );
         
-        // 국가 코드 추출: currentCountry > sourceId에서 추출 > feature.properties
+        // 국가 코드 추출: sourceId에서 추출 > feature.properties > currentCountry (fallback만)
         // sourceId 형식: 'territories-usa', 'states-usa', 'regions-south-korea', 'prefectures-japan'
-        let countryCode = this.currentCountry;
+        // ⚠️ currentCountry는 fallback으로만 사용 (모든 territory의 country를 덮어쓰지 않도록)
+        let countryCode = null;
         
         // sourceId에서 국가 코드 추출
         if (!countryCode && sourceId) {
@@ -1512,18 +1658,19 @@ class MapController {
         if (!countryCode && feature.properties) {
             // ISO 코드 (adm0_a3) 우선 사용
             if (feature.properties.adm0_a3) {
-                const isoCode = feature.properties.adm0_a3.toLowerCase();
-                // ISO 코드를 슬러그로 변환
-                const isoToSlug = {
-                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
-                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
-                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
-                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia',
-                    'dza': 'algeria', 'mar': 'morocco', 'tun': 'tunisia', 'egy': 'egypt',
-                    'zaf': 'south-africa', 'nga': 'nigeria', 'ken': 'kenya'
-                };
-                if (isoToSlug[isoCode]) {
-                    countryCode = isoToSlug[isoCode];
+                const isoCode = feature.properties.adm0_a3.toUpperCase();
+                // TerritoryManager의 ISO to slug 매핑 사용 (더 완전한 매핑)
+                const isoToSlugMap = territoryManager.createIsoToSlugMap();
+                const slugCode = isoToSlugMap[isoCode];
+                if (slugCode && CONFIG.COUNTRIES[slugCode]) {
+                    countryCode = slugCode;
+                    log.debug(`[MapController] Converted ISO code ${isoCode} to slug ${slugCode}`);
+                } else {
+                    // 매핑에 없으면 소문자로 변환 시도
+                    const lowerIsoCode = isoCode.toLowerCase();
+                    if (CONFIG.COUNTRIES[lowerIsoCode]) {
+                        countryCode = lowerIsoCode;
+                    }
                 }
             }
             
@@ -1540,25 +1687,38 @@ class MapController {
             countryCode = null;
         }
         
-        // 최종 fallback: 'unknown'
+        // 최종 fallback: currentCountry (하지만 경고 로그)
         if (!countryCode || countryCode === 'unknown') {
-            log.warn(`[MapController] Could not determine country code for sourceId: ${sourceId}, currentCountry: ${this.currentCountry}, feature.properties: ${JSON.stringify(feature.properties)}`);
+            if (this.currentCountry && CONFIG.COUNTRIES[this.currentCountry]) {
+                countryCode = this.currentCountry;
+                log.warn(`[MapController] Using currentCountry as fallback: ${countryCode} for sourceId: ${sourceId} (this may be incorrect for territories from other countries)`);
+            } else {
             countryCode = 'unknown';
+                log.warn(`[MapController] Could not determine country code for sourceId: ${sourceId}, currentCountry: ${this.currentCountry}, feature.properties: ${JSON.stringify(feature.properties)}`);
+            }
         } else {
             log.debug(`[MapController] Determined country code: ${countryCode} from sourceId: ${sourceId}, currentCountry: ${this.currentCountry}`);
         }
         
-        // Territory ID 정규화 - 이름 기반으로 일관된 ID 생성
-        const rawTerritoryId = feature.properties.id || feature.id;
-        const territoryName = feature.properties.name || feature.properties.NAME_1 || feature.properties.NAME_2;
-        const normalizedTerritoryId = this.normalizeTerritoryId(rawTerritoryId, territoryName, countryCode);
+        // ⚠️ 중요: 새로운 Territory ID 형식 우선 사용
+        // properties.territoryId가 있으면 (새로운 형식: "SGP::ADM1_003") 우선 사용
+        const newTerritoryId = feature.properties?.territoryId;
+        const rawTerritoryId = feature.properties.id || feature.id; // 원본 ID (항상 정의)
+        let finalTerritoryId = null;
         
-        // properties.id에 정규화된 ID 저장 (일관성 유지)
-        feature.properties.id = normalizedTerritoryId;
-        feature.properties.originalId = rawTerritoryId; // 원본 ID 보존
+        if (newTerritoryId && newTerritoryId.includes('::')) {
+            // 새로운 Territory ID 형식 사용
+            finalTerritoryId = newTerritoryId;
+            log.debug(`[MapController] Using new Territory ID format: ${finalTerritoryId}`);
+        } else {
+            // Legacy 형식: 이름 기반 정규화
+        const territoryName = feature.properties.name || feature.properties.NAME_1 || feature.properties.NAME_2;
+            finalTerritoryId = this.normalizeTerritoryId(rawTerritoryId, territoryName, countryCode);
+            log.debug(`[MapController] Using legacy Territory ID format: ${finalTerritoryId}`);
+        }
         
         eventBus.emit(EVENTS.TERRITORY_SELECT, {
-            territoryId: normalizedTerritoryId,
+            territoryId: finalTerritoryId,  // 필수: 새로운 Territory ID 형식 또는 legacy ID
             properties: feature.properties,
             geometry: feature.geometry,
             country: countryCode,
@@ -1567,7 +1727,9 @@ class MapController {
             originalId: rawTerritoryId // 원본 ID도 전달
         });
         
-        log.debug(`🗺️ Territory selected: ${normalizedTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
+        // 경매 애니메이션은 TERRITORY_SELECT 이벤트 리스너에서 처리
+        
+        log.debug(`🗺️ Territory selected: ${finalTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
     }
     
     /**
@@ -1639,15 +1801,22 @@ class MapController {
     }
     
     /**
-     * 경매 중 영역 펄스 애니메이션
+     * 경매 중 영역 펄스 애니메이션 (전역 애니메이션 루프)
+     * 
+     * ⚠️ 중요: 모든 source의 경매 레이어를 하나의 애니메이션 루프로 처리
+     * territory별 개별 프레임이 아닌, 전역 루프 하나로 모든 경매 territory 처리
+     * 
+     * ⚠️ 1단계 검증: 애니메이션 루프 임시 비활성화
      */
-    startAuctionAnimation(sourceId) {
-        const glowLayerId = `${sourceId}-auction-glow`;
-        const borderLayerId = `${sourceId}-auction-border`;
+    startAuctionAnimation() {
+        // ⚠️ 1단계 검증: 애니메이션 루프 임시 비활성화
+        log.info(`[MapController] ⚠️ 1단계 검증 중: 애니메이션 루프 비활성화됨`);
+        return;  // 임시로 애니메이션 시작하지 않음
         
         // 이미 애니메이션 중인지 확인
         if (this.auctionAnimationFrame) {
-            cancelAnimationFrame(this.auctionAnimationFrame);
+            log.debug(`[MapController] Auction animation already running`);
+            return;
         }
         
         let startTime = null;
@@ -1655,24 +1824,90 @@ class MapController {
             if (!startTime) startTime = timestamp;
             const elapsed = timestamp - startTime;
             
-            // 2초 주기 펄스 (0.3 ~ 0.7 opacity)
-            const pulse = 0.3 + 0.4 * Math.abs(Math.sin(elapsed / 1000 * Math.PI));
+            // 1.5초 주기 펄스 (더 빠른 펄스) - opacity 범위 확대 (0.4 ~ 1.0)
+            const pulse = 0.4 + 0.6 * Math.abs(Math.sin(elapsed / 750 * Math.PI));
             
-            // 글로우 레이어가 있으면 opacity 업데이트
-            if (this.map && this.map.getLayer(glowLayerId)) {
-                this.map.setPaintProperty(glowLayerId, 'line-opacity', pulse);
+            // 테두리 width 펄스 (더 큰 범위: 6 ~ 12)
+            const widthPulse = 6 + 6 * Math.abs(Math.sin(elapsed / 600 * Math.PI));
+            
+            // 모든 source의 경매 펄스 레이어에 애니메이션 적용
+            if (this.map) {
+                try {
+                    const style = this.map.getStyle();
+                    if (style && style.layers) {
+                        // 모든 경매 펄스 레이어 찾기 (fill layer)
+                        const pulseLayers = style.layers.filter(layer => 
+                            layer.id && layer.id.endsWith('-auction-pulse')
+                        );
+                        
+                        if (pulseLayers.length > 0) {
+                            // 각 펄스 레이어에 애니메이션 적용
+                            for (const layer of pulseLayers) {
+                                try {
+                                    const sourceId = layer.source;
+                                    if (!sourceId) continue;
+                                    
+                                    const source = this.map.getSource(sourceId);
+                                    if (!source || source.type !== 'geojson' || !source._data) continue;
+                                    
+                                    // 경매 중이고 선택된 feature 찾기
+                                    const activeFeatures = source._data.features.filter(f => 
+                                        f.properties?.auctionStatus === 'active'
+                                    );
+                                    
+                                    // 선택된 feature만 애니메이션 적용
+                                    activeFeatures.forEach(feature => {
+                                        try {
+                                            // 선택된 feature인지 확인
+                                            const isSelected = this.selectedTerritoryId !== null && 
+                                                              String(this.selectedTerritoryId) === String(feature.id);
+                                            
+                                            if (isSelected) {
+                                                // feature-state로 pulseOpacity 설정
+                                                this.map.setFeatureState(
+                                                    { source: sourceId, id: feature.id },
+                                                    { pulseOpacity: pulse }
+                                                );
+                                            }
+                                        } catch (error) {
+                                            // 개별 feature 업데이트 실패는 무시
+                                        }
+                                    });
+                                } catch (error) {
+                                    // 레이어 업데이트 실패는 무시
+                                    log.debug(`[MapController] Failed to update ${layer.id}:`, error);
             }
-            
-            // 테두리 width 펄스 (5 ~ 8)
-            const widthPulse = 5 + 3 * Math.abs(Math.sin(elapsed / 800 * Math.PI));
-            if (this.map && this.map.getLayer(borderLayerId)) {
-                this.map.setPaintProperty(borderLayerId, 'line-width', widthPulse);
-            }
-            
+                            }
+                            
+                            // 경매 레이어가 있으면 애니메이션 계속
             this.auctionAnimationFrame = requestAnimationFrame(animate);
+                        } else {
+                            // 경매 레이어가 없으면 애니메이션 중지
+                            this.auctionAnimationFrame = null;
+                            log.debug(`[MapController] No auction pulse layers found, stopping animation`);
+                            return;
+                        }
+                    } else {
+                        // 스타일이 없으면 애니메이션 중지
+                        this.auctionAnimationFrame = null;
+                        return;
+                    }
+                } catch (error) {
+                    // 오류 발생 시 애니메이션 중지
+                    cancelAnimationFrame(this.auctionAnimationFrame);
+                    this.auctionAnimationFrame = null;
+                    log.warn(`[MapController] Auction animation error:`, error);
+                    return;
+                }
+            } else {
+                // 맵이 없으면 애니메이션 중지
+                this.auctionAnimationFrame = null;
+                return;
+            }
         };
         
         this.auctionAnimationFrame = requestAnimationFrame(animate);
+        log.info(`[MapController] Global auction animation started`);
     }
     
     /**
@@ -1683,6 +1918,678 @@ class MapController {
             cancelAnimationFrame(this.auctionAnimationFrame);
             this.auctionAnimationFrame = null;
         }
+    }
+    
+    /**
+     * 경매 이벤트 리스너 설정
+     * 
+     * ⚠️ 중요: TerritoryManager를 Single Source of Truth로 사용
+     * - TerritoryManager가 territory의 절대 ID, sourceId, featureId를 모두 알고 있어야 함
+     * - Auction은 territoryId만 알고 있고, 나머지는 TerritoryManager에서 가져옴
+     */
+    setupAuctionEventListeners() {
+        // ⚠️ 1단계 검증: 애니메이션 로직 임시 비활성화
+        // 레이어 자체가 보이는지 확인하기 위해 애니메이션은 나중에 활성화
+        // TERRITORY_SELECT 이벤트: 경매 중인 territory를 선택한 경우 애니메이션 시작
+        eventBus.on(EVENTS.TERRITORY_SELECT, (data) => {
+            const { territoryId, sourceId, featureId } = data;
+            log.info(`[MapController] 🎯 TERRITORY_SELECT event received: territoryId=${territoryId}, sourceId=${sourceId}, featureId=${featureId}`);
+            
+            if (!territoryId || !sourceId || featureId === undefined) {
+                log.warn(`[MapController] ⚠️ Missing required data: territoryId=${territoryId}, sourceId=${sourceId}, featureId=${featureId}`);
+                return;
+            }
+            
+            // ⚠️ 1단계 검증: 애니메이션 로직 임시 비활성화
+            // 레이어가 기본적으로 보이는지 확인 후 나중에 활성화
+            log.info(`[MapController] ⚠️ 1단계 검증 중: 애니메이션 로직 비활성화됨`);
+            return;  // 임시로 애니메이션 시작하지 않음
+            
+            // 경매 상태 확인 및 애니메이션 시작
+            const checkAndStartAnimation = (retryCount = 0) => {
+                // 1. feature.properties에서 auctionStatus 확인
+                const source = this.map?.getSource(sourceId);
+                const feature = source?._data?.features?.find(f => String(f.id) === String(featureId));
+                const hasAuctionStatus = feature?.properties?.auctionStatus === 'active';
+                
+                // 2. TerritoryManager에서 sovereignty 확인
+                const territory = territoryManager.getTerritory(territoryId);
+                const hasContestedSovereignty = territory?.sovereignty === 'contested';
+                
+                // 3. AuctionSystem에서 activeAuctions 확인
+                let hasActiveAuction = false;
+                try {
+                    // activeAuctions Map에서 territoryId로 경매 찾기
+                    for (const [auctionId, auction] of auctionSystem.activeAuctions.entries()) {
+                        if (auction.territoryId === territoryId && auction.status === 'active') {
+                            hasActiveAuction = true;
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    log.debug(`[MapController] Failed to check AuctionSystem:`, error);
+                }
+                
+                const isAuctionActive = hasAuctionStatus || hasContestedSovereignty || hasActiveAuction;
+                
+                log.info(`[MapController] 🔍 Checking auction status for ${territoryId} (retry ${retryCount}):`, {
+                    territoryExists: !!territory,
+                    sovereignty: territory?.sovereignty,
+                    hasAuctionStatus,
+                    hasContestedSovereignty,
+                    isAuctionActive,
+                    selectedTerritoryId: this.selectedTerritoryId,
+                    featureId: featureId,
+                    match: this.selectedTerritoryId === featureId,
+                    sourceId: sourceId
+                });
+                
+                // selectedTerritoryId는 feature.id이고, featureId는 이벤트에서 전달된 값
+                // 둘 다 같은 feature를 가리키므로 매칭 확인
+                const isSelected = this.selectedTerritoryId === featureId || 
+                                  (this.selectedTerritoryId !== null && feature && String(this.selectedTerritoryId) === String(feature.id));
+                
+                if (isAuctionActive && isSelected) {
+                    try {
+                        // pulseOpacity를 초기값(0)으로 설정하여 즉시 표시
+                        this.map.setFeatureState(
+                            { source: sourceId, id: featureId },
+                            { pulseOpacity: 0 }
+                        );
+                        log.info(`[MapController] ✅ Set pulseOpacity=0 for territory: ${territoryId}`);
+                        
+                        // 애니메이션 루프가 시작되지 않았다면 시작
+                        if (!this.auctionAnimationFrame) {
+                            this.startAuctionAnimation();
+                            log.info(`[MapController] ✅ Started auction animation for selected territory: ${territoryId}`);
+                        } else {
+                            log.info(`[MapController] ℹ️ Animation already running for territory: ${territoryId}`);
+                        }
+                    } catch (error) {
+                        log.warn(`[MapController] ❌ Failed to set pulseOpacity for selected territory:`, error);
+                    }
+                } else {
+                    if ((!territory || !feature) && retryCount < 3) {
+                        // TerritoryManager나 feature가 아직 로드되지 않았을 수 있으므로 재시도
+                        log.debug(`[MapController] ⏳ Territory or feature not ready, retrying... (${retryCount + 1}/3)`);
+                        setTimeout(() => checkAndStartAnimation(retryCount + 1), 300);
+                    } else {
+                        log.debug(`[MapController] ℹ️ Territory ${territoryId} is not in auction or not selected:`, {
+                            isAuctionActive,
+                            sovereignty: territory?.sovereignty,
+                            auctionStatus: feature?.properties?.auctionStatus,
+                            selectedMatch: this.selectedTerritoryId === featureId
+                        });
+                    }
+                }
+            };
+            
+            // 즉시 확인 및 재시도
+            setTimeout(() => checkAndStartAnimation(0), 100);
+            setTimeout(() => checkAndStartAnimation(1), 500);
+            setTimeout(() => checkAndStartAnimation(2), 1000);
+        });
+        
+        // 경매 시작 이벤트
+        eventBus.on(EVENTS.AUCTION_START, (data) => {
+            const { auction } = data;
+            if (auction && auction.territoryId) {
+                // ==========================================
+                // 레벨 1: 데이터 계층 - TerritoryManager 확인
+                // ==========================================
+                log.info(`[MapController] 🔍 [LEVEL 1] Checking TerritoryManager for: ${auction.territoryId}`);
+                let territory = territoryManager.getTerritory(auction.territoryId);
+                
+                if (territory) {
+                    log.info(`[MapController] ✅ [LEVEL 1] Territory found in TerritoryManager:`, {
+                        id: territory.id,
+                        sourceId: territory.sourceId,
+                        featureId: territory.featureId,
+                        country: territory.country
+                    });
+                    
+                    // ⚠️ ID 불일치 확인
+                    if (territory.id !== auction.territoryId) {
+                        log.warn(`[MapController] ⚠️ [LEVEL 1] ID MISMATCH!`);
+                        log.warn(`[MapController] ⚠️ Auction.territoryId: "${auction.territoryId}"`);
+                        log.warn(`[MapController] ⚠️ Territory.id: "${territory.id}"`);
+                        log.warn(`[MapController] ⚠️ This is likely a legacy ID issue!`);
+                    }
+                } else {
+                    log.warn(`[MapController] ⚠️ [LEVEL 1] Territory NOT found in TerritoryManager: ${auction.territoryId}`);
+                    log.warn(`[MapController] ⚠️ Available territories:`, 
+                        Array.from(territoryManager.territories.keys()).slice(0, 10)
+                    );
+                }
+                
+                // TerritoryManager에 없으면 맵에서 찾아서 TerritoryManager에 저장
+                let sourceId = territory?.sourceId || null;
+                let featureId = territory?.featureId || null;
+                
+                if (!territory || !sourceId || !featureId) {
+                    log.info(`[MapController] 🔍 [LEVEL 1] Searching map for territory: ${auction.territoryId}`);
+                    
+                    // 맵의 모든 source에서 territory 찾기
+                    if (this.map) {
+                        const allSources = Object.keys(this.map.getStyle().sources || {});
+                        for (const possibleSourceId of allSources) {
+                            try {
+                                const source = this.map.getSource(possibleSourceId);
+                                if (source && source.type === 'geojson' && source._data) {
+                                    // 강화된 매칭 로직
+                                    const feature = source._data.features?.find(f => {
+                                        const props = f.properties || {};
+                                        
+                                        // 1. 정확한 ID 매칭
+                                        if (String(props.id) === String(auction.territoryId) ||
+                                            String(props.territoryId) === String(auction.territoryId) ||
+                                            String(f.id) === String(auction.territoryId)) {
+                                            return true;
+                                        }
+                                        
+                                        // 2. 이름 기반 매칭 (legacy 지원)
+                                        const featureName = props.name || props.name_en || '';
+                                        if (featureName) {
+                                            const normalizedName = featureName.toLowerCase()
+                                                .trim()
+                                                .replace(/[^\w\s-]/g, '')
+                                                .replace(/\s+/g, '-')
+                                                .replace(/-+/g, '-')
+                                                .replace(/^-|-$/g, '');
+                                            const normalizedTerritoryId = String(auction.territoryId).toLowerCase();
+                                            
+                                            if (normalizedName === normalizedTerritoryId) {
+                                                return true;
+                                            }
+                                        }
+                                        
+                                        return false;
+                                    });
+                                    
+                                    if (feature) {
+                                        sourceId = possibleSourceId;
+                                        featureId = feature.id;
+                                        
+                                        // TerritoryManager에 저장 (없으면 생성)
+                                        if (!territory) {
+                                            territory = {
+                                                id: auction.territoryId,
+                                                country: feature.properties?.adm0_a3 ? 
+                                                    territoryManager.createIsoToSlugMap()[feature.properties.adm0_a3.toUpperCase()] : 
+                                                    'unknown',
+                                                properties: feature.properties
+                                            };
+                                        }
+                                        
+                                        territory.sourceId = sourceId;
+                                        territory.featureId = featureId;
+                                        
+                                        // TerritoryManager에 저장
+                                        territoryManager.territories.set(auction.territoryId, territory);
+                                        
+                                        log.info(`[MapController] ✅ [LEVEL 1] Found territory in map and saved to TerritoryManager:`, {
+                                            sourceId: sourceId,
+                                            featureId: featureId,
+                                            matchedBy: String(feature.properties?.id) === String(auction.territoryId) ? 'id' :
+                                                      String(feature.properties?.territoryId) === String(auction.territoryId) ? 'territoryId' :
+                                                      String(feature.id) === String(auction.territoryId) ? 'feature.id' : 'name'
+                                        });
+                                        break;
+                                    }
+                                }
+                            } catch (error) {
+                                // 소스 접근 실패 시 무시
+                            }
+                        }
+                    }
+                }
+                
+                // 최종 fallback: world-territories
+                if (!sourceId) {
+                    sourceId = 'world-territories';
+                    log.warn(`[MapController] ⚠️ [LEVEL 1] Using fallback sourceId: ${sourceId}`);
+                }
+                
+                // ==========================================
+                // 레벨 2: Mapbox Source & Feature 확인
+                // ==========================================
+                if (!territory || !sourceId || !featureId) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Cannot proceed: missing territory info`);
+                    log.warn(`[MapController] ⚠️ territory: ${!!territory}, sourceId: ${sourceId}, featureId: ${featureId}`);
+                    return;
+                }
+                
+                log.info(`[MapController] 🔍 [LEVEL 2] Checking Mapbox source: ${sourceId}`);
+                
+                // ⚠️ 중요: 맵이 아직 준비되지 않았으면 재시도
+                if (!this.map) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Map not ready yet, will retry in 1 second`);
+                    setTimeout(() => {
+                        eventBus.emit(EVENTS.AUCTION_START, { auction });
+                    }, 1000);
+                    return;
+                }
+                
+                // Source가 아직 준비되지 않았으면 재시도
+                if (!this.map.getSource(sourceId)) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Source ${sourceId} not ready yet, will retry in 1 second`);
+                    setTimeout(() => {
+                        eventBus.emit(EVENTS.AUCTION_START, { auction });
+                    }, 1000);
+                    return;
+                }
+                
+                if (this.map && this.map.getSource(sourceId)) {
+                    try {
+                        const source = this.map.getSource(sourceId);
+                        if (source && source._data && source._data.features) {
+                            log.info(`[MapController] ✅ [LEVEL 2] Source exists with ${source._data.features.length} features`);
+                            
+                            // TerritoryManager의 featureId로 직접 찾기
+                            const feature = source._data.features.find(f => 
+                                String(f.id) === String(featureId) ||
+                                String(f.properties?.id) === String(auction.territoryId) ||
+                                String(f.properties?.territoryId) === String(auction.territoryId)
+                            );
+                            
+                            if (feature) {
+                                log.info(`[MapController] ✅ [LEVEL 2] Feature found by featureId:`, {
+                                    featureId: feature.id,
+                                    propertiesId: feature.properties?.id,
+                                    propertiesTerritoryId: feature.properties?.territoryId,
+                                    currentAuctionStatus: feature.properties?.auctionStatus
+                                });
+                                
+                                // ==========================================
+                                // 레벨 3: Properties 업데이트 및 레이어 확인
+                                // ==========================================
+                                log.info(`[MapController] 🔍 [LEVEL 3] Updating properties and checking layers`);
+                                
+                                // ⚠️ 중요: 새로운 객체 생성하여 setData 호출
+                                const newData = JSON.parse(JSON.stringify(source._data));
+                                const newFeature = newData.features.find(f => 
+                                    String(f.id) === String(featureId) ||
+                                    String(f.properties?.id) === String(feature.properties?.id) ||
+                                    String(f.properties?.territoryId) === String(feature.properties?.territoryId)
+                                );
+                                
+                                if (newFeature) {
+                                    // Properties에 auctionStatus 설정
+                                    newFeature.properties.auctionStatus = 'active';
+                                    
+                                    // Territory 객체에도 저장
+                                    if (territory) {
+                                        territory.auctionStatus = 'active';
+                                    }
+                                    
+                                    // GeoJSON source 업데이트
+                                    source.setData(newData);
+                                    
+                                    log.info(`[MapController] ✅ [LEVEL 3] Updated auctionStatus to 'active'`);
+                                    
+                                    // 레이어 확인
+                                    const pulseLayerId = `${sourceId}-auction-pulse`;
+                                    const layer = this.map.getLayer(pulseLayerId);
+                                    
+                                    if (layer) {
+                                        log.info(`[MapController] ✅ [LEVEL 3] Layer exists: ${pulseLayerId}`);
+                                        log.info(`[MapController] 🔍 [LEVEL 3] Layer filter:`, layer.filter);
+                                        log.info(`[MapController] 🔍 [LEVEL 3] Layer source: ${layer.source}`);
+                                        
+                                        // 실제로 properties에 active가 들어갔는지 확인
+                                        const verifySource = this.map.getSource(sourceId);
+                                        const verifyFeature = verifySource._data.features.find(f => 
+                                            String(f.id) === String(featureId)
+                                        );
+                                        
+                                        if (verifyFeature?.properties?.auctionStatus === 'active') {
+                                            log.info(`[MapController] ✅ [LEVEL 3] Verified: feature has auctionStatus='active'`);
+                                            log.info(`[MapController] ✅ [LEVEL 3] Filter should match: ['==', ['get', 'auctionStatus'], 'active']`);
+                                            log.info(`[MapController] ℹ️ [LEVEL 3] Animation will show when territory is selected`);
+                                        } else {
+                                            log.warn(`[MapController] ⚠️ [LEVEL 3] VERIFICATION FAILED!`);
+                                            log.warn(`[MapController] ⚠️ Feature auctionStatus: ${verifyFeature?.properties?.auctionStatus || 'NOT FOUND'}`);
+                                        }
+                                    } else {
+                                        log.warn(`[MapController] ⚠️ [LEVEL 3] Layer NOT found: ${pulseLayerId}`);
+                                        log.warn(`[MapController] ⚠️ Available auction layers:`, 
+                                            this.map.getStyle().layers
+                                                .filter(l => l.id && l.id.includes('auction'))
+                                                .map(l => ({ id: l.id, source: l.source, filter: l.filter }))
+                                        );
+                                    }
+                                    
+                                    // 전역 애니메이션 루프 시작
+                                    if (!this.auctionAnimationFrame) {
+                                        this.startAuctionAnimation();
+                                        log.info(`[MapController] ✅ [LEVEL 3] Global auction animation started`);
+                                    } else {
+                                        log.debug(`[MapController] 🔍 [LEVEL 3] Animation already running`);
+                                    }
+                                } else {
+                                    log.warn(`[MapController] ⚠️ [LEVEL 3] Could not find feature in newData object`);
+                                }
+                            } else {
+                                log.warn(`[MapController] ⚠️ [LEVEL 2] Feature NOT found by featureId: ${featureId}`);
+                                log.warn(`[MapController] ⚠️ This suggests a mismatch between TerritoryManager and Mapbox source`);
+                            }
+                        } else {
+                            log.warn(`[MapController] ⚠️ [LEVEL 2] Source has no data or features`);
+                        }
+                    } catch (error) {
+                        log.warn(`[MapController] ⚠️ [LEVEL 2] Error updating auctionStatus:`, error);
+                    }
+                } else {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Source ${sourceId} not found in map`);
+                }
+            }
+        });
+        
+        // 경매 업데이트 이벤트 (입찰 발생 시) - AUCTION_START와 동일한 로직
+        eventBus.on(EVENTS.AUCTION_UPDATE, (data) => {
+            const { auction } = data;
+            if (auction && auction.territoryId) {
+                // ==========================================
+                // 레벨 1: 데이터 계층 - TerritoryManager 확인
+                // ==========================================
+                log.info(`[MapController] 🔍 [LEVEL 1] Checking TerritoryManager for: ${auction.territoryId} (UPDATE)`);
+                let territory = territoryManager.getTerritory(auction.territoryId);
+                
+                if (territory) {
+                    log.info(`[MapController] ✅ [LEVEL 1] Territory found in TerritoryManager:`, {
+                        id: territory.id,
+                        sourceId: territory.sourceId,
+                        featureId: territory.featureId,
+                        country: territory.country
+                    });
+                } else {
+                    log.warn(`[MapController] ⚠️ [LEVEL 1] Territory NOT found in TerritoryManager: ${auction.territoryId} (UPDATE)`);
+                }
+                
+                // TerritoryManager에 없으면 맵에서 찾아서 저장 (AUCTION_START와 동일)
+                let sourceId = territory?.sourceId || null;
+                let featureId = territory?.featureId || null;
+                
+                if (!territory || !sourceId || !featureId) {
+                    log.info(`[MapController] 🔍 [LEVEL 1] Searching map for territory: ${auction.territoryId} (UPDATE)`);
+                    
+                    if (this.map) {
+                        const allSources = Object.keys(this.map.getStyle().sources || {});
+                        for (const possibleSourceId of allSources) {
+                            try {
+                                const source = this.map.getSource(possibleSourceId);
+                                if (source && source.type === 'geojson' && source._data) {
+                                    const feature = source._data.features?.find(f => {
+                                        const props = f.properties || {};
+                                        
+                                        if (String(props.id) === String(auction.territoryId) ||
+                                            String(props.territoryId) === String(auction.territoryId) ||
+                                            String(f.id) === String(auction.territoryId)) {
+                                            return true;
+                                        }
+                                        
+                                        const featureName = props.name || props.name_en || '';
+                                        if (featureName) {
+                                            const normalizedName = featureName.toLowerCase()
+                                                .trim()
+                                                .replace(/[^\w\s-]/g, '')
+                                                .replace(/\s+/g, '-')
+                                                .replace(/-+/g, '-')
+                                                .replace(/^-|-$/g, '');
+                                            const normalizedTerritoryId = String(auction.territoryId).toLowerCase();
+                                            if (normalizedName === normalizedTerritoryId) {
+                                                return true;
+                                            }
+                                        }
+                                        
+                                        return false;
+                                    });
+                                    
+                                    if (feature) {
+                                        sourceId = possibleSourceId;
+                                        featureId = feature.id;
+                                        
+                                        if (!territory) {
+                                            territory = {
+                                                id: auction.territoryId,
+                                                country: feature.properties?.adm0_a3 ? 
+                                                    territoryManager.createIsoToSlugMap()[feature.properties.adm0_a3.toUpperCase()] : 
+                                                    'unknown',
+                                                properties: feature.properties
+                                            };
+                                        }
+                                        
+                                        territory.sourceId = sourceId;
+                                        territory.featureId = featureId;
+                                        territoryManager.territories.set(auction.territoryId, territory);
+                                        
+                                        log.info(`[MapController] ✅ [LEVEL 1] Found territory in map and saved (UPDATE)`);
+                                        break;
+                                    }
+                                }
+                            } catch (error) {
+                                // 소스 접근 실패 시 무시
+                            }
+                        }
+                    }
+                }
+                
+                if (!sourceId) {
+                    sourceId = 'world-territories';
+                    log.warn(`[MapController] ⚠️ [LEVEL 1] Using fallback sourceId: ${sourceId} (UPDATE)`);
+                }
+                
+                // ==========================================
+                // 레벨 2: Mapbox Source & Feature 확인 (AUCTION_START와 동일)
+                // ==========================================
+                if (!territory || !sourceId || !featureId) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Cannot proceed: missing territory info (UPDATE)`);
+                    return;
+                }
+                
+                log.info(`[MapController] 🔍 [LEVEL 2] Checking Mapbox source: ${sourceId} (UPDATE)`);
+                
+                // ⚠️ 중요: 맵이 아직 준비되지 않았으면 재시도
+                if (!this.map) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Map not ready yet, will retry in 1 second (UPDATE)`);
+                    setTimeout(() => {
+                        eventBus.emit(EVENTS.AUCTION_UPDATE, { auction });
+                    }, 1000);
+                    return;
+                }
+                
+                // Source가 아직 준비되지 않았으면 재시도
+                if (!this.map.getSource(sourceId)) {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Source ${sourceId} not ready yet, will retry in 1 second (UPDATE)`);
+                    setTimeout(() => {
+                        eventBus.emit(EVENTS.AUCTION_UPDATE, { auction });
+                    }, 1000);
+                    return;
+                }
+                
+                if (this.map && this.map.getSource(sourceId)) {
+                    try {
+                        const source = this.map.getSource(sourceId);
+                        if (source && source._data && source._data.features) {
+                            log.info(`[MapController] ✅ [LEVEL 2] Source exists with ${source._data.features.length} features (UPDATE)`);
+                            
+                            // TerritoryManager의 featureId로 직접 찾기
+                            const feature = source._data.features.find(f => 
+                                String(f.id) === String(featureId) ||
+                                String(f.properties?.id) === String(auction.territoryId) ||
+                                String(f.properties?.territoryId) === String(auction.territoryId)
+                            );
+                            
+                            if (feature) {
+                                log.info(`[MapController] ✅ [LEVEL 2] Feature found by featureId (UPDATE)`);
+                                
+                                // ==========================================
+                                // 레벨 3: Properties 업데이트 (AUCTION_START와 동일)
+                                // ==========================================
+                                log.info(`[MapController] 🔍 [LEVEL 3] Updating properties for featureId: ${featureId} (UPDATE)`);
+                                
+                                // ⚠️ 중요: 깊은 복사로 새 객체 생성
+                                const newData = JSON.parse(JSON.stringify(source._data));
+                                
+                                // featureId로 정확히 찾기
+                                const newFeature = newData.features.find(f => 
+                                    String(f.id) === String(featureId)
+                                );
+                                
+                                if (!newFeature) {
+                                    log.warn(`[MapController] ⚠️ [LEVEL 3] Feature NOT found in newData by featureId: ${featureId} (UPDATE)`);
+                                    log.warn(`[MapController] ⚠️ Available feature IDs:`, 
+                                        newData.features.slice(0, 5).map(f => ({
+                                            id: f.id,
+                                            propertiesId: f.properties?.id,
+                                            propertiesTerritoryId: f.properties?.territoryId
+                                        }))
+                                    );
+                                } else {
+                                    // Properties에 auctionStatus 설정
+                                    if (!newFeature.properties) {
+                                        newFeature.properties = {};
+                                    }
+                                    newFeature.properties.auctionStatus = 'active';
+                                    
+                                    log.info(`[MapController] 🔍 [LEVEL 3] Set auctionStatus='active' on feature:`, {
+                                        id: newFeature.id,
+                                        propertiesId: newFeature.properties?.id,
+                                        propertiesTerritoryId: newFeature.properties?.territoryId,
+                                        auctionStatus: newFeature.properties.auctionStatus
+                                    });
+                                    
+                                    if (territory) {
+                                        territory.auctionStatus = 'active';
+                                    }
+                                    
+                                    // GeoJSON source 업데이트
+                                    source.setData(newData);
+                                    
+                                    log.info(`[MapController] ✅ [LEVEL 3] Updated auctionStatus to 'active' and called setData (UPDATE)`);
+                                    
+                                    // ⚠️ 중요: setData는 비동기적으로 작동할 수 있으므로 약간의 지연 후 검증
+                                    setTimeout(() => {
+                                        // 레이어 확인
+                                        const pulseLayerId = `${sourceId}-auction-pulse`;
+                                        const layer = this.map.getLayer(pulseLayerId);
+                                        
+                                        if (layer) {
+                                            log.info(`[MapController] ✅ [LEVEL 3] Layer exists: ${pulseLayerId} (UPDATE)`);
+                                            log.info(`[MapController] 🔍 [LEVEL 3] Layer filter:`, layer.filter);
+                                            log.info(`[MapController] 🔍 [LEVEL 3] Layer source: ${layer.source}`);
+                                            
+                                            // 실제로 properties에 active가 들어갔는지 확인
+                                            const verifySource = this.map.getSource(sourceId);
+                                            if (!verifySource || !verifySource._data) {
+                                                log.warn(`[MapController] ⚠️ [LEVEL 3] Cannot verify: source or data not available (UPDATE)`);
+                                                return;
+                                            }
+                                            
+                                            const verifyFeature = verifySource._data.features.find(f => 
+                                                String(f.id) === String(featureId)
+                                            );
+                                            
+                                            if (verifyFeature) {
+                                                log.info(`[MapController] 🔍 [LEVEL 3] Verification feature found:`, {
+                                                    id: verifyFeature.id,
+                                                    propertiesId: verifyFeature.properties?.id,
+                                                    auctionStatus: verifyFeature.properties?.auctionStatus
+                                                });
+                                                
+                                                if (verifyFeature.properties?.auctionStatus === 'active') {
+                                                    log.info(`[MapController] ✅ [LEVEL 3] Verified: feature has auctionStatus='active' (UPDATE)`);
+                                                    log.info(`[MapController] ✅ [LEVEL 3] Filter should match: ['==', ['get', 'auctionStatus'], 'active'] (UPDATE)`);
+                                                    log.info(`[MapController] ℹ️ [LEVEL 3] Animation will show when territory is selected (UPDATE)`);
+                                                } else {
+                                                    log.warn(`[MapController] ⚠️ [LEVEL 3] VERIFICATION FAILED! (UPDATE)`);
+                                                    log.warn(`[MapController] ⚠️ Feature auctionStatus: ${verifyFeature.properties?.auctionStatus || 'NOT FOUND'} (UPDATE)`);
+                                                    log.warn(`[MapController] ⚠️ All properties:`, Object.keys(verifyFeature.properties || {}));
+                                                }
+                                            } else {
+                                                log.warn(`[MapController] ⚠️ [LEVEL 3] Verification feature NOT found by featureId: ${featureId} (UPDATE)`);
+                                            }
+                                        } else {
+                                            log.warn(`[MapController] ⚠️ [LEVEL 3] Layer NOT found: ${pulseLayerId} (UPDATE)`);
+                                            log.warn(`[MapController] ⚠️ Available auction layers:`, 
+                                                this.map.getStyle().layers
+                                                    .filter(l => l.id && l.id.includes('auction'))
+                                                    .map(l => ({ id: l.id, source: l.source, filter: l.filter }))
+                                            );
+                                        }
+                                    }, 100); // 100ms 지연 후 검증
+                                    
+                                    // 전역 애니메이션 루프 시작
+                                    if (!this.auctionAnimationFrame) {
+                                        this.startAuctionAnimation();
+                                        log.info(`[MapController] ✅ [LEVEL 3] Global auction animation started (UPDATE)`);
+                                    } else {
+                                        log.debug(`[MapController] 🔍 [LEVEL 3] Animation already running (UPDATE)`);
+                                    }
+                                }
+                            } else {
+                                log.warn(`[MapController] ⚠️ [LEVEL 2] Feature NOT found by featureId: ${featureId} (UPDATE)`);
+                            }
+                        }
+                    } catch (error) {
+                        log.warn(`[MapController] ⚠️ [LEVEL 2] Error updating auctionStatus (UPDATE):`, error);
+                    }
+                } else {
+                    log.warn(`[MapController] ⚠️ [LEVEL 2] Source ${sourceId} not found (UPDATE)`);
+                }
+            }
+        });
+        
+        // 경매 종료 이벤트
+        eventBus.on(EVENTS.AUCTION_END, (data) => {
+            const { auction } = data;
+            if (auction && auction.territoryId) {
+                // 영토의 sourceId 찾기
+                const territory = territoryManager.getTerritory(auction.territoryId);
+                let sourceId = territory?.sourceId || 'world-territories';
+                
+                // ⚠️ 중요: Properties 기반 접근 - auctionStatus를 'none'으로 설정
+                if (this.map && this.map.getSource(sourceId)) {
+                    try {
+                        const source = this.map.getSource(sourceId);
+                        if (source && source._data && source._data.features) {
+                            // Feature 찾기
+                            const feature = source._data.features.find(f => 
+                                String(f.properties?.id) === String(auction.territoryId) ||
+                                String(f.properties?.territoryId) === String(auction.territoryId) ||
+                                String(f.id) === String(auction.territoryId)
+                            );
+                            
+                            if (feature) {
+                                // Properties에 auctionStatus를 'none'으로 설정
+                                feature.properties.auctionStatus = 'none';
+                                
+                                // Territory 객체에도 저장
+                                if (territory) {
+                                    territory.auctionStatus = 'none';
+                                }
+                                
+                                // GeoJSON source 업데이트
+                                source.setData(source._data);
+                                
+                                log.info(`[MapController] ✅ Updated territory ${auction.territoryId} auctionStatus to 'none'`);
+                            }
+                        }
+                    } catch (error) {
+                        log.warn(`[MapController] Failed to update auctionStatus for ${auction.territoryId} (on end):`, error);
+                    }
+                }
+                
+                // 모든 경매가 종료되었는지 확인하고 애니메이션 중지 여부 결정
+                // (현재는 단순히 중지하지만, 나중에 여러 경매가 있을 때를 고려하여 개선 가능)
+                // TODO: 모든 active auction을 확인하여 하나라도 있으면 애니메이션 계속
+            }
+            
+            // 경매 애니메이션 중지 (모든 경매가 종료된 경우)
+            // TODO: 여러 경매가 있을 때는 모든 경매가 종료되었는지 확인 후 중지
+            // this.stopAuctionAnimation();
+            log.info('[MapController] Auction ended');
+        });
     }
     
     /**
@@ -1825,6 +2732,32 @@ class MapController {
                             1  // 테두리 더 두껍게
                         ],
                         'line-opacity': 0.85  // 테두리 더 선명하게
+                    }
+                });
+                
+                // ⚠️ 중요: 경매 레이어 추가 - 내부 펄스 애니메이션
+                // ⚠️ 레이어 순서: auction-pulse는 fill 위에 배치되어야 함 (나중에 추가된 레이어가 위에 렌더링됨)
+                // 선택된 territory이고 경매 중일 때만 표시
+                this.map.addLayer({
+                    id: 'world-territories-auction-pulse',
+                    type: 'fill',
+                    source: 'world-territories',
+            filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 확인 (selected는 paint에서 처리)
+                    paint: {
+                        'fill-color': '#ff6600',  // 주황색
+                        'fill-opacity': [
+                            'case',
+                            // 선택되지 않았으면 완전히 투명
+                            ['!', ['boolean', ['feature-state', 'selected'], false]], 0,
+                            // 선택되었으면 펄스 애니메이션 적용
+                            [
+                                'interpolate',
+                                ['linear'],
+                                ['feature-state', 'pulseOpacity'],  // feature-state에서 가져오기
+                                0, 0.2,  // 최소 opacity
+                                1, 0.6   // 최대 opacity
+                            ]
+                        ]
                     }
                 });
                 

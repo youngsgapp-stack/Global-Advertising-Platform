@@ -69,6 +69,64 @@ class TerritoryPanel {
             }
         });
         
+        // 영토 선택 이벤트 - TerritoryManager에서 처리된 territory를 받아서 패널 열기
+        eventBus.on(EVENTS.TERRITORY_SELECT, async (data) => {
+            const territoryId = data.territoryId || data.territory?.id;
+            log.info(`[TerritoryPanel] TERRITORY_SELECT event received: territoryId=${territoryId}, territory.id=${data.territory?.id}, country=${data.country}, properties.adm0_a3=${data.properties?.adm0_a3}`);
+            
+            if (!territoryId) {
+                log.warn(`[TerritoryPanel] TERRITORY_SELECT event missing territoryId`);
+                return;
+            }
+            
+            // ⚠️ 중요: 이벤트 데이터의 properties와 country를 우선 사용 (맵에서 직접 가져온 정확한 데이터)
+            // TerritoryManager의 territory는 이전에 잘못된 country로 저장되었을 수 있음
+            let territory = null;
+            
+            // 1. 이벤트 데이터에 territory 객체가 있고 완전한 정보가 있으면 사용
+            if (data.territory && data.territory.id && data.territory.properties) {
+                territory = data.territory;
+                log.debug(`[TerritoryPanel] Using territory from event data: ${territory.id}`);
+            } else {
+                // 2. TerritoryManager에서 가져오되, 이벤트 데이터의 country와 properties로 덮어쓰기
+                territory = territoryManager.getTerritory(territoryId);
+                if (territory) {
+                    // 이벤트 데이터의 정확한 country와 properties로 업데이트
+                    if (data.country) {
+                        territory.country = data.country;
+                        log.debug(`[TerritoryPanel] Updated territory.country from event: ${data.country}`);
+                    }
+                    if (data.properties) {
+                        territory.properties = { ...territory.properties, ...data.properties };
+                        log.debug(`[TerritoryPanel] Updated territory.properties from event`);
+                    }
+                    if (data.sourceId) territory.sourceId = data.sourceId;
+                    if (data.featureId) territory.featureId = data.featureId;
+                    if (data.geometry) territory.geometry = data.geometry;
+                } else {
+                    // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성
+                    log.warn(`[TerritoryPanel] Territory ${territoryId} not found in TerritoryManager, creating from event data`);
+                    territory = {
+                        id: territoryId,
+                        name: data.properties?.name || data.properties?.name_en || territoryId,
+                        country: data.country,
+                        properties: data.properties,
+                        geometry: data.geometry,
+                        sourceId: data.sourceId,
+                        featureId: data.featureId
+                    };
+                }
+            }
+            
+            if (!territory) {
+                log.error(`[TerritoryPanel] Cannot open panel: no territory data for ${territoryId}`);
+                return;
+            }
+            
+            log.info(`[TerritoryPanel] Opening panel for territory: ${territory.id}, name: ${territory.name || territory.properties?.name}, country: ${territory.country}`);
+            this.open(territory);
+        });
+        
         // 영토 업데이트 이벤트
         eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
             if (this.currentTerritory && this.currentTerritory.id === data.territory.id) {
@@ -92,6 +150,27 @@ class TerritoryPanel {
         
         // 이벤트 바인딩
         this.bindActions();
+        
+        // 다른 큰 패널들은 닫기 (TerritoryPanel은 작은 패널이므로 유지 가능)
+        // 하지만 TerritoryListPanel과 RankingBoard는 닫기
+        this.closeLargePanels();
+    }
+    
+    /**
+     * 큰 패널들 닫기 (TerritoryPanel은 작은 사이드 패널이므로 다른 큰 패널들과 겹칠 수 있음)
+     */
+    closeLargePanels() {
+        // TerritoryListPanel 닫기
+        const territoryListPanel = document.getElementById('territory-list-panel');
+        if (territoryListPanel) {
+            territoryListPanel.classList.add('hidden');
+        }
+        
+        // RankingBoard 닫기
+        const rankingBoard = document.getElementById('ranking-board');
+        if (rankingBoard) {
+            rankingBoard.classList.add('hidden');
+        }
     }
     
     /**
@@ -121,10 +200,14 @@ class TerritoryPanel {
         
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const user = firebaseService.getCurrentUser();
-        const isOwner = user && t.ruler === user.uid;
+        const isAdmin = this.isAdminMode();
+        // 소유자 체크: 일반 사용자 소유 또는 관리자 모드에서 관리자가 구매한 영토
+        const isOwner = user && (
+            t.ruler === user.uid || 
+            (isAdmin && t.purchasedByAdmin)
+        );
         // 로그인한 사용자만 경매 정보 표시
         const auction = user ? auctionSystem.getAuctionByTerritory(t.id) : null;
-        const isAdmin = this.isAdminMode();
         
         // 보호 기간 확인
         const protectionRemaining = territoryManager.getProtectionRemaining(t.id);
@@ -176,36 +259,147 @@ class TerritoryPanel {
                          t.properties?.iso_a3;
             
             if (altCode) {
-                altCode = altCode.toString().toLowerCase();
+                altCode = altCode.toString().toUpperCase(); // ISO 코드는 대문자로 처리
                 
-                // ISO 코드를 슬러그로 변환 시도 (예: "usa" -> "usa", "kor" -> "south-korea")
-                // 대부분의 경우 소문자 변환으로 충분하지만, 일부는 매핑 필요
+                // ISO 코드를 슬러그로 변환하는 매핑
                 const isoToSlug = {
-                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
-                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
-                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
-                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia'
+                    // 주요 국가
+                    'USA': 'usa', 'CAN': 'canada', 'MEX': 'mexico', 'KOR': 'south-korea',
+                    'JPN': 'japan', 'CHN': 'china', 'GBR': 'uk', 'DEU': 'germany',
+                    'FRA': 'france', 'ITA': 'italy', 'ESP': 'spain', 'IND': 'india',
+                    'BRA': 'brazil', 'RUS': 'russia', 'AUS': 'australia',
+                    'SGP': 'singapore', 'MYS': 'malaysia', 'IDN': 'indonesia',
+                    'THA': 'thailand', 'VNM': 'vietnam', 'PHL': 'philippines',
+                    'SAU': 'saudi-arabia', 'ARE': 'uae', 'QAT': 'qatar', 'IRN': 'iran',
+                    'ISR': 'israel', 'TUR': 'turkey', 'EGY': 'egypt',
+                    'ZAF': 'south-africa', 'NGA': 'nigeria', 'KEN': 'kenya',
+                    'EGY': 'egypt', 'DZA': 'algeria', 'MAR': 'morocco', 'TUN': 'tunisia',
+                    'NER': 'niger', 'MLI': 'mali', 'SEN': 'senegal', 'GHA': 'ghana',
+                    'CIV': 'ivory-coast', 'CMR': 'cameroon', 'UGA': 'uganda',
+                    'TZA': 'tanzania', 'ETH': 'ethiopia', 'SDN': 'sudan', 'SDS': 'south-sudan',
+                    'GRL': 'greenland', 'DN1': 'greenland',
+                    // 추가 국가들
+                    'PAK': 'pakistan', 'BGD': 'bangladesh', 'MMR': 'myanmar',
+                    'KHM': 'cambodia', 'LAO': 'laos', 'MNG': 'mongolia',
+                    'NPL': 'nepal', 'LKA': 'sri-lanka', 'KAZ': 'kazakhstan',
+                    'UZB': 'uzbekistan', 'PRK': 'north-korea', 'TWN': 'taiwan',
+                    'HKG': 'hong-kong', 'BRN': 'brunei', 'BTN': 'bhutan',
+                    'MDV': 'maldives', 'TLS': 'timor-leste', 'IRQ': 'iraq',
+                    'JOR': 'jordan', 'LBN': 'lebanon', 'OMN': 'oman',
+                    'KWT': 'kuwait', 'BHR': 'bahrain', 'SYR': 'syria',
+                    'YEM': 'yemen', 'PSE': 'palestine', 'AFG': 'afghanistan',
+                    'NLD': 'netherlands', 'POL': 'poland', 'BEL': 'belgium',
+                    'SWE': 'sweden', 'AUT': 'austria', 'CHE': 'switzerland',
+                    'NOR': 'norway', 'PRT': 'portugal', 'GRC': 'greece',
+                    'CZE': 'czech-republic', 'ROU': 'romania', 'HUN': 'hungary',
+                    'DNK': 'denmark', 'FIN': 'finland', 'IRL': 'ireland',
+                    'BGR': 'bulgaria', 'SVK': 'slovakia', 'HRV': 'croatia',
+                    'LTU': 'lithuania', 'SVN': 'slovenia', 'LVA': 'latvia',
+                    'EST': 'estonia', 'CYP': 'cyprus', 'LUX': 'luxembourg',
+                    'MLT': 'malta', 'UKR': 'ukraine', 'BLR': 'belarus',
+                    'SRB': 'serbia', 'ALB': 'albania', 'MKD': 'north-macedonia',
+                    'MNE': 'montenegro', 'BIH': 'bosnia', 'MDA': 'moldova',
+                    'ISL': 'iceland', 'GEO': 'georgia', 'ARM': 'armenia',
+                    'AZE': 'azerbaijan', 'CUB': 'cuba', 'JAM': 'jamaica',
+                    'HTI': 'haiti', 'DOM': 'dominican-republic', 'GTM': 'guatemala',
+                    // 아프리카 추가
+                    'LBY': 'libya', 'RWA': 'rwanda', 'AGO': 'angola', 'MOZ': 'mozambique',
+                    'ZWE': 'zimbabwe', 'ZMB': 'zambia', 'BWA': 'botswana', 'NAM': 'namibia',
+                    'MDG': 'madagascar', 'MUS': 'mauritius', 'COD': 'congo-drc',
+                    'BFA': 'burkina-faso', 'BEN': 'benin', 'TGO': 'togo', 'GIN': 'guinea',
+                    'GNB': 'guinea-bissau', 'SLE': 'sierra-leone', 'LBR': 'liberia',
+                    'GMB': 'gambia', 'CPV': 'cape-verde', 'STP': 'sao-tome-and-principe',
+                    'GNQ': 'equatorial-guinea', 'GAB': 'gabon', 'CAF': 'central-african-republic',
+                    'TCD': 'chad', 'SSD': 'south-sudan', 'ERI': 'eritrea', 'DJI': 'djibouti',
+                    'SOM': 'somalia', 'COM': 'comoros', 'SYC': 'seychelles', 'SWZ': 'eswatini',
+                    'LSO': 'lesotho', 'MWI': 'malawi', 'BDI': 'burundi',
+                    // 남미 추가
+                    'ARG': 'argentina', 'CHL': 'chile', 'COL': 'colombia', 'PER': 'peru',
+                    'VEN': 'venezuela', 'ECU': 'ecuador', 'BOL': 'bolivia', 'PRY': 'paraguay',
+                    'URY': 'uruguay', 'GUY': 'guyana', 'SUR': 'suriname',
+                    'TTO': 'trinidad-and-tobago', 'BRB': 'barbados',
+                    'BHS': 'bahamas', 'BLZ': 'belize', 'CRI': 'costa-rica', 'PAN': 'panama',
+                    'NIC': 'nicaragua', 'HND': 'honduras', 'SLV': 'el-salvador',
+                    // 아시아/오세아니아 추가
+                    'PNG': 'papua-new-guinea', 'FJI': 'fiji', 'VUT': 'vanuatu', 'SLB': 'solomon-islands',
+                    'WSM': 'samoa', 'TON': 'tonga', 'KIR': 'kiribati', 'PLW': 'palau',
+                    'FSM': 'micronesia', 'MHL': 'marshall-islands', 'NRU': 'nauru',
+                    'TUV': 'tuvalu', 'NZL': 'new-zealand',
+                    // 유럽 추가
+                    'AND': 'andorra', 'MCO': 'monaco', 'SMR': 'san-marino', 'VAT': 'vatican',
+                    'LIE': 'liechtenstein'
                 };
                 
-                const slugCode = isoToSlug[altCode] || altCode;
+                const slugCode = isoToSlug[altCode];
                 
-                if (!invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
+                if (slugCode && !invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
                     countryCode = slugCode;
-                } else if (CONFIG.COUNTRIES[altCode]) {
-                    countryCode = altCode;
+                } else {
+                    // properties.admin이나 properties.geonunit에서 국가명 추출 시도
+                    let countryName = t.properties?.admin || t.properties?.geonunit;
+                    if (countryName) {
+                        // 국가명 정규화 (예: "S. Sudan" → "South Sudan", "U.S.A." → "United States")
+                        const countryNameNormalizations = {
+                            's. sudan': 'south sudan',
+                            's sudan': 'south sudan',
+                            'south sudan': 'south sudan',
+                            'u.s.a.': 'united states',
+                            'usa': 'united states',
+                            'u.k.': 'united kingdom',
+                            'uk': 'united kingdom',
+                            'uae': 'united arab emirates',
+                            'dr congo': 'congo-drc',
+                            'drc': 'congo-drc',
+                            'côte d\'ivoire': 'ivory coast',
+                            'ivory coast': 'ivory coast'
+                        };
+                        
+                        const normalizedKey = countryName.toLowerCase().trim();
+                        const normalizedValue = countryNameNormalizations[normalizedKey] || normalizedKey;
+                        countryName = normalizedValue;
+                        
+                        // 국가명을 슬러그로 변환 시도
+                        const normalizedName = countryName.toLowerCase().replace(/\s+/g, '-');
+                        if (CONFIG.COUNTRIES[normalizedName]) {
+                            countryCode = normalizedName;
+                        } else {
+                            // 국가명으로 검색 (부분 일치도 시도)
+                            for (const [key, value] of Object.entries(CONFIG.COUNTRIES)) {
+                                const valueNameLower = value.name?.toLowerCase() || '';
+                                const valueNameKoLower = value.nameKo?.toLowerCase() || '';
+                                const countryNameLower = countryName.toLowerCase();
+                                
+                                if (valueNameLower === countryNameLower || 
+                                    valueNameKoLower === countryNameLower ||
+                                    valueNameLower.includes(countryNameLower) ||
+                                    countryNameLower.includes(valueNameLower)) {
+                                    countryCode = key;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
-            // 여전히 없으면 mapController의 currentCountry 사용 시도
+            // 여전히 없으면 territoryId에서 국가 코드 추출 시도
             if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
-                if (mapController && mapController.currentCountry && CONFIG.COUNTRIES[mapController.currentCountry]) {
-                    countryCode = mapController.currentCountry;
-                    log.debug(`[TerritoryPanel] Using mapController.currentCountry: ${countryCode} for territory: ${territoryName}`);
-                } else {
-                    // 여전히 없으면 'unknown'으로 설정하되, 로그 남김
-                    countryCode = 'unknown';
-                    log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, mapController.currentCountry: ${mapController?.currentCountry}, properties: ${JSON.stringify(t.properties)}`);
+                // territoryId 형식: "singapore-0", "usa-1" 등
+                const territoryIdParts = t.id?.split('-');
+                if (territoryIdParts && territoryIdParts.length > 0) {
+                    const possibleCountryCode = territoryIdParts[0];
+                    if (CONFIG.COUNTRIES[possibleCountryCode]) {
+                        countryCode = possibleCountryCode;
+                        log.debug(`[TerritoryPanel] Using country code from territoryId: ${countryCode} for ${territoryName}`);
+                    }
                 }
+            }
+            
+            // 여전히 없으면 'unknown'으로 설정 (mapController.currentCountry는 사용하지 않음)
+            // ⚠️ mapController.currentCountry를 사용하면 모든 territory의 country가 덮어써질 수 있음
+            if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
+                countryCode = 'unknown';
+                log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, properties: ${JSON.stringify(t.properties)}`);
             }
         }
         
@@ -313,9 +507,28 @@ class TerritoryPanel {
                         <span class="info-label">📏 Area</span>
                         <span class="info-value">${territoryDataService.formatArea(area)}</span>
                     </div>
+                    <div class="info-row">
+                        <span class="info-label">🔗 Share</span>
+                        <span class="info-value">
+                            <div class="share-buttons" style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+                                <button class="share-btn share-twitter" data-platform="twitter" title="Twitter 공유">
+                                    <span>🐦</span>
+                                </button>
+                                <button class="share-btn share-facebook" data-platform="facebook" title="Facebook 공유">
+                                    <span>📘</span>
+                                </button>
+                                <button class="share-btn share-kakao" data-platform="kakao" title="카카오톡 공유">
+                                    <span>💬</span>
+                                </button>
+                                <button class="share-btn share-copy" data-platform="copy" title="링크 복사">
+                                    <span>📋</span>
+                                </button>
+                            </div>
+                        </span>
+                    </div>
                     <div class="info-row highlight">
                         <span class="info-label">💰 Price</span>
-                        <span class="info-value price">${isAdmin ? 'FREE (Admin)' : territoryDataService.formatPrice(realPrice)}</span>
+                        <span class="info-value price">${territoryDataService.formatPrice(realPrice)}</span>
                     </div>
                 </div>
                 
@@ -458,21 +671,44 @@ class TerritoryPanel {
         
         // 만료된 경매는 종료 처리
         if (isExpired) {
-            // 비동기로 종료 처리 (렌더링 블로킹 방지)
-            setTimeout(() => {
-                auctionSystem.endAuction(auction.id).catch(err => {
-                    log.error('Failed to end expired auction:', err);
-                });
-            }, 0);
+            // 옥션 종료 처리 (비동기)
+            const endPromise = auctionSystem.endAuction(auction.id).catch(err => {
+                log.error('[TerritoryPanel] Failed to end expired auction:', err);
+            });
             
+            // 옥션 종료 후 영토 상태 업데이트 대기
+            endPromise.then(async () => {
+                // 영토 상태 다시 로드
+                const territory = territoryManager.getTerritory(territory.id);
+                if (territory) {
+                    // Firestore에서 최신 데이터 로드
+                    try {
+                        const latestData = await firebaseService.getDocument('territories', territory.id);
+                        if (latestData) {
+                            // 영토 데이터 업데이트
+                            Object.assign(territory, latestData);
+                            territoryManager.territories.set(territory.id, territory);
+                            
+                            // 패널 다시 렌더링
+                            this.render();
+                            log.info('[TerritoryPanel] Territory updated after auction end');
+                        }
+                    } catch (error) {
+                        log.warn('[TerritoryPanel] Failed to reload territory after auction end:', error);
+                    }
+                }
+            });
+            
+            // 종료 중임을 표시
             return `
-                <div class="auction-section auction-ended">
-                    <h3>⚔️ Auction Ended</h3>
+                <div class="auction-section auction-ending">
+                    <h3>⚔️ Auction Ending...</h3>
                     <div class="auction-info">
                         <div class="auction-result">
+                            Processing auction results...
                             ${auction.highestBidder 
-                                ? `<span>Winner: ${auction.highestBidderName || 'Unknown'}</span><span>Final Bid: ${this.formatNumber(auction.currentBid)} pt</span>`
-                                : '<span>No bids placed</span>'
+                                ? `<br><small>Winner: ${auction.highestBidderName || 'Unknown'}</small>`
+                                : '<br><small>No bids placed</small>'
                             }
                         </div>
                     </div>
@@ -480,56 +716,70 @@ class TerritoryPanel {
             `;
         }
         
-        // 실제 영토 가격을 기준으로 startingBid 결정
-        // 입찰자가 없으면 경매 시작가 비율 적용 (즉시 구매가의 60%)
-        let correctStartingBid = realTerritoryPrice || auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE;
-        
-        // 입찰자가 없으면 경매 시작가 비율 적용
-        if (!auction.highestBidder && realTerritoryPrice) {
-            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
-            correctStartingBid = Math.max(Math.floor(realTerritoryPrice * auctionRatio), 10); // 최소 10pt
-        }
-        
-        // currentBid 검증 및 수정
-        // 입찰자가 없고 currentBid가 startingBid와 다르면 startingBid로 수정
-        let effectiveCurrentBid = auction.currentBid;
-        
-        if (!auction.highestBidder) {
-            // 입찰자가 없으면 currentBid는 startingBid와 같아야 함
-            if (!effectiveCurrentBid || effectiveCurrentBid !== correctStartingBid) {
-                effectiveCurrentBid = correctStartingBid;
-                
-                // Firestore 업데이트 (비동기, 렌더링 블로킹 방지)
-                setTimeout(async () => {
-                    try {
-                        await firebaseService.updateDocument('auctions', auction.id, {
-                            currentBid: effectiveCurrentBid,
-                            startingBid: correctStartingBid
-                        });
-                        // 로컬 캐시도 업데이트
-                        auction.currentBid = effectiveCurrentBid;
-                        auction.startingBid = correctStartingBid;
-                        log.info(`Fixed auction ${auction.id} currentBid from ${auction.currentBid} to ${effectiveCurrentBid}`);
-                    } catch (error) {
-                        log.error('Failed to fix auction currentBid:', error);
-                    }
-                }, 0);
-            }
-        } else {
-            // 입찰자가 있으면 currentBid가 startingBid보다 크거나 같아야 함
-            if (!effectiveCurrentBid || effectiveCurrentBid < correctStartingBid) {
-                effectiveCurrentBid = correctStartingBid;
-            }
-        }
-        
-        // minIncrement가 없거나 너무 크면 시작가의 10% 또는 최소 10pt로 설정
-        const effectiveMinIncrement = auction.minIncrement || Math.max(
-            Math.floor(effectiveCurrentBid * 0.1),
-            10
-        );
-        
-        // 입찰자가 없으면 Current Bid 표시하지 않음
+        // 입찰자가 있는지 확인
         const hasBids = !!auction.highestBidder;
+        
+        // startingBid 검증 (잘못된 값이면 수정) - 항상 검증 (50pt 이상이 아니어도)
+        let startingBid = auction.startingBid || 10;
+        
+        // 영토 실제 가격 기반으로 항상 검증 (territory가 있으면)
+        if (territory) {
+            const countryCode = territory.country || 'unknown';
+            const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+            const correctStartingBid = realPrice 
+                ? Math.max(Math.floor(realPrice * auctionRatio), 10)
+                : 10;
+            
+            // startingBid가 올바른 값과 다르면 무조건 수정
+            if (startingBid !== correctStartingBid) {
+                log.warn(`[TerritoryPanel] ⚠️ Invalid startingBid ${startingBid} detected in renderAuction, correcting to ${correctStartingBid} (realPrice: ${realPrice}, country: ${countryCode})`);
+                startingBid = correctStartingBid;
+                auction.startingBid = correctStartingBid;
+                
+                // activeAuctions Map도 업데이트 (메모리 캐시 동기화)
+                if (auctionSystem.activeAuctions.has(auction.id)) {
+                    const cachedAuction = auctionSystem.activeAuctions.get(auction.id);
+                    cachedAuction.startingBid = correctStartingBid;
+                    if (!hasBids) {
+                        cachedAuction.currentBid = correctStartingBid;
+                    }
+                    log.debug(`[TerritoryPanel] Updated cached auction ${auction.id} in activeAuctions Map`);
+                }
+                
+                // 비동기로 Firestore 업데이트 (렌더링 블로킹 방지)
+                if (firebaseService.isAuthenticated()) {
+                    firebaseService.updateDocument('auctions', auction.id, {
+                        startingBid: correctStartingBid,
+                        currentBid: hasBids ? auction.currentBid : correctStartingBid,
+                        updatedAt: firebaseService.getTimestamp()
+                    }).then(() => {
+                        log.info(`[TerritoryPanel] ✅ Successfully updated auction ${auction.id} in Firestore: startingBid=${correctStartingBid}`);
+                    }).catch(err => {
+                        log.warn(`[TerritoryPanel] Failed to update startingBid in Firestore:`, err);
+                    });
+                } else {
+                    log.debug(`[TerritoryPanel] Skipping Firestore update (user not authenticated)`);
+                }
+            }
+        }
+        
+        // 입찰자가 없으면 startingBid를 직접 사용 (화면 표시와 일치)
+        // 입찰자가 있으면 currentBid 사용
+        let effectiveCurrentBid;
+        if (!hasBids) {
+            // 입찰자가 없으면 startingBid를 그대로 사용 (currentBid는 무시)
+            effectiveCurrentBid = startingBid;
+        } else {
+            // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
+            effectiveCurrentBid = auction.currentBid && auction.currentBid >= startingBid
+                ? auction.currentBid
+                : startingBid;
+        }
+        
+        // minIncrement 계산
+        // 입찰자가 있든 없든 항상 1pt 증가액 사용 (1pt 단위 입찰)
+        const effectiveMinIncrement = 1;
         
         return `
             <div class="auction-section">
@@ -547,7 +797,7 @@ class TerritoryPanel {
                     ` : `
                         <div class="starting-bid">
                             <span class="bid-label">Starting Bid</span>
-                            <span class="bid-amount">${this.formatNumber(effectiveCurrentBid)} pt</span>
+                            <span class="bid-amount">${this.formatNumber(startingBid)} pt</span>
                         </div>
                         <div class="no-bids-notice">
                             <span class="notice-icon">💡</span>
@@ -562,8 +812,8 @@ class TerritoryPanel {
                 <div class="bid-input-group">
                     <input type="number" id="bid-amount-input" 
                            placeholder="Bid amount" 
-                           min="${effectiveCurrentBid + effectiveMinIncrement}"
-                           value="${effectiveCurrentBid + effectiveMinIncrement}">
+                           min="${hasBids ? (effectiveCurrentBid + effectiveMinIncrement) : (startingBid + 1)}"
+                           value="${hasBids ? (effectiveCurrentBid + effectiveMinIncrement) : (startingBid + 1)}">
                     <button class="bid-btn" id="place-bid-btn">Place Bid</button>
                 </div>
             </div>
@@ -572,38 +822,46 @@ class TerritoryPanel {
     
     /**
      * 경매의 유효한 입찰가 계산 (입찰자가 없으면 startingBid 사용)
+     * 주의: 이 함수는 화면 표시용이므로 auction.startingBid를 직접 사용
+     * 하지만 startingBid가 잘못된 값이면 검증하여 수정
      */
     getEffectiveAuctionBid(auction) {
         if (!auction) return null;
         
-        // 영토 정보 가져오기 (실제 가격 계산용)
-        const territory = this.currentTerritory;
-        let realTerritoryPrice = null;
+        // startingBid 검증 (잘못된 값이면 수정) - 60pt 같은 잘못된 값 강제 수정
+        let startingBid = auction.startingBid || 10;
         
-        if (territory) {
-            const countryCode = territory.country || 
-                              territory.properties?.country || 
-                              territory.properties?.adm0_a3?.toLowerCase() || 
-                              'unknown';
-            realTerritoryPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
-        }
-        
-        // 실제 영토 가격을 기준으로 startingBid 결정
-        let correctStartingBid = realTerritoryPrice || auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE;
-        
-        // 입찰자가 없으면 경매 시작가 비율 적용 (즉시 구매가의 60%)
-        if (!auction.highestBidder && realTerritoryPrice) {
+        // startingBid가 50pt 이상이면 의심스러움 - 영토 실제 가격 기반으로 검증
+        if (startingBid >= 50 && this.currentTerritory) {
+            const countryCode = this.currentTerritory.country || 'unknown';
+            const realPrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
             const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
-            correctStartingBid = Math.max(Math.floor(realTerritoryPrice * auctionRatio), 10); // 최소 10pt
+            const correctStartingBid = realPrice 
+                ? Math.max(Math.floor(realPrice * auctionRatio), 10)
+                : 10;
+            
+            if (startingBid !== correctStartingBid) {
+                log.warn(`[TerritoryPanel] Invalid startingBid ${startingBid} in getEffectiveAuctionBid, correcting to ${correctStartingBid} (realPrice: ${realPrice})`);
+                startingBid = correctStartingBid;
+                auction.startingBid = correctStartingBid;
+                // 비동기로 Firestore 업데이트 (렌더링 블로킹 방지)
+                if (firebaseService.isAuthenticated()) {
+                    firebaseService.updateDocument('auctions', auction.id, {
+                        startingBid: correctStartingBid
+                    }).catch(err => {
+                        log.warn(`[TerritoryPanel] Failed to update startingBid:`, err);
+                    });
+                }
+            }
         }
         
-        // 입찰자가 없으면 startingBid를 currentBid로 사용
+        // 입찰자가 없으면 startingBid를 그대로 반환
         if (!auction.highestBidder) {
-            return correctStartingBid;
+            return startingBid;
         }
         
         // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
-        return Math.max(auction.currentBid || correctStartingBid, correctStartingBid);
+        return Math.max(auction.currentBid || startingBid || 10, startingBid || 10);
     }
     
     /**
@@ -644,27 +902,25 @@ class TerritoryPanel {
             const auctionCurrentBid = effectiveAuctionBid !== null 
                 ? effectiveAuctionBid 
                 : this.getEffectiveAuctionBid(auction);
-            const priceDifference = realPrice - auctionCurrentBid;
-            const isCheaper = priceDifference < 0;
             
-            if (isAdmin) {
-                return `
-                    <div class="action-options-header">
-                        <h4>📋 Choose Your Action</h4>
-                        <p class="action-hint">You can buy now or continue bidding</p>
-                    </div>
-                    <button class="action-btn conquest-btn admin-conquest" id="instant-conquest">
-                        🔧 Buy Now (FREE) - Cancel Auction
-                    </button>
-                    <div class="action-divider">
-                        <span>OR</span>
-                    </div>
-                    <div class="auction-action-hint">
-                        <span class="hint-icon">💡</span>
-                        <span>Place a bid above to participate in the auction</span>
-                    </div>
-                `;
+            // 최소 입찰가 계산 (현재 입찰가 + 1pt)
+            const minBid = auctionCurrentBid + 1;
+            
+            // Buy Now 가격 결정
+            // 입찰가가 원래 구매가보다 낮으면 원래 구매가 사용
+            // 입찰가가 원래 구매가를 넘어섰으면 최소 입찰가보다 높게 설정 (일반 경매 시장 규칙: 현재 입찰가의 110-115%)
+            let buyNowPrice = realPrice;
+            if (auctionCurrentBid >= realPrice) {
+                // 입찰가가 원래 구매가를 넘어섰을 때: 최소 입찰가의 115% 또는 최소 입찰가 + 10pt 중 큰 값
+                const adjustedPrice = Math.max(
+                    Math.ceil(minBid * 1.15), // 최소 입찰가의 115%
+                    minBid + 10 // 또는 최소 입찰가 + 10pt
+                );
+                buyNowPrice = adjustedPrice;
             }
+            
+            const priceDifference = buyNowPrice - auctionCurrentBid;
+            const isCheaper = priceDifference < 0;
             
             return `
                 <div class="action-options-header">
@@ -680,9 +936,14 @@ class TerritoryPanel {
                     </div>
                     <div class="option-price">
                         <span class="price-label">Price:</span>
-                        <span class="price-value">${this.formatNumber(realPrice)} pt</span>
+                        <span class="price-value">${this.formatNumber(buyNowPrice)} pt</span>
                     </div>
-                    ${isCheaper ? `
+                    ${auctionCurrentBid >= realPrice ? `
+                        <div class="price-comparison note">
+                            <span class="note-icon">📈</span>
+                            <span>Buy Now price adjusted (current bid exceeded original price)</span>
+                        </div>
+                    ` : isCheaper ? `
                         <div class="price-comparison save">
                             <span class="save-icon">💰</span>
                             <span>Save ${this.formatNumber(Math.abs(priceDifference))} pt vs current bid</span>
@@ -705,8 +966,8 @@ class TerritoryPanel {
                             <span>You are the highest bidder. Your bid will be refunded if you buy now.</span>
                         </div>
                     ` : ''}
-                    <button class="action-btn conquest-btn" id="instant-conquest">
-                        ⚔️ Buy Now (${this.formatNumber(realPrice)} pt)
+                    <button class="action-btn conquest-btn" id="instant-conquest" data-buy-now-price="${buyNowPrice}">
+                        ⚔️ Buy Now (${this.formatNumber(buyNowPrice)} pt)
                     </button>
                 </div>
                 
@@ -755,17 +1016,6 @@ class TerritoryPanel {
         
         // 미정복 영토 - 구매 가능
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
-            if (isAdmin) {
-                // 관리자 모드: 무료 구매
-                return `
-                    <div class="admin-mode-notice">
-                        <span>🔧 Admin Mode - Free Claim</span>
-                    </div>
-                    <button class="action-btn conquest-btn admin-conquest" id="instant-conquest">
-                        🔧 Claim as Admin (FREE)
-                    </button>
-                `;
-            }
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
                     ⚔️ Claim Now (${this.formatNumber(realPrice)} pt)
@@ -777,7 +1027,21 @@ class TerritoryPanel {
         }
         
         // 다른 사람 소유 영토 (보호 기간 아님, 경매 없음)
+        // 관리자 모드이고 관리자가 점유한 영토인 경우 challenge 버튼 표시하지 않음
         if (territory.ruler && !isOwner && !auction) {
+            // 관리자 모드이고 관리자가 점유한 영토인지 확인
+            const isAdminOwned = isAdmin && territory.purchasedByAdmin;
+            
+            if (isAdminOwned) {
+                // 관리자가 점유한 영토는 관리자 모드에서 challenge 버튼 표시하지 않음
+                return `
+                    <div class="admin-territory-notice">
+                        <span class="notice-icon">🔧</span>
+                        <span>관리자가 점유한 영토입니다</span>
+                    </div>
+                `;
+            }
+            
             return `
                 <button class="action-btn challenge-btn" id="challenge-ruler">
                     ⚔️ Challenge Owner
@@ -825,6 +1089,12 @@ class TerritoryPanel {
             bidBtn.addEventListener('click', () => this.handlePlaceBid());
         }
         
+        // Owner Challenge 버튼
+        const challengeBtn = document.getElementById('challenge-ruler');
+        if (challengeBtn) {
+            challengeBtn.addEventListener('click', () => this.handleChallengeOwner());
+        }
+        
         // 픽셀 에디터 버튼
         const pixelBtn = document.getElementById('open-pixel-editor');
         if (pixelBtn) {
@@ -833,6 +1103,103 @@ class TerritoryPanel {
                     type: 'pixelEditor', 
                     data: this.currentTerritory 
                 });
+            });
+        }
+        
+        // 소셜 공유 버튼
+        this.container.querySelectorAll('.share-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const platform = e.currentTarget.dataset.platform;
+                this.shareTerritory(platform);
+            });
+        });
+    }
+    
+    /**
+     * 영토 공유
+     */
+    shareTerritory(platform) {
+        const t = this.currentTerritory;
+        if (!t) return;
+        
+        const territoryName = this.extractName(t.name) || t.id;
+        const shareUrl = `${window.location.origin}${window.location.pathname}?territory=${t.id}`;
+        const shareText = `🌍 Check out this territory: ${territoryName} on Own a Piece of Earth!`;
+        const shareTitle = `Own a Piece of Earth - ${territoryName}`;
+        
+        let shareWindowUrl = '';
+        
+        switch (platform) {
+            case 'twitter':
+                shareWindowUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+                break;
+            case 'facebook':
+                shareWindowUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+                break;
+            case 'kakao':
+                // 카카오톡 공유는 JavaScript SDK 필요 (선택적)
+                if (window.Kakao && window.Kakao.isInitialized()) {
+                    window.Kakao.Share.sendDefault({
+                        objectType: 'feed',
+                        content: {
+                            title: shareTitle,
+                            description: shareText,
+                            imageUrl: `${window.location.origin}/og-image.png`,
+                            link: {
+                                mobileWebUrl: shareUrl,
+                                webUrl: shareUrl,
+                            },
+                        },
+                    });
+                    return;
+                } else {
+                    // 카카오 SDK 없으면 일반 링크 공유
+                    this.copyToClipboard(shareUrl);
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'success',
+                        message: '링크가 클립보드에 복사되었습니다!'
+                    });
+                    return;
+                }
+            case 'copy':
+                this.copyToClipboard(shareUrl);
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'success',
+                    message: '링크가 클립보드에 복사되었습니다!'
+                });
+                return;
+            default:
+                return;
+        }
+        
+        if (shareWindowUrl) {
+            window.open(shareWindowUrl, '_blank', 'width=600,height=400');
+        }
+    }
+    
+    /**
+     * 클립보드에 복사
+     */
+    async copyToClipboard(text) {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            }
+        } catch (error) {
+            log.error('Failed to copy to clipboard:', error);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '클립보드 복사에 실패했습니다.'
             });
         }
     }
@@ -866,36 +1233,7 @@ class TerritoryPanel {
                              this.extractName(this.currentTerritory.properties?.name) ||
                              this.currentTerritory.id;
         
-        // 관리자 모드: 무료 구매
-        if (isAdmin) {
-            try {
-                // 바로 정복 처리 (포인트 차감 없이)
-                eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
-                    territoryId: this.currentTerritory.id,
-                    userId: user.uid,
-                    userName: user.displayName || user.email,
-                    tribute: 0,
-                    isAdmin: true
-                });
-                
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'success',
-                    message: `🔧 Admin claimed: ${territoryName}`
-                });
-                
-                // 패널 갱신
-                this.render();
-                this.bindActions();
-                
-            } catch (error) {
-                log.error('Admin conquest failed:', error);
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'error',
-                    message: 'Failed to claim territory'
-                });
-            }
-            return;
-        }
+        // 관리자 모드: 일반 구매 프로세스 사용 (PaymentService에서 자동 포인트 충전 처리)
         
         // 경매가 활성화되어 있는지 확인
         const activeAuction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
@@ -920,11 +1258,43 @@ class TerritoryPanel {
             }
         }
         
-        // 일반 사용자: 결제 처리
-        const countryCode = this.currentTerritory.country || 
-                           this.currentTerritory.properties?.country || 
-                           'unknown';
-        const price = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        // Buy Now 가격 결정 (경매 중일 때 조정된 가격 사용)
+        let price;
+        if (activeAuction && activeAuction.status === AUCTION_STATUS.ACTIVE) {
+            // 버튼에서 data-buy-now-price 속성 읽기
+            const buyNowBtn = document.getElementById('instant-conquest');
+            const adjustedPrice = buyNowBtn?.dataset?.buyNowPrice;
+            
+            if (adjustedPrice) {
+                price = parseFloat(adjustedPrice);
+            } else {
+                // 속성이 없으면 계산
+                const countryCode = this.currentTerritory.country || 
+                                   this.currentTerritory.properties?.country || 
+                                   'unknown';
+                const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+                
+                // 입찰가 확인
+                const auctionCurrentBid = this.getEffectiveAuctionBid(activeAuction);
+                const minBid = auctionCurrentBid + 1;
+                
+                // 입찰가가 원래 구매가를 넘어섰으면 조정
+                if (auctionCurrentBid >= basePrice) {
+                    price = Math.max(
+                        Math.ceil(minBid * 1.15), // 최소 입찰가의 115%
+                        minBid + 10 // 또는 최소 입찰가 + 10pt
+                    );
+                } else {
+                    price = basePrice;
+                }
+            }
+        } else {
+            // 경매가 없으면 일반 가격 계산
+            const countryCode = this.currentTerritory.country || 
+                               this.currentTerritory.properties?.country || 
+                               'unknown';
+            price = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        }
         
         try {
             // 결제 시작 이벤트 (PaymentService에서 처리)
@@ -1003,6 +1373,92 @@ class TerritoryPanel {
     }
     
     /**
+     * Owner Challenge 처리
+     * 다른 사용자가 소유한 영토에 대해 경매를 시작하여 소유권을 도전
+     */
+    async handleChallengeOwner() {
+        const user = firebaseService.getCurrentUser();
+        
+        // 로그인 체크
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to challenge the owner'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!this.currentTerritory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No territory selected'
+            });
+            return;
+        }
+        
+        // 소유자 확인
+        if (!this.currentTerritory.ruler) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'This territory has no owner'
+            });
+            return;
+        }
+        
+        // 자신의 영토인지 확인
+        if (this.currentTerritory.ruler === user.uid) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'You already own this territory'
+            });
+            return;
+        }
+        
+        // 확인 다이얼로그
+        const territoryName = this.extractName(this.currentTerritory.name) || 
+                             this.extractName(this.currentTerritory.properties?.name) ||
+                             this.currentTerritory.id;
+        const ownerName = this.currentTerritory.rulerName || 'Unknown';
+        
+        if (!confirm(`이 영토(${territoryName})의 소유자(${ownerName})에게 도전하시겠습니까?\n\n경매가 시작되며, 최고 입찰자가 새로운 소유자가 됩니다.`)) {
+            return;
+        }
+        
+        try {
+            // 경매 생성 (handleStartAuction과 동일한 로직)
+            await auctionSystem.createAuction(this.currentTerritory.id);
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: '🎯 Challenge started! Auction is now active!'
+            });
+            
+            // 패널 갱신
+            this.render();
+            this.bindActions();
+            
+        } catch (error) {
+            log.error('Challenge owner failed:', error);
+            
+            // 사용자 친화적 에러 메시지
+            let errorMessage = 'Failed to start challenge';
+            if (error.message.includes('Authentication')) {
+                errorMessage = 'Please sign in first';
+            } else if (error.message.includes('not found')) {
+                errorMessage = 'Territory not found';
+            } else if (error.message.includes('in progress')) {
+                errorMessage = 'An auction is already in progress';
+            }
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: errorMessage
+            });
+        }
+    }
+    
+    /**
      * 입찰 처리
      */
     async handlePlaceBid() {
@@ -1041,18 +1497,43 @@ class TerritoryPanel {
             return;
         }
         
-        // currentBid가 startingBid보다 작거나 없으면 startingBid 사용
-        const effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0) 
-            ? auction.currentBid 
-            : (auction.startingBid || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+        // 입찰자가 있는지 확인
+        const hasBids = !!auction.highestBidder;
+        
+        // 입찰자가 없으면 무조건 startingBid 사용 (currentBid는 무시)
+        // 입찰자가 있으면 currentBid 사용
+        let effectiveCurrentBid;
+        if (!hasBids) {
+            // 입찰자가 없으면 startingBid를 그대로 사용 (currentBid는 확인하지 않음)
+            // 화면에 표시된 startingBid와 일치해야 함
+            effectiveCurrentBid = auction.startingBid || 10;
+            log.debug('[TerritoryPanel] No bids yet, using startingBid:', effectiveCurrentBid);
+        } else {
+            // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
+            effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0)
+                ? auction.currentBid
+                : (auction.startingBid || 10);
+            log.debug('[TerritoryPanel] Has bids, using currentBid:', effectiveCurrentBid);
+        }
         
         // minIncrement 계산
-        const effectiveMinIncrement = auction.minIncrement || Math.max(
-            Math.floor(effectiveCurrentBid * 0.1),
-            10
-        );
+        // 입찰자가 있든 없든 항상 1pt 증가액 사용 (1pt 단위 입찰)
+        const effectiveMinIncrement = 1;
         
         const minBid = effectiveCurrentBid + effectiveMinIncrement;
+        
+        // 디버깅 로그
+        log.debug('[TerritoryPanel] Bid validation:', {
+            startingBid: auction.startingBid,
+            currentBid: auction.currentBid,
+            highestBidder: auction.highestBidder,
+            hasBids,
+            effectiveCurrentBid,
+            effectiveMinIncrement,
+            minBid,
+            bidAmount
+        });
+        
         if (bidAmount < minBid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
@@ -1083,7 +1564,8 @@ class TerritoryPanel {
                 auctionId: auction.id,
                 bidAmount,
                 userId: user.uid,
-                userName: user.displayName || user.email
+                userName: user.displayName || user.email,
+                isAdmin: isAdmin  // ✅ 관리자 플래그 추가
             });
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {

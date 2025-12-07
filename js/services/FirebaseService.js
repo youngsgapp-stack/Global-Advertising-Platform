@@ -656,6 +656,14 @@ class FirebaseService {
     }
     
     /**
+     * 가상 사용자 설정 (관리자 모드용)
+     */
+    setVirtualUser(virtualUser) {
+        this.currentUser = virtualUser;
+        log.info('[FirebaseService] 가상 사용자 설정:', virtualUser.email);
+    }
+    
+    /**
      * 현재 사용자 가져오기
      */
     getCurrentUser() {
@@ -695,6 +703,12 @@ class FirebaseService {
                 return null;
             }
             
+            // 권한 오류는 조용히 처리 (로그인하지 않은 사용자 등)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions') || error.message?.includes('Missing or insufficient permissions')) {
+                log.debug(`[FirebaseService] Permission denied for ${collectionName}/${docId} (user not logged in)`);
+                return null; // null 반환하여 호출자가 처리할 수 있도록
+            }
+            
             // 오프라인 에러는 null 반환 (존재하지 않는 문서로 간주)
             if (error.code === 'unavailable' || error.code === 'failed-precondition' || error.message?.includes('offline')) {
                 return null;
@@ -715,15 +729,32 @@ class FirebaseService {
         }
         
         try {
+            // undefined 필드 제거
+            const cleanData = {};
+            for (const [key, value] of Object.entries(data)) {
+                if (value !== undefined) {
+                    cleanData[key] = value;
+                } else {
+                    log.warn(`[FirebaseService] Removing undefined field: ${key} from ${collectionName}/${docId}`);
+                }
+            }
+            
             const docRef = this._firestore.doc(this.db, collectionName, docId);
             await this._firestore.setDoc(docRef, {
-                ...data,
+                ...cleanData,
                 updatedAt: this._firestore.Timestamp.now()
             }, { merge });
             
             log.debug(`Document saved: ${collectionName}/${docId}`);
             return true;
         } catch (error) {
+            // 권한 오류는 조용히 처리 (로그인하지 않은 사용자 등)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions') || error.message?.includes('Missing or insufficient permissions')) {
+                log.debug(`[FirebaseService] Permission denied for ${collectionName}/${docId} (user not logged in)`);
+                return false; // false 반환하여 호출자가 처리할 수 있도록
+            }
+            
+            // 다른 에러만 로그 출력
             log.error(`Failed to save document ${collectionName}/${docId}:`, error);
             throw error;
         }

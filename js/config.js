@@ -30,11 +30,33 @@ export const CONFIG = {
         measurementId: "G-L2WYZGZK90"
     },
     
-    // PayPal 설정 (Live - World Map Advertising 앱)
+    // Google Analytics 설정
+    ANALYTICS: {
+        ENABLED: true,
+        MEASUREMENT_ID: 'G-L2WYZGZK90', // Firebase Measurement ID 사용
+        // 커스텀 이벤트 추적 활성화
+        TRACK_EVENTS: true,
+        TRACK_PAGE_VIEWS: true,
+        TRACK_USER_ACTIONS: true
+    },
+    
+    // PayPal 설정 (Sandbox - World Map Advertising 앱)
+    // ⚠️ 테스트용 Sandbox 모드 - 프로덕션 배포 전에 Live Client ID로 변경 필요
     PAYPAL: {
-        CLIENT_ID: 'AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp',
+        CLIENT_ID: 'ASSXMliYJQwdhXBONsRFuvA2ZsOQSfcG0v-ed3WgmG_KG8kQYyivPSOBsEy3KkDVXr2FS1uooo7urAIn', // Sandbox Client ID
         CURRENCY: 'USD',
         INTENT: 'capture' // 즉시 결제 캡처 모드
+    },
+    
+    // Payoneer Checkout 설정
+    // ⚠️ Payoneer 계정 생성 후 API Key와 Merchant ID를 설정해야 합니다
+    PAYONEER: {
+        MERCHANT_ID: '', // Payoneer Merchant ID (계정 생성 후 설정 필요)
+        API_KEY: '', // Payoneer API Key (계정 생성 후 설정 필요)
+        ENVIRONMENT: 'sandbox', // 'sandbox' | 'production'
+        CURRENCY: 'USD',
+        CHECKOUT_URL: 'https://checkout.payoneer.com', // Payoneer Checkout URL
+        // RETURN_URL과 CANCEL_URL은 PaymentService에서 동적으로 설정됩니다
     },
     
     // 디버그 모드 설정
@@ -246,11 +268,48 @@ export const CONFIG = {
         'tunisia': { name: 'Tunisia', nameKo: '튀니지', center: [9, 34], zoom: 6, flag: '🇹🇳', group: 'africa', continent: 'africa' },
         'libya': { name: 'Libya', nameKo: '리비아', center: [17, 27], zoom: 5, flag: '🇱🇾', group: 'africa', continent: 'africa' },
         'sudan': { name: 'Sudan', nameKo: '수단', center: [30, 15], zoom: 5, flag: '🇸🇩', group: 'africa', continent: 'africa' },
+        'south-sudan': { name: 'South Sudan', nameKo: '남수단', center: [31, 7], zoom: 5, flag: '🇸🇸', group: 'africa', continent: 'africa' },
         'tanzania': { name: 'Tanzania', nameKo: '탄자니아', center: [35, -6], zoom: 5, flag: '🇹🇿', group: 'africa', continent: 'africa' },
         'uganda': { name: 'Uganda', nameKo: '우간다', center: [32, 1], zoom: 6, flag: '🇺🇬', group: 'africa', continent: 'africa' },
         'rwanda': { name: 'Rwanda', nameKo: '르완다', center: [30, -2], zoom: 8, flag: '🇷🇼', group: 'africa', continent: 'africa' },
         'senegal': { name: 'Senegal', nameKo: '세네갈', center: [-14, 14], zoom: 6, flag: '🇸🇳', group: 'africa', continent: 'africa' },
+        'niger': { name: 'Niger', nameKo: '니제르', center: [9, 17], zoom: 5, flag: '🇳🇪', group: 'africa', continent: 'africa' },
         'mali': { name: 'Mali', nameKo: '말리', center: [-4, 17], zoom: 5, flag: '🇲🇱', group: 'africa', continent: 'africa' },
+        'ivory-coast': { name: 'Ivory Coast', nameKo: '코트디부아르', center: [-5, 8], zoom: 6, flag: '🇨🇮', group: 'africa', continent: 'africa' },
+        'cameroon': { name: 'Cameroon', nameKo: '카메룬', center: [12, 6], zoom: 5, flag: '🇨🇲', group: 'africa', continent: 'africa' },
+        'angola': { name: 'Angola', nameKo: '앙골라', center: [17, -12], zoom: 5, flag: '🇦🇴', group: 'africa', continent: 'africa' },
+        'mozambique': { name: 'Mozambique', nameKo: '모잠비크', center: [35, -18], zoom: 5, flag: '🇲🇿', group: 'africa', continent: 'africa' },
+        'zimbabwe': { name: 'Zimbabwe', nameKo: '짐바브웨', center: [29, -19], zoom: 5, flag: '🇿🇼', group: 'africa', continent: 'africa' },
+        'zambia': { name: 'Zambia', nameKo: '잠비아', center: [28, -14], zoom: 5, flag: '🇿🇲', group: 'africa', continent: 'africa' },
+        'botswana': { name: 'Botswana', nameKo: '보츠와나', center: [24, -22], zoom: 5, flag: '🇧🇼', group: 'africa', continent: 'africa' },
+        'namibia': { name: 'Namibia', nameKo: '나미비아', center: [17, -22], zoom: 5, flag: '🇳🇦', group: 'africa', continent: 'africa' },
+        'madagascar': { name: 'Madagascar', nameKo: '마다가스카르', center: [47, -19], zoom: 5, flag: '🇲🇬', group: 'africa', continent: 'africa' },
+        'mauritius': { name: 'Mauritius', nameKo: '모리셔스', center: [57, -20], zoom: 8, flag: '🇲🇺', group: 'africa', continent: 'africa' },
+        'congo-drc': { name: 'DR Congo', nameKo: '콩고민주공화국', center: [23, -4], zoom: 5, flag: '🇨🇩', group: 'africa', continent: 'africa' },
+        'mali': { name: 'Mali', nameKo: '말리', center: [-4, 17], zoom: 5, flag: '🇲🇱', group: 'africa', continent: 'africa' },
+        'central-african-republic': { name: 'Central African Republic', nameKo: '중앙아프리카공화국', center: [21, 7], zoom: 5, flag: '🇨🇫', group: 'africa', continent: 'africa' },
+        'chad': { name: 'Chad', nameKo: '차드', center: [19, 15], zoom: 5, flag: '🇹🇩', group: 'africa', continent: 'africa' },
+        'burkina-faso': { name: 'Burkina Faso', nameKo: '부르키나파소', center: [-2, 12], zoom: 5, flag: '🇧🇫', group: 'africa', continent: 'africa' },
+        'benin': { name: 'Benin', nameKo: '베냉', center: [2, 9], zoom: 5, flag: '🇧🇯', group: 'africa', continent: 'africa' },
+        'togo': { name: 'Togo', nameKo: '토고', center: [1, 8], zoom: 6, flag: '🇹🇬', group: 'africa', continent: 'africa' },
+        'guinea': { name: 'Guinea', nameKo: '기니', center: [-10, 10], zoom: 5, flag: '🇬🇳', group: 'africa', continent: 'africa' },
+        'guinea-bissau': { name: 'Guinea-Bissau', nameKo: '기니비사우', center: [-15, 12], zoom: 6, flag: '🇬🇼', group: 'africa', continent: 'africa' },
+        'sierra-leone': { name: 'Sierra Leone', nameKo: '시에라리온', center: [-12, 8], zoom: 6, flag: '🇸🇱', group: 'africa', continent: 'africa' },
+        'liberia': { name: 'Liberia', nameKo: '라이베리아', center: [-9, 6], zoom: 6, flag: '🇱🇷', group: 'africa', continent: 'africa' },
+        'gambia': { name: 'Gambia', nameKo: '감비아', center: [-15, 13], zoom: 7, flag: '🇬🇲', group: 'africa', continent: 'africa' },
+        'cape-verde': { name: 'Cape Verde', nameKo: '카보베르데', center: [-24, 16], zoom: 7, flag: '🇨🇻', group: 'africa', continent: 'africa' },
+        'sao-tome-and-principe': { name: 'São Tomé and Príncipe', nameKo: '상투메 프린시페', center: [7, 1], zoom: 8, flag: '🇸🇹', group: 'africa', continent: 'africa' },
+        'equatorial-guinea': { name: 'Equatorial Guinea', nameKo: '적도 기니', center: [10, 2], zoom: 6, flag: '🇬🇶', group: 'africa', continent: 'africa' },
+        'gabon': { name: 'Gabon', nameKo: '가봉', center: [12, -1], zoom: 5, flag: '🇬🇦', group: 'africa', continent: 'africa' },
+        'eritrea': { name: 'Eritrea', nameKo: '에리트레아', center: [39, 15], zoom: 6, flag: '🇪🇷', group: 'africa', continent: 'africa' },
+        'djibouti': { name: 'Djibouti', nameKo: '지부티', center: [43, 12], zoom: 7, flag: '🇩🇯', group: 'africa', continent: 'africa' },
+        'somalia': { name: 'Somalia', nameKo: '소말리아', center: [46, 6], zoom: 5, flag: '🇸🇴', group: 'africa', continent: 'africa' },
+        'comoros': { name: 'Comoros', nameKo: '코모로', center: [44, -12], zoom: 8, flag: '🇰🇲', group: 'africa', continent: 'africa' },
+        'seychelles': { name: 'Seychelles', nameKo: '세이셸', center: [55, -5], zoom: 8, flag: '🇸🇨', group: 'africa', continent: 'africa' },
+        'eswatini': { name: 'Eswatini', nameKo: '에스와티니', center: [31, -26], zoom: 7, flag: '🇸🇿', group: 'africa', continent: 'africa' },
+        'lesotho': { name: 'Lesotho', nameKo: '레소토', center: [28, -29], zoom: 7, flag: '🇱🇸', group: 'africa', continent: 'africa' },
+        'malawi': { name: 'Malawi', nameKo: '말라위', center: [34, -13], zoom: 6, flag: '🇲🇼', group: 'africa', continent: 'africa' },
+        'burundi': { name: 'Burundi', nameKo: '부룬디', center: [30, -3], zoom: 7, flag: '🇧🇮', group: 'africa', continent: 'africa' },
         'ivory-coast': { name: "Côte d'Ivoire", nameKo: '코트디부아르', center: [-5, 8], zoom: 6, flag: '🇨🇮', group: 'africa', continent: 'africa' },
         'cameroon': { name: 'Cameroon', nameKo: '카메룬', center: [12, 6], zoom: 5, flag: '🇨🇲', group: 'africa', continent: 'africa' },
         'angola': { name: 'Angola', nameKo: '앙골라', center: [17, -12], zoom: 5, flag: '🇦🇴', group: 'africa', continent: 'africa' },

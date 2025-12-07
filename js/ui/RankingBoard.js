@@ -361,8 +361,40 @@ class RankingBoard {
      */
     open() {
         if (this.container) {
+            // 다른 패널들 닫기
+            this.closeOtherPanels();
+            
             this.container.classList.remove('hidden');
             this.isOpen = true;
+        }
+    }
+    
+    /**
+     * 다른 패널들 닫기
+     */
+    closeOtherPanels() {
+        // TerritoryPanel 닫기
+        const territoryPanel = document.getElementById('territory-panel');
+        if (territoryPanel) {
+            territoryPanel.classList.add('hidden');
+        }
+        
+        // TerritoryListPanel 닫기
+        const territoryListPanel = document.getElementById('territory-list-panel');
+        if (territoryListPanel) {
+            territoryListPanel.classList.add('hidden');
+        }
+        
+        // RecommendationPanel 닫기
+        const recommendationPanel = document.getElementById('recommendation-panel');
+        if (recommendationPanel) {
+            recommendationPanel.classList.add('hidden');
+        }
+        
+        // TimelineWidget 닫기
+        const timelineWidget = document.getElementById('timeline-widget');
+        if (timelineWidget) {
+            timelineWidget.classList.add('hidden');
         }
     }
     

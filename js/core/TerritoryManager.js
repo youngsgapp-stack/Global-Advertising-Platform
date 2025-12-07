@@ -24,6 +24,99 @@ class TerritoryManager {
         this.currentTerritory = null;
         this.unsubscribers = [];
         this.processingTerritoryId = null; // 무한 루프 방지
+        this.isoToSlugMap = null; // ISO 코드 -> 슬러그 매핑 캐시
+    }
+    
+    /**
+     * ISO 코드를 슬러그로 변환하는 매핑 생성
+     */
+    createIsoToSlugMap() {
+        if (this.isoToSlugMap) {
+            return this.isoToSlugMap;
+        }
+        
+        // TerritoryDataService의 COUNTRY_SLUG_TO_ISO를 역으로 변환
+        // 하지만 TerritoryDataService는 export하지 않으므로 직접 매핑 생성
+        const isoToSlug = {
+            // 주요 국가
+            'USA': 'usa', 'CAN': 'canada', 'MEX': 'mexico', 'KOR': 'south-korea',
+            'JPN': 'japan', 'CHN': 'china', 'GBR': 'uk', 'DEU': 'germany',
+            'FRA': 'france', 'ITA': 'italy', 'ESP': 'spain', 'IND': 'india',
+            'BRA': 'brazil', 'RUS': 'russia', 'AUS': 'australia',
+            'SGP': 'singapore', 'MYS': 'malaysia', 'IDN': 'indonesia',
+            'THA': 'thailand', 'VNM': 'vietnam', 'PHL': 'philippines',
+            'SAU': 'saudi-arabia', 'ARE': 'uae', 'QAT': 'qatar', 'IRN': 'iran',
+            'ISR': 'israel', 'TUR': 'turkey', 'EGY': 'egypt',
+            'ZAF': 'south-africa', 'NGA': 'nigeria', 'KEN': 'kenya',
+            'EGY': 'egypt', 'DZA': 'algeria', 'MAR': 'morocco', 'TUN': 'tunisia',
+            'NER': 'niger', 'MLI': 'mali', 'SEN': 'senegal', 'GHA': 'ghana',
+            'CIV': 'ivory-coast', 'CMR': 'cameroon', 'UGA': 'uganda',
+            'TZA': 'tanzania', 'ETH': 'ethiopia', 'SDN': 'sudan', 'SDS': 'south-sudan',
+            'GRL': 'greenland', 'DN1': 'greenland',
+            // 추가 국가들
+            'PAK': 'pakistan', 'BGD': 'bangladesh', 'MMR': 'myanmar',
+            'KHM': 'cambodia', 'LAO': 'laos', 'MNG': 'mongolia',
+            'NPL': 'nepal', 'LKA': 'sri-lanka', 'KAZ': 'kazakhstan',
+            'UZB': 'uzbekistan', 'PRK': 'north-korea', 'TWN': 'taiwan',
+            'HKG': 'hong-kong', 'BRN': 'brunei', 'BTN': 'bhutan',
+            'MDV': 'maldives', 'TLS': 'timor-leste', 'IRQ': 'iraq',
+            'JOR': 'jordan', 'LBN': 'lebanon', 'OMN': 'oman',
+            'KWT': 'kuwait', 'BHR': 'bahrain', 'SYR': 'syria',
+            'YEM': 'yemen', 'PSE': 'palestine', 'AFG': 'afghanistan',
+            'NLD': 'netherlands', 'POL': 'poland', 'BEL': 'belgium',
+            'SWE': 'sweden', 'AUT': 'austria', 'CHE': 'switzerland',
+            'NOR': 'norway', 'PRT': 'portugal', 'GRC': 'greece',
+            'CZE': 'czech-republic', 'ROU': 'romania', 'HUN': 'hungary',
+            'DNK': 'denmark', 'FIN': 'finland', 'IRL': 'ireland',
+            'BGR': 'bulgaria', 'SVK': 'slovakia', 'HRV': 'croatia',
+            'LTU': 'lithuania', 'SVN': 'slovenia', 'LVA': 'latvia',
+            'EST': 'estonia', 'CYP': 'cyprus', 'LUX': 'luxembourg',
+            'MLT': 'malta', 'UKR': 'ukraine', 'BLR': 'belarus',
+            'SRB': 'serbia', 'ALB': 'albania', 'MKD': 'north-macedonia',
+            'MNE': 'montenegro', 'BIH': 'bosnia', 'MDA': 'moldova',
+            'ISL': 'iceland', 'GEO': 'georgia', 'ARM': 'armenia',
+            'AZE': 'azerbaijan', 'CUB': 'cuba', 'JAM': 'jamaica',
+            'HTI': 'haiti', 'DOM': 'dominican-republic', 'GTM': 'guatemala',
+            // 아프리카 추가
+            'LBY': 'libya', 'RWA': 'rwanda', 'AGO': 'angola', 'MOZ': 'mozambique',
+            'ZWE': 'zimbabwe', 'ZMB': 'zambia', 'BWA': 'botswana', 'NAM': 'namibia',
+            'MDG': 'madagascar', 'MUS': 'mauritius', 'COD': 'congo-drc',
+            'BFA': 'burkina-faso', 'BEN': 'benin', 'TGO': 'togo', 'GIN': 'guinea',
+            'GNB': 'guinea-bissau', 'SLE': 'sierra-leone', 'LBR': 'liberia',
+            'GMB': 'gambia', 'CPV': 'cape-verde', 'STP': 'sao-tome-and-principe',
+            'GNQ': 'equatorial-guinea', 'GAB': 'gabon', 'CAF': 'central-african-republic',
+            'TCD': 'chad', 'SSD': 'south-sudan', 'ERI': 'eritrea', 'DJI': 'djibouti',
+            'SOM': 'somalia', 'COM': 'comoros', 'SYC': 'seychelles', 'SWZ': 'eswatini',
+            'LSO': 'lesotho', 'MWI': 'malawi', 'BDI': 'burundi',
+            // 남미 추가
+            'ARG': 'argentina', 'CHL': 'chile', 'COL': 'colombia', 'PER': 'peru',
+            'VEN': 'venezuela', 'ECU': 'ecuador', 'BOL': 'bolivia', 'PRY': 'paraguay',
+            'URY': 'uruguay', 'GUY': 'guyana', 'SUR': 'suriname',
+            'TTO': 'trinidad-and-tobago', 'BRB': 'barbados', 'JAM': 'jamaica',
+            'BHS': 'bahamas', 'BLZ': 'belize', 'CRI': 'costa-rica', 'PAN': 'panama',
+            'NIC': 'nicaragua', 'HND': 'honduras', 'SLV': 'el-salvador',
+            // 아시아 추가
+            'AFG': 'afghanistan', 'IRN': 'iran', 'IRQ': 'iraq', 'SYR': 'syria',
+            'YEM': 'yemen', 'OMN': 'oman', 'ARE': 'uae', 'QAT': 'qatar',
+            'BHR': 'bahrain', 'KWT': 'kuwait', 'SAU': 'saudi-arabia',
+            'JOR': 'jordan', 'LBN': 'lebanon', 'ISR': 'israel', 'PSE': 'palestine',
+            'LKA': 'sri-lanka', 'MDV': 'maldives', 'BTN': 'bhutan', 'NPL': 'nepal',
+            'MMR': 'myanmar', 'LAO': 'laos', 'KHM': 'cambodia', 'VNM': 'vietnam',
+            'MYS': 'malaysia', 'SGP': 'singapore', 'BRN': 'brunei', 'IDN': 'indonesia',
+            'PHL': 'philippines', 'TLS': 'timor-leste', 'PNG': 'papua-new-guinea',
+            'FJI': 'fiji', 'VUT': 'vanuatu', 'SLB': 'solomon-islands',
+            'WSM': 'samoa', 'TON': 'tonga', 'KIR': 'kiribati', 'PLW': 'palau',
+            'FSM': 'micronesia', 'MHL': 'marshall-islands', 'NRU': 'nauru',
+            'TUV': 'tuvalu', 'NZL': 'new-zealand',
+            // 유럽 추가
+            'AND': 'andorra', 'MCO': 'monaco', 'SMR': 'san-marino', 'VAT': 'vatican',
+            'LIE': 'liechtenstein', 'MNE': 'montenegro', 'BIH': 'bosnia',
+            'MKD': 'north-macedonia', 'ALB': 'albania', 'GRC': 'greece',
+            'MLT': 'malta', 'CYP': 'cyprus', 'TUR': 'turkey'
+        };
+        
+        this.isoToSlugMap = isoToSlug;
+        return isoToSlug;
     }
     
     /**
@@ -147,11 +240,26 @@ class TerritoryManager {
             
             // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
         // adm0_a3는 ISO 3166-1 alpha-3 코드 (예: "USA")를 포함하므로 우선 사용
-        let finalCountry = country || 
-                          properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
-                          properties?.country || 
+        // ISO 코드는 대문자로 처리하여 매핑 시도
+        // ⚠️ mapController.currentCountry는 사용하지 않음 (모든 territory의 country를 덮어쓰지 않도록)
+        let finalCountry = country;
+        
+        // ISO 코드를 먼저 슬러그로 변환 시도
+        if (!finalCountry && properties?.adm0_a3) {
+            const isoCode = properties.adm0_a3.toUpperCase();
+            const isoToSlugMap = this.createIsoToSlugMap();
+            const slugCode = isoToSlugMap[isoCode];
+            if (slugCode && CONFIG.COUNTRIES[slugCode]) {
+                finalCountry = slugCode;
+            }
+        }
+        
+        // 여전히 없으면 다른 필드 시도
+        if (!finalCountry) {
+            finalCountry = properties?.country || 
                           properties?.country_code ||
                           territory.country;
+        }
         
         // 잘못된 값 필터링: "territories", "states", "regions" 등은 무시
         const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces', 'unknown'];
@@ -184,29 +292,60 @@ class TerritoryManager {
                          properties?.iso_a3;
             
             if (altCode) {
-                altCode = altCode.toString().toLowerCase();
+                altCode = altCode.toString().toUpperCase(); // ISO 코드는 대문자로 처리
                 
-                // 특수 코드 처리 (DN1 = Greenland, GRL = Greenland)
-                if (altCode === 'dn1' || altCode === 'grl') {
-                    altCode = 'greenland';
-                }
+                // TerritoryDataService의 COUNTRY_SLUG_TO_ISO를 역으로 사용하여 ISO -> 슬러그 변환
+                // 먼저 직접 매핑 시도
+                const isoToSlugMap = this.createIsoToSlugMap();
+                const slugCode = isoToSlugMap[altCode];
                 
-                // ISO 코드를 슬러그로 변환 시도 (예: "usa" -> "usa", "kor" -> "south-korea")
-                const isoToSlug = {
-                    'usa': 'usa', 'can': 'canada', 'mex': 'mexico', 'kor': 'south-korea',
-                    'jpn': 'japan', 'chn': 'china', 'gbr': 'uk', 'deu': 'germany',
-                    'fra': 'france', 'ita': 'italy', 'esp': 'spain', 'ind': 'india',
-                    'bra': 'brazil', 'rus': 'russia', 'aus': 'australia',
-                    'grl': 'greenland', 'dn1': 'greenland',
-                    'mli': 'mali'
-                };
-                
-                const slugCode = isoToSlug[altCode] || altCode;
-                
-                if (!invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
+                if (slugCode && !invalidCodes.includes(slugCode) && CONFIG.COUNTRIES[slugCode]) {
                     finalCountry = slugCode;
-                } else if (CONFIG.COUNTRIES[altCode]) {
-                    finalCountry = altCode;
+                } else {
+                    // properties.admin이나 properties.geonunit에서 국가명 추출 시도
+                    let countryName = properties?.admin || properties?.geonunit;
+                    if (countryName) {
+                        // 국가명 정규화 (예: "S. Sudan" → "South Sudan", "U.S.A." → "United States")
+                        const countryNameNormalizations = {
+                            's. sudan': 'south sudan',
+                            's sudan': 'south sudan',
+                            'south sudan': 'south sudan',
+                            'u.s.a.': 'united states',
+                            'usa': 'united states',
+                            'u.k.': 'united kingdom',
+                            'uk': 'united kingdom',
+                            'uae': 'united arab emirates',
+                            'dr congo': 'congo-drc',
+                            'drc': 'congo-drc',
+                            'côte d\'ivoire': 'ivory coast',
+                            'ivory coast': 'ivory coast'
+                        };
+                        
+                        const normalizedKey = countryName.toLowerCase().trim();
+                        const normalizedValue = countryNameNormalizations[normalizedKey] || normalizedKey;
+                        countryName = normalizedValue;
+                        
+                        // 국가명을 슬러그로 변환 시도
+                        const normalizedName = countryName.toLowerCase().replace(/\s+/g, '-');
+                        if (CONFIG.COUNTRIES[normalizedName]) {
+                            finalCountry = normalizedName;
+                        } else {
+                            // 국가명으로 검색 (부분 일치도 시도)
+                            for (const [key, value] of Object.entries(CONFIG.COUNTRIES)) {
+                                const valueNameLower = value.name?.toLowerCase() || '';
+                                const valueNameKoLower = value.nameKo?.toLowerCase() || '';
+                                const countryNameLower = countryName.toLowerCase();
+                                
+                                if (valueNameLower === countryNameLower || 
+                                    valueNameKoLower === countryNameLower ||
+                                    valueNameLower.includes(countryNameLower) ||
+                                    countryNameLower.includes(valueNameLower)) {
+                                    finalCountry = key;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

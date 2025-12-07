@@ -6,7 +6,8 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import territoryManager, { SOVEREIGNTY } from '../core/TerritoryManager.js';
-import mapController from '../core/MapController.js';
+import { mapController } from '../core/MapController.js';
+import { auctionSystem } from '../features/AuctionSystem.js';
 
 class TerritoryListPanel {
     constructor() {
@@ -126,6 +127,9 @@ class TerritoryListPanel {
     open() {
         if (!this.container) return;
         
+        // 다른 패널들 닫기
+        this.closeOtherPanels();
+        
         this.updateList();
         this.container.classList.remove('hidden');
         this.isOpen = true;
@@ -134,6 +138,35 @@ class TerritoryListPanel {
         const sideMenu = document.getElementById('side-menu');
         if (sideMenu) {
             sideMenu.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * 다른 패널들 닫기
+     */
+    closeOtherPanels() {
+        // TerritoryPanel 닫기
+        const territoryPanel = document.getElementById('territory-panel');
+        if (territoryPanel) {
+            territoryPanel.classList.add('hidden');
+        }
+        
+        // RankingBoard 닫기
+        const rankingBoard = document.getElementById('ranking-board');
+        if (rankingBoard) {
+            rankingBoard.classList.add('hidden');
+        }
+        
+        // RecommendationPanel 닫기
+        const recommendationPanel = document.getElementById('recommendation-panel');
+        if (recommendationPanel) {
+            recommendationPanel.classList.add('hidden');
+        }
+        
+        // TimelineWidget 닫기
+        const timelineWidget = document.getElementById('timeline-widget');
+        if (timelineWidget) {
+            timelineWidget.classList.add('hidden');
         }
     }
     
@@ -316,8 +349,274 @@ class TerritoryListPanel {
      * 아이템 클릭 처리
      */
     handleItemClick(territoryId) {
+        log.info(`[TerritoryListPanel] 🔍 handleItemClick called with territoryId: ${territoryId}`);
+        
+        // ⚠️ 중요: auction 정보를 최우선으로 확인 (auction에 country 정보가 저장되어 있음)
+        // auction의 country 정보가 가장 정확하므로 먼저 확인
+        let expectedCountry = null;
+        let expectedSourceId = null;
+        const auction = auctionSystem.getAuctionByTerritory(territoryId);
+        
+        if (auction) {
+            // auction 객체에 직접 country 정보가 저장되어 있으면 사용 (최우선)
+            expectedCountry = auction.country || auction.countryIso;
+            
+            // auction.country가 ISO 코드인 경우 slug로 변환
+            if (expectedCountry && expectedCountry.length === 3 && expectedCountry === expectedCountry.toUpperCase()) {
+                const isoToSlugMap = territoryManager.createIsoToSlugMap();
+                expectedCountry = isoToSlugMap[expectedCountry] || expectedCountry;
+            }
+            
+            log.info(`[TerritoryListPanel] ✅ Got country from auction: ${expectedCountry} (auctionId: ${auction.id})`);
+        }
+        
+        // auction에 country가 없으면 TerritoryListPanel의 territory 배열에서 가져오기
+        if (!expectedCountry) {
+            const territoryFromList = this.territories.find(t => t.id === territoryId);
+            expectedCountry = territoryFromList?.country;
+            expectedSourceId = territoryFromList?.sourceId;
+            if (expectedCountry) {
+                log.debug(`[TerritoryListPanel] Got country from territory list: ${expectedCountry}`);
+            }
+        }
+        
+        // TerritoryManager에서도 확인 (fallback)
+        if (!expectedCountry) {
+            const territoryFromManager = territoryManager.getTerritory(territoryId);
+            expectedCountry = territoryFromManager?.country;
+            if (!expectedSourceId) {
+                expectedSourceId = territoryFromManager?.sourceId;
+            }
+            if (expectedCountry) {
+                log.debug(`[TerritoryListPanel] Got country from TerritoryManager: ${expectedCountry}`);
+            }
+        }
+        
+        // auction이 있지만 country가 없으면, auction.territoryId로 territory 찾기 시도
+        if (auction && !expectedCountry) {
+            const auctionTerritory = territoryManager.getTerritory(auction.territoryId);
+            if (auctionTerritory?.country) {
+                expectedCountry = auctionTerritory.country;
+                log.debug(`[TerritoryListPanel] Got country from auction territory: ${expectedCountry}`);
+            }
+        }
+        
+        // country가 없으면 territoryId에서 추출 시도 (예: "singapore-0" -> "singapore")
+        // 하지만 "south-east"는 국가 코드가 없으므로 다른 방법 필요
+        if (!expectedCountry) {
+            const territoryIdParts = territoryId.split('-');
+            if (territoryIdParts.length > 1) {
+                const possibleCountryCode = territoryIdParts[0];
+                if (CONFIG.COUNTRIES[possibleCountryCode]) {
+                    expectedCountry = possibleCountryCode;
+                    log.debug(`[TerritoryListPanel] Extracted country from territoryId: ${expectedCountry}`);
+                }
+            }
+        }
+        
+        log.info(`[TerritoryListPanel] 🔍 Final territory info: id=${territoryId}, country=${expectedCountry || 'UNKNOWN'}, sourceId=${expectedSourceId || 'N/A'}, hasAuction=${!!auction}`);
+        
+        // ⚠️ 중요: 맵에서 직접 feature를 찾아서 선택 (TerritoryManager를 거치지 않음)
+        // TerritoryManager의 territory.id가 클릭한 territoryId와 다를 수 있음
+        const map = mapController.map;
+        if (!map) {
+            log.error(`[TerritoryListPanel] Map not available`);
+            return;
+        }
+        
+        log.debug(`[TerritoryListPanel] Searching for territory ${territoryId} in map sources...`);
+        const allSources = Object.keys(map.getStyle().sources || {});
+        log.debug(`[TerritoryListPanel] Found ${allSources.length} sources: ${allSources.join(', ')}`);
+        
+        // expectedSourceId가 있으면 우선 검색
+        const sourcePriority = expectedSourceId ? [expectedSourceId, ...allSources.filter(s => s !== expectedSourceId)] : allSources;
+        
+        for (const sourceId of sourcePriority) {
+            try {
+                const source = map.getSource(sourceId);
+                if (!source || source.type !== 'geojson' || !source._data) {
+                    continue;
+                }
+                
+                const features = source._data.features || [];
+                log.debug(`[TerritoryListPanel] Checking source ${sourceId} with ${features.length} features`);
+                
+                // 여러 방법으로 feature 찾기 (country 정보로 필터링)
+                const matchingFeatures = features.filter(f => {
+                    const propsId = f.properties?.id || f.properties?.territoryId;
+                    const featureId = f.id;
+                    const featureName = f.properties?.name || f.properties?.name_en || f.properties?.NAME_1 || '';
+                    const featureCountry = f.properties?.adm0_a3 || f.properties?.country;
+                    
+                    // 1. 직접 매칭
+                    if (String(propsId) === String(territoryId)) {
+                        return true;
+                    }
+                    if (String(featureId) === String(territoryId)) {
+                        return true;
+                    }
+                    
+                    // 2. world- 접두사 제거 후 매칭
+                    const cleanTerritoryId = String(territoryId).replace(/^world-/, '');
+                    const cleanPropsId = String(propsId || '').replace(/^world-/, '');
+                    if (cleanPropsId && cleanPropsId === cleanTerritoryId) {
+                        return true;
+                    }
+                    
+                    // 3. properties.name 기반 매칭 (정규화된 이름)
+                    if (featureName) {
+                        const normalizedName = featureName.toLowerCase()
+                            .trim()
+                            .replace(/[^\w\s-]/g, '')
+                            .replace(/\s+/g, '-')
+                            .replace(/-+/g, '-')
+                            .replace(/^-|-$/g, '');
+                        const normalizedTerritoryId = String(territoryId).toLowerCase();
+                        if (normalizedName === normalizedTerritoryId) {
+                            return true;
+                        }
+                    }
+                    
+                    return false;
+                });
+                
+                // 여러 feature가 매칭되면 country로 필터링
+                let feature = null;
+                if (matchingFeatures.length === 1) {
+                    feature = matchingFeatures[0];
+                    log.info(`[TerritoryListPanel] ✅ Found single matching feature in ${sourceId}`);
+                } else if (matchingFeatures.length > 1) {
+                    log.warn(`[TerritoryListPanel] ⚠️ Found ${matchingFeatures.length} matching features for ${territoryId}, filtering by country: ${expectedCountry || 'UNKNOWN'}`);
+                    
+                    // expectedCountry가 반드시 있어야 함 (없으면 오류)
+                    if (!expectedCountry) {
+                        log.error(`[TerritoryListPanel] ❌ CRITICAL: No country info for ${territoryId} but ${matchingFeatures.length} features matched!`);
+                        // country 정보가 없으면 첫 번째 매칭 사용 (하지만 경고)
+                        feature = matchingFeatures[0];
+                        log.warn(`[TerritoryListPanel] ⚠️ Using first match as fallback (may be wrong country!)`);
+                    } else {
+                        const isoToSlugMap = territoryManager.createIsoToSlugMap();
+                        
+                        // 각 매칭 feature의 country 정보 로그
+                        matchingFeatures.forEach((f, idx) => {
+                            const featureCountryIso = f.properties?.adm0_a3;
+                            const featureCountrySlug = featureCountryIso ? isoToSlugMap[featureCountryIso.toUpperCase()] : null;
+                            const featureName = f.properties?.name || f.properties?.name_en || 'N/A';
+                            log.debug(`[TerritoryListPanel] Matching feature ${idx}: name=${featureName}, ISO=${featureCountryIso || 'N/A'}, slug=${featureCountrySlug || f.properties?.country || 'N/A'}`);
+                        });
+                        
+                        feature = matchingFeatures.find(f => {
+                            const featureCountryIso = f.properties?.adm0_a3;
+                            if (featureCountryIso) {
+                                const featureCountrySlug = isoToSlugMap[featureCountryIso.toUpperCase()];
+                                if (featureCountrySlug === expectedCountry) {
+                                    log.debug(`[TerritoryListPanel] ✅ Matched by ISO: ${featureCountryIso} -> ${featureCountrySlug} === ${expectedCountry}`);
+                                    return true;
+                                }
+                            }
+                            const featureCountrySlug = f.properties?.country;
+                            if (featureCountrySlug === expectedCountry) {
+                                log.debug(`[TerritoryListPanel] ✅ Matched by slug: ${featureCountrySlug} === ${expectedCountry}`);
+                                return true;
+                            }
+                            return false;
+                        });
+                        
+                        if (feature) {
+                            const matchedCountryIso = feature.properties?.adm0_a3;
+                            const matchedCountrySlug = matchedCountryIso ? isoToSlugMap[matchedCountryIso.toUpperCase()] : feature.properties?.country;
+                            log.info(`[TerritoryListPanel] ✅ Filtered to correct feature by country: ${expectedCountry} (matched: ${matchedCountrySlug || matchedCountryIso || 'N/A'})`);
+                        } else {
+                            log.error(`[TerritoryListPanel] ❌ CRITICAL: Could not filter by country ${expectedCountry}! Available countries: ${matchingFeatures.map(f => {
+                                const iso = f.properties?.adm0_a3;
+                                const slug = iso ? isoToSlugMap[iso.toUpperCase()] : f.properties?.country;
+                                return slug || iso || 'unknown';
+                            }).join(', ')}`);
+                            // country로 필터링 실패 시 첫 번째 매칭 사용 (하지만 경고)
+                            feature = matchingFeatures[0];
+                            log.warn(`[TerritoryListPanel] ⚠️ Using first match as fallback (may be wrong country!)`);
+                        }
+                    }
+                }
+                
+                if (feature) {
+                    log.info(`[TerritoryListPanel] ✅ Found feature in map for ${territoryId} in source ${sourceId}, name: ${feature.properties?.name || feature.properties?.name_en || 'N/A'}, country: ${feature.properties?.adm0_a3 || feature.properties?.country || 'N/A'}`);
+                    
+                    // territory 선택
+                    mapController.selectTerritory(sourceId, feature);
+                    
+                    // 맵 이동: territory의 center 계산 후 flyTo
+                    let center = null;
+                    if (feature.geometry) {
+                        center = this.calculateTerritoryCenter(feature);
+                    }
+                    
+                    // center가 없으면 country center로 이동
+                    if (!center) {
+                        const countryCode = feature.properties?.adm0_a3 ? 
+                            territoryManager.createIsoToSlugMap()[feature.properties.adm0_a3.toUpperCase()] : 
+                            feature.properties?.country;
+                        if (countryCode && CONFIG.COUNTRIES[countryCode]) {
+                            center = CONFIG.COUNTRIES[countryCode].center;
+                            log.debug(`[TerritoryListPanel] Using country center for ${countryCode}: ${center}`);
+                        }
+                    }
+                    
+                    if (center) {
+                        mapController.flyTo(center, 8);
+                        log.debug(`[TerritoryListPanel] Flying to territory center: ${center}`);
+                    } else {
+                        log.warn(`[TerritoryListPanel] Could not determine center for territory ${territoryId}`);
+                    }
+                    
+                    this.close();
+                    return;
+                }
+            } catch (error) {
+                // 소스 접근 실패 시 무시
+                log.debug(`[TerritoryListPanel] Error accessing source ${sourceId}: ${error.message}`);
+            }
+        }
+        
+        log.warn(`[TerritoryListPanel] ⚠️ Could not find feature in map for ${territoryId}, falling back to TerritoryManager`);
+        
+        // 맵에서 찾지 못한 경우 TerritoryManager에서 찾기 (fallback)
         const territory = territoryManager.getTerritory(territoryId);
-        if (!territory) return;
+        if (!territory) {
+            log.warn(`[TerritoryListPanel] Territory ${territoryId} not found in map or TerritoryManager`);
+            return;
+        }
+        
+        log.debug(`[TerritoryListPanel] Found territory in TerritoryManager: ${territory.id}, name: ${this.extractName(territory.name)}, country: ${territory.country}`);
+        
+        // sourceId와 featureId가 없으면 맵에서 찾기
+        if (!territory.sourceId || !territory.featureId) {
+            // 맵의 모든 source에서 territory 찾기
+            const map = mapController.map;
+            if (map) {
+                const allSources = Object.keys(map.getStyle().sources || {});
+                for (const sourceId of allSources) {
+                    try {
+                        const source = map.getSource(sourceId);
+                        if (source && source.type === 'geojson' && source._data) {
+                            const feature = source._data.features?.find(f => 
+                                String(f.properties?.id) === String(territoryId) ||
+                                String(f.properties?.territoryId) === String(territoryId) ||
+                                String(f.id) === String(territoryId)
+                            );
+                            if (feature) {
+                                territory.sourceId = sourceId;
+                                territory.featureId = feature.id;
+                                log.debug(`[TerritoryListPanel] Found sourceId and featureId for ${territoryId}: ${sourceId}, ${feature.id}`);
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        // 소스 접근 실패 시 무시
+                    }
+                }
+            }
+        }
         
         // 해당 영토로 이동
         let center = territory.center;
@@ -327,13 +626,64 @@ class TerritoryListPanel {
             center = this.calculateTerritoryCenter(territory);
         }
         
+        // center가 여전히 없으면 territoryId에서 국가 코드 추출하여 국가 중심으로 이동
+        if (!center) {
+            const territoryIdParts = territoryId.split('-');
+            if (territoryIdParts.length > 0) {
+                const possibleCountryCode = territoryIdParts[0];
+                const country = CONFIG.COUNTRIES[possibleCountryCode];
+                if (country && country.center) {
+                    center = country.center;
+                    log.debug(`[TerritoryListPanel] Using country center for ${territoryId}: ${possibleCountryCode}`);
+                }
+            }
+        }
+        
         // center가 있으면 이동
         if (center) {
             mapController.flyTo(center, 8);
+        } else {
+            log.warn(`[TerritoryListPanel] Could not determine center for ${territoryId}`);
         }
         
-        // 영토 선택 이벤트 발생
-        eventBus.emit(EVENTS.TERRITORY_SELECT, { territory });
+        // 맵에서 직접 feature를 찾아서 선택 (더 정확함)
+        if (territory.sourceId && territory.featureId) {
+            const map = mapController.map;
+            if (map) {
+                try {
+                    const source = map.getSource(territory.sourceId);
+                    if (source && source.type === 'geojson' && source._data) {
+                        const feature = source._data.features?.find(f => 
+                            String(f.id) === String(territory.featureId) ||
+                            String(f.properties?.id) === String(territoryId) ||
+                            String(f.properties?.territoryId) === String(territoryId)
+                        );
+                        if (feature) {
+                            log.debug(`[TerritoryListPanel] Selecting territory directly from map: ${territoryId}`);
+                            mapController.selectTerritory(territory.sourceId, feature);
+                            this.close();
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    log.warn(`[TerritoryListPanel] Failed to select territory from map: ${error.message}`);
+                }
+            }
+        }
+        
+        // 맵에서 직접 선택 실패 시 이벤트로 선택
+        // ⚠️ territory.id가 원래 클릭한 territoryId와 다를 수 있으므로 원본 territoryId 사용
+        eventBus.emit(EVENTS.TERRITORY_SELECT, { 
+            territory,
+            territoryId: territoryId, // 원본 territoryId 사용 (territory.id가 아닌)
+            sourceId: territory.sourceId,
+            featureId: territory.featureId,
+            properties: territory.properties,
+            geometry: territory.geometry,
+            country: territory.country
+        });
+        
+        log.debug(`[TerritoryListPanel] Emitted TERRITORY_SELECT for ${territoryId}, territory.id: ${territory.id}`);
         
         // 패널 닫기
         this.close();

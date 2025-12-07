@@ -304,19 +304,28 @@ class HistoryLogger {
      * Firestore에 이벤트 저장
      */
     async saveEventToFirestore(territoryId, event) {
-        const historyDoc = await firebaseService.getDocument('territoryHistories', territoryId);
-        const events = historyDoc?.events || [];
-        
-        events.push(event);
-        
-        // 최대 500개 이벤트 유지
-        const trimmedEvents = events.slice(-500);
-        
-        await firebaseService.setDocument('territoryHistories', territoryId, {
-            territoryId,
-            events: trimmedEvents,
-            lastUpdated: Date.now()
-        });
+        try {
+            const historyDoc = await firebaseService.getDocument('territoryHistories', territoryId);
+            const events = historyDoc?.events || [];
+            
+            events.push(event);
+            
+            // 최대 500개 이벤트 유지
+            const trimmedEvents = events.slice(-500);
+            
+            await firebaseService.setDocument('territoryHistories', territoryId, {
+                territoryId,
+                events: trimmedEvents,
+                lastUpdated: Date.now()
+            });
+        } catch (error) {
+            // 권한 오류나 기타 오류는 조용히 처리 (로그인하지 않은 사용자 등)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                log.debug(`[HistoryLogger] Permission denied for territoryHistories/${territoryId} (user not logged in)`);
+            } else {
+                log.warn(`[HistoryLogger] Failed to save history event:`, error);
+            }
+        }
     }
     
     /**
@@ -337,7 +346,12 @@ class HistoryLogger {
                 return data.events.slice(-limit).reverse();
             }
         } catch (error) {
-            log.warn('Failed to load territory timeline:', error);
+            // 권한 오류는 조용히 처리 (로그인하지 않은 사용자 등)
+            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+                log.debug(`[HistoryLogger] Permission denied for territoryHistories/${territoryId} (user not logged in)`);
+            } else {
+                log.warn('Failed to load territory timeline:', error);
+            }
         }
         
         return [];

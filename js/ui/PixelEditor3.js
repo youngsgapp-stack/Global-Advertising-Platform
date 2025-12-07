@@ -24,6 +24,8 @@ class PixelEditor3 {
         this.color = '#4ecdc4';
         this.brushSize = 1;
         this.customColors = [];
+        this.shortcutsModalVisible = false;
+        this.keyboardHandler = null;
     }
     
     /**
@@ -70,6 +72,7 @@ class PixelEditor3 {
                         <button class="pixel-editor-3-btn" id="pixel-clear-3" title="전체 지우기">
                             <span>🗑</span>
                         </button>
+                        <button class="pixel-editor-3-btn" id="pixel-shortcuts-3" title="키보드 단축키 가이드">⌨️</button>
                         <div class="pixel-editor-3-save-status" id="pixel-save-status-3">
                             <span>✅</span>
                             <span>저장됨</span>
@@ -140,6 +143,10 @@ class PixelEditor3 {
                     
                     <!-- 중앙: 캔버스 -->
                     <div class="pixel-editor-3-main">
+                        <div class="pixel-editor-3-loading-overlay" id="pixel-loading-3" style="display: none;">
+                            <div class="pixel-editor-3-loading-spinner"></div>
+                            <p>픽셀 아트 로딩 중...</p>
+                        </div>
                         <div class="pixel-editor-3-canvas-wrapper">
                             <canvas id="pixel-canvas-3"></canvas>
                             <!-- 줌 컨트롤 -->
@@ -208,6 +215,13 @@ class PixelEditor3 {
         eventBus.on(EVENTS.PIXEL_DATA_SAVED, () => {
             this.updateSaveStatus('saved');
         });
+        
+        // 저장 상태 이벤트 리스너
+        eventBus.on(EVENTS.PIXEL_UPDATE, (data) => {
+            if (data.type === 'saveStatus') {
+                this.updateSaveStatus(data.status, data.error);
+            }
+        });
     }
     
     /**
@@ -216,39 +230,90 @@ class PixelEditor3 {
     async open(territory) {
         if (!territory?.id) {
             log.error('[PixelEditor3] Invalid territory');
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '영토 정보를 찾을 수 없습니다.'
+            });
             return;
         }
         
+        this.showLoading('영토 정보 로딩 중...');
         this.currentTerritory = territory;
         this.isOpen = true;
         this.container?.classList.remove('hidden');
         
-        // 캔버스 초기화 (territory 객체도 전달)
-        const canvas = document.getElementById('pixel-canvas-3');
-        if (canvas) {
-            await pixelCanvas3.initialize(territory.id, canvas, territory);
+        try {
+            // 캔버스 초기화 (territory 객체도 전달)
+            const canvas = document.getElementById('pixel-canvas-3');
+            if (canvas) {
+                this.showLoading('픽셀 아트 로딩 중...');
+                await pixelCanvas3.initialize(territory.id, canvas, territory);
+            }
+            
+            // UI 바인딩
+            this.bindUI();
+            
+            // 통계 업데이트
+            this.updateStats({
+                filledPixels: pixelCanvas3.pixels.size,
+                value: pixelCanvas3.calculateValue()
+            });
+            
+            log.info(`[PixelEditor3] Opened for ${territory.id}`);
+        } catch (error) {
+            log.error('[PixelEditor3] Failed to open:', error);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '픽셀 편집기를 열 수 없습니다. 잠시 후 다시 시도해주세요.'
+            });
+            this.close();
+        } finally {
+            this.hideLoading();
         }
-        
-        // UI 바인딩
-        this.bindUI();
-        
-        // 통계 업데이트
-        this.updateStats({
-            filledPixels: pixelCanvas3.pixels.size,
-            value: pixelCanvas3.calculateValue()
-        });
-        
-        log.info(`[PixelEditor3] Opened for ${territory.id}`);
+    }
+    
+    /**
+     * 로딩 표시
+     */
+    showLoading(message = '로딩 중...') {
+        const loadingEl = this.container?.querySelector('#pixel-loading-3');
+        if (loadingEl) {
+            const pEl = loadingEl.querySelector('p');
+            if (pEl) pEl.textContent = message;
+            loadingEl.style.display = 'flex';
+        }
+    }
+    
+    /**
+     * 로딩 숨기기
+     */
+    hideLoading() {
+        const loadingEl = this.container?.querySelector('#pixel-loading-3');
+        if (loadingEl) {
+            loadingEl.style.display = 'none';
+        }
     }
     
     /**
      * 닫기
      */
     close() {
+        if (pixelCanvas3?.hasUnsavedChanges && pixelCanvas3.hasUnsavedChanges()) {
+            const confirmed = confirm(
+                '저장되지 않은 변경사항이 있습니다.\n\n' +
+                '정말로 편집기를 닫으시겠습니까?\n' +
+                '(변경사항은 자동으로 저장됩니다)'
+            );
+            if (!confirmed) return;
+        }
+        
         this.isOpen = false;
         this.container?.classList.add('hidden');
-        pixelCanvas3.cleanup();
+        if (pixelCanvas3) {
+            pixelCanvas3.cleanup();
+        }
         this.currentTerritory = null;
+        this.hideShortcutsModal();
     }
     
     /**
@@ -362,19 +427,120 @@ class PixelEditor3 {
             }
         });
         
+        // 단축키 가이드 버튼
+        const shortcutsBtn = this.container.querySelector('#pixel-shortcuts-3');
+        if (shortcutsBtn) {
+            shortcutsBtn.onclick = () => this.showShortcutsModal();
+        }
+        
         // 키보드 단축키
-        document.addEventListener('keydown', (e) => {
+        this.keyboardHandler = (e) => {
             if (!this.isOpen) return;
             
+            // ESC: 단축키 모달 닫기 또는 편집기 닫기
+            if (e.key === 'Escape') {
+                if (this.shortcutsModalVisible) {
+                    this.hideShortcutsModal();
+                    e.preventDefault();
+                    return;
+                }
+                // 편집기는 close()에서 확인 다이얼로그 표시
+            }
+            
+            // Ctrl+S: 수동 저장
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                if (pixelCanvas3) {
+                    pixelCanvas3.save();
+                }
+                return;
+            }
+            
+            // Ctrl+Z: 실행 취소
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                if (pixelCanvas3) pixelCanvas3.undo();
+                return;
+            }
+            
+            // Ctrl+Y 또는 Ctrl+Shift+Z: 다시 실행
+            if (((e.ctrlKey || e.metaKey) && e.key === 'y') || 
+                ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+                e.preventDefault();
+                if (pixelCanvas3) pixelCanvas3.redo();
+                return;
+            }
+            
+            // Space: 이동 도구 (캔버스에서만)
+            if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                if (!e.repeat) {
+                    this.setTool(TOOLS.PAN);
+                    const panBtn = this.container.querySelector('[data-tool="pan"]');
+                    if (panBtn) {
+                        this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                        panBtn.classList.add('active');
+                    }
+                }
+                return;
+            }
+            
+            // 도구 단축키 (B, E, F, I)
+            if (e.key === 'b' || e.key === 'B') {
+                e.preventDefault();
+                this.setTool(TOOLS.BRUSH);
+                const brushBtn = this.container.querySelector('[data-tool="brush"]');
+                if (brushBtn) {
+                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                    brushBtn.classList.add('active');
+                }
+            } else if (e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+                this.setTool(TOOLS.ERASER);
+                const eraserBtn = this.container.querySelector('[data-tool="eraser"]');
+                if (eraserBtn) {
+                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                    eraserBtn.classList.add('active');
+                }
+            } else if (e.key === 'f' || e.key === 'F') {
+                if (!e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    if (pixelCanvas3) {
+                        pixelCanvas3.fitToView();
+                    }
+                }
+            } else if (e.key === 'i' || e.key === 'I') {
+                e.preventDefault();
+                this.setTool(TOOLS.PICKER);
+                const pickerBtn = this.container.querySelector('[data-tool="picker"]');
+                if (pickerBtn) {
+                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                    pickerBtn.classList.add('active');
+                }
+            }
+            
+            // 줌 단축키
             if (e.key === '+' || e.key === '=') {
                 e.preventDefault();
-                pixelCanvas3.zoomIn();
+                if (pixelCanvas3) pixelCanvas3.zoomIn();
             } else if (e.key === '-' || e.key === '_') {
                 e.preventDefault();
-                pixelCanvas3.zoomOut();
-            } else if (e.key === 'f' || e.key === 'F') {
-                e.preventDefault();
-                pixelCanvas3.fitToView();
+                if (pixelCanvas3) pixelCanvas3.zoomOut();
+            }
+        };
+        
+        document.addEventListener('keydown', this.keyboardHandler);
+        
+        // Space 키 up 시 브러시로 복귀
+        document.addEventListener('keyup', (e) => {
+            if (!this.isOpen) return;
+            if (e.key === ' ' && this.tool === TOOLS.PAN) {
+                this.setTool(TOOLS.BRUSH);
+                const brushBtn = this.container.querySelector('[data-tool="brush"]');
+                if (brushBtn) {
+                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
+                    brushBtn.classList.add('active');
+                }
             }
         });
         
@@ -438,26 +604,135 @@ class PixelEditor3 {
     /**
      * 저장 상태 업데이트
      */
-    updateSaveStatus(status) {
+    updateSaveStatus(status, error = null) {
         const statusEl = this.container?.querySelector('#pixel-save-status-3');
         if (!statusEl) return;
         
         const icon = statusEl.querySelector('span:first-child');
         const text = statusEl.querySelector('span:last-child');
         
+        // 기존 클래스 제거
+        statusEl.classList.remove('saving', 'saved', 'error');
+        
         if (status === 'saving') {
             icon.textContent = '💾';
             text.textContent = '저장 중...';
+            statusEl.classList.add('saving');
         } else if (status === 'saved') {
             icon.textContent = '✅';
             text.textContent = '저장됨';
+            statusEl.classList.add('saved');
+            // 3초 후 약하게 표시
             setTimeout(() => {
                 if (this.container?.querySelector('#pixel-save-status-3')) {
                     icon.textContent = '💾';
                     text.textContent = '저장됨';
                 }
-            }, 2000);
+            }, 3000);
+        } else if (status === 'error') {
+            icon.textContent = '⚠️';
+            text.textContent = '저장 실패';
+            statusEl.classList.add('error');
+            statusEl.title = error || '저장 중 오류가 발생했습니다. 다시 시도해주세요.';
+            // 5초 후 자동으로 다시 저장 시도
+            setTimeout(() => {
+                if (pixelCanvas3 && this.isOpen) {
+                    pixelCanvas3.save();
+                }
+            }, 5000);
         }
+    }
+    
+    /**
+     * 단축키 가이드 모달 표시
+     */
+    showShortcutsModal() {
+        if (this.shortcutsModalVisible) {
+            this.hideShortcutsModal();
+            return;
+        }
+        
+        const modal = document.createElement('div');
+        modal.className = 'pixel-shortcuts-modal';
+        modal.innerHTML = `
+            <div class="pixel-shortcuts-content">
+                <div class="pixel-shortcuts-header">
+                    <h3>⌨️ 키보드 단축키</h3>
+                    <button class="pixel-shortcuts-close" onclick="this.closest('.pixel-shortcuts-modal').remove()">×</button>
+                </div>
+                <div class="pixel-shortcuts-list">
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></div>
+                        <div class="shortcut-desc">실행 취소</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Y</kbd></div>
+                        <div class="shortcut-desc">다시 실행</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>S</kbd></div>
+                        <div class="shortcut-desc">수동 저장</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>Space</kbd></div>
+                        <div class="shortcut-desc">이동 도구 (누르는 동안)</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>B</kbd></div>
+                        <div class="shortcut-desc">브러시 도구</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>E</kbd></div>
+                        <div class="shortcut-desc">지우개</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>I</kbd></div>
+                        <div class="shortcut-desc">스포이드</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>+</kbd> / <kbd>-</kbd></div>
+                        <div class="shortcut-desc">줌 인/아웃</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>F</kbd></div>
+                        <div class="shortcut-desc">전체 보기</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-keys"><kbd>ESC</kbd></div>
+                        <div class="shortcut-desc">모달 닫기</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        this.shortcutsModalVisible = true;
+        
+        // ESC 키로 닫기
+        const closeHandler = (e) => {
+            if (e.key === 'Escape' && this.shortcutsModalVisible) {
+                this.hideShortcutsModal();
+            }
+        };
+        document.addEventListener('keydown', closeHandler, { once: true });
+        
+        // 클릭으로 닫기
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                this.hideShortcutsModal();
+            }
+        });
+    }
+    
+    /**
+     * 단축키 가이드 모달 숨기기
+     */
+    hideShortcutsModal() {
+        const modal = document.querySelector('.pixel-shortcuts-modal');
+        if (modal) {
+            modal.remove();
+        }
+        this.shortcutsModalVisible = false;
     }
 }
 

@@ -50,6 +50,176 @@
     background: var(--color-bg-hover);
 }
 
+/* === 피드백 버튼 === */
+.feedback-button {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--gradient-primary);
+    border: none;
+    box-shadow: 0 4px 12px rgba(78, 205, 196, 0.4);
+    cursor: pointer;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: all 0.3s;
+    color: var(--color-text);
+}
+
+.feedback-button:hover {
+    transform: translateY(-4px) scale(1.1);
+    box-shadow: 0 6px 20px rgba(78, 205, 196, 0.6);
+}
+
+.feedback-button:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 4px;
+}
+
+.feedback-modal-content {
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.feedback-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.feedback-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.feedback-form label {
+    font-weight: 600;
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+}
+
+.feedback-form input,
+.feedback-form select,
+.feedback-form textarea {
+    padding: var(--spacing-sm);
+    background: var(--color-bg-card);
+    border: var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+}
+
+.feedback-form textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.rating-input {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.rating-star {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.2s;
+    opacity: 0.3;
+}
+
+.rating-star:hover {
+    transform: scale(1.2);
+}
+
+.rating-star[data-selected="true"],
+.rating-star:hover ~ .rating-star {
+    opacity: 1;
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: flex-end;
+    margin-top: var(--spacing-md);
+}
+
+/* === 접근성 개선 === */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* 키보드 포커스 스타일 */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* 스킵 링크 */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--color-primary);
+    color: var(--color-bg);
+    padding: 8px;
+    text-decoration: none;
+    z-index: 10000;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* 모바일 터치 영역 최소 크기 */
+button,
+a,
+input,
+select {
+    min-height: 44px;
+    min-width: 44px;
+}
+
+/* 고대비 모드 지원 */
+@media (prefers-contrast: high) {
+    .btn-primary,
+    .btn-conquest {
+        border: 2px solid currentColor;
+    }
+}
+
+/* 애니메이션 감소 선호 */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
 .btn-gold {
     background: var(--gradient-gold);
     color: #1a1a1a;

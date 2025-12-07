@@ -24,6 +24,11 @@ import { onboardingGuide } from './ui/OnboardingGuide.js';
 import { recommendationSystem } from './features/RecommendationSystem.js';
 import { recommendationPanel } from './ui/RecommendationPanel.js';
 import { territoryDataService } from './services/TerritoryDataService.js';
+import { analyticsService } from './services/AnalyticsService.js';
+import { notificationService } from './services/NotificationService.js';
+import { i18nService } from './services/I18nService.js';
+import { abTestService } from './services/ABTestService.js';
+import { feedbackService } from './services/FeedbackService.js';
 import './utils/ResetData.js'; // 데이터 초기화 유틸리티 (전역 함수로 등록)
 
 class BillionaireApp {
@@ -56,6 +61,15 @@ class BillionaireApp {
             
             await territoryDataService.initialize();
             
+            // 2.5. Initialize Services
+            await analyticsService.initialize();
+            await notificationService.initialize();
+            i18nService.initialize();
+            
+            // 2.6. Initialize A/B Tests
+            abTestService.initializePaymentButtonTest();
+            abTestService.initializeOnboardingTest();
+            
             // 2.5. Initialize Wallet & Payment Services
             await walletService.initialize();
             await paymentService.initialize();
@@ -86,8 +100,14 @@ class BillionaireApp {
             onboardingGuide.initialize();
             this.initializeUI();
             
+            // 6.5. Initialize Feedback Button
+            this.initializeFeedbackButton();
+            
             // 7. Setup Event Listeners
             this.setupEventListeners();
+            
+            // 7.5. Setup Global Error Handlers
+            this.setupGlobalErrorHandlers();
             
             // 8. Load Initial Data
             await this.loadInitialData();
@@ -127,12 +147,85 @@ class BillionaireApp {
         
         // Check admin user mode
         this.checkAdminUserMode();
+        
+        // Initialize Accessibility
+        this.initializeAccessibility();
+    }
+    
+    /**
+     * 접근성 초기화
+     */
+    initializeAccessibility() {
+        // 키보드 네비게이션 지원
+        this.setupKeyboardNavigation();
+        
+        // ARIA 레이블 추가
+        this.setupAriaLabels();
+        
+        // 스크린 리더 지원
+        this.setupScreenReaderSupport();
+        
+        log.info('[BillionaireApp] Accessibility initialized');
+    }
+    
+    /**
+     * 키보드 네비게이션 설정
+     */
+    setupKeyboardNavigation() {
+        // 이미 setupKeyboardShortcuts에서 처리됨
+        // 추가 키보드 접근성 기능이 필요하면 여기에 구현
+    }
+    
+    /**
+     * ARIA 레이블 설정
+     */
+    setupAriaLabels() {
+        // 주요 버튼에 ARIA 레이블 추가
+        const viewModeToggle = document.getElementById('view-mode-toggle');
+        if (viewModeToggle && !viewModeToggle.getAttribute('aria-label')) {
+            viewModeToggle.setAttribute('aria-label', 'Toggle between world view and country view');
+        }
+        
+        const hamburgerMenu = document.getElementById('hamburger-menu-btn');
+        if (hamburgerMenu && !hamburgerMenu.getAttribute('aria-label')) {
+            hamburgerMenu.setAttribute('aria-label', 'Open menu');
+        }
+        
+        const countrySelector = document.getElementById('country-selector');
+        if (countrySelector && !countrySelector.getAttribute('aria-label')) {
+            countrySelector.setAttribute('aria-label', 'Select country');
+        }
+    }
+    
+    /**
+     * 스크린 리더 지원 설정
+     */
+    setupScreenReaderSupport() {
+        // 라이브 영역 생성 (동적 콘텐츠 알림용)
+        let liveRegion = document.getElementById('sr-live-region');
+        if (!liveRegion) {
+            liveRegion = document.createElement('div');
+            liveRegion.id = 'sr-live-region';
+            liveRegion.setAttribute('role', 'status');
+            liveRegion.setAttribute('aria-live', 'polite');
+            liveRegion.setAttribute('aria-atomic', 'true');
+            liveRegion.className = 'sr-only';
+            liveRegion.style.cssText = 'position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;';
+            document.body.appendChild(liveRegion);
+        }
+        
+        // 이벤트 리스너: 스크린 리더 알림
+        eventBus.on(EVENTS.TERRITORY_SELECT, ({ territoryId }) => {
+            if (liveRegion) {
+                liveRegion.textContent = `Territory ${territoryId} selected`;
+            }
+        });
     }
     
     /**
      * 관리자 사용자 모드 체크 및 배너 표시
      */
-    checkAdminUserMode() {
+    async checkAdminUserMode() {
         const isAdminUserMode = sessionStorage.getItem('adminUserMode') === 'true';
         const hasAdminAuth = sessionStorage.getItem('adminAuth');
         
@@ -152,7 +245,50 @@ class BillionaireApp {
                 }
             }
             
-            log.info('관리자 사용자 모드 활성화');
+            // 관리자 모드일 때 가상 사용자 객체 생성 및 로그인 처리
+            try {
+                const adminAuthData = JSON.parse(hasAdminAuth);
+                const adminId = adminAuthData.id || 'admin';
+                const adminEmail = adminAuthData.email || `${adminId}@admin.local`;
+                
+                console.log(`[BillionaireApp] Admin user mode: adminId=${adminId}, email=${adminEmail}`);
+                
+                // 가상 사용자 객체 생성 (Firebase Auth 사용자와 유사한 구조)
+                // 실제 관리자 이메일을 사용하여 고유한 사용자로 인식
+                const virtualUser = {
+                    uid: `admin_${adminId}_${adminEmail.replace(/[@.]/g, '_')}`,
+                    email: adminEmail,
+                    displayName: `Admin (${adminId})`,
+                    emailVerified: true,
+                    isAnonymous: false,
+                    metadata: {
+                        creationTime: new Date().toISOString(),
+                        lastSignInTime: new Date().toISOString()
+                    },
+                    providerData: [{
+                        providerId: 'admin',
+                        uid: adminId,
+                        displayName: `Admin (${adminId})`,
+                        email: adminEmail
+                    }],
+                    // 관리자 모드 플래그
+                    isAdmin: true,
+                    adminMode: true,
+                    adminId: adminId
+                };
+                
+                // FirebaseService에 가상 사용자 설정
+                firebaseService.setVirtualUser(virtualUser);
+                
+                // AUTH_STATE_CHANGED 이벤트 발행 (다른 서비스들이 사용자로 인식하도록)
+                eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: virtualUser });
+                eventBus.emit(EVENTS.AUTH_LOGIN, { user: virtualUser });
+                
+                log.info('관리자 사용자 모드 활성화 - 가상 사용자 생성:', virtualUser.email);
+                
+            } catch (error) {
+                log.error('관리자 모드 가상 사용자 생성 실패:', error);
+            }
         }
     }
     
@@ -509,6 +645,103 @@ class BillionaireApp {
                 duration: 8000
             });
         });
+    }
+    
+    /**
+     * 전역 에러 핸들러 설정
+     */
+    setupGlobalErrorHandlers() {
+        // 전역 JavaScript 에러 핸들링
+        window.addEventListener('error', (event) => {
+            log.error('[GlobalError] JavaScript Error:', {
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                error: event.error
+            });
+            
+            // 사용자 친화적 메시지 표시
+            if (!event.error || !event.error.isUserFriendly) {
+                this.showNotification({
+                    type: 'error',
+                    message: '예기치 않은 오류가 발생했습니다. 페이지를 새로고침해주세요.',
+                    duration: 5000
+                });
+            }
+            
+            // 프로덕션에서는 에러 리포팅 서비스에 전송
+            // 예: Sentry, LogRocket 등
+            // if (CONFIG.ENVIRONMENT === 'production') {
+            //     errorReportingService.captureException(event.error);
+            // }
+        });
+        
+        // Promise rejection 핸들링
+        window.addEventListener('unhandledrejection', (event) => {
+            log.error('[GlobalError] Unhandled Promise Rejection:', event.reason);
+            
+            // 네트워크 오류인 경우
+            if (event.reason && (
+                event.reason.message?.includes('network') ||
+                event.reason.message?.includes('fetch') ||
+                event.reason.code === 'network-error'
+            )) {
+                this.showNotification({
+                    type: 'error',
+                    message: '네트워크 연결을 확인해주세요.',
+                    duration: 5000
+                });
+            } else {
+                this.showNotification({
+                    type: 'error',
+                    message: '작업을 완료할 수 없습니다. 다시 시도해주세요.',
+                    duration: 5000
+                });
+            }
+            
+            event.preventDefault(); // 콘솔 에러 출력 방지 (선택적)
+        });
+        
+        // Firebase 에러 핸들링
+        eventBus.on(EVENTS.APP_ERROR, ({ error, type }) => {
+            log.error(`[AppError] ${type || 'Unknown'} Error:`, error);
+            
+            let message = '오류가 발생했습니다.';
+            
+            if (type === 'firebase') {
+                message = '데이터베이스 연결 오류입니다. 인터넷 연결을 확인해주세요.';
+            } else if (type === 'map') {
+                message = '지도를 불러올 수 없습니다. 페이지를 새로고침해주세요.';
+            } else if (type === 'payment') {
+                message = '결제 처리 중 오류가 발생했습니다. 다시 시도해주세요.';
+            }
+            
+            this.showNotification({
+                type: 'error',
+                message: message,
+                duration: 7000
+            });
+        });
+        
+        // 네트워크 상태 모니터링
+        if ('navigator' in window && 'onLine' in navigator) {
+            window.addEventListener('online', () => {
+                this.showNotification({
+                    type: 'success',
+                    message: '인터넷 연결이 복구되었습니다.',
+                    duration: 3000
+                });
+            });
+            
+            window.addEventListener('offline', () => {
+                this.showNotification({
+                    type: 'warning',
+                    message: '인터넷 연결이 끊겼습니다.',
+                    duration: 5000
+                });
+            });
+        }
     }
     
     /**
@@ -1062,6 +1295,54 @@ class BillionaireApp {
             info: 'ℹ️'
         };
         return icons[type] || 'ℹ️';
+    }
+    
+    /**
+     * 피드백 버튼 초기화
+     */
+    initializeFeedbackButton() {
+        // 이미 피드백 버튼이 있으면 제거
+        const existingButton = document.getElementById('feedback-button');
+        if (existingButton) {
+            existingButton.remove();
+        }
+        
+        // 피드백 버튼 생성 및 추가
+        const feedbackButton = feedbackService.createFeedbackButton();
+        
+        // 버튼 스타일 설정
+        feedbackButton.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        `;
+        
+        // 호버 효과
+        feedbackButton.addEventListener('mouseenter', () => {
+            feedbackButton.style.transform = 'scale(1.1)';
+            feedbackButton.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
+        });
+        
+        feedbackButton.addEventListener('mouseleave', () => {
+            feedbackButton.style.transform = 'scale(1)';
+            feedbackButton.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+        });
+        
+        document.body.appendChild(feedbackButton);
+        log.info('[BillionaireApp] Feedback button initialized');
     }
 }
 

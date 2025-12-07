@@ -66,9 +66,19 @@ class PixelCanvas3 {
         // 자동 저장
         this.saveTimeout = null;
         this.saveDelay = 800;
+        this.lastSavedState = null;
+        this.hasUnsavedChangesFlag = false;
         
         // 캔버스 래퍼 (줌/패닝용)
         this.wrapper = null;
+        
+        // 터치 제스처
+        this.touchStartDistance = 0;
+        this.touchStartZoom = 1;
+        this.touchStartPanX = 0;
+        this.touchStartPanY = 0;
+        this.touchStartX = 0;
+        this.touchStartY = 0;
     }
     
     /**
@@ -103,6 +113,9 @@ class PixelCanvas3 {
         // 이벤트 리스너
         this.setupEvents();
         
+        // 터치 이벤트 설정 (모바일)
+        this.setupTouchEvents();
+        
         // 초기 렌더링
         this.render();
         
@@ -110,6 +123,104 @@ class PixelCanvas3 {
         this.fitToView();
         
         log.info(`[PixelCanvas3] Initialized for ${territoryId}`);
+    }
+    
+    /**
+     * 모바일 터치 제스처 설정
+     */
+    setupTouchEvents() {
+        if (!this.canvas) return;
+        
+        // 핀치 줌 (2손가락)
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                const touch1 = e.touches[0];
+                const touch2 = e.touches[1];
+                this.touchStartDistance = Math.hypot(
+                    touch2.clientX - touch1.clientX,
+                    touch2.clientY - touch1.clientY
+                );
+                this.touchStartZoom = this.zoom;
+                e.preventDefault();
+            } else if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                this.touchStartX = touch.clientX;
+                this.touchStartY = touch.clientY;
+                this.touchStartPanX = this.panX;
+                this.touchStartPanY = this.panY;
+            }
+        });
+        
+        this.canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                const touch1 = e.touches[0];
+                const touch2 = e.touches[1];
+                const distance = Math.hypot(
+                    touch2.clientX - touch1.clientX,
+                    touch2.clientY - touch1.clientY
+                );
+                const scale = distance / this.touchStartDistance;
+                const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.touchStartZoom * scale));
+                this.setZoom(newZoom);
+                e.preventDefault();
+            } else if (e.touches.length === 1) {
+                if (this.tool === TOOLS.PAN) {
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - this.touchStartX;
+                    const deltaY = touch.clientY - this.touchStartY;
+                    this.panX = this.touchStartPanX + deltaX;
+                    this.panY = this.touchStartPanY + deltaY;
+                    this.updateCanvasTransform();
+                } else {
+                    // 터치 드로잉
+                    const touch = e.touches[0];
+                    const rect = this.canvas.getBoundingClientRect();
+                    const scale = this.zoom;
+                    const x = (touch.clientX - rect.left - this.panX) / scale;
+                    const y = (touch.clientY - rect.top - this.panY) / scale;
+                    const pos = this.getPixelPosFromCoords(x, y);
+                    if (pos && this.isDrawing) {
+                        this.draw(pos.x, pos.y);
+                    }
+                }
+                e.preventDefault();
+            }
+        });
+        
+        // 터치 드로잉 시작
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1 && this.tool !== TOOLS.PAN) {
+                const touch = e.touches[0];
+                const rect = this.canvas.getBoundingClientRect();
+                const scale = this.zoom;
+                const x = (touch.clientX - rect.left - this.panX) / scale;
+                const y = (touch.clientY - rect.top - this.panY) / scale;
+                const pos = this.getPixelPosFromCoords(x, y);
+                if (pos) {
+                    this.startDrawing(pos.x, pos.y);
+                    e.preventDefault();
+                }
+            }
+        });
+        
+        this.canvas.addEventListener('touchend', (e) => {
+            if (this.isDrawing) {
+                this.stopDrawing();
+                e.preventDefault();
+            }
+        });
+    }
+    
+    /**
+     * 좌표에서 픽셀 위치 가져오기
+     */
+    getPixelPosFromCoords(x, y) {
+        const pixelX = Math.floor(x / this.basePixelSize);
+        const pixelY = Math.floor(y / this.basePixelSize);
+        if (this.isValidPos(pixelX, pixelY)) {
+            return { x: pixelX, y: pixelY };
+        }
+        return null;
     }
     
     /**
@@ -442,37 +553,7 @@ class PixelCanvas3 {
             e.preventDefault();
         });
         
-        // 터치 이벤트
-        this.canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            if (e.touches.length === 1) {
-                const touch = e.touches[0];
-                this.onMouseDown({
-                    clientX: touch.clientX,
-                    clientY: touch.clientY,
-                    button: 0
-                });
-            } else if (e.touches.length === 2) {
-                // 핀치 줌
-                this.isPanning = true;
-            }
-        });
-        
-        this.canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            if (e.touches.length === 1) {
-                const touch = e.touches[0];
-                this.onMouseMove({
-                    clientX: touch.clientX,
-                    clientY: touch.clientY
-                });
-            }
-        });
-        
-        this.canvas.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            this.onMouseUp();
-        });
+        // 터치 이벤트는 setupTouchEvents()에서 처리
         
         // 키보드 단축키
         document.addEventListener('keydown', (e) => {
@@ -679,6 +760,7 @@ class PixelCanvas3 {
             timestamp: Date.now()
         });
         
+        this.hasUnsavedChangesFlag = true;
         this.drawPixelOnCanvas(x, y, color);
         this.updateStats();
     }
@@ -833,6 +915,8 @@ class PixelCanvas3 {
         if (!this.territoryId) return;
         
         try {
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'saveStatus', status: 'saving' });
+            
             const pixelData = {
                 territoryId: this.territoryId,
                 pixels: this.encodePixels(),
@@ -875,10 +959,38 @@ class PixelCanvas3 {
                 });
             }
             
+            this.lastSavedState = JSON.stringify(this.encodePixels());
+            this.hasUnsavedChangesFlag = false;
+            
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'saveStatus', status: 'saved' });
+            eventBus.emit(EVENTS.PIXEL_DATA_SAVED);
+            
             log.info(`[PixelCanvas3] Saved ${this.pixels.size} pixels`);
         } catch (error) {
             log.error('[PixelCanvas3] Save failed:', error);
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+                type: 'saveStatus', 
+                status: 'error',
+                error: error.message 
+            });
+            
+            // 사용자에게 알림
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: '저장에 실패했습니다. 인터넷 연결을 확인하고 다시 시도해주세요.'
+            });
+            
+            throw error;
         }
+    }
+    
+    /**
+     * 저장되지 않은 변경사항이 있는지 확인
+     */
+    hasUnsavedChanges() {
+        if (!this.lastSavedState) return this.pixels.size > 0;
+        const currentState = JSON.stringify(this.encodePixels());
+        return currentState !== this.lastSavedState || this.hasUnsavedChangesFlag;
     }
     
     /**
