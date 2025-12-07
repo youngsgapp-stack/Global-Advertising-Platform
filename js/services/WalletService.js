@@ -92,11 +92,24 @@ class WalletService {
                     createdAt: new Date(),
                     updatedAt: new Date()
                 };
-                await firebaseService.setDocument('wallets', userId, wallet);
+                await firebaseService.setDocument('wallets', userId, wallet, false); // merge=false로 새 문서 생성
                 log.info('New wallet created for user:', userId);
+            } else {
+                // 기존 지갑 데이터 검증 및 수정
+                if (typeof wallet.balance !== 'number' || isNaN(wallet.balance)) {
+                    log.warn(`[WalletService] Invalid balance for user ${userId}, resetting to 0. Current value:`, wallet.balance);
+                    wallet.balance = 0;
+                    await firebaseService.updateDocument('wallets', userId, {
+                        balance: 0,
+                        updatedAt: new Date()
+                    });
+                }
             }
             
-            this.currentBalance = wallet.balance || 0;
+            // balance가 명시적으로 설정되어 있는지 확인
+            this.currentBalance = (typeof wallet.balance === 'number' && !isNaN(wallet.balance)) ? wallet.balance : 0;
+            
+            log.info(`[WalletService] Wallet loaded for user ${userId}: balance=${this.currentBalance} pt`);
             
             // 실시간 구독 설정
             this.unsubscriber = firebaseService.subscribeToDocument('wallets', userId, (data) => {
@@ -188,7 +201,8 @@ class WalletService {
             const wallet = await firebaseService.getDocument('wallets', userId);
             const newBalance = (wallet?.balance || 0) + amount;
             
-            await firebaseService.setDocument('wallets', userId, {
+            // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
+            await firebaseService.updateDocument('wallets', userId, {
                 balance: newBalance,
                 totalCharged: (wallet?.totalCharged || 0) + amount,
                 updatedAt: new Date()
@@ -263,7 +277,8 @@ class WalletService {
                 throw new Error('Insufficient balance');
             }
             
-            await firebaseService.setDocument('wallets', userId, {
+            // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
+            await firebaseService.updateDocument('wallets', userId, {
                 balance: newBalance,
                 totalSpent: (wallet?.totalSpent || 0) + amount,
                 updatedAt: new Date()
