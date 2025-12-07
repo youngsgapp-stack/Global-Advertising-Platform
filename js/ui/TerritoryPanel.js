@@ -128,6 +128,33 @@ class TerritoryPanel {
         });
         
         // 영토 업데이트 이벤트
+        // 옥션 업데이트 이벤트 리스닝 (다른 사용자의 입찰 반영)
+        eventBus.on(EVENTS.AUCTION_UPDATE, async (data) => {
+            if (data && data.auction && this.currentTerritory) {
+                const auctionId = data.auction.id;
+                const territoryId = data.auction.territoryId;
+                
+                // 현재 표시 중인 영토의 옥션이면 패널 새로고침
+                if (territoryId === this.currentTerritory.id || 
+                    (this.currentTerritory.currentAuction && this.currentTerritory.currentAuction.id === auctionId)) {
+                    log.debug(`[TerritoryPanel] Auction ${auctionId} updated, refreshing panel`);
+                    
+                    // 옥션 데이터 새로고침
+                    await auctionSystem.loadActiveAuctions();
+                    
+                    // 업데이트된 옥션 데이터 가져오기
+                    const updatedAuction = auctionSystem.activeAuctions.get(auctionId);
+                    if (updatedAuction && this.currentTerritory) {
+                        this.currentTerritory.currentAuction = updatedAuction;
+                    }
+                    
+                    // 패널 새로고침
+                    this.render();
+                    this.bindActions();
+                }
+            }
+        });
+        
         eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
             if (this.currentTerritory && this.currentTerritory.id === data.territory.id) {
                 this.updateContent(data.territory);
@@ -765,16 +792,33 @@ class TerritoryPanel {
         }
         
         // 입찰자가 없으면 startingBid를 직접 사용 (화면 표시와 일치)
-        // 입찰자가 있으면 currentBid 사용
+        // 입찰자가 있으면 currentBid 또는 bids 배열의 최고 입찰가 사용
         let effectiveCurrentBid;
         if (!hasBids) {
             // 입찰자가 없으면 startingBid를 그대로 사용 (currentBid는 무시)
             effectiveCurrentBid = startingBid;
         } else {
-            // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
-            effectiveCurrentBid = auction.currentBid && auction.currentBid >= startingBid
-                ? auction.currentBid
+            // 입찰자가 있으면 bids 배열의 최고 입찰가를 우선 확인
+            let highestBidFromArray = 0;
+            if (auction.bids && Array.isArray(auction.bids) && auction.bids.length > 0) {
+                highestBidFromArray = Math.max(...auction.bids.map(b => b.amount || b.buffedAmount || 0));
+            }
+            
+            // currentBid와 bids 배열의 최고 입찰가 중 더 큰 값 사용
+            const candidateBid = Math.max(
+                auction.currentBid || 0,
+                highestBidFromArray
+            );
+            
+            // 최소 startingBid 이상이어야 함
+            effectiveCurrentBid = candidateBid >= startingBid
+                ? candidateBid
                 : startingBid;
+            
+            // 디버깅 로그
+            if (candidateBid !== auction.currentBid) {
+                log.warn(`[TerritoryPanel] ⚠️ currentBid (${auction.currentBid}) doesn't match highest bid from array (${highestBidFromArray}), using ${effectiveCurrentBid}`);
+            }
         }
         
         // minIncrement 계산
@@ -1560,6 +1604,14 @@ class TerritoryPanel {
         }
         
         try {
+            // 관리자 모드가 아닌 경우에만 포인트 차감
+            if (!isAdmin) {
+                await walletService.deductPoints(bidAmount, `Auction bid for ${auction.territoryId}`, 'bid', {
+                    auctionId: auction.id,
+                    territoryId: auction.territoryId
+                });
+            }
+            
             await auctionSystem.handleBid({
                 auctionId: auction.id,
                 bidAmount,
@@ -1575,6 +1627,31 @@ class TerritoryPanel {
             
             // 입력 필드 초기화
             input.value = '';
+            
+            // 옥션 데이터 새로고침 (Firestore에서 최신 데이터 가져오기)
+            await auctionSystem.loadActiveAuctions();
+            
+            // 현재 옥션 데이터 다시 가져오기 (최신 데이터 보장)
+            const updatedAuction = auctionSystem.activeAuctions.get(auction.id);
+            if (updatedAuction && this.currentTerritory) {
+                // currentTerritory의 옥션 정보 업데이트
+                this.currentTerritory.currentAuction = updatedAuction;
+                
+                // 디버깅: 입찰가 확인
+                const highestBid = updatedAuction.bids && Array.isArray(updatedAuction.bids) && updatedAuction.bids.length > 0
+                    ? Math.max(...updatedAuction.bids.map(b => b.amount || b.buffedAmount || 0))
+                    : 0;
+                
+                log.info(`[TerritoryPanel] ✅ Bid placed successfully. Updated auction data:`, {
+                    auctionId: auction.id,
+                    currentBid: updatedAuction.currentBid,
+                    highestBidFromArray: highestBid,
+                    bidsCount: updatedAuction.bids?.length || 0,
+                    highestBidder: updatedAuction.highestBidder
+                });
+            } else {
+                log.warn(`[TerritoryPanel] ⚠️ Failed to get updated auction data for ${auction.id}`);
+            }
             
             // 패널 갱신
             this.render();

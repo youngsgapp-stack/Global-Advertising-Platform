@@ -979,7 +979,20 @@ class AdminDashboard {
                 return `
                     <tr ${isDuplicate ? 'style="background-color: rgba(255, 193, 7, 0.1);"' : ''}>
                         <td>${territoryId} ${duplicateBadge}</td>
-                        <td>${(data.currentBid || data.startingBid || data.startingPrice || 0).toLocaleString()} pt</td>
+                        ${(() => {
+                            // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
+                            let displayBid = data.currentBid || data.startingBid || data.startingPrice || 0;
+                            
+                            // bids 배열이 있으면 최고 입찰가 확인
+                            if (data.bids && Array.isArray(data.bids) && data.bids.length > 0) {
+                                const highestBid = Math.max(...data.bids.map(b => b.amount || b.buffedAmount || 0));
+                                if (highestBid > 0 && highestBid >= displayBid) {
+                                    displayBid = highestBid;
+                                }
+                            }
+                            
+                            return `<td>${displayBid.toLocaleString()} pt</td>`;
+                        })()}
                         <td>${(data.bids && Array.isArray(data.bids) ? data.bids.length : 0) || data.bidCount || 0}</td>
                         <td>${endsAt}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>
@@ -1838,7 +1851,20 @@ class AdminDashboard {
                                 </div>
                                 <div class="info-item">
                                     <label>현재 입찰가</label>
-                                    <span><strong>${(data.currentBid || data.startingBid || 0).toLocaleString()} pt</strong></span>
+                                    ${(() => {
+                                        // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
+                                        let displayBid = data.currentBid || data.startingBid || 0;
+                                        
+                                        // bids 배열이 있으면 최고 입찰가 확인
+                                        if (data.bids && Array.isArray(data.bids) && data.bids.length > 0) {
+                                            const highestBid = Math.max(...data.bids.map(b => b.amount || b.buffedAmount || 0));
+                                            if (highestBid > 0 && highestBid >= displayBid) {
+                                                displayBid = highestBid;
+                                            }
+                                        }
+                                        
+                                        return `<span><strong>${displayBid.toLocaleString()} pt</strong></span>`;
+                                    })()}
                                 </div>
                                 <div class="info-item">
                                     <label>최고 입찰자</label>
