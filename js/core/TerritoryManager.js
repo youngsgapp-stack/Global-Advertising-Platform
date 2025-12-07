@@ -452,10 +452,33 @@ class TerritoryManager {
     async handleTerritoryConquered(data) {
         const { territoryId, userId, userName, tribute, isAdmin = false } = data;
         
-        const territory = this.territories.get(territoryId);
+        log.info(`[TerritoryManager] Handling territory conquered: ${territoryId} by ${userName} (${userId})${isAdmin ? ' [Admin]' : ''}`);
+        
+        // territories Map에서 먼저 확인
+        let territory = this.territories.get(territoryId);
+        
+        // Map에 없으면 Firestore에서 가져오기 또는 기본 영토 생성
         if (!territory) {
-            log.error('Territory not found:', territoryId);
-            return;
+            log.warn(`[TerritoryManager] Territory ${territoryId} not in territories Map, loading from Firestore...`);
+            try {
+                const firestoreData = await firebaseService.getDocument('territories', territoryId);
+                if (firestoreData) {
+                    territory = firestoreData;
+                    // territories Map에 추가
+                    this.territories.set(territoryId, territory);
+                    log.info(`[TerritoryManager] Loaded territory ${territoryId} from Firestore`);
+                } else {
+                    // Firestore에도 없으면 기본 영토 객체 생성
+                    log.warn(`[TerritoryManager] Territory ${territoryId} not in Firestore, creating basic territory object...`);
+                    territory = this.createTerritoryObject(territoryId, null, null);
+                    this.territories.set(territoryId, territory);
+                }
+            } catch (error) {
+                log.error(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore:`, error);
+                // 에러가 발생해도 기본 영토 객체 생성
+                territory = this.createTerritoryObject(territoryId, null, null);
+                this.territories.set(territoryId, territory);
+            }
         }
         
         const previousRuler = territory.ruler;
@@ -469,6 +492,8 @@ class TerritoryManager {
         territory.protectionEndsAt = new Date(now.getTime() + PROTECTION_PERIOD); // 7일 보호
         territory.updatedAt = now;
         territory.purchasedByAdmin = isAdmin; // 관리자 구매 여부
+        territory.purchasedPrice = tribute; // 낙찰가 저장
+        territory.tribute = tribute; // 낙찰가 저장 (호환성)
         
         // 역사 기록 추가
         territory.history = territory.history || [];
@@ -483,47 +508,53 @@ class TerritoryManager {
             }
         });
         
-        // Firestore 업데이트 (배열 필드 제외)
+        // Firestore 업데이트 (updateDocument 사용하여 기존 필드 유지)
         try {
-            // Firestore에 저장할 때 배열 필드 제외
-            const territoryForFirestore = {
-                id: territory.id,
-                name: territory.name,
-                country: territory.country,
-                countryCode: territory.countryCode,
-                adminLevel: territory.adminLevel,
-                population: territory.population,
-                area: territory.area,
+            const Timestamp = firebaseService.getTimestamp();
+            const nowTimestamp = Timestamp ? Timestamp.now() : new Date();
+            
+            // protectionEndsAt을 Timestamp로 변환
+            let protectionEndsAtTimestamp;
+            if (territory.protectionEndsAt) {
+                if (Timestamp) {
+                    protectionEndsAtTimestamp = Timestamp.fromDate(territory.protectionEndsAt);
+                } else {
+                    protectionEndsAtTimestamp = territory.protectionEndsAt;
+                }
+            }
+            
+            // rulerSince를 Timestamp로 변환
+            let rulerSinceTimestamp;
+            if (territory.rulerSince) {
+                if (Timestamp) {
+                    rulerSinceTimestamp = Timestamp.fromDate(territory.rulerSince);
+                } else {
+                    rulerSinceTimestamp = territory.rulerSince;
+                }
+            }
+            
+            // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
+            await firebaseService.updateDocument('territories', territoryId, {
                 sovereignty: territory.sovereignty,
                 ruler: territory.ruler,
                 rulerName: territory.rulerName,
-                rulerSince: territory.rulerSince,
-                protectionEndsAt: territory.protectionEndsAt,
-                pixelCanvas: {
-                    width: territory.pixelCanvas?.width || CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    height: territory.pixelCanvas?.height || CONFIG.TERRITORY.PIXEL_GRID_SIZE,
-                    filledPixels: territory.pixelCanvas?.filledPixels || 0,
-                    lastUpdated: territory.pixelCanvas?.lastUpdated || null
-                    // pixels 배열은 제외
-                },
-                territoryValue: territory.territoryValue || 0,
-                rankScore: territory.rankScore || 0,
-                tribute: territory.tribute,
-                currentAuction: territory.currentAuction,
-                purchasedByAdmin: territory.purchasedByAdmin,
-                createdAt: territory.createdAt,
-                updatedAt: territory.updatedAt
-                // history, buffs 배열 필드는 제외 (별도 컬렉션에 저장)
-            };
+                rulerSince: rulerSinceTimestamp || nowTimestamp,
+                protectionEndsAt: protectionEndsAtTimestamp,
+                purchasedByAdmin: territory.purchasedByAdmin || false,
+                purchasedPrice: territory.purchasedPrice || tribute, // 낙찰가 저장
+                tribute: territory.tribute || tribute, // 낙찰가 저장 (호환성)
+                currentAuction: null, // 옥션 종료 후 null로 설정
+                updatedAt: nowTimestamp
+            });
             
-            await firebaseService.setDocument('territories', territoryId, territoryForFirestore);
-            log.info(`Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
+            log.info(`[TerritoryManager] ✅ Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Updated in Firestore.`);
             
             // 영토 업데이트 이벤트 발행
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
             
         } catch (error) {
-            log.error('Failed to update territory in Firestore:', error);
+            log.error(`[TerritoryManager] ❌ Failed to update territory ${territoryId} in Firestore:`, error);
+            // 에러가 발생해도 로컬 캐시는 업데이트되었으므로 계속 진행
         }
     }
     

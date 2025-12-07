@@ -935,9 +935,25 @@ class AuctionSystem {
      * 옥션 종료
      */
     async endAuction(auctionId) {
-        const auction = this.activeAuctions.get(auctionId);
+        // activeAuctions Map에서 먼저 확인
+        let auction = this.activeAuctions.get(auctionId);
+        
+        // Map에 없으면 Firestore에서 가져오기
         if (!auction) {
-            throw new Error('Auction not found');
+            log.warn(`[AuctionSystem] Auction ${auctionId} not in activeAuctions, loading from Firestore...`);
+            try {
+                const auctionData = await firebaseService.getDocument('auctions', auctionId);
+                if (auctionData) {
+                    auction = auctionData;
+                    auction.id = auctionId;
+                    log.info(`[AuctionSystem] Loaded auction ${auctionId} from Firestore`);
+                } else {
+                    throw new Error(`Auction ${auctionId} not found in Firestore`);
+                }
+            } catch (error) {
+                log.error(`[AuctionSystem] Failed to load auction ${auctionId} from Firestore:`, error);
+                throw new Error(`Auction not found: ${auctionId}`);
+            }
         }
         
         auction.status = AUCTION_STATUS.ENDED;
@@ -949,6 +965,9 @@ class AuctionSystem {
                            (auction.highestBidder && auction.highestBidder.startsWith('admin_')) ||
                            (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('adminAuth') !== null);
             
+            log.info(`[AuctionSystem] Auction ${auctionId} ended. Winner: ${auction.highestBidderName} (${auction.highestBidder}), Bid: ${auction.currentBid} pt${isAdmin ? ' [Admin]' : ''}`);
+            
+            // TERRITORY_CONQUERED 이벤트 발행
             eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
                 territoryId: auction.territoryId,
                 userId: auction.highestBidder,
@@ -956,6 +975,9 @@ class AuctionSystem {
                 tribute: auction.currentBid,
                 isAdmin: isAdmin  // ✅ isAdmin 플래그 추가
             });
+            
+            // 이벤트 발행 후 약간의 지연을 두어 처리 시간 확보
+            await new Promise(resolve => setTimeout(resolve, 100));
         } else {
             // 낙찰자 없으면 영토 상태 복구
             const territory = territoryManager.getTerritory(auction.territoryId);

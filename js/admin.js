@@ -35,6 +35,7 @@ class AdminDashboard {
         this.currentUser = null;
         this.currentSection = 'overview';
         this.isUserMode = false;
+        this.pixelCountCache = new Map(); // 픽셀 수 계산 결과 캐시
     }
     
     /**
@@ -809,38 +810,141 @@ class AdminDashboard {
                 // 관리자 구매 여부 표시
                 const adminBadge = data.purchasedByAdmin ? '<span class="badge badge-warning" title="관리자가 구매한 영토">관리자</span>' : '';
                 
-                // 가격 계산 (Firestore에 저장된 값이 없으면 TerritoryDataService로 계산)
-                let price = data.price;
-                let pixelCount = data.pixelCount;
+                // 가격 계산 (낙찰가 우선, 없으면 Firestore 저장값, 없으면 TerritoryDataService로 계산)
+                // 디버깅: 원본 데이터 확인
+                console.log(`[AdminDashboard] Territory ${doc.id} data:`, {
+                    purchasedPrice: data.purchasedPrice,
+                    tribute: data.tribute,
+                    price: data.price,
+                    pixelCount: data.pixelCount,
+                    ruler: data.ruler,
+                    rulerName: data.rulerName,
+                    currentAuction: data.currentAuction
+                });
                 
-                if (!price || price === 0 || !pixelCount || pixelCount === 0) {
-                    // TerritoryDataService를 사용하여 계산
+                // 낙찰가 우선 확인 (0이 아닌 값만)
+                let price = 0;
+                let purchasedPrice = data.purchasedPrice && data.purchasedPrice > 0 ? parseFloat(data.purchasedPrice) : null;
+                let tribute = data.tribute && data.tribute > 0 ? parseFloat(data.tribute) : null;
+                const storedPrice = data.price && data.price > 0 ? parseFloat(data.price) : null;
+                
+                // 옥션 데이터에서 낙찰가 찾기 (가장 정확한 데이터)
+                // purchasedPrice가 없거나, tribute가 있지만 옥션 데이터를 확인해야 하는 경우
+                if (data.ruler && (!purchasedPrice || (tribute && !purchasedPrice))) {
+                    try {
+                        // territoryId만으로 쿼리 (인덱스 필요 없음)
+                        const auctionSnapshot = await this.db.collection('auctions')
+                            .where('territoryId', '==', doc.id)
+                            .get();
+                        
+                        // 클라이언트 측에서 필터링
+                        const matchingAuctions = auctionSnapshot.docs
+                            .map(doc => ({ id: doc.id, ...doc.data() }))
+                            .filter(auction => 
+                                auction.status === 'ended' && 
+                                (auction.highestBidder === data.ruler || auction.highestBidderName === data.rulerName)
+                            )
+                            .sort((a, b) => {
+                                const aTime = a.endedAt?.toMillis?.() || a.endedAt?.seconds || 0;
+                                const bTime = b.endedAt?.toMillis?.() || b.endedAt?.seconds || 0;
+                                return bTime - aTime;
+                            });
+                        
+                        if (matchingAuctions.length > 0) {
+                            const auctionData = matchingAuctions[0];
+                            // bids 배열에서 최고 입찰가 찾기 (가장 정확)
+                            if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
+                                const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
+                                if (highestBid > 0) {
+                                    purchasedPrice = highestBid;
+                                    console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction bids: ${purchasedPrice}`);
+                                }
+                            } else if (auctionData.currentBid && auctionData.currentBid > 0) {
+                                purchasedPrice = auctionData.currentBid;
+                                console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction currentBid: ${purchasedPrice}`);
+                            }
+                            // 옥션에서 찾은 가격이 있으면 tribute보다 우선 사용
+                            if (purchasedPrice && tribute && purchasedPrice !== tribute) {
+                                console.log(`[AdminDashboard] Overriding tribute ${tribute} with auction price ${purchasedPrice} for ${doc.id}`);
+                                tribute = null; // 옥션 가격이 더 정확하므로 tribute 무시
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`[AdminDashboard] Failed to fetch auction data for ${doc.id}:`, error);
+                    }
+                }
+                
+                // 낙찰가 우선 사용
+                if (purchasedPrice) {
+                    price = purchasedPrice;
+                    console.log(`[AdminDashboard] Using purchasedPrice for ${doc.id}: ${price}`);
+                } else if (tribute) {
+                    price = tribute;
+                    console.log(`[AdminDashboard] Using tribute for ${doc.id}: ${price}`);
+                } else if (storedPrice) {
+                    price = storedPrice;
+                    console.log(`[AdminDashboard] Using stored price for ${doc.id}: ${price}`);
+                }
+                
+                // 픽셀 수 계산 (Firestore 저장값 우선, 없으면 계산)
+                // 동일한 계산을 보장하기 위해 territoryName과 countryCode를 정규화
+                let pixelCount = data.pixelCount && data.pixelCount > 0 ? parseFloat(data.pixelCount) : 0;
+                
+                // 픽셀 수 계산 (없거나 0이면) - viewTerritory와 동일한 로직 사용
+                if (!pixelCount || pixelCount === 0) {
+                    const countryCode = data.country || 'unknown';
+                    // territoryName 정규화 (소문자로 통일) - viewTerritory와 동일
+                    const normalizedName = territoryName ? String(territoryName).toLowerCase().trim() : doc.id.toLowerCase();
+                    // 캐시 키 생성 (viewTerritory와 동일한 형식)
+                    const cacheKey = `${doc.id}_${normalizedName}_${countryCode}`;
+                    
+                    if (this.pixelCountCache.has(cacheKey)) {
+                        pixelCount = this.pixelCountCache.get(cacheKey);
+                        console.log(`[AdminDashboard] Using cached pixel count for ${doc.id}: ${pixelCount}`);
+                    } else {
+                        try {
+                            // properties 객체를 깊은 복사하여 일관성 보장
+                            const properties = data.properties ? JSON.parse(JSON.stringify(data.properties)) : {};
+                            const territory = {
+                                id: doc.id,
+                                name: normalizedName,
+                                country: countryCode,
+                                properties: properties
+                            };
+                            pixelCount = territoryDataService.calculatePixelCount(territory, countryCode);
+                            // 캐시에 저장
+                            this.pixelCountCache.set(cacheKey, pixelCount);
+                            console.log(`[AdminDashboard] Calculated pixel count for ${doc.id}: ${pixelCount} (name: ${normalizedName}, country: ${countryCode})`);
+                        } catch (error) {
+                            console.warn(`[AdminDashboard] Failed to calculate pixel count for ${doc.id}:`, error);
+                            pixelCount = 0;
+                        }
+                    }
+                } else {
+                    console.log(`[AdminDashboard] Using stored pixel count for ${doc.id}: ${pixelCount}`);
+                }
+                
+                // 가격 계산 (낙찰가가 없을 때만)
+                if (!price || price === 0) {
                     const countryCode = data.country || 'unknown';
                     try {
-                        // 영토 객체 생성 (TerritoryDataService가 필요로 하는 형식)
                         const territory = {
                             id: doc.id,
                             name: territoryName,
                             country: countryCode,
                             properties: data.properties || {}
                         };
-                        
-                        // 픽셀 수 계산
-                        if (!pixelCount || pixelCount === 0) {
-                            pixelCount = territoryDataService.calculatePixelCount(territory, countryCode);
-                        }
-                        
-                        // 가격 계산
-                        if (!price || price === 0) {
-                            price = territoryDataService.calculateTerritoryPrice(territory, countryCode);
-                        }
+                        price = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+                        console.log(`[AdminDashboard] Calculated price for ${doc.id}: ${price}`);
                     } catch (error) {
-                        console.warn(`[AdminDashboard] Failed to calculate price/pixels for ${doc.id}:`, error);
-                        // 계산 실패 시 기본값 사용
-                        price = price || 0;
-                        pixelCount = pixelCount || 0;
+                        console.warn(`[AdminDashboard] Failed to calculate price for ${doc.id}:`, error);
+                        price = 0;
                     }
                 }
+                
+                // 숫자 타입 보장
+                price = typeof price === 'number' && !isNaN(price) ? price : 0;
+                pixelCount = typeof pixelCount === 'number' && !isNaN(pixelCount) ? pixelCount : 0;
                 
                 return `
                     <tr>
@@ -997,17 +1101,18 @@ class AdminDashboard {
                         <td>${endsAt}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>
                         <td>${data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString('ko-KR') : '-'}</td>
-                        <td style="white-space: nowrap; min-width: 200px;">
+                        <td style="white-space: nowrap; min-width: 250px;">
                             <button class="btn btn-sm" onclick="adminDashboard.viewAuction('${doc.id}')">보기</button>
                             ${isActive ? 
                                 `<button class="btn btn-sm btn-secondary" onclick="adminDashboard.editAuctionTime('${doc.id}')" title="종료 시간 수정" style="margin-left: 4px; display: inline-block;">⏰ 시간 수정</button>
                                 <button class="btn btn-sm btn-danger" onclick="adminDashboard.endAuction('${doc.id}')" style="margin-left: 4px; display: inline-block;">종료</button>` 
                                 : ''
                             }
-                            ${isDuplicate ? 
-                                `<button class="btn btn-sm btn-warning" onclick="adminDashboard.deleteAuction('${doc.id}')" title="중복 옥션 삭제" style="margin-left: 4px; display: inline-block;">삭제</button>` 
+                            ${!isActive && data.highestBidder ? 
+                                `<button class="btn btn-sm btn-primary" onclick="adminDashboard.processAuctionOwnership('${doc.id}')" title="소유권 이전 처리" style="margin-left: 4px; display: inline-block;">✅ 소유권 이전</button>` 
                                 : ''
                             }
+                            <button class="btn btn-sm btn-warning" onclick="adminDashboard.deleteAuction('${doc.id}')" title="옥션 삭제" style="margin-left: 4px; display: inline-block;">🗑️ 삭제</button>
                         </td>
                     </tr>
                 `;
@@ -1629,28 +1734,170 @@ class AdminDashboard {
             
             const data = doc.data();
             
-            // 이름 추출
+            // 이름 추출 (loadTerritoriesTable과 동일한 로직 사용)
             const extractName = (name) => {
-                if (!name) return territoryId;
+                if (!name) return null;
                 if (typeof name === 'string') {
                     if (name === '[object Object]' || name === 'undefined' || name === 'null') {
-                        return territoryId;
+                        return null;
                     }
                     return name;
                 }
                 if (typeof name === 'object') {
-                    return name.en || name.ko || name.local || Object.values(name)[0] || territoryId;
+                    return name.en || name.ko || name.local || Object.values(name)[0] || null;
                 }
                 return String(name);
             };
             
-            const territoryName = extractName(data.name) || extractName(data.properties?.name) || territoryId;
+            // loadTerritoriesTable과 동일한 추출 방식
+            const territoryName = extractName(data.name) || 
+                                  extractName(data.properties?.name) ||
+                                  extractName(data.properties?.name_en) ||
+                                  territoryId;
             const countryName = data.country || '-';
             const rulerName = data.rulerName || '미점유';
             const sovereignty = data.sovereignty || 'unconquered';
             const sovereigntyText = sovereignty === 'ruled' ? '점유됨' : sovereignty === 'protected' ? '보호됨' : '미점유';
-            const price = (data.price || 0).toLocaleString();
-            const pixelCount = (data.pixelCount || 0).toLocaleString();
+            
+            // 가격 계산: 낙찰가 우선, 없으면 저장된 가격, 없으면 계산
+            // 디버깅: 원본 데이터 확인
+            console.log(`[AdminDashboard] viewTerritory ${territoryId} data:`, {
+                purchasedPrice: data.purchasedPrice,
+                tribute: data.tribute,
+                price: data.price,
+                pixelCount: data.pixelCount,
+                ruler: data.ruler,
+                rulerName: data.rulerName
+            });
+            
+            // 낙찰가 우선 확인 (0이 아닌 값만)
+            let price = 0;
+            let purchasedPrice = data.purchasedPrice && data.purchasedPrice > 0 ? parseFloat(data.purchasedPrice) : null;
+            let tribute = data.tribute && data.tribute > 0 ? parseFloat(data.tribute) : null;
+            const storedPrice = data.price && data.price > 0 ? parseFloat(data.price) : null;
+            
+            // 옥션 데이터에서 낙찰가 찾기 (가장 정확한 데이터)
+            // purchasedPrice가 없거나, tribute가 있지만 옥션 데이터를 확인해야 하는 경우
+            if (data.ruler && (!purchasedPrice || (tribute && !purchasedPrice))) {
+                try {
+                    // territoryId만으로 쿼리 (인덱스 필요 없음)
+                    const auctionSnapshot = await this.db.collection('auctions')
+                        .where('territoryId', '==', territoryId)
+                        .get();
+                    
+                    // 클라이언트 측에서 필터링
+                    const matchingAuctions = auctionSnapshot.docs
+                        .map(doc => ({ id: doc.id, ...doc.data() }))
+                        .filter(auction => 
+                            auction.status === 'ended' && 
+                            (auction.highestBidder === data.ruler || auction.highestBidderName === data.rulerName)
+                        )
+                        .sort((a, b) => {
+                            const aTime = a.endedAt?.toMillis?.() || a.endedAt?.seconds || 0;
+                            const bTime = b.endedAt?.toMillis?.() || b.endedAt?.seconds || 0;
+                            return bTime - aTime;
+                        });
+                    
+                    if (matchingAuctions.length > 0) {
+                        const auctionData = matchingAuctions[0];
+                        // bids 배열에서 최고 입찰가 찾기 (가장 정확)
+                        if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
+                            const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
+                            if (highestBid > 0) {
+                                purchasedPrice = highestBid;
+                                console.log(`[AdminDashboard] viewTerritory: Found auction price from auction bids: ${purchasedPrice}`);
+                            }
+                        } else if (auctionData.currentBid && auctionData.currentBid > 0) {
+                            purchasedPrice = auctionData.currentBid;
+                            console.log(`[AdminDashboard] viewTerritory: Found auction price from auction currentBid: ${purchasedPrice}`);
+                        }
+                        // 옥션에서 찾은 가격이 있으면 tribute보다 우선 사용
+                        if (purchasedPrice && tribute && purchasedPrice !== tribute) {
+                            console.log(`[AdminDashboard] viewTerritory: Overriding tribute ${tribute} with auction price ${purchasedPrice}`);
+                            tribute = null; // 옥션 가격이 더 정확하므로 tribute 무시
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[AdminDashboard] Failed to fetch auction data for ${territoryId}:`, error);
+                }
+            }
+            
+            // 낙찰가 우선 사용
+            if (purchasedPrice) {
+                price = purchasedPrice;
+                console.log(`[AdminDashboard] viewTerritory: Using purchasedPrice: ${price}`);
+            } else if (tribute) {
+                price = tribute;
+                console.log(`[AdminDashboard] viewTerritory: Using tribute: ${price}`);
+            } else if (storedPrice) {
+                price = storedPrice;
+                console.log(`[AdminDashboard] viewTerritory: Using stored price: ${price}`);
+            }
+            
+            // 픽셀 수 계산 (Firestore 저장값 우선, 없으면 계산)
+            // loadTerritoriesTable과 동일한 계산을 보장하기 위해 territoryName과 countryCode를 정규화
+            let pixelCount = data.pixelCount && data.pixelCount > 0 ? parseFloat(data.pixelCount) : 0;
+            
+            // 가격이 없거나 0이면 TerritoryDataService로 계산
+            if (!price || price === 0) {
+                try {
+                    const countryCode = data.country || 'unknown';
+                    // territoryName 정규화 (소문자로 통일)
+                    const normalizedName = territoryName ? String(territoryName).toLowerCase().trim() : territoryId.toLowerCase();
+                    const territory = {
+                        id: territoryId,
+                        name: normalizedName,
+                        country: countryCode,
+                        properties: data.properties || {}
+                    };
+                    price = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+                    console.log(`[AdminDashboard] viewTerritory: Calculated price: ${price}`);
+                } catch (error) {
+                    console.warn(`[AdminDashboard] Failed to calculate price for ${territoryId}:`, error);
+                    price = 0;
+                }
+            }
+            
+            // 픽셀 수가 없거나 0이면 TerritoryDataService로 계산 - loadTerritoriesTable과 동일한 로직
+            if (!pixelCount || pixelCount === 0) {
+                const countryCode = data.country || 'unknown';
+                // territoryName 정규화 (소문자로 통일) - loadTerritoriesTable과 동일
+                const normalizedName = territoryName ? String(territoryName).toLowerCase().trim() : territoryId.toLowerCase();
+                // 캐시 키 생성 (loadTerritoriesTable과 동일한 형식)
+                const cacheKey = `${territoryId}_${normalizedName}_${countryCode}`;
+                
+                if (this.pixelCountCache.has(cacheKey)) {
+                    pixelCount = this.pixelCountCache.get(cacheKey);
+                    console.log(`[AdminDashboard] viewTerritory: Using cached pixel count: ${pixelCount}`);
+                } else {
+                    try {
+                        // properties 객체를 깊은 복사하여 일관성 보장 (loadTerritoriesTable과 동일)
+                        const properties = data.properties ? JSON.parse(JSON.stringify(data.properties)) : {};
+                        const territory = {
+                            id: territoryId,
+                            name: normalizedName,
+                            country: countryCode,
+                            properties: properties
+                        };
+                        pixelCount = territoryDataService.calculatePixelCount(territory, countryCode);
+                        // 캐시에 저장
+                        this.pixelCountCache.set(cacheKey, pixelCount);
+                        console.log(`[AdminDashboard] viewTerritory: Calculated pixel count: ${pixelCount} (name: ${normalizedName}, country: ${countryCode})`);
+                    } catch (error) {
+                        console.warn(`[AdminDashboard] Failed to calculate pixel count for ${territoryId}:`, error);
+                        pixelCount = 0;
+                    }
+                }
+            } else {
+                console.log(`[AdminDashboard] viewTerritory: Using stored pixel count: ${pixelCount}`);
+            }
+            
+            // 숫자 타입 보장
+            price = typeof price === 'number' && !isNaN(price) ? price : 0;
+            pixelCount = typeof pixelCount === 'number' && !isNaN(pixelCount) ? pixelCount : 0;
+            
+            const priceDisplay = price.toLocaleString();
+            const pixelCountDisplay = pixelCount.toLocaleString();
             const purchasedByAdmin = data.purchasedByAdmin ? '예' : '아니오';
             const createdAt = data.createdAt?.toDate()?.toLocaleString('ko-KR') || '-';
             const updatedAt = data.updatedAt?.toDate()?.toLocaleString('ko-KR') || '-';
@@ -1690,12 +1937,18 @@ class AdminDashboard {
                                 </div>
                                 <div class="info-item">
                                     <label>가격</label>
-                                    <span><strong>${price} pt</strong></span>
+                                    <span><strong>${priceDisplay} pt</strong></span>
                                 </div>
                                 <div class="info-item">
                                     <label>픽셀 수</label>
-                                    <span>${pixelCount}</span>
+                                    <span>${pixelCountDisplay}</span>
                                 </div>
+                                ${data.purchasedPrice || data.tribute ? `
+                                <div class="info-item">
+                                    <label>낙찰가</label>
+                                    <span><strong style="color: #4CAF50;">${(data.purchasedPrice || data.tribute).toLocaleString()} pt</strong></span>
+                                </div>
+                                ` : ''}
                                 <div class="info-item">
                                     <label>생성 시간</label>
                                     <span>${createdAt}</span>
@@ -1804,6 +2057,47 @@ class AdminDashboard {
             const bids = data.bids || [];
             const bidCount = bids.length || data.bidCount || 0;
             
+            // 소유권 이전이 완료된 경우 영토 정보 가져오기
+            let territoryInfo = null;
+            if (data.territoryId && data.status === 'ended' && data.highestBidder) {
+                try {
+                    const territoryDoc = await this.db.collection('territories').doc(data.territoryId).get();
+                    if (territoryDoc.exists) {
+                        const territoryData = territoryDoc.data();
+                        // 소유자가 있고 낙찰자와 일치하는 경우
+                        if (territoryData.ruler && (territoryData.ruler === data.highestBidder || territoryData.rulerName === data.highestBidderName)) {
+                            // 낙찰가 계산: 영토 데이터의 purchasedPrice/tribute 우선, 없으면 옥션의 최고 입찰가
+                            let purchasedPrice = territoryData.purchasedPrice || territoryData.tribute;
+                            if (!purchasedPrice || purchasedPrice === 0) {
+                                // 옥션 데이터에서 최고 입찰가 가져오기
+                                if (data.bids && Array.isArray(data.bids) && data.bids.length > 0) {
+                                    purchasedPrice = Math.max(...data.bids.map(b => b.amount || b.buffedAmount || 0));
+                                } else {
+                                    purchasedPrice = data.currentBid || data.startingBid || null;
+                                }
+                            }
+                            
+                            // 숫자 타입 보장
+                            if (purchasedPrice !== null && purchasedPrice !== undefined) {
+                                purchasedPrice = typeof purchasedPrice === 'number' ? purchasedPrice : parseFloat(purchasedPrice) || null;
+                            }
+                            
+                            territoryInfo = {
+                                ruler: territoryData.ruler,
+                                rulerName: territoryData.rulerName,
+                                sovereignty: territoryData.sovereignty,
+                                purchasedByAdmin: territoryData.purchasedByAdmin || false,
+                                purchasedPrice: purchasedPrice,
+                                rulerSince: territoryData.rulerSince?.toDate()?.toLocaleString('ko-KR') || '-',
+                                protectionEndsAt: territoryData.protectionEndsAt?.toDate()?.toLocaleString('ko-KR') || '-'
+                            };
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to load territory info for auction:', error);
+                }
+            }
+            
             // 입찰 기록 포맷팅
             let bidsHtml = '<p class="text-muted">입찰 기록이 없습니다.</p>';
             if (bids.length > 0) {
@@ -1891,6 +2185,37 @@ class AdminDashboard {
                                     <span>${data.createdAt?.toDate()?.toLocaleString('ko-KR') || '-'}</span>
                                 </div>
                             </div>
+                            ${territoryInfo ? `
+                            <div class="info-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;">
+                                <h3>✅ 소유권 이전 완료</h3>
+                                <div class="info-grid">
+                                    <div class="info-item">
+                                        <label>소유자</label>
+                                        <span><strong>${territoryInfo.rulerName || territoryInfo.ruler || '-'}</strong></span>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>소유권 상태</label>
+                                        <span class="status ${territoryInfo.sovereignty === 'protected' ? 'status-active' : 'status-ended'}">${territoryInfo.sovereignty === 'protected' ? '보호됨' : territoryInfo.sovereignty === 'ruled' ? '점유됨' : '-'}</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>낙찰가</label>
+                                        <span><strong>${territoryInfo.purchasedPrice && typeof territoryInfo.purchasedPrice === 'number' ? territoryInfo.purchasedPrice.toLocaleString() + ' pt' : (territoryInfo.purchasedPrice ? String(territoryInfo.purchasedPrice) + ' pt' : '-')}</strong></span>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>관리자 구매</label>
+                                        <span>${territoryInfo.purchasedByAdmin ? '예' : '아니오'}</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>소유 시작</label>
+                                        <span>${territoryInfo.rulerSince}</span>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>보호 종료</label>
+                                        <span>${territoryInfo.protectionEndsAt}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ` : ''}
                             <div class="info-section">
                                 <h3>입찰 기록 (최근 10개)</h3>
                                 ${bidsHtml}
@@ -1900,6 +2225,10 @@ class AdminDashboard {
                             <button class="btn btn-secondary" onclick="adminDashboard.closeAuctionModal()">닫기</button>
                             ${data.status === 'active' ? 
                                 `<button class="btn btn-danger" onclick="adminDashboard.endAuction('${auctionId}'); adminDashboard.closeAuctionModal();">옥션 종료</button>` 
+                                : ''
+                            }
+                            ${data.status === 'ended' && data.highestBidder ? 
+                                `<button class="btn btn-primary" onclick="adminDashboard.processAuctionOwnership('${auctionId}'); adminDashboard.closeAuctionModal();">✅ 소유권 이전 처리</button>` 
                                 : ''
                             }
                         </div>
@@ -2408,19 +2737,373 @@ class AdminDashboard {
     }
     
     /**
-     * 중복 옥션 삭제
+     * 종료된 옥션의 소유권 이전 처리
+     */
+    async processAuctionOwnership(auctionId) {
+        try {
+            // 옥션 데이터 가져오기
+            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
+            if (!auctionDoc.exists) {
+                alert('옥션을 찾을 수 없습니다.');
+                return;
+            }
+            
+            const auctionData = auctionDoc.data();
+            
+            // 이미 종료된 옥션이 아니면 경고
+            if (auctionData.status !== 'ended' && auctionData.status !== 'ENDED') {
+                alert('이 옥션은 아직 종료되지 않았습니다.');
+                return;
+            }
+            
+            // 낙찰자가 없으면 경고
+            if (!auctionData.highestBidder) {
+                alert('이 옥션에는 낙찰자가 없습니다.');
+                return;
+            }
+            
+            const territoryId = auctionData.territoryId;
+            const userId = auctionData.highestBidder;
+            const userName = auctionData.highestBidderName || userId;
+            
+            // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
+            let tribute = auctionData.currentBid || auctionData.startingBid || 0;
+            
+            // bids 배열이 있으면 최고 입찰가 확인
+            if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
+                const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
+                if (highestBid > 0 && highestBid >= tribute) {
+                    tribute = highestBid;
+                }
+            }
+            
+            console.log(`[AdminDashboard] Processing ownership for auction ${auctionId}:`, {
+                currentBid: auctionData.currentBid,
+                startingBid: auctionData.startingBid,
+                bidsCount: auctionData.bids?.length || 0,
+                highestBidFromArray: auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0
+                    ? Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0))
+                    : 0,
+                finalTribute: tribute
+            });
+            
+            // 확인
+            if (!confirm(`소유권을 이전하시겠습니까?\n\n영토: ${territoryId}\n낙찰자: ${userName}\n입찰가: ${tribute.toLocaleString()} pt`)) {
+                return;
+            }
+            
+            // 관리자 모드 확인
+            const isAdmin = auctionData.purchasedByAdmin || 
+                           (userId && userId.startsWith('admin_')) ||
+                           (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('adminAuth') !== null);
+            
+            // 영토 데이터 가져오기
+            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
+            if (!territoryDoc.exists) {
+                alert('영토를 찾을 수 없습니다.');
+                return;
+            }
+            
+            const territoryData = territoryDoc.data();
+            const Timestamp = firebase.firestore.Timestamp;
+            const now = new Date();
+            const protectionEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7일 보호
+            
+            // 영토 상태 업데이트
+            await this.db.collection('territories').doc(territoryId).update({
+                sovereignty: 'protected', // 구매 직후 보호 상태
+                ruler: userId,
+                rulerName: userName,
+                rulerSince: firebase.firestore.FieldValue.serverTimestamp(),
+                protectionEndsAt: Timestamp.fromDate(protectionEndsAt),
+                purchasedByAdmin: isAdmin,
+                purchasedPrice: tribute, // 낙찰가 저장
+                tribute: tribute, // 낙찰가 저장 (호환성)
+                currentAuction: null,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            this.logAdminAction('PROCESS_AUCTION_OWNERSHIP', { 
+                auctionId, 
+                territoryId, 
+                userId, 
+                userName, 
+                tribute 
+            });
+            
+            alert(`✅ 소유권 이전이 완료되었습니다.\n\n영토: ${territoryId}\n소유자: ${userName}\n입찰가: ${tribute.toLocaleString()} pt`);
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'auctions') {
+                await this.loadAuctionsTable();
+            }
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+        } catch (error) {
+            console.error('Failed to process auction ownership:', error);
+            alert(`소유권 이전 처리 실패: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 모든 종료된 옥션의 소유권 이전 자동 처리
+     */
+    async processAllEndedAuctions() {
+        try {
+            // 종료된 옥션 중 낙찰자가 있는 것만 가져오기
+            const endedAuctionsSnapshot = await this.db.collection('auctions')
+                .where('status', '==', 'ended')
+                .where('highestBidder', '!=', null)
+                .limit(100)
+                .get();
+            
+            if (endedAuctionsSnapshot.empty) {
+                alert('처리할 종료된 옥션이 없습니다.');
+                return;
+            }
+            
+            const count = endedAuctionsSnapshot.size;
+            if (!confirm(`총 ${count}개의 종료된 옥션에 대해 소유권 이전을 처리하시겠습니까?`)) {
+                return;
+            }
+            
+            let successCount = 0;
+            let failCount = 0;
+            const errors = [];
+            
+            for (const doc of endedAuctionsSnapshot.docs) {
+                try {
+                    const auctionData = doc.data();
+                    const territoryId = auctionData.territoryId;
+                    const userId = auctionData.highestBidder;
+                    const userName = auctionData.highestBidderName || userId;
+                    
+                    // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
+                    let tribute = auctionData.currentBid || auctionData.startingBid || 0;
+                    
+                    // bids 배열이 있으면 최고 입찰가 확인
+                    if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
+                        const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
+                        if (highestBid > 0 && highestBid >= tribute) {
+                            tribute = highestBid;
+                        }
+                    }
+                    
+                    // 영토 데이터 확인
+                    const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
+                    if (!territoryDoc.exists) {
+                        errors.push(`${territoryId}: 영토를 찾을 수 없음`);
+                        failCount++;
+                        continue;
+                    }
+                    
+                    const territoryData = territoryDoc.data();
+                    
+                    // 이미 소유자가 있고 현재 소유자가 낙찰자와 같으면 스킵
+                    if (territoryData.ruler === userId && 
+                        (territoryData.sovereignty === 'protected' || territoryData.sovereignty === 'ruled')) {
+                        console.log(`[AdminDashboard] Territory ${territoryId} already owned by ${userName}, skipping...`);
+                        continue;
+                    }
+                    
+                    // 관리자 모드 확인
+                    const isAdmin = auctionData.purchasedByAdmin || 
+                                   (userId && userId.startsWith('admin_')) ||
+                                   (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('adminAuth') !== null);
+                    
+                    const Timestamp = firebase.firestore.Timestamp;
+                    const now = new Date();
+                    const protectionEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                    
+                    // 영토 상태 업데이트
+                    await this.db.collection('territories').doc(territoryId).update({
+                        sovereignty: 'protected',
+                        ruler: userId,
+                        rulerName: userName,
+                        rulerSince: firebase.firestore.FieldValue.serverTimestamp(),
+                        protectionEndsAt: Timestamp.fromDate(protectionEndsAt),
+                        purchasedByAdmin: isAdmin,
+                        purchasedPrice: tribute, // 낙찰가 저장
+                        tribute: tribute, // 낙찰가 저장 (호환성)
+                        currentAuction: null,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    successCount++;
+                    console.log(`[AdminDashboard] ✅ Processed ownership for ${territoryId} → ${userName}`);
+                    
+                } catch (error) {
+                    const auctionData = doc.data();
+                    errors.push(`${auctionData.territoryId || doc.id}: ${error.message}`);
+                    failCount++;
+                    console.error(`[AdminDashboard] Failed to process auction ${doc.id}:`, error);
+                }
+            }
+            
+            // 결과 표시
+            let message = `처리 완료!\n\n성공: ${successCount}개\n실패: ${failCount}개`;
+            if (errors.length > 0 && errors.length <= 10) {
+                message += `\n\n실패 목록:\n${errors.join('\n')}`;
+            } else if (errors.length > 10) {
+                message += `\n\n실패 목록 (최근 10개):\n${errors.slice(0, 10).join('\n')}\n...외 ${errors.length - 10}개`;
+            }
+            
+            alert(message);
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'auctions') {
+                await this.loadAuctionsTable();
+            }
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+        } catch (error) {
+            console.error('Failed to process all ended auctions:', error);
+            alert(`일괄 처리 실패: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 옥션 삭제
      */
     async deleteAuction(auctionId) {
-        if (confirm('정말 이 중복 옥션을 삭제하시겠습니까?\n\n⚠️ 주의: 이 작업은 되돌릴 수 없습니다.')) {
-            try {
-                await this.db.collection('auctions').doc(auctionId).delete();
-                this.logAdminAction('DELETE_AUCTION', { auctionId });
-                this.loadAuctionsTable(); // Refresh
-                alert('옥션이 삭제되었습니다.');
-            } catch (error) {
-                console.error('Failed to delete auction:', error);
-                this.handleFirestoreError(error, '옥션 삭제');
+        try {
+            // 옥션 데이터 가져오기
+            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
+            if (!auctionDoc.exists) {
+                alert('옥션을 찾을 수 없습니다.');
+                return;
             }
+            
+            const auctionData = auctionDoc.data();
+            const territoryId = auctionData.territoryId || auctionId;
+            const status = auctionData.status || 'unknown';
+            const highestBidder = auctionData.highestBidderName || auctionData.highestBidder || '없음';
+            const currentBid = auctionData.currentBid || auctionData.startingBid || 0;
+            
+            // 삭제 확인 모달 표시
+            const modalHtml = `
+                <div class="modal-overlay" id="delete-auction-modal-overlay" onclick="adminDashboard.closeDeleteAuctionModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 500px;">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h2 style="margin: 0; color: white;">🗑️ 옥션 삭제</h2>
+                            <button class="modal-close" onclick="adminDashboard.closeDeleteAuctionModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                        </div>
+                        <div class="modal-body" style="padding: 20px;">
+                            <!-- 옥션 정보 -->
+                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">삭제 대상 옥션</h3>
+                                <div style="color: #333; font-size: 14px; line-height: 1.8;">
+                                    <p style="margin: 5px 0;"><strong>영토:</strong> ${territoryId}</p>
+                                    <p style="margin: 5px 0;"><strong>상태:</strong> ${status === 'active' ? '진행중' : status === 'ended' ? '종료됨' : status}</p>
+                                    <p style="margin: 5px 0;"><strong>최고 입찰자:</strong> ${highestBidder}</p>
+                                    <p style="margin: 5px 0;"><strong>현재 입찰가:</strong> ${currentBid.toLocaleString()} pt</p>
+                                </div>
+                            </div>
+                            
+                            <!-- 경고 메시지 -->
+                            <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #856404; font-size: 16px;">⚠️ 삭제 주의사항</h3>
+                                <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8; font-size: 14px;">
+                                    <li>옥션 삭제 시 <strong>모든 입찰 기록이 삭제</strong>됩니다.</li>
+                                    ${status === 'active' ? '<li><strong>진행 중인 옥션을 삭제하면 영토가 미점유 상태로 복구</strong>됩니다.</li>' : ''}
+                                    ${status === 'ended' && highestBidder !== '없음' ? '<li><strong>종료된 옥션을 삭제해도 영토 소유권은 유지</strong>됩니다.</li>' : ''}
+                                    <li>이 작업은 <strong>되돌릴 수 없습니다</strong>.</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- 최종 경고 -->
+                            <div style="background: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; margin-bottom: 20px;">
+                                <p style="margin: 0; color: #721c24; font-size: 14px; font-weight: bold;">⚠️ 정말로 이 옥션을 삭제하시겠습니까?</p>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeDeleteAuctionModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
+                            <button class="btn btn-danger" onclick="adminDashboard.confirmDeleteAuction('${auctionId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🗑️ 삭제 확인</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('delete-auction-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+        } catch (error) {
+            console.error('Failed to load auction for deletion:', error);
+            alert(`옥션 정보를 불러오는데 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    closeDeleteAuctionModal() {
+        const modal = document.getElementById('delete-auction-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 옥션 삭제 확인 및 실행
+     */
+    async confirmDeleteAuction(auctionId) {
+        try {
+            // 옥션 데이터 가져오기
+            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
+            if (!auctionDoc.exists) {
+                alert('옥션을 찾을 수 없습니다.');
+                this.closeDeleteAuctionModal();
+                return;
+            }
+            
+            const auctionData = auctionDoc.data();
+            const territoryId = auctionData.territoryId;
+            const status = auctionData.status;
+            
+            // 진행 중인 옥션을 삭제하는 경우 영토 상태 복구
+            if (status === 'active' && territoryId) {
+                try {
+                    const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
+                    if (territoryDoc.exists) {
+                        const territoryData = territoryDoc.data();
+                        // 옥션이 있던 영토의 currentAuction을 null로 설정
+                        await this.db.collection('territories').doc(territoryId).update({
+                            currentAuction: null,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`[AdminDashboard] Cleared currentAuction for territory ${territoryId}`);
+                    }
+                } catch (territoryError) {
+                    console.warn(`[AdminDashboard] Failed to update territory ${territoryId}:`, territoryError);
+                    // 영토 업데이트 실패해도 옥션 삭제는 계속 진행
+                }
+            }
+            
+            // 옥션 삭제
+            await this.db.collection('auctions').doc(auctionId).delete();
+            
+            this.logAdminAction('DELETE_AUCTION', { 
+                auctionId, 
+                territoryId, 
+                status,
+                highestBidder: auctionData.highestBidder,
+                currentBid: auctionData.currentBid
+            });
+            
+            this.closeDeleteAuctionModal();
+            this.loadAuctionsTable(); // Refresh
+            alert('✅ 옥션이 삭제되었습니다.');
+            
+        } catch (error) {
+            console.error('Failed to delete auction:', error);
+            this.handleFirestoreError(error, '옥션 삭제');
         }
     }
     
