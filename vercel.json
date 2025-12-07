@@ -1,6 +1,16 @@
 {
   "buildCommand": "",
   "outputDirectory": ".",
+  "crons": [
+    {
+      "path": "/api/cron/calculate-rankings",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/end-auctions",
+      "schedule": "* * * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/data/(.*)",
@@ -59,15 +69,24 @@
     {
       "source": "/api/rankings/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300" },
-        { "key": "Content-Type", "value": "application/json" }
+        { "key": "Cache-Control", "value": "public, max-age=900" },
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=900" }
       ]
     },
     {
       "source": "/api/stats/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300" },
-        { "key": "Content-Type", "value": "application/json" }
+        { "key": "Cache-Control", "value": "public, max-age=900" },
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=900" }
+      ]
+    },
+    {
+      "source": "/data/(.*).(png|jpg|jpeg|svg|webp)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=2592000" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=2592000" }
       ]
     }
   ]
