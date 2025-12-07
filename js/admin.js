@@ -624,7 +624,8 @@ class AdminDashboard {
                                     <td><span class="status status-active">활성</span></td>
                                     <td>
                                         <button class="btn btn-sm" onclick="adminDashboard.viewUser('${user.uid}')">보기</button>
-                                        <button class="btn btn-sm btn-danger" onclick="adminDashboard.banUser('${user.uid}')">차단</button>
+                                        <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${user.uid}')" style="margin-left: 4px;">💰 포인트</button>
+                                        <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${user.uid}')" style="margin-left: 4px;">차단</button>
                                     </td>
                                 </tr>
                             `;
@@ -705,7 +706,8 @@ class AdminDashboard {
                         <td><span class="status ${statusClass}">${status}</span></td>
                         <td>
                             <button class="btn btn-sm" onclick="adminDashboard.viewUser('${doc.id}')">보기</button>
-                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.banUser('${doc.id}')">차단</button>
+                            <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${doc.id}')" style="margin-left: 4px;">💰 포인트</button>
+                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${doc.id}')" style="margin-left: 4px;">차단</button>
                         </td>
                     </tr>
                 `;
@@ -1123,26 +1125,484 @@ class AdminDashboard {
     
     // === 관리 액션 ===
     
-    viewUser(userId) {
-        console.log('View user:', userId);
-        this.logAdminAction('VIEW_USER', { userId });
+    async viewUser(userId) {
+        try {
+            // 사용자 정보 가져오기
+            const userDoc = await this.db.collection('users').doc(userId).get();
+            if (!userDoc.exists) {
+                alert('사용자를 찾을 수 없습니다.');
+                return;
+            }
+            
+            const userData = userDoc.data();
+            
+            // 지갑 정보 가져오기
+            let walletData = null;
+            try {
+                const walletDoc = await this.db.collection('wallets').doc(userId).get();
+                if (walletDoc.exists) {
+                    walletData = walletDoc.data();
+                }
+            } catch (walletError) {
+                console.warn('Failed to load wallet:', walletError);
+            }
+            
+            // 영토 개수 계산
+            let territoryCount = userData.territoryCount || 0;
+            try {
+                const territoriesSnapshot = await this.db.collection('territories')
+                    .where('ruler', '==', userId)
+                    .get();
+                territoryCount = territoriesSnapshot.size;
+            } catch (error) {
+                console.warn('Failed to count territories:', error);
+            }
+            
+            // 날짜 포맷팅
+            const formatDate = (date) => {
+                if (!date) return '-';
+                if (date.toDate && typeof date.toDate === 'function') {
+                    return date.toDate().toLocaleString('ko-KR');
+                } else if (date.seconds) {
+                    return new Date(date.seconds * 1000).toLocaleString('ko-KR');
+                } else if (date instanceof Date) {
+                    return date.toLocaleString('ko-KR');
+                } else if (typeof date === 'number') {
+                    return new Date(date).toLocaleString('ko-KR');
+                }
+                return '-';
+            };
+            
+            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
+            const email = userData.email || userId;
+            const photoURL = userData.photoURL || '';
+            const emailVerified = userData.emailVerified ? '예' : '아니오';
+            const banned = userData.banned ? '차단됨' : '활성';
+            const bannedClass = userData.banned ? 'status-banned' : 'status-active';
+            const createdAt = formatDate(userData.createdAt);
+            const lastLoginAt = formatDate(userData.lastLoginAt);
+            const bannedAt = formatDate(userData.bannedAt);
+            const bannedBy = userData.bannedBy || '-';
+            const balance = walletData?.balance || 0;
+            const totalCharged = walletData?.totalCharged || 0;
+            const totalSpent = walletData?.totalSpent || 0;
+            const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+            
+            const modalHtml = `
+                <div class="modal-overlay" id="user-modal-overlay" onclick="adminDashboard.closeUserModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h2 style="margin: 0; color: white;">👤 사용자 상세 정보</h2>
+                            <button class="modal-close" onclick="adminDashboard.closeUserModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                        </div>
+                        <div class="modal-body" style="padding: 20px;">
+                            <!-- 사용자 기본 정보 -->
+                            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                    ${photoURL ? `<img src="${photoURL}" alt="${displayName}" style="width: 60px; height: 60px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                                    <div>
+                                        <h3 style="margin: 0; color: #333; font-size: 20px;">${displayName} ${isAdmin ? '<span class="badge badge-warning">관리자</span>' : ''}</h3>
+                                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${email}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 정보 그리드 -->
+                            <div class="info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">사용자 ID</label>
+                                    <span style="color: #333; font-size: 14px; word-break: break-all;">${userId}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">이메일 인증</label>
+                                    <span style="color: #333; font-size: 14px;">${emailVerified}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">상태</label>
+                                    <span class="status ${bannedClass}" style="display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">${banned}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">보유 영토</label>
+                                    <span style="color: #333; font-size: 14px; font-weight: bold;">${territoryCount}개</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">가입일</label>
+                                    <span style="color: #333; font-size: 14px;">${createdAt}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">마지막 로그인</label>
+                                    <span style="color: #333; font-size: 14px;">${lastLoginAt}</span>
+                                </div>
+                            </div>
+                            
+                            <!-- 지갑 정보 -->
+                            <div style="background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
+                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">💰 지갑 정보</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">현재 잔액</label>
+                                        <span style="color: #2d3436; font-size: 20px; font-weight: bold;">${balance.toLocaleString()} pt</span>
+                                    </div>
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 충전액</label>
+                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalCharged.toLocaleString()} pt</span>
+                                    </div>
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 사용액</label>
+                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalSpent.toLocaleString()} pt</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            ${userData.banned ? `
+                            <!-- 차단 정보 -->
+                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">🚫 차단 정보</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div>
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단 일시</label>
+                                        <span style="color: #333; font-size: 14px;">${bannedAt}</span>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단한 관리자</label>
+                                        <span style="color: #333; font-size: 14px;">${bannedBy}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeUserModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">닫기</button>
+                            <button class="btn btn-primary" onclick="adminDashboard.addPoints('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 포인트 지급</button>
+                            ${!userData.banned ? `<button class="btn btn-danger" onclick="adminDashboard.showBanModal('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🚫 차단</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('user-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            this.logAdminAction('VIEW_USER', { userId });
+            
+        } catch (error) {
+            console.error('Failed to load user:', error);
+            alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
+        }
     }
     
-    async banUser(userId) {
-        if (confirm('정말 이 사용자를 차단하시겠습니까?')) {
-            try {
-                await this.db.collection('users').doc(userId).update({
-                    banned: true,
-                    bannedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    bannedBy: this.currentUser.email
-                });
-                this.logAdminAction('BAN_USER', { userId });
-                this.loadUsersTable(); // Refresh
-                alert('사용자가 차단되었습니다.');
-            } catch (error) {
-                console.error('Failed to ban user:', error);
-                this.handleFirestoreError(error, '사용자 차단');
+    closeUserModal() {
+        const modal = document.getElementById('user-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 차단 설명 모달 표시
+     */
+    showBanModal(userId) {
+        // 사용자 정보 가져오기
+        this.db.collection('users').doc(userId).get().then(doc => {
+            if (!doc.exists) {
+                alert('사용자를 찾을 수 없습니다.');
+                return;
             }
+            
+            const userData = doc.data();
+            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
+            const email = userData.email || userId;
+            
+            const modalHtml = `
+                <div class="modal-overlay" id="ban-modal-overlay" onclick="adminDashboard.closeBanModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h2 style="margin: 0; color: white;">🚫 사용자 차단</h2>
+                            <button class="modal-close" onclick="adminDashboard.closeBanModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                        </div>
+                        <div class="modal-body" style="padding: 20px;">
+                            <!-- 사용자 정보 -->
+                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">차단 대상</h3>
+                                <p style="margin: 0; color: #333; font-size: 14px;"><strong>${displayName}</strong> (${email})</p>
+                            </div>
+                            
+                            <!-- 차단 기능 설명 -->
+                            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #856404; font-size: 16px;">⚠️ 차단 기능 안내</h3>
+                                <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8;">
+                                    <li>차단된 사용자는 <strong>로그인 및 모든 서비스 이용이 제한</strong>됩니다.</li>
+                                    <li>차단된 사용자의 <strong>보유 영토는 자동으로 해제</strong>됩니다.</li>
+                                    <li>차단은 <strong>관리자에 의해서만 해제</strong>할 수 있습니다.</li>
+                                    <li>차단 사유는 로그에 기록되며, <strong>되돌릴 수 없습니다</strong>.</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- 차단 사유 입력 -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">차단 사유 (선택사항)</label>
+                                <textarea id="ban-reason-input" placeholder="차단 사유를 입력하세요..." style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                            </div>
+                            
+                            <!-- 경고 메시지 -->
+                            <div style="background: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; margin-bottom: 20px;">
+                                <p style="margin: 0; color: #721c24; font-size: 14px; font-weight: bold;">⚠️ 이 작업은 되돌릴 수 없습니다. 신중하게 결정하세요.</p>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeBanModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
+                            <button class="btn btn-danger" onclick="adminDashboard.confirmBanUser('${userId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🚫 차단 확인</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('ban-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+        }).catch(error => {
+            console.error('Failed to load user for ban:', error);
+            alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
+        });
+    }
+    
+    closeBanModal() {
+        const modal = document.getElementById('ban-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 사용자 차단 확인 및 실행
+     */
+    async confirmBanUser(userId) {
+        const reasonInput = document.getElementById('ban-reason-input');
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+        
+        try {
+            await this.db.collection('users').doc(userId).update({
+                banned: true,
+                bannedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                bannedBy: this.currentUser?.email || 'admin',
+                banReason: reason || '관리자에 의해 차단됨'
+            });
+            
+            this.logAdminAction('BAN_USER', { userId, reason });
+            this.closeBanModal();
+            this.loadUsersTable(); // Refresh
+            alert('✅ 사용자가 차단되었습니다.');
+        } catch (error) {
+            console.error('Failed to ban user:', error);
+            this.handleFirestoreError(error, '사용자 차단');
+        }
+    }
+    
+    /**
+     * 포인트 지급 모달 표시
+     */
+    async addPoints(userId) {
+        try {
+            // 사용자 정보 가져오기
+            const userDoc = await this.db.collection('users').doc(userId).get();
+            if (!userDoc.exists) {
+                alert('사용자를 찾을 수 없습니다.');
+                return;
+            }
+            
+            const userData = userDoc.data();
+            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
+            const email = userData.email || userId;
+            
+            // 지갑 정보 가져오기
+            let walletData = null;
+            let currentBalance = 0;
+            try {
+                const walletDoc = await this.db.collection('wallets').doc(userId).get();
+                if (walletDoc.exists) {
+                    walletData = walletDoc.data();
+                    currentBalance = walletData.balance || 0;
+                }
+            } catch (walletError) {
+                console.warn('Failed to load wallet:', walletError);
+            }
+            
+            const modalHtml = `
+                <div class="modal-overlay" id="points-modal-overlay" onclick="adminDashboard.closePointsModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #00b894 0%, #00a085 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h2 style="margin: 0; color: white;">💰 포인트 지급</h2>
+                            <button class="modal-close" onclick="adminDashboard.closePointsModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                        </div>
+                        <div class="modal-body" style="padding: 20px;">
+                            <!-- 사용자 정보 -->
+                            <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #00b894;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #2e7d32; font-size: 16px;">👤 지급 대상</h3>
+                                <p style="margin: 0; color: #333; font-size: 14px;"><strong>${displayName}</strong> (${email})</p>
+                                <p style="margin: 5px 0 0 0; color: #666; font-size: 13px;">현재 잔액: <strong>${currentBalance.toLocaleString()} pt</strong></p>
+                            </div>
+                            
+                            <!-- 포인트 지급 양식 -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">지급할 포인트 (pt)</label>
+                                <input type="number" id="points-amount-input" min="1" step="1" placeholder="지급할 포인트를 입력하세요" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px; font-weight: bold; text-align: center;" autofocus>
+                                <p style="margin: 8px 0 0 0; color: #666; font-size: 12px;">※ 최소 1 pt 이상 입력해주세요.</p>
+                            </div>
+                            
+                            <!-- 빠른 선택 버튼 -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">빠른 선택</label>
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '100'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">100 pt</button>
+                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '500'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">500 pt</button>
+                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '1000'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">1,000 pt</button>
+                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '5000'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">5,000 pt</button>
+                                </div>
+                            </div>
+                            
+                            <!-- 사유 입력 -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">지급 사유 (선택사항)</label>
+                                <textarea id="points-reason-input" placeholder="포인트 지급 사유를 입력하세요..." style="width: 100%; min-height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                            </div>
+                            
+                            <!-- 예상 잔액 표시 -->
+                            <div id="points-preview" style="background: #f0f0f0; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: none;">
+                                <p style="margin: 0; color: #333; font-size: 14px;">
+                                    현재 잔액: <strong>${currentBalance.toLocaleString()} pt</strong><br>
+                                    지급 후 예상 잔액: <strong id="points-preview-amount" style="color: #00b894; font-size: 18px;">-</strong>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closePointsModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
+                            <button class="btn btn-primary" onclick="adminDashboard.confirmAddPoints('${userId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #00b894 0%, #00a085 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 지급 확인</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('points-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // 포인트 입력 시 예상 잔액 업데이트
+            const amountInput = document.getElementById('points-amount-input');
+            const previewDiv = document.getElementById('points-preview');
+            const previewAmount = document.getElementById('points-preview-amount');
+            
+            if (amountInput && previewDiv && previewAmount) {
+                amountInput.addEventListener('input', (e) => {
+                    const amount = parseInt(e.target.value) || 0;
+                    if (amount > 0) {
+                        const newBalance = currentBalance + amount;
+                        previewAmount.textContent = newBalance.toLocaleString() + ' pt';
+                        previewDiv.style.display = 'block';
+                    } else {
+                        previewDiv.style.display = 'none';
+                    }
+                });
+            }
+            
+        } catch (error) {
+            console.error('Failed to load user for points:', error);
+            alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    closePointsModal() {
+        const modal = document.getElementById('points-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 포인트 지급 확인 및 실행
+     */
+    async confirmAddPoints(userId) {
+        const amountInput = document.getElementById('points-amount-input');
+        const reasonInput = document.getElementById('points-reason-input');
+        
+        if (!amountInput) {
+            alert('포인트 입력 필드를 찾을 수 없습니다.');
+            return;
+        }
+        
+        const amount = parseInt(amountInput.value);
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+        
+        if (isNaN(amount) || amount <= 0) {
+            alert('올바른 포인트를 입력해주세요. (1 pt 이상)');
+            amountInput.focus();
+            return;
+        }
+        
+        try {
+            // 지갑 문서 가져오기 또는 생성
+            const walletRef = this.db.collection('wallets').doc(userId);
+            const walletDoc = await walletRef.get();
+            
+            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            const currentBalance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
+            const newBalance = currentBalance + amount;
+            const totalCharged = walletDoc.exists ? (walletDoc.data().totalCharged || 0) : 0;
+            const newTotalCharged = totalCharged + amount;
+            
+            if (walletDoc.exists) {
+                // 기존 지갑 업데이트
+                await walletRef.update({
+                    balance: newBalance,
+                    totalCharged: newTotalCharged,
+                    updatedAt: Timestamp
+                });
+            } else {
+                // 새 지갑 생성
+                await walletRef.set({
+                    userId: userId,
+                    balance: newBalance,
+                    totalCharged: newTotalCharged,
+                    totalSpent: 0,
+                    createdAt: Timestamp,
+                    updatedAt: Timestamp
+                });
+            }
+            
+            // 거래 내역 추가
+            const transactionRef = this.db.collection('wallets').doc(userId).collection('transactions').doc();
+            await transactionRef.set({
+                type: 'admin_grant',
+                amount: amount,
+                balance: newBalance,
+                reason: reason || '관리자에 의해 지급됨',
+                createdBy: this.currentUser?.email || 'admin',
+                createdAt: Timestamp
+            });
+            
+            this.logAdminAction('ADD_POINTS', { userId, amount, reason });
+            this.closePointsModal();
+            this.loadUsersTable(); // Refresh
+            alert(`✅ 포인트가 지급되었습니다.\n\n지급액: ${amount.toLocaleString()} pt\n새 잔액: ${newBalance.toLocaleString()} pt`);
+        } catch (error) {
+            console.error('Failed to add points:', error);
+            this.handleFirestoreError(error, '포인트 지급');
         }
     }
     
