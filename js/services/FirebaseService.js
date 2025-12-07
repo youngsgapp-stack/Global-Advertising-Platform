@@ -97,6 +97,11 @@ class FirebaseService {
                     if (user) {
                         log.info('[FirebaseService] ✅ User logged in:', user.email);
                         eventBus.emit(EVENTS.AUTH_LOGIN, { user });
+                        
+                        // 사용자 문서 생성/업데이트 (비동기, 에러 무시)
+                        this.ensureUserDocument(user).catch(err => {
+                            log.warn('[FirebaseService] Failed to create/update user document:', err);
+                        });
                     } else {
                         log.info('[FirebaseService] 👋 User logged out');
                         eventBus.emit(EVENTS.AUTH_LOGOUT, {});
@@ -271,10 +276,15 @@ class FirebaseService {
                 
                 // onAuthStateChanged가 자동으로 트리거되지만, 명시적으로도 이벤트 발행
                 // 약간의 지연을 두어 onAuthStateChanged가 먼저 실행되도록 함
-                setTimeout(() => {
+                setTimeout(async () => {
                     log.info('[FirebaseService] 📢 Emitting AUTH_STATE_CHANGED event for redirect user');
                     eventBus.emit(EVENTS.AUTH_STATE_CHANGED, { user: result.user });
                     eventBus.emit(EVENTS.AUTH_LOGIN, { user: result.user });
+                    
+                    // 사용자 문서 생성/업데이트 (비동기, 에러 무시)
+                    this.ensureUserDocument(result.user).catch(err => {
+                        log.warn('[FirebaseService] Failed to create/update user document:', err);
+                    });
                     
                     // 성공 알림
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
@@ -518,6 +528,12 @@ class FirebaseService {
                 log.info('[FirebaseService] 🪟 Attempting popup sign-in...');
                 const result = await this._auth.signInWithPopup(this.auth, provider);
                 log.info('[FirebaseService] ✅ Popup sign-in successful:', result.user.email);
+                
+                // 사용자 문서 생성/업데이트 (비동기, 에러 무시)
+                this.ensureUserDocument(result.user).catch(err => {
+                    log.warn('[FirebaseService] Failed to create/update user document:', err);
+                });
+                
                 return result.user;
             } catch (popupError) {
                 log.warn('[FirebaseService] ⚠️ Popup sign-in failed:', popupError.code, popupError.message);
@@ -894,6 +910,58 @@ class FirebaseService {
      */
     getTimestamp() {
         return this._firestore.Timestamp;
+    }
+    
+    /**
+     * 사용자 문서 생성/업데이트
+     * Firebase Auth로 로그인한 사용자의 정보를 Firestore users 컬렉션에 저장
+     */
+    async ensureUserDocument(user) {
+        if (!user || !user.uid) {
+            log.warn('[FirebaseService] Cannot create user document: invalid user');
+            return;
+        }
+        
+        try {
+            const userRef = this._firestore.doc(this.db, 'users', user.uid);
+            const userDoc = await this._firestore.getDoc(userRef);
+            
+            const Timestamp = this._firestore.Timestamp;
+            const now = Timestamp.now();
+            
+            const userData = {
+                uid: user.uid,
+                email: user.email || null,
+                displayName: user.displayName || user.email?.split('@')[0] || 'User',
+                photoURL: user.photoURL || null,
+                emailVerified: user.emailVerified || false,
+                createdAt: userDoc.exists() ? (userDoc.data().createdAt || now) : now,
+                updatedAt: now,
+                lastLoginAt: now,
+                territoryCount: userDoc.exists() ? (userDoc.data().territoryCount || 0) : 0,
+                banned: userDoc.exists() ? (userDoc.data().banned || false) : false
+            };
+            
+            if (userDoc.exists()) {
+                // 기존 문서 업데이트 (createdAt은 유지)
+                await this._firestore.updateDoc(userRef, {
+                    email: userData.email,
+                    displayName: userData.displayName,
+                    photoURL: userData.photoURL,
+                    emailVerified: userData.emailVerified,
+                    updatedAt: userData.updatedAt,
+                    lastLoginAt: userData.lastLoginAt
+                });
+                log.info(`[FirebaseService] ✅ Updated user document: ${user.email}`);
+            } else {
+                // 새 문서 생성
+                await this._firestore.setDoc(userRef, userData);
+                log.info(`[FirebaseService] ✅ Created user document: ${user.email}`);
+            }
+        } catch (error) {
+            log.error('[FirebaseService] Failed to ensure user document:', error);
+            throw error;
+        }
     }
 }
 

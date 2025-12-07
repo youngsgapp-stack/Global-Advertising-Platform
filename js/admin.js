@@ -105,6 +105,18 @@ class AdminDashboard {
     }
     
     /**
+     * Firebase Auth 사용자 목록에서 사용자 정보 가져오기 (대체 방법)
+     * 주의: Firebase Admin SDK가 없으면 직접 가져올 수 없음
+     * 대신 users 컬렉션에서 가져오거나 territories에서 추출
+     */
+    async loadUsersFromAuth() {
+        // Firebase Admin SDK가 없으면 직접 가져올 수 없음
+        // 대신 users 컬렉션이나 territories에서 사용자 정보 추출
+        console.warn('[AdminDashboard] Cannot load users directly from Firebase Auth (Admin SDK required)');
+        return [];
+    }
+    
+    /**
      * 세션 인증 확인 (P키 5번 로그인)
      */
     checkSessionAuth() {
@@ -511,22 +523,36 @@ class AdminDashboard {
             let snapshot;
             try {
                 // 방법 1: 일반 쿼리
-                snapshot = await this.db.collection('users').limit(50).get();
+                console.log('[AdminDashboard] Attempting to load users from Firestore...');
+                snapshot = await this.db.collection('users').limit(100).get();
+                console.log(`[AdminDashboard] ✅ Method 1 succeeded: ${snapshot.size} users loaded`);
             } catch (error1) {
                 console.warn('[AdminDashboard] Method 1 failed, trying method 2:', error1);
+                console.warn('[AdminDashboard] Error details:', {
+                    code: error1.code,
+                    message: error1.message
+                });
                 try {
                     // 방법 2: 익명 인증 후 시도
                     if (!this.auth.currentUser) {
+                        console.log('[AdminDashboard] No current user, signing in anonymously...');
                         await this.auth.signInAnonymously();
+                        console.log('[AdminDashboard] ✅ Signed in anonymously');
                     }
-                    snapshot = await this.db.collection('users').limit(50).get();
+                    snapshot = await this.db.collection('users').limit(100).get();
+                    console.log(`[AdminDashboard] ✅ Method 2 succeeded: ${snapshot.size} users loaded`);
                 } catch (error2) {
                     console.error('[AdminDashboard] Method 2 also failed:', error2);
+                    console.error('[AdminDashboard] Error details:', {
+                        code: error2.code,
+                        message: error2.message,
+                        stack: error2.stack
+                    });
                     throw error2;
                 }
             }
             
-            console.log(`[AdminDashboard] Loaded ${snapshot.size} users from Firestore`);
+            console.log(`[AdminDashboard] Total users loaded: ${snapshot.size}`);
             
             if (snapshot.empty) {
                 console.log('[AdminDashboard] No users found in Firestore users collection, trying to extract from territories...');
@@ -860,6 +886,46 @@ class AdminDashboard {
                 territoryGroups[territoryId].push({ doc, data });
             });
             
+            // 만료된 옥션 자동 종료 처리
+            const now = new Date();
+            const expiredAuctions = [];
+            
+            for (const doc of snapshot.docs) {
+                const data = doc.data();
+                const status = (data.status || '').toLowerCase();
+                
+                // active 상태인 옥션만 만료 시간 확인
+                if (status === 'active') {
+                    const endTime = data.endTime || data.endsAt;
+                    if (endTime) {
+                        let endDate;
+                        if (endTime.toDate && typeof endTime.toDate === 'function') {
+                            endDate = endTime.toDate();
+                        } else if (endTime.seconds) {
+                            endDate = new Date(endTime.seconds * 1000);
+                        } else if (endTime instanceof Date) {
+                            endDate = endTime;
+                        } else {
+                            endDate = new Date(endTime);
+                        }
+                        
+                        if (endDate && !isNaN(endDate.getTime()) && endDate.getTime() <= now.getTime()) {
+                            expiredAuctions.push({ id: doc.id, data });
+                        }
+                    }
+                }
+            }
+            
+            // 만료된 옥션 자동 종료 처리 (비동기, 확인 없이)
+            if (expiredAuctions.length > 0) {
+                console.log(`[AdminDashboard] Found ${expiredAuctions.length} expired auction(s), auto-ending...`);
+                expiredAuctions.forEach(({ id }) => {
+                    this.endAuction(id, true).catch(err => {
+                        console.error(`[AdminDashboard] Failed to auto-end auction ${id}:`, err);
+                    });
+                });
+            }
+            
             tbody.innerHTML = snapshot.docs.map(doc => {
                 const data = doc.data();
                 const territoryId = data.territoryId || doc.id;
@@ -867,7 +933,30 @@ class AdminDashboard {
                 
                 // 상태 확인 (대소문자 구분 없이)
                 const status = data.status || '';
-                const isActive = status.toLowerCase() === 'active';
+                let isActive = status.toLowerCase() === 'active';
+                
+                // 만료 시간 확인 (status가 active여도 만료되었으면 종료로 표시)
+                if (isActive) {
+                    const endTime = data.endTime || data.endsAt;
+                    if (endTime) {
+                        let endDate;
+                        if (endTime.toDate && typeof endTime.toDate === 'function') {
+                            endDate = endTime.toDate();
+                        } else if (endTime.seconds) {
+                            endDate = new Date(endTime.seconds * 1000);
+                        } else if (endTime instanceof Date) {
+                            endDate = endTime;
+                        } else {
+                            endDate = new Date(endTime);
+                        }
+                        
+                        if (endDate && !isNaN(endDate.getTime()) && endDate.getTime() <= now.getTime()) {
+                            isActive = false; // 만료되었으면 종료로 표시
+                            console.log(`[AdminDashboard] Auction ${doc.id} is expired but status is active, marking as ended`);
+                        }
+                    }
+                }
+                
                 const statusText = isActive ? '진행중' : '종료됨';
                 const statusClass = isActive ? 'status-active' : 'status-ended';
                 
@@ -1356,20 +1445,36 @@ class AdminDashboard {
         }
     }
     
-    async endAuction(auctionId) {
-        if (confirm('정말 이 옥션을 종료하시겠습니까?')) {
-            try {
-                await this.db.collection('auctions').doc(auctionId).update({
-                    status: 'ended',
-                    endedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    endedBy: this.currentUser?.email || 'admin',
-                    reason: '관리자에 의해 수동 종료됨'
-                });
-                this.logAdminAction('END_AUCTION', { auctionId });
-                this.loadAuctionsTable(); // Refresh
+    async endAuction(auctionId, skipConfirm = false) {
+        // 자동 종료인 경우 확인 없이 진행
+        if (!skipConfirm && !confirm('정말 이 옥션을 종료하시겠습니까?')) {
+            return;
+        }
+        
+        try {
+            const reason = skipConfirm ? '만료 시간 초과로 자동 종료됨' : '관리자에 의해 수동 종료됨';
+            
+            await this.db.collection('auctions').doc(auctionId).update({
+                status: 'ended',
+                endedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                endedBy: this.currentUser?.email || 'admin',
+                reason: reason
+            });
+            
+            this.logAdminAction('END_AUCTION', { auctionId, reason });
+            
+            // 자동 종료인 경우 알림 없이 테이블만 새로고침
+            if (skipConfirm) {
+                console.log(`[AdminDashboard] Auto-ended auction ${auctionId}`);
+            } else {
                 alert('옥션이 종료되었습니다.');
-            } catch (error) {
-                console.error('Failed to end auction:', error);
+            }
+            
+            // 테이블 새로고침
+            await this.loadAuctionsTable();
+        } catch (error) {
+            console.error('Failed to end auction:', error);
+            if (!skipConfirm) {
                 this.handleFirestoreError(error, '옥션 종료');
             }
         }
