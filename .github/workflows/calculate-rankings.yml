@@ -1,0 +1,20 @@
+
+```yaml
+name: Calculate Rankings
+
+on:
+  schedule:
+    # 15분마다 실행 (UTC 기준)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # 수동 실행 가능
+
+jobs:
+  calculate-rankings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Rankings API
+        run: |
+          curl -X POST "${{ secrets.VERCEL_URL }}/api/cron/calculate-rankings" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
+```
