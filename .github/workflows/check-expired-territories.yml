@@ -1,0 +1,16 @@
+name: Check Expired Territories
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # 매시간
+  workflow_dispatch:
+
+jobs:
+  check-expired-territories:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Check Expired Territories API
+        run: |
+          curl -X POST "${{ secrets.VERCEL_URL }}/api/cron/check-expired-territories" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
