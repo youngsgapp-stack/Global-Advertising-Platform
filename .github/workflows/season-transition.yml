@@ -1,0 +1,16 @@
+name: Season Transition
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 자정
+  workflow_dispatch:
+
+jobs:
+  season-transition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Season Transition API
+        run: |
+          curl -X POST "${{ secrets.VERCEL_URL }}/api/cron/season-transition" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
