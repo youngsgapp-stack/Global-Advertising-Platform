@@ -691,6 +691,7 @@ class TerritoryDataService {
     
     /**
      * 행정구역 가격 계산 - 픽셀 수 기반
+     * 전문가 제안: 모든 영토에 최소 시작가 적용 (0.5~1달러 상당)
      */
     calculateTerritoryPrice(territory, countryCode) {
         // 픽셀 수 기반 가격 계산
@@ -715,6 +716,19 @@ class TerritoryDataService {
             price = Math.round(price / 50) * 50;
         } else {
             price = Math.round(price / 100) * 100;
+        }
+        
+        // 최소 시작가 적용 (전문가 제안: 0.5~1달러 상당)
+        // 작은 영토: 최소 50pt (0.5달러 상당)
+        // 큰 영토: 최소 100pt (1달러 상당)
+        const MIN_STARTING_PRICE_SMALL = 50;  // 작은 영토 최소 가격
+        const MIN_STARTING_PRICE_LARGE = 100; // 큰 영토 최소 가격
+        const LARGE_TERRITORY_THRESHOLD = 5000; // 큰 영토 기준 (픽셀 수)
+        
+        if (pixelCount < LARGE_TERRITORY_THRESHOLD) {
+            price = Math.max(price, MIN_STARTING_PRICE_SMALL);
+        } else {
+            price = Math.max(price, MIN_STARTING_PRICE_LARGE);
         }
         
         return Math.round(price);
@@ -1157,4 +1171,6 @@ class TerritoryDataService {
 // 싱글톤
 export const territoryDataService = new TerritoryDataService();
 export default territoryDataService;
+
+
 

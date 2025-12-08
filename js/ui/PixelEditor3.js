@@ -1,6 +1,7 @@
 /**
  * PixelEditor3 - 완전히 새로운 픽셀 에디터 UI
  * 모던하고 깔끔한 디자인
+ * Version: 2025-01-03-fix-async-close
  */
 
 import { CONFIG, log } from '../config.js';

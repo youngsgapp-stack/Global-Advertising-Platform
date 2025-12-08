@@ -124,6 +124,19 @@ export default async function handler(req, res) {
             });
         }
         
+        // 2.1 소유 제한 체크 (고래 유저 대응)
+        const ownedTerritoriesSnapshot = await db.collection('territories')
+            .where('ruler', '==', userId)
+            .get();
+        
+        const MAX_TERRITORIES_PER_USER = 50; // 사용자당 최대 소유 영토 수
+        if (ownedTerritoriesSnapshot.size >= MAX_TERRITORIES_PER_USER) {
+            return res.status(400).json({
+                success: false,
+                error: `Ownership limit reached. Maximum ${MAX_TERRITORIES_PER_USER} territories per user.`
+            });
+        }
+        
         // 3. reason에 따른 검증
         if (reason === 'direct_purchase') {
             // 직접 구매: 결제 검증
@@ -209,28 +222,71 @@ export default async function handler(req, res) {
         }
         // admin_fix는 검증 없이 진행 (관리자 권한 필요 시 추가)
         
-        // 4. 소유권 변경
+        // 4. 소유권 변경 (개선된 소유 모델)
         const transactionId = requestId || `tx_${territoryId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const now = admin.firestore.FieldValue.serverTimestamp();
-        const protectionEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        const nowDate = new Date();
         
-        batch.update(territoryRef, {
+        // 사용자 아이디어 반영: 처음 구매시 1주일 고정
+        const initialProtectionEndsAt = new Date(nowDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 7일 후
+        
+        // 프리미엄 상품 옵션 (metadata에서 가져옴, 기본값: 없음)
+        const leaseType = req.body.leaseType || 'default'; // 'default', '1month', '1year', 'permanent'
+        let leaseEndsAt = null;
+        let isPermanent = false;
+        
+        // 프리미엄 상품에 따른 임대 기간 설정
+        if (leaseType === '1month') {
+            leaseEndsAt = new Date(nowDate.getTime() + 30 * 24 * 60 * 60 * 1000); // 30일
+        } else if (leaseType === '1year') {
+            leaseEndsAt = new Date(nowDate.getTime() + 365 * 24 * 60 * 60 * 1000); // 365일
+        } else if (leaseType === 'permanent') {
+            isPermanent = true;
+            // 영구 임대는 leaseEndsAt을 null로 설정
+        } else {
+            // 기본: 처음 구매시 1주일 고정, 이후 입찰 없으면 무한 고정
+            // leaseEndsAt은 null로 설정 (1주일 후 자동으로 무한 고정으로 전환)
+        }
+        
+        // 첫 소유자 확인 (히스토리에서 확인)
+        const historyQuery = await db.collection('ownership_logs')
+            .where('territoryId', '==', territoryId)
+            .where('type', '==', 'ownership_transfer')
+            .orderBy('timestamp', 'desc')
+            .limit(1)
+            .get();
+        
+        const isFirstOwner = historyQuery.empty || !territory.ruler;
+        
+        // 소유권 변경 업데이트
+        const territoryUpdate = {
             ruler: userId,
             rulerName: userName,
             rulerSince: now,
             sovereignty: 'protected',
-            protectionEndsAt: admin.firestore.Timestamp.fromDate(protectionEndsAt),
+            protectionEndsAt: admin.firestore.Timestamp.fromDate(initialProtectionEndsAt),
             purchasedPrice: price,
             tribute: price,
             currentAuction: null,
-            updatedAt: now
-        });
+            updatedAt: now,
+            // 새로운 필드 추가
+            initialProtectionEndsAt: admin.firestore.Timestamp.fromDate(initialProtectionEndsAt),
+            leaseType: leaseType,
+            leaseEndsAt: leaseEndsAt ? admin.firestore.Timestamp.fromDate(leaseEndsAt) : null,
+            isPermanent: isPermanent,
+            lastActivityAt: now, // 활동 기반 유지권을 위한 필드
+            canBeChallenged: false, // 1주일 고정 기간 중에는 도전 불가
+            founderBadge: isFirstOwner // 첫 소유자 배지
+        };
         
-        // 5. 소유권 변경 로그 저장
+        batch.update(territoryRef, territoryUpdate);
+        
+        // 5. 소유권 변경 로그 저장 (히스토리 영구 보존)
         const logRef = db.collection('ownership_logs').doc(transactionId);
         batch.set(logRef, {
             territoryId,
             previousOwner: territory.ruler || null,
+            previousOwnerName: territory.rulerName || null,
             newOwner: userId,
             newOwnerName: userName,
             price,
@@ -240,7 +296,18 @@ export default async function handler(req, res) {
             reason,
             requestId: requestId || null,
             timestamp: now,
-            type: 'ownership_transfer'
+            type: 'ownership_transfer',
+            // 히스토리 영구 보존을 위한 추가 정보
+            leaseType: leaseType,
+            leaseEndsAt: leaseEndsAt ? admin.firestore.Timestamp.fromDate(leaseEndsAt) : null,
+            isPermanent: isPermanent,
+            isFirstOwner: isFirstOwner,
+            // 영구 기록: 이 영토의 첫 소유자 정보
+            founderInfo: isFirstOwner ? {
+                userId: userId,
+                userName: userName,
+                timestamp: now
+            } : null
         });
         
         // 6. 트랜잭션 실행

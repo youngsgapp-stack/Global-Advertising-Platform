@@ -286,6 +286,19 @@ class PixelDataService {
             
             log.info(`[PixelDataService] Saved pixel data to Firebase for ${territoryId} (${pixelData.filledPixels || 0} pixels)`);
             
+            // 영토의 lastActivityAt 업데이트 (활동 기반 유지권 시스템)
+            try {
+                // Firestore Timestamp 사용
+                const { Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                await firebaseService.updateDocument('territories', territoryId, {
+                    lastActivityAt: Timestamp.now()
+                });
+                log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId}`);
+            } catch (error) {
+                log.warn(`[PixelDataService] Failed to update lastActivityAt for territory ${territoryId}:`, error);
+                // 영토 업데이트 실패해도 픽셀 저장은 성공한 것으로 처리
+            }
+            
             // 이벤트 발행
             eventBus.emit(EVENTS.PIXEL_DATA_SAVED, {
                 territoryId,

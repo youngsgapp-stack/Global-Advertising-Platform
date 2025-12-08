@@ -14,7 +14,8 @@ export const TRANSACTION_TYPE = {
     BID: 'bid',                 // 입찰
     BID_REFUND: 'bid_refund',   // 입찰 환불 (낙찰 실패)
     REWARD: 'reward',           // 보상
-    ADMIN: 'admin'              // 관리자 조정
+    ADMIN: 'admin',            // 관리자 조정
+    STARTER_BONUS: 'starter_bonus'  // 스타터 보너스 (회원가입 시 지급)
 };
 
 // 지갑 이벤트
@@ -83,17 +84,44 @@ class WalletService {
             let wallet = await firebaseService.getDocument('wallets', userId);
             
             if (!wallet) {
-                // 새 지갑 생성
+                // 새 지갑 생성 + 스타터 포인트 지급
+                const STARTER_POINTS = 400; // 4달러 상당 (전문가 제안: 3~5달러 상당)
+                
                 wallet = {
                     userId,
-                    balance: 0,
+                    balance: STARTER_POINTS,
                     totalCharged: 0,
                     totalSpent: 0,
+                    starterBonusGiven: true,
                     createdAt: new Date(),
                     updatedAt: new Date()
                 };
                 await firebaseService.setDocument('wallets', userId, wallet, false); // merge=false로 새 문서 생성
-                log.info('New wallet created for user:', userId);
+                
+                // 스타터 보너스 거래 내역 저장
+                const transaction = {
+                    type: TRANSACTION_TYPE.STARTER_BONUS,
+                    amount: STARTER_POINTS,
+                    balanceAfter: STARTER_POINTS,
+                    description: 'Welcome Bonus - 스타터 포인트',
+                    metadata: {
+                        reason: 'new_user_registration',
+                        message: '회원가입을 환영합니다! 첫 영토 구매에 사용할 수 있는 포인트를 드립니다.'
+                    },
+                    createdAt: new Date()
+                };
+                
+                await firebaseService.setDocument(
+                    `wallets/${userId}/transactions`,
+                    `txn_starter_${Date.now()}`,
+                    transaction
+                );
+                
+                // 스타터 보너스 이벤트 발행
+                eventBus.emit(WALLET_EVENTS.TRANSACTION_ADDED, { transaction });
+                eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: STARTER_POINTS });
+                
+                log.info(`New wallet created for user ${userId} with ${STARTER_POINTS} starter points`);
             } else {
                 // 기존 지갑 데이터 검증 및 수정
                 if (typeof wallet.balance !== 'number' || isNaN(wallet.balance)) {

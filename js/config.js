@@ -6,6 +6,7 @@
 export const CONFIG = {
     // 앱 정보
     APP_NAME: "Own a Piece of Earth",
+    APP_TAGLINE: "Create & Share Your Pixel Art on World Map", // 포지셔닝: "투자" → "창작/표현"
     VERSION: '2.0.0',
     
     // Mapbox 설정

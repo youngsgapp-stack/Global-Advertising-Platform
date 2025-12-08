@@ -92,7 +92,7 @@ class RankingBoard {
                 <button class="ranking-tab" data-tab="most_viewed">Trending</button>
                 <button class="ranking-tab" data-tab="collectors">Collectors</button>
                 <button class="ranking-tab" data-tab="galleries">Galleries</button>
-                <button class="ranking-tab" data-tab="investors">Investors</button>
+                <button class="ranking-tab" data-tab="investors">Creators</button>
             </div>
             
             <div class="ranking-content">
@@ -280,7 +280,7 @@ class RankingBoard {
     }
     
     /**
-     * Top Investors 랭킹 렌더링
+     * Top Creators 랭킹 렌더링
      */
     renderInvestorsRanking() {
         const rankings = rankingSystem.getRankingByType(RANKING_TYPE.TOTAL_VALUE, 10);
@@ -356,7 +356,7 @@ class RankingBoard {
                             <span class="metric-value">${this.formatNumber(entry.totalPixels || 0)}</span>
                         </div>
                         <div class="metric-item">
-                            <span class="metric-label">${tabType === 'investors' ? 'Value' : 'Coverage'}</span>
+                            <span class="metric-label">${tabType === 'investors' ? 'Total Value' : 'Coverage'}</span>
                             <span class="metric-value">${mainMetric}</span>
                         </div>
                     </div>
@@ -556,7 +556,7 @@ class RankingBoard {
             'global_coverage': rank <= 3 ? '🌟 Global Leader' : '🌍 Global Coverage',
             'collectors': rank <= 3 ? '🏆 Top Collector' : '📦 Collector',
             'galleries': rank <= 3 ? '🎨 Gallery Master' : '🖼️ Gallery Owner',
-            'investors': rank <= 3 ? '💰 Top Investor' : '💵 Investor'
+            'investors': rank <= 3 ? '🎨 Top Creator' : '✨ Creator'
         };
         return tags[tabType] || '';
     }
