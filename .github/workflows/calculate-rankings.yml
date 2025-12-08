@@ -1,0 +1,16 @@
+name: Calculate Rankings
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  calculate-rankings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Rankings API
+        run: |
+          curl -X POST "${{ secrets.VERCEL_URL }}/api/cron/calculate-rankings" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
