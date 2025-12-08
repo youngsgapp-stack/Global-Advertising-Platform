@@ -2,10 +2,6 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "crons": [
-    // 주의: Vercel 무료 티어는 하루 1회만 실행 가능
-    // 실제로는 GitHub Actions를 사용하여 더 자주 실행합니다
-    // GitHub Actions: .github/workflows/calculate-rankings.yml (15분 주기)
-    // GitHub Actions: .github/workflows/end-auctions.yml (1분 주기)
     {
       "path": "/api/cron/calculate-rankings",
       "schedule": "0 0 * * *"
