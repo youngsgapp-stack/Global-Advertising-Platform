@@ -1153,35 +1153,71 @@ class MapController {
         // Territory 인덱스 테이블도 초기화
         this.clearTerritoryIndex();
         
+        // 먼저 모든 레이어를 찾아서 제거 (Source를 사용하는 모든 레이어)
+        const layersToRemove = [];
+        const sourcesToRemove = new Set();
+        
+        // activeLayerIds에 있는 Source들
         for (const sourceId of this.activeLayerIds) {
-            const fillLayerId = `${sourceId}-fill`;
-            const lineLayerId = `${sourceId}-line`;
-            const auctionGlowId = `${sourceId}-auction-glow`;
-            const auctionBorderId = `${sourceId}-auction-border`;
-            const auctionInnerId = `${sourceId}-auction-inner`;
-            const ownedBorderId = `${sourceId}-owned-border`;
+            sourcesToRemove.add(sourceId);
             
-            try {
-                // 모든 관련 레이어 제거
-                const layersToRemove = [
-                    fillLayerId, lineLayerId, 
-                    auctionGlowId, auctionBorderId, auctionInnerId, 
-                    ownedBorderId
-                ];
-                
-                for (const layerId of layersToRemove) {
-                    if (this.map.getLayer(layerId)) {
-                        this.map.removeLayer(layerId);
+            // 각 Source에 연결된 모든 레이어 ID 생성
+            const layerIds = [
+                `${sourceId}-fill`,
+                `${sourceId}-line`,
+                `${sourceId}-auction-glow`,
+                `${sourceId}-auction-border`,
+                `${sourceId}-auction-inner`,
+                `${sourceId}-auction-pulse`,  // 추가: auction-pulse 레이어
+                `${sourceId}-owned-border`
+            ];
+            
+            layersToRemove.push(...layerIds);
+        }
+        
+        // 맵에 있는 모든 레이어를 확인하여 해당 Source를 사용하는 레이어도 찾기
+        const style = this.map.getStyle();
+        if (style && style.layers) {
+            for (const layer of style.layers) {
+                // activeLayerIds에 있는 Source를 사용하는 레이어 찾기
+                if (layer.source && sourcesToRemove.has(layer.source)) {
+                    if (!layersToRemove.includes(layer.id)) {
+                        layersToRemove.push(layer.id);
                     }
                 }
-                
+                // 레이어 ID가 sourceId로 시작하는 경우도 확인
+                for (const sourceId of sourcesToRemove) {
+                    if (layer.id && layer.id.startsWith(sourceId)) {
+                        if (!layersToRemove.includes(layer.id)) {
+                            layersToRemove.push(layer.id);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 모든 레이어 제거 (Source 제거 전에)
+        for (const layerId of layersToRemove) {
+            try {
+                if (this.map.getLayer(layerId)) {
+                    this.map.removeLayer(layerId);
+                }
+            } catch (e) {
+                log.warn(`Failed to remove layer ${layerId}:`, e);
+            }
+        }
+        
+        // 모든 Source 제거 (레이어 제거 후)
+        for (const sourceId of sourcesToRemove) {
+            try {
                 if (this.map.getSource(sourceId)) {
                     this.map.removeSource(sourceId);
                 }
             } catch (e) {
-                log.warn(`Failed to remove layer ${sourceId}:`, e);
+                log.warn(`Failed to remove source ${sourceId}:`, e);
             }
         }
+        
         this.activeLayerIds.clear();
         this.sourcesLoaded.clear();
         log.info('All territory layers cleared');
@@ -2704,12 +2740,22 @@ class MapController {
                 
                 // 월드뷰 영토 레이어 - 위성 배경이 비치도록 투명도 조정
                 // 배경색 숨김 조건을 hasPixelArt 하나로 단순화
+                // sovereignty에 따라 색상 변경: 소유한 영토는 빨간색, 미정복은 국가 색상
                 this.map.addLayer({
                     id: 'world-territories-fill',
                     type: 'fill',
                     source: 'world-territories',
                     paint: {
-                        'fill-color': ['get', 'countryColor'],
+                        'fill-color': [
+                            'case',
+                            // 소유한 영토 (ruled 또는 protected)는 빨간색
+                            ['==', ['get', 'sovereignty'], 'ruled'], CONFIG.COLORS.SOVEREIGNTY.RULED,
+                            ['==', ['get', 'sovereignty'], 'protected'], CONFIG.COLORS.SOVEREIGNTY.RULED,
+                            // 경매 중인 영토는 주황색
+                            ['==', ['get', 'sovereignty'], 'contested'], CONFIG.COLORS.SOVEREIGNTY.CONTESTED,
+                            // 미정복 영토는 국가 색상
+                            ['get', 'countryColor']
+                        ],
                         'fill-opacity': [
                             'case',
                             // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
@@ -2772,11 +2818,46 @@ class MapController {
             this.flyTo([0, 20], 2);
             
             log.info(`World View loaded: ${worldData.features.length} regions`);
+            
+            // World View 로드 후 소유한 영토 상태 업데이트
+            // TerritoryManager에서 소유한 영토를 가져와서 TerritoryUpdatePipeline을 통해 갱신
+            this.updateOwnedTerritoriesInWorldView();
+            
             return true;
             
         } catch (error) {
             log.error('Failed to load World View:', error);
             return false;
+        }
+    }
+    
+    /**
+     * World View에서 소유한 영토 상태 업데이트
+     */
+    async updateOwnedTerritoriesInWorldView() {
+        try {
+            if (!this.pixelMapRenderer || !this.pixelMapRenderer.updatePipeline) {
+                log.warn('[MapController] PixelMapRenderer not available, skipping owned territories update');
+                return;
+            }
+            
+            // TerritoryUpdatePipeline을 통해 소유한 영토 가져오기
+            const ownedTerritoryIds = await this.pixelMapRenderer.updatePipeline.getOwnedTerritories();
+            
+            if (ownedTerritoryIds.length === 0) {
+                log.debug('[MapController] No owned territories to update in World View');
+                return;
+            }
+            
+            log.info(`[MapController] Updating ${ownedTerritoryIds.length} owned territories in World View...`);
+            
+            // 소유한 영토들을 배치로 갱신
+            await this.pixelMapRenderer.updatePipeline.refreshTerritories(ownedTerritoryIds, { batchSize: 20 });
+            
+            log.info(`[MapController] ✅ Updated ${ownedTerritoryIds.length} owned territories in World View`);
+            
+        } catch (error) {
+            log.error('[MapController] Failed to update owned territories in World View:', error);
         }
     }
     

@@ -276,6 +276,7 @@ export const CONFIG = {
         'senegal': { name: 'Senegal', nameKo: '세네갈', center: [-14, 14], zoom: 6, flag: '🇸🇳', group: 'africa', continent: 'africa' },
         'niger': { name: 'Niger', nameKo: '니제르', center: [9, 17], zoom: 5, flag: '🇳🇪', group: 'africa', continent: 'africa' },
         'mali': { name: 'Mali', nameKo: '말리', center: [-4, 17], zoom: 5, flag: '🇲🇱', group: 'africa', continent: 'africa' },
+        'mauritania': { name: 'Mauritania', nameKo: '모리타니', center: [-12, 20], zoom: 5, flag: '🇲🇷', group: 'africa', continent: 'africa' },
         'ivory-coast': { name: 'Ivory Coast', nameKo: '코트디부아르', center: [-5, 8], zoom: 6, flag: '🇨🇮', group: 'africa', continent: 'africa' },
         'cameroon': { name: 'Cameroon', nameKo: '카메룬', center: [12, 6], zoom: 5, flag: '🇨🇲', group: 'africa', continent: 'africa' },
         'angola': { name: 'Angola', nameKo: '앙골라', center: [17, -12], zoom: 5, flag: '🇦🇴', group: 'africa', continent: 'africa' },

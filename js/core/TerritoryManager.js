@@ -50,7 +50,7 @@ class TerritoryManager {
             'ISR': 'israel', 'TUR': 'turkey', 'EGY': 'egypt',
             'ZAF': 'south-africa', 'NGA': 'nigeria', 'KEN': 'kenya',
             'EGY': 'egypt', 'DZA': 'algeria', 'MAR': 'morocco', 'TUN': 'tunisia',
-            'NER': 'niger', 'MLI': 'mali', 'SEN': 'senegal', 'GHA': 'ghana',
+            'NER': 'niger', 'MLI': 'mali', 'MRT': 'mauritania', 'SEN': 'senegal', 'GHA': 'ghana',
             'CIV': 'ivory-coast', 'CMR': 'cameroon', 'UGA': 'uganda',
             'TZA': 'tanzania', 'ETH': 'ethiopia', 'SDN': 'sudan', 'SDS': 'south-sudan',
             'GRL': 'greenland', 'DN1': 'greenland',
@@ -183,6 +183,16 @@ class TerritoryManager {
             const territory = data.territory;
             this.currentTerritory = territory;
             
+            // territoryId가 없으면 territory.id에서 가져오기
+            const territoryId = data.territoryId || territory.id;
+            
+            // 영토 조회수 증가 (비동기, 에러 무시)
+            if (territoryId) {
+                this.incrementViewCount(territoryId).catch(err => {
+                    log.warn(`[TerritoryManager] Failed to increment view count for ${territoryId}:`, err);
+                });
+            }
+            
             // 영토 패널 열기 이벤트만 발행 (무한 루프 방지)
             eventBus.emit(EVENTS.UI_PANEL_OPEN, {
                 type: 'territory',
@@ -197,7 +207,7 @@ class TerritoryManager {
             return;
         }
         
-        const { territoryId, properties = {}, country, geometry, featureId, sourceId } = data;
+        const { territoryId, properties = {}, country, geometry, featureId, sourceId, territory } = data;
         
         // 무한 루프 방지: 이미 처리 중인 영토는 건너뛰기
         if (this.processingTerritoryId === territoryId) {
@@ -386,8 +396,12 @@ class TerritoryManager {
             });
             
             // 영토 선택 이벤트 발행 (조건 없이 항상 발행 - 파이프라인에서 Firestore 확인)
+            // territoryId, sourceId, featureId도 함께 전달하여 undefined 문제 방지
             eventBus.emit(EVENTS.TERRITORY_SELECT, {
-                territory: territory
+                territory: territory,
+                territoryId: territoryId,  // territoryId도 명시적으로 전달
+                sourceId: sourceId,       // sourceId 전달
+                featureId: featureId      // featureId 전달
             });
         } finally {
             // 처리 완료 후 플래그 해제 (약간의 지연 후)
@@ -663,21 +677,52 @@ class TerritoryManager {
         if (!territoryId) return;
         
         try {
-            // Firestore에서 현재 조회수 가져오기
-            const territory = await firebaseService.getDocument('territories', territoryId);
-            const currentViews = territory?.viewCount || 0;
+            // 중기 해결: 서버 사이드 API 사용 (권장)
+            // 단기 해결: 클라이언트에서 직접 업데이트 (현재)
+            // ⚠️ Rules 조건이 계속 맞지 않아 서버 사이드 API로 전환
+            const USE_SERVER_API = true; // 서버 API 사용 여부 (환경 변수로 제어 가능)
             
-            // 조회수 증가 (Firestore increment 연산 사용)
-            await firebaseService.updateDocument('territories', territoryId, {
-                viewCount: currentViews + 1,
-                lastViewedAt: new Date()
-            }, true); // merge=true로 기존 데이터 유지
-            
-            // 로컬 캐시도 업데이트
-            const localTerritory = this.territories.get(territoryId);
-            if (localTerritory) {
-                localTerritory.viewCount = currentViews + 1;
-                localTerritory.lastViewedAt = new Date();
+            if (USE_SERVER_API) {
+                // 서버 사이드 API 호출
+                const response = await fetch('/api/territory/increment-view', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ territoryId })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || '조회수 업데이트 실패');
+                }
+                
+                const data = await response.json();
+                
+                // 로컬 캐시 업데이트
+                const localTerritory = this.territories.get(territoryId);
+                if (localTerritory) {
+                    localTerritory.viewCount = data.viewCount;
+                    localTerritory.lastViewedAt = new Date();
+                }
+            } else {
+                // 단기 해결: 클라이언트에서 직접 업데이트
+                // Firestore에서 현재 조회수 가져오기
+                const territory = await firebaseService.getDocument('territories', territoryId);
+                const currentViews = territory?.viewCount || 0;
+                
+                // 조회수 증가 (Firestore increment 연산 사용)
+                await firebaseService.updateDocument('territories', territoryId, {
+                    viewCount: currentViews + 1,
+                    lastViewedAt: new Date()
+                }, true); // merge=true로 기존 데이터 유지
+                
+                // 로컬 캐시도 업데이트
+                const localTerritory = this.territories.get(territoryId);
+                if (localTerritory) {
+                    localTerritory.viewCount = currentViews + 1;
+                    localTerritory.lastViewedAt = new Date();
+                }
             }
             
             // Analytics 이벤트 추적

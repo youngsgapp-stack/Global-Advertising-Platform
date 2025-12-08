@@ -35,7 +35,7 @@ export const POINT_PACKAGES = [
 // 커스텀 금액 설정
 export const CUSTOM_AMOUNT_CONFIG = {
     MIN_AMOUNT: 1,      // 최소 $1
-    MAX_AMOUNT: 1000,   // 최대 $1000
+    MAX_AMOUNT: 10000,  // 최대 $10,000 (상향)
     POINT_RATE: 10      // $1 = 10pt (기본 환율)
 };
 
@@ -961,12 +961,12 @@ class PaymentService {
         }
         
         try {
-            // 금액 검증 (최소 $1, 최대 $1000)
-            if (amount < 1 || amount > 1000) {
+            // 금액 검증 (최소 $1, 최대 $10,000)
+            if (amount < 1 || amount > CUSTOM_AMOUNT_CONFIG.MAX_AMOUNT) {
                 log.error('Invalid payment amount:', amount);
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
-                    message: `Invalid payment amount. Please enter between $1 and $1000.`
+                    message: `Invalid payment amount. Please enter between $1 and $${CUSTOM_AMOUNT_CONFIG.MAX_AMOUNT.toLocaleString()}.`
                 });
                 return;
             }

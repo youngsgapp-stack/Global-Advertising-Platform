@@ -30,7 +30,7 @@ const PIXEL_CONFIG = {
     MIN_PIXELS: 100,        // 최소 픽셀 수
     MAX_PIXELS: 10000,      // 최대 픽셀 수
     AREA_DIVISOR: 1000,     // 면적을 픽셀로 변환할 때 나눌 값 (km² / DIVISOR)
-    PRICE_PER_PIXEL: 0.1    // 픽셀당 기본 가격 ($)
+    PRICE_PER_PIXEL: 0.02   // 픽셀당 기본 가격 ($) - 낮게 조정 (0.1 → 0.02, 5배 감소)
 };
 
 // Wikidata 행정구역 타입 매핑 (국가 코드 → Wikidata 클래스 ID)
@@ -463,6 +463,9 @@ class TerritoryDataService {
             
         } catch (error) {
             log.error('TerritoryDataService init failed:', error);
+            // 에러가 발생해도 초기화는 완료로 표시 (기본 데이터 사용)
+            this.initialized = true;
+            log.warn('TerritoryDataService initialized with errors (using default data)');
         }
     }
     
@@ -471,10 +474,18 @@ class TerritoryDataService {
      */
     async loadCountryData() {
         try {
-            const response = await fetch('https://restcountries.com/v3.1/all?fields=name,cca3,population,area,capital,region,subregion,flags,currencies,languages');
+            // 타임아웃 추가 (10초)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch('https://restcountries.com/v3.1/all?fields=name,cca3,population,area,capital,region,subregion,flags,currencies,languages', {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
             
             if (!response.ok) {
-                throw new Error('Failed to fetch country data');
+                throw new Error(`Failed to fetch country data: ${response.status}`);
             }
             
             const countries = await response.json();
@@ -501,6 +512,12 @@ class TerritoryDataService {
             log.info(`Loaded data for ${this.countryStats.size} countries`);
             
         } catch (error) {
+            if (error.name === 'AbortError') {
+                log.warn('Country data fetch timed out, using default data');
+            } else {
+                log.error('Failed to load country data:', error);
+            }
+            // 기본 데이터 사용 (빈 맵으로 시작, 나중에 필요시 로드)
             log.error('Failed to load country data:', error);
             // 폴백: 기본 데이터 사용
             this.loadFallbackData();
@@ -699,11 +716,12 @@ class TerritoryDataService {
         const econFactor = this.getEconomicFactor(countryCode);
         
         // 기본 가격 = 픽셀 수 × 픽셀당 가격 × 경제계수
-        let price = pixelCount * PIXEL_CONFIG.PRICE_PER_PIXEL * econFactor;
+        // 가격을 낮게 조정하기 위해 기본 계수를 추가로 낮춤
+        let price = pixelCount * PIXEL_CONFIG.PRICE_PER_PIXEL * econFactor * 0.5; // 추가 50% 할인
         
-        // 지역 타입에 따른 보너스
+        // 지역 타입에 따른 보너스 (보너스도 낮춤)
         const regionMult = this.getRegionMultiplier(territory);
-        price = price * regionMult;
+        price = price * (regionMult * 0.7); // 보너스도 70%로 감소
         
         // 깔끔한 숫자로 반올림 ($5 ~ $50,000 범위)
         price = Math.max(5, Math.min(50000, price));

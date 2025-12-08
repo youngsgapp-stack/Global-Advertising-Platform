@@ -35,10 +35,60 @@ class FirebaseService {
         }
         
         try {
-            // Firebase 모듈 동적 로드
-            const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-            const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-            const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+            // Firebase 모듈 로드 (HTML에서 미리 로드된 전역 객체 사용)
+            // CORS 문제 해결을 위해 HTML에서 <script type="module">로 미리 로드
+            let initializeApp, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence;
+            let getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField;
+            
+            // 전역 window 객체에서 Firebase 모듈 가져오기
+            const maxRetries = 10;
+            let retryCount = 0;
+            
+            while (retryCount < maxRetries) {
+                if (window.firebaseModules && window.firebaseModules.app && window.firebaseModules.auth && window.firebaseModules.firestore) {
+                    // 전역 객체에서 모듈 가져오기
+                    initializeApp = window.firebaseModules.app.initializeApp;
+                    
+                    getAuth = window.firebaseModules.auth.getAuth;
+                    onAuthStateChanged = window.firebaseModules.auth.onAuthStateChanged;
+                    signInWithPopup = window.firebaseModules.auth.signInWithPopup;
+                    signInWithRedirect = window.firebaseModules.auth.signInWithRedirect;
+                    getRedirectResult = window.firebaseModules.auth.getRedirectResult;
+                    signInWithEmailAndPassword = window.firebaseModules.auth.signInWithEmailAndPassword;
+                    GoogleAuthProvider = window.firebaseModules.auth.GoogleAuthProvider;
+                    signOut = window.firebaseModules.auth.signOut;
+                    setPersistence = window.firebaseModules.auth.setPersistence;
+                    browserLocalPersistence = window.firebaseModules.auth.browserLocalPersistence;
+                    browserSessionPersistence = window.firebaseModules.auth.browserSessionPersistence;
+                    
+                    getFirestore = window.firebaseModules.firestore.getFirestore;
+                    collection = window.firebaseModules.firestore.collection;
+                    doc = window.firebaseModules.firestore.doc;
+                    getDoc = window.firebaseModules.firestore.getDoc;
+                    getDocs = window.firebaseModules.firestore.getDocs;
+                    setDoc = window.firebaseModules.firestore.setDoc;
+                    updateDoc = window.firebaseModules.firestore.updateDoc;
+                    deleteDoc = window.firebaseModules.firestore.deleteDoc;
+                    query = window.firebaseModules.firestore.query;
+                    where = window.firebaseModules.firestore.where;
+                    orderBy = window.firebaseModules.firestore.orderBy;
+                    limit = window.firebaseModules.firestore.limit;
+                    onSnapshot = window.firebaseModules.firestore.onSnapshot;
+                    Timestamp = window.firebaseModules.firestore.Timestamp;
+                    deleteField = window.firebaseModules.firestore.deleteField;
+                    
+                    // 성공적으로 로드됨
+                    log.info('[FirebaseService] Firebase SDK loaded from global window object');
+                    break;
+                } else {
+                    retryCount++;
+                    if (retryCount >= maxRetries) {
+                        throw new Error('Firebase SDK not loaded. Make sure Firebase SDK is loaded in HTML before FirebaseService initialization.');
+                    }
+                    // 전역 객체가 준비될 때까지 대기
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
             
             // Firebase 앱 초기화
             this.app = initializeApp(CONFIG.FIREBASE);
