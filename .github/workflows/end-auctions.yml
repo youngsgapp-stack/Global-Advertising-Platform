@@ -1,0 +1,16 @@
+name: End Auctions
+
+on:
+  schedule:
+    - cron: '* * * * *'
+  workflow_dispatch:
+
+jobs:
+  end-auctions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call End Auctions API
+        run: |
+          curl -X POST "${{ secrets.VERCEL_URL }}/api/cron/end-auctions" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json"
