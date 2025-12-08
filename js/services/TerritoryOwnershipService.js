@@ -23,9 +23,9 @@ class TerritoryOwnershipService {
      * @param {string} paymentId - 결제 ID (선택)
      * @returns {Promise<Object>} { success: boolean, error?: string }
      */
-    async transferOwnership(territoryId, userId, userName, price, paymentId = null) {
+    async transferOwnership(territoryId, userId, userName, price, paymentId = null, auctionId = null, reason = 'direct_purchase') {
         // Rate Limit 체크
-        const rateLimitCheck = rateLimiter.checkLimit(userId, RATE_LIMIT_TYPE.TERRITORY_PURCHASE);
+        const rateLimitCheck = await rateLimiter.checkLimit(userId, RATE_LIMIT_TYPE.TERRITORY_PURCHASE);
         if (!rateLimitCheck.allowed) {
             log.warn(`[TerritoryOwnershipService] Rate limit exceeded for user ${userId}`);
             return {
@@ -35,6 +35,76 @@ class TerritoryOwnershipService {
             };
         }
         
+        // 서버 사이드 검증 API 호출
+        try {
+            const requestId = `req_${territoryId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const apiUrl = '/api/territory/change-ownership';
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    territoryId,
+                    userId,
+                    userName,
+                    price,
+                    paymentId,
+                    auctionId,
+                    reason,
+                    requestId
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to transfer ownership');
+            }
+            
+            const result = await response.json();
+            
+            if (!result.success) {
+                return {
+                    success: false,
+                    error: result.error || 'Failed to transfer ownership'
+                };
+            }
+            
+            // 성공: 이벤트 발행
+            eventBus.emit(EVENTS.TERRITORY_OWNERSHIP_TRANSFERRED, {
+                territoryId,
+                userId,
+                userName,
+                price,
+                transactionId: result.transactionId
+            });
+            
+            log.info(`[TerritoryOwnershipService] ✅ Ownership transferred via server: ${territoryId} → ${userName} (${userId})`);
+            
+            return {
+                success: true,
+                transactionId: result.transactionId,
+                territory: result.territory
+            };
+            
+        } catch (error) {
+            log.error(`[TerritoryOwnershipService] ❌ Server API call failed, falling back to client-side:`, error);
+            
+            // 서버 API 실패 시 기존 클라이언트 사이드 로직으로 fallback (하위 호환성)
+            // 하지만 이건 임시 방편이고, 서버 API가 정상 작동해야 함
+            return {
+                success: false,
+                error: `Server validation failed: ${error.message}. Please try again or contact support.`
+            };
+        }
+    }
+    
+    /**
+     * 영토 소유권 변경 (클라이언트 사이드 - Fallback용, 권장하지 않음)
+     * @deprecated Use transferOwnership() which calls server API
+     */
+    async transferOwnershipClientSide(territoryId, userId, userName, price, paymentId = null) {
         // 이미 진행 중인 트랜잭션 확인
         if (this.pendingTransactions.has(territoryId)) {
             const pendingTx = this.pendingTransactions.get(territoryId);

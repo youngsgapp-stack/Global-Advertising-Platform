@@ -307,7 +307,7 @@ class PixelEditor3 {
                 type: 'error',
                 message: '픽셀 편집기를 열 수 없습니다. 잠시 후 다시 시도해주세요.'
             });
-            this.close();
+            await this.close();
         } finally {
             this.hideLoading();
         }
@@ -338,7 +338,7 @@ class PixelEditor3 {
     /**
      * 닫기
      */
-    close() {
+    async close() {
         // 저장 중이면 완료될 때까지 대기
         if (pixelCanvas3?.isSaving) {
             const confirmed = confirm(
@@ -348,10 +348,10 @@ class PixelEditor3 {
             );
             if (confirmed) {
                 // 저장 완료를 기다림
-                const checkSave = setInterval(() => {
+                const checkSave = setInterval(async () => {
                     if (!pixelCanvas3.isSaving) {
                         clearInterval(checkSave);
-                        this.close();
+                        await this.close();
                     }
                 }, 100);
                 
@@ -438,13 +438,17 @@ class PixelEditor3 {
         // 닫기
         const closeBtn = this.container.querySelector('#pixel-close-3');
         if (closeBtn) {
-            closeBtn.onclick = () => this.close();
+            closeBtn.onclick = async () => {
+                await this.close();
+            };
         }
         
         // 오버레이 클릭
         const overlay = this.container.querySelector('.pixel-editor-3-overlay');
         if (overlay) {
-            overlay.onclick = () => this.close();
+            overlay.onclick = async () => {
+                await this.close();
+            };
         }
         
         // 도구 버튼

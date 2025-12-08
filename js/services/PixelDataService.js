@@ -132,7 +132,7 @@ class PixelDataService {
         // Rate Limiting 체크 (사용자가 있는 경우)
         if (userId) {
             const pixelCount = pixelData.pixels?.length || pixelData.filledPixels || 0;
-            const rateLimitCheck = rateLimiter.checkLimit(userId, RATE_LIMIT_TYPE.PIXEL_EDIT, pixelCount);
+            const rateLimitCheck = await rateLimiter.checkLimit(userId, RATE_LIMIT_TYPE.PIXEL_EDIT, pixelCount);
             
             if (!rateLimitCheck.allowed) {
                 log.warn(`[PixelDataService] Rate limit exceeded for user ${userId}, territory ${territoryId}`);

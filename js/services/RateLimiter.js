@@ -62,13 +62,45 @@ class RateLimiter {
     }
     
     /**
-     * Rate Limit 체크
+     * 신규 계정 여부 확인 (비동기)
+     * @param {string} userId - 사용자 ID
+     * @returns {Promise<boolean>} 신규 계정 여부 (1시간 이내 생성)
+     */
+    async isNewAccount(userId) {
+        try {
+            const { firebaseService } = await import('./FirebaseService.js');
+            
+            // wallet 생성 시점 확인 (가장 정확)
+            const wallet = await firebaseService.getDocument('wallets', userId);
+            if (wallet && wallet.createdAt) {
+                const createdAt = wallet.createdAt.toMillis ? wallet.createdAt.toMillis() : new Date(wallet.createdAt).getTime();
+                const oneHourAgo = Date.now() - 60 * 60 * 1000;
+                return createdAt > oneHourAgo;
+            }
+            
+            // users 컬렉션 확인
+            const user = await firebaseService.getDocument('users', userId);
+            if (user && user.createdAt) {
+                const createdAt = user.createdAt.toMillis ? user.createdAt.toMillis() : new Date(user.createdAt).getTime();
+                const oneHourAgo = Date.now() - 60 * 60 * 1000;
+                return createdAt > oneHourAgo;
+            }
+            
+            return false;
+        } catch (error) {
+            log.warn(`[RateLimiter] Failed to check new account status:`, error);
+            return false; // 확인 실패 시 일반 계정으로 간주
+        }
+    }
+    
+    /**
+     * Rate Limit 체크 (비동기 지원)
      * @param {string} userId - 사용자 ID
      * @param {string} type - Rate Limit 타입
      * @param {number} amount - 요청량 (픽셀 편집의 경우 픽셀 수)
-     * @returns {Object} { allowed: boolean, reason: string, retryAfter: number }
+     * @returns {Promise<Object>} { allowed: boolean, reason: string, retryAfter: number }
      */
-    checkLimit(userId, type, amount = 1) {
+    async checkLimit(userId, type, amount = 1) {
         if (!userId) {
             return { allowed: false, reason: 'User not authenticated' };
         }
@@ -78,6 +110,27 @@ class RateLimiter {
             log.warn(`[RateLimiter] Unknown rate limit type: ${type}`);
             return { allowed: true }; // 알 수 없는 타입은 허용
         }
+        
+        // 신규 계정 보호 규칙: 1시간 이내 계정은 50% 제한
+        const isNew = await this.isNewAccount(userId);
+        if (isNew) {
+            // 신규 계정은 제한을 50%로 줄임
+            const adjustedConfig = {
+                perSecond: Math.max(1, Math.floor(config.perSecond * 0.5)),
+                perMinute: Math.max(1, Math.floor(config.perMinute * 0.5)),
+                perHour: Math.max(1, Math.floor(config.perHour * 0.5)),
+                burst: Math.max(0, Math.floor(config.burst * 0.5))
+            };
+            return this._checkLimitInternal(userId, type, amount, adjustedConfig);
+        }
+        
+        return this._checkLimitInternal(userId, type, amount, config);
+    }
+    
+    /**
+     * Rate Limit 체크 내부 로직
+     */
+    _checkLimitInternal(userId, type, amount, config) {
         
         // 레코드 가져오기 또는 생성
         if (!this.records.has(userId)) {
@@ -149,6 +202,24 @@ class RateLimiter {
         record.counts.hour = record.timestamps.filter(ts => ts > oneHourAgo).length;
         
         return { allowed: true };
+    }
+    
+    /**
+     * 동기 버전 (하위 호환성)
+     * @deprecated Use async checkLimit() instead
+     */
+    checkLimitSync(userId, type, amount = 1) {
+        if (!userId) {
+            return { allowed: false, reason: 'User not authenticated' };
+        }
+        
+        const config = RATE_LIMIT_CONFIG[type];
+        if (!config) {
+            log.warn(`[RateLimiter] Unknown rate limit type: ${type}`);
+            return { allowed: true };
+        }
+        
+        return this._checkLimitInternal(userId, type, amount, config);
     }
     
     /**
