@@ -4,8 +4,8 @@
  */
 
 const CACHE_NAME = 'own-piece-v2';
-const STATIC_CACHE_VERSION = '1.0.3'; // 버전 업데이트로 Service Worker 강제 갱신 (JavaScript 네트워크 우선 전략)
-const DYNAMIC_CACHE_VERSION = '1.0.3';
+const STATIC_CACHE_VERSION = '1.0.4'; // 버전 업데이트로 Service Worker 강제 갱신 (JavaScript 캐시 완전 우회)
+const DYNAMIC_CACHE_VERSION = '1.0.4';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
@@ -124,15 +124,17 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     
-    // JavaScript 파일은 네트워크 우선 (최신 버전 보장)
+    // JavaScript 파일은 네트워크만 사용 (캐시 완전 우회 - 최신 버전 보장)
     if (NETWORK_FIRST_JS_PATTERNS.some(pattern => pattern.test(url.pathname))) {
-        event.respondWith(networkFirst(request).catch(() => {
-            // 에러 발생 시 빈 응답 반환 (에러 방지)
-            return new Response(null, { 
-                status: 503,
-                statusText: 'Service Unavailable'
-            });
-        }));
+        event.respondWith(
+            fetch(request, { cache: 'no-store' }).catch(() => {
+                // 에러 발생 시 빈 응답 반환 (에러 방지)
+                return new Response(null, { 
+                    status: 503,
+                    statusText: 'Service Unavailable'
+                });
+            })
+        );
         return;
     }
     
