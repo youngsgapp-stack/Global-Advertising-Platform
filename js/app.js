@@ -34,6 +34,10 @@ import { cacheService } from './services/CacheService.js';
 import { monitoringService } from './services/MonitoringService.js';
 import { serviceModeManager } from './services/ServiceModeManager.js';
 import { rateLimiter } from './services/RateLimiter.js';
+import { galleryView } from './ui/GalleryView.js';
+import { contestPanel } from './ui/ContestPanel.js';
+import { contestSystem } from './features/ContestSystem.js';
+import { seasonSystem } from './features/SeasonSystem.js';
 import './utils/ResetData.js'; // 데이터 초기화 유틸리티 (전역 함수로 등록)
 
 class BillionaireApp {
@@ -110,7 +114,9 @@ class BillionaireApp {
                 buffSystem.initialize(),
                 collaborationHub.initialize(),
                 historyLogger.initialize(),
-                recommendationSystem.initialize()
+                recommendationSystem.initialize(),
+                contestSystem.initialize(),
+                seasonSystem.initialize()
             ]);
             
             // 6. Initialize UI
@@ -121,6 +127,8 @@ class BillionaireApp {
             timelineWidget.initialize();
             recommendationPanel.initialize();
             onboardingGuide.initialize();
+            galleryView.initialize();
+            contestPanel.initialize();
             this.initializeUI();
             
             // 6.5. Initialize Feedback Button
@@ -595,6 +603,26 @@ class BillionaireApp {
         
         document.getElementById('side-my-territories-btn')?.addEventListener('click', () => {
             territoryListPanel.open();
+            // 사이드 메뉴 닫기
+            const sideMenu = document.getElementById('side-menu');
+            if (sideMenu) {
+                sideMenu.classList.add('hidden');
+            }
+        });
+        
+        // Gallery button
+        document.getElementById('side-gallery-btn')?.addEventListener('click', () => {
+            galleryView.open();
+            // 사이드 메뉴 닫기
+            const sideMenu = document.getElementById('side-menu');
+            if (sideMenu) {
+                sideMenu.classList.add('hidden');
+            }
+        });
+        
+        // Contest button
+        document.getElementById('side-contest-btn')?.addEventListener('click', () => {
+            contestPanel.open();
             // 사이드 메뉴 닫기
             const sideMenu = document.getElementById('side-menu');
             if (sideMenu) {

@@ -24,6 +24,50 @@
         { "fieldPath": "country", "order": "ASCENDING" },
         { "fieldPath": "currentBid", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "seasons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "startDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "season_rankings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "seasonId", "order": "ASCENDING" },
+        { "fieldPath": "seasonScore", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pixelCanvases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "likeCount", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pixelCanvases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lastUpdated", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pixelCanvases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "commentCount", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -873,12 +873,36 @@ class FirebaseService {
             // 조건 추가
             const queryConstraints = [];
             for (const condition of conditions) {
-                queryConstraints.push(this._firestore.where(condition.field, condition.op, condition.value));
+                // op와 operator 둘 다 지원
+                const operator = condition.op || condition.operator;
+                
+                // 필드명, 연산자, 값 검증
+                if (!condition.field) {
+                    log.warn(`[FirebaseService] Skipping condition with missing field:`, condition);
+                    continue;
+                }
+                
+                if (!operator) {
+                    log.warn(`[FirebaseService] Skipping condition with missing operator:`, condition);
+                    continue;
+                }
+                
+                // undefined 값 검증
+                if (condition.value === undefined) {
+                    log.warn(`[FirebaseService] Skipping condition with undefined value for field ${condition.field}`);
+                    continue;
+                }
+                
+                queryConstraints.push(this._firestore.where(condition.field, operator, condition.value));
             }
             
             // 정렬 추가
             if (orderByField) {
-                queryConstraints.push(this._firestore.orderBy(orderByField.field, orderByField.direction || 'asc'));
+                if (!orderByField.field) {
+                    log.warn(`[FirebaseService] Skipping orderBy with missing field:`, orderByField);
+                } else {
+                    queryConstraints.push(this._firestore.orderBy(orderByField.field, orderByField.direction || 'asc'));
+                }
             }
             
             // 제한 추가

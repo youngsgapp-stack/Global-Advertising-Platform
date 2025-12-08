@@ -123,6 +123,11 @@ async function calculateSeasonRankings(seasonId, db) {
         const startDate = season.startDate;
         const endDate = season.endDate;
         
+        if (!startDate || !endDate) {
+            console.warn(`[Season Transition] Season ${seasonId} missing startDate or endDate`);
+            return;
+        }
+        
         // 시즌 기간 동안의 소유권 변경 로그 수집
         const ownershipLogsSnapshot = await db.collection('ownership_logs')
             .where('timestamp', '>=', startDate)
@@ -156,14 +161,27 @@ async function calculateSeasonRankings(seasonId, db) {
         });
         
         // 픽셀 아트 데이터 수집
-        const pixelCanvases = await db.collection('pixelCanvases')
-            .where('lastUpdated', '>=', startDate.toMillis())
-            .where('lastUpdated', '<=', endDate.toMillis())
+        // lastUpdated는 Timestamp이거나 숫자일 수 있으므로 둘 다 처리
+        const startMillis = startDate.toMillis ? startDate.toMillis() : startDate;
+        const endMillis = endDate.toMillis ? endDate.toMillis() : endDate;
+        
+        const pixelCanvasesSnapshot = await db.collection('pixelCanvases')
             .get();
         
-        pixelCanvases.docs.forEach(doc => {
-            const canvas = doc.data();
-            const ownerId = canvas.ownerId;
+        const pixelCanvases = pixelCanvasesSnapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(canvas => {
+                if (!canvas.lastUpdated) return false;
+                const lastUpdatedMillis = canvas.lastUpdated.toMillis 
+                    ? canvas.lastUpdated.toMillis() 
+                    : (canvas.lastUpdated instanceof admin.firestore.Timestamp 
+                        ? canvas.lastUpdated.toMillis() 
+                        : canvas.lastUpdated);
+                return lastUpdatedMillis >= startMillis && lastUpdatedMillis <= endMillis;
+            });
+        
+        pixelCanvases.forEach(canvas => {
+            const ownerId = canvas.ownerId || canvas.ruler;
             
             if (!ownerId || !userScores.has(ownerId)) return;
             
