@@ -679,8 +679,9 @@ class TerritoryManager {
         try {
             // 중기 해결: 서버 사이드 API 사용 (권장)
             // 단기 해결: 클라이언트에서 직접 업데이트 (현재)
-            // ⚠️ Rules 조건이 계속 맞지 않아 서버 사이드 API로 전환
-            const USE_SERVER_API = true; // 서버 API 사용 여부 (환경 변수로 제어 가능)
+            // ⚠️ Vercel Functions 개수 제한으로 인해 클라이언트 직접 업데이트로 전환
+            // 임시 테스트 rules (firestore.rules.test)를 Firebase 콘솔에 배포 필요
+            const USE_SERVER_API = false; // 서버 API 사용 여부 (환경 변수로 제어 가능)
             
             if (USE_SERVER_API) {
                 // 서버 사이드 API 호출
