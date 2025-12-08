@@ -4,8 +4,8 @@
  */
 
 const CACHE_NAME = 'own-piece-v2';
-const STATIC_CACHE_VERSION = '1.0.1'; // 버전 업데이트로 Service Worker 강제 갱신
-const DYNAMIC_CACHE_VERSION = '1.0.1';
+const STATIC_CACHE_VERSION = '1.0.2'; // 버전 업데이트로 Service Worker 강제 갱신 (PixelEditor3.js 수정)
+const DYNAMIC_CACHE_VERSION = '1.0.2';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
