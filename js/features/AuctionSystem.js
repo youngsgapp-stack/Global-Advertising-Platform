@@ -15,7 +15,8 @@ import { normalizeTerritoryId, matchTerritoryIds } from '../utils/TerritoryIdUti
 export const AUCTION_TYPE = {
     STANDARD: 'standard',   // 표준 입찰 (최고가 낙찰)
     DUTCH: 'dutch',         // 역경매 (가격 하락)
-    SEALED: 'sealed'        // 봉인 입찰
+    SEALED: 'sealed',       // 봉인 입찰
+    PROTECTION_EXTENSION: 'protection_extension'  // 보호 기간 연장 경매
 };
 
 // 옥션 상태
@@ -243,10 +244,9 @@ class AuctionSystem {
                     log.debug(`[AuctionSystem] Added country to auction ${auction.id}: ${countryCode}`);
                 }
                 
-                // 올바른 시작가 계산 (실제 가격의 60%, 최소 10pt)
-                const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+                // 올바른 시작가 계산 (실제 가격 + 1pt)
                 let correctStartingBid = realPrice 
-                    ? Math.max(Math.floor(realPrice * auctionRatio), 10)
+                    ? realPrice + 1 // 즉시 구매가 + 1pt
                     : 10;
                 
                 // realPrice를 계산하지 못했지만 startingBid가 50pt 이상이면 강제로 10pt로 수정
@@ -500,12 +500,11 @@ class AuctionSystem {
                           'unknown';
         const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
         
-        // 경매 시작가는 즉시 구매가보다 낮게 설정 (기본 60%)
-        // 사용자가 직접 지정한 경우는 그대로 사용, 아니면 즉시 구매가의 비율로 계산
-        const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
+        // 경매 시작가는 즉시 구매가 + 1pt로 설정 (즉시 구매보다 높게 시작)
+        // 사용자가 직접 지정한 경우는 그대로 사용, 아니면 즉시 구매가 + 1pt
         const calculatedStartingBid = realPrice 
-            ? Math.max(Math.floor(realPrice * auctionRatio), 10) // 최소 10pt
-            : (territory.tribute || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+            ? realPrice + 1 // 즉시 구매가 + 1pt
+            : (territory.tribute || CONFIG.TERRITORY.DEFAULT_TRIBUTE) + 1;
         
         const startingBid = options.startingBid || calculatedStartingBid;
         
@@ -713,6 +712,143 @@ class AuctionSystem {
     }
     
     /**
+     * 보호 기간 연장 경매 생성 (이미 소유한 지역)
+     * @param {string} territoryId - 영토 ID
+     * @param {number} protectionDays - 연장할 보호 기간 (7, 30, 365, 또는 null for lifetime)
+     * @param {object} options - 추가 옵션
+     */
+    async createProtectionExtensionAuction(territoryId, protectionDays, options = {}) {
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+        
+        if (!territoryId || typeof territoryId !== 'string' || territoryId.trim() === '') {
+            throw new Error('Territory ID is required');
+        }
+        
+        const territory = territoryManager.getTerritory(territoryId);
+        if (!territory) {
+            throw new Error('Territory not found');
+        }
+        
+        // 소유자 확인
+        if (!territory.ruler || territory.ruler !== user.uid) {
+            throw new Error('Only territory owner can create protection extension auction');
+        }
+        
+        // 보호 기간 옵션 검증
+        const validPeriods = [7, 30, 365, null]; // null = lifetime
+        if (!validPeriods.includes(protectionDays)) {
+            throw new Error(`Invalid protection period. Must be 7, 30, 365, or null (lifetime)`);
+        }
+        
+        // Territory ID 형식 정규화
+        let finalTerritoryId = territoryId;
+        const newTerritoryId = territory.properties?.territoryId || territory.territoryId;
+        if (newTerritoryId && newTerritoryId.includes('::')) {
+            finalTerritoryId = newTerritoryId;
+        }
+        
+        // 기본 가격 계산
+        const countryCode = territory.country || 
+                          territory.properties?.country || 
+                          'unknown';
+        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        
+        // 보호 기간별 가격 배수 (아이디어 1: 가격 차등화)
+        const priceMultipliers = {
+            7: 1.0,      // 1주일: 100pt (일당 14.3pt)
+            30: 4.0,     // 1개월: 400pt (일당 13.3pt)
+            365: 50.0,   // 1년: 5,000pt (일당 13.7pt)
+            null: 500.0  // 평생: 50,000pt
+        };
+        
+        const multiplier = priceMultipliers[protectionDays];
+        const startingBid = Math.ceil(realPrice * multiplier);
+        
+        // 경매 ID 생성 (보호 기간 정보 포함)
+        const periodSuffix = protectionDays === null ? 'lifetime' : `${protectionDays}days`;
+        const auctionId = `protection_${finalTerritoryId.replace(/::/g, '_')}_${periodSuffix}_${Date.now()}`;
+        
+        // 이미 같은 보호 기간 경매가 있는지 확인
+        try {
+            const existingAuctions = await firebaseService.queryCollection('auctions', [
+                { field: 'territoryId', op: '==', value: territoryId },
+                { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE },
+                { field: 'type', op: '==', value: AUCTION_TYPE.PROTECTION_EXTENSION },
+                { field: 'protectionDays', op: '==', value: protectionDays }
+            ]);
+            
+            if (existingAuctions && existingAuctions.length > 0) {
+                throw new Error(`Protection extension auction for ${protectionDays === null ? 'lifetime' : protectionDays + ' days'} already exists`);
+            }
+        } catch (error) {
+            if (error.message && error.message.includes('already exists')) {
+                throw error;
+            }
+            log.debug(`[AuctionSystem] Could not check for existing protection auctions:`, error.message);
+        }
+        
+        const Timestamp = firebaseService.getTimestamp();
+        const now = new Date();
+        const auctionEndTime = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24시간 경매
+        
+        // 영토 이름 추출
+        const territoryName = territory.properties?.name || 
+                            territory.properties?.name_en ||
+                            territory.name ||
+                            territoryId;
+        
+        // 경매 객체 생성
+        const auction = {
+            id: auctionId,
+            territoryId: finalTerritoryId,
+            territoryName: String(territoryName).trim(),
+            country: countryCode,
+            countryIso: territory.properties?.adm0_a3 || null,
+            
+            type: AUCTION_TYPE.PROTECTION_EXTENSION,
+            status: AUCTION_STATUS.ACTIVE,
+            protectionDays: protectionDays, // 연장할 보호 기간
+            
+            startingBid: startingBid,
+            currentBid: startingBid,
+            minIncrement: 1,
+            
+            highestBidder: null,
+            highestBidderName: null,
+            bids: [],
+            
+            startTime: Timestamp ? Timestamp.now() : now,
+            endTime: Timestamp ? Timestamp.fromDate(auctionEndTime) : auctionEndTime,
+            
+            currentOwnerId: territory.ruler,
+            currentOwnerName: territory.rulerName || null,
+            
+            createdBy: user.uid,
+            createdAt: Timestamp ? Timestamp.now() : now
+        };
+        
+        // Firestore 저장
+        try {
+            await firebaseService.setDocument('auctions', auctionId, auction);
+            log.info(`[AuctionSystem] Protection extension auction created: ${auctionId} for ${protectionDays === null ? 'lifetime' : protectionDays + ' days'}`);
+        } catch (error) {
+            log.error(`[AuctionSystem] Failed to create protection extension auction:`, error);
+            throw error;
+        }
+        
+        // 로컬 캐시 업데이트
+        this.activeAuctions.set(auctionId, auction);
+        
+        // 이벤트 발행
+        eventBus.emit(EVENTS.AUCTION_START, { auction });
+        
+        return auction;
+    }
+    
+    /**
      * 입찰 처리
      */
     async handleBid(data) {
@@ -757,9 +893,8 @@ class AuctionSystem {
         if (territory) {
             const countryCode = territory.country || 'unknown';
             const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
-            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
             const correctStartingBid = realPrice 
-                ? Math.max(Math.floor(realPrice * auctionRatio), 10)
+                ? realPrice + 1 // 즉시 구매가 + 1pt
                 : 10;
             
             if (auction.startingBid !== correctStartingBid) {
@@ -1029,31 +1164,80 @@ class AuctionSystem {
                     updatedAt: Timestamp ? Timestamp.now() : new Date()
                 });
                 
-                // 낙찰자가 있으면 영토 소유권 이전
-                if (currentAuction.highestBidder) {
-                    // 영토 문서 가져오기
-                    const territoryDoc = await transaction.get('territories', auction.territoryId);
-                    
-                    if (territoryDoc) {
-                        // 소유권 이전 검증: 이미 다른 사용자가 소유하고 있지 않은지 확인
-                        if (territoryDoc.ruler && territoryDoc.ruler !== currentAuction.highestBidder) {
-                            log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} ownership changed during auction end. Current ruler: ${territoryDoc.ruler}, Expected: ${currentAuction.highestBidder}`);
-                            // 소유권이 변경되었으면 경매만 종료하고 소유권 이전은 건너뛰기
-                        } else {
-                            // 소유권 이전
-                            transaction.update('territories', auction.territoryId, {
-                                ruler: currentAuction.highestBidder,
-                                rulerName: currentAuction.highestBidderName,
-                                sovereignty: SOVEREIGNTY.PROTECTED, // 구매 직후 보호 상태
-                                currentAuction: null,
-                                updatedAt: Timestamp ? Timestamp.now() : new Date()
-                            });
-                            
-                            log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName}`);
+                // 보호 기간 연장 경매인지 확인
+                if (currentAuction.type === AUCTION_TYPE.PROTECTION_EXTENSION) {
+                    // 보호 기간 연장 경매: 소유권 이전이 아니라 보호 기간만 연장
+                    if (currentAuction.highestBidder) {
+                        const territoryDoc = await transaction.get('territories', auction.territoryId);
+                        
+                        if (territoryDoc) {
+                            // 현재 소유자가 경매 생성자인지 확인 (소유권 변경 방지)
+                            if (territoryDoc.ruler !== currentAuction.currentOwnerId) {
+                                log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} ownership changed, skipping protection extension`);
+                            } else {
+                                // 보호 기간 계산
+                                const now = new Date();
+                                let protectionEndsAt;
+                                
+                                if (currentAuction.protectionDays === null) {
+                                    // 평생 보호: 100년 후
+                                    protectionEndsAt = new Date(now.getTime() + (100 * 365 * 24 * 60 * 60 * 1000));
+                                } else {
+                                    // 현재 보호 종료일에서 연장
+                                    const currentProtectionEnd = territoryDoc.protectionEndsAt 
+                                        ? (territoryDoc.protectionEndsAt instanceof Date 
+                                            ? territoryDoc.protectionEndsAt 
+                                            : territoryDoc.protectionEndsAt.toDate 
+                                                ? territoryDoc.protectionEndsAt.toDate() 
+                                                : new Date(territoryDoc.protectionEndsAt))
+                                        : now;
+                                    
+                                    // 현재 종료일이 지났으면 지금부터 시작, 아니면 현재 종료일부터 연장
+                                    const baseDate = currentProtectionEnd > now ? currentProtectionEnd : now;
+                                    protectionEndsAt = new Date(baseDate.getTime() + (currentAuction.protectionDays * 24 * 60 * 60 * 1000));
+                                }
+                                
+                                // 보호 기간 업데이트
+                                transaction.update('territories', auction.territoryId, {
+                                    protectionEndsAt: Timestamp ? Timestamp.fromDate(protectionEndsAt) : protectionEndsAt,
+                                    protectionDays: currentAuction.protectionDays, // 업데이트된 보호 기간 저장
+                                    sovereignty: SOVEREIGNTY.PROTECTED,
+                                    currentAuction: null,
+                                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                                });
+                                
+                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} protection extended by ${currentAuction.protectionDays === null ? 'lifetime' : currentAuction.protectionDays + ' days'}`);
+                            }
                         }
-                    } else {
-                        log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} not found in Firestore during auction end`);
                     }
+                } else {
+                    // 일반 경매: 낙찰자가 있으면 영토 소유권 이전
+                    if (currentAuction.highestBidder) {
+                        // 영토 문서 가져오기
+                        const territoryDoc = await transaction.get('territories', auction.territoryId);
+                        
+                        if (territoryDoc) {
+                            // 소유권 이전 검증: 이미 다른 사용자가 소유하고 있지 않은지 확인
+                            if (territoryDoc.ruler && territoryDoc.ruler !== currentAuction.highestBidder) {
+                                log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} ownership changed during auction end. Current ruler: ${territoryDoc.ruler}, Expected: ${currentAuction.highestBidder}`);
+                                // 소유권이 변경되었으면 경매만 종료하고 소유권 이전은 건너뛰기
+                            } else {
+                                // 소유권 이전
+                                transaction.update('territories', auction.territoryId, {
+                                    ruler: currentAuction.highestBidder,
+                                    rulerName: currentAuction.highestBidderName,
+                                    sovereignty: SOVEREIGNTY.PROTECTED, // 구매 직후 보호 상태
+                                    currentAuction: null,
+                                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                                });
+                                
+                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName}`);
+                            }
+                        } else {
+                            log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} not found in Firestore during auction end`);
+                        }
+                    }
+                }
                 } else {
                     // 낙찰자 없으면 영토 상태 복구
                     const territoryDoc = await transaction.get('territories', auction.territoryId);

@@ -30,7 +30,7 @@ export const WALLET_EVENTS = {
 class WalletService {
     constructor() {
         this.initialized = false;
-        this.currentBalance = 0;
+        this.currentBalance = null; // null = 로딩 중, 0 = 실제 0
         this.transactions = [];
         this.unsubscriber = null;
     }
@@ -233,16 +233,17 @@ class WalletService {
             this.unsubscriber();
             this.unsubscriber = null;
         }
-        this.currentBalance = 0;
+        this.currentBalance = null; // 로그아웃 시 null로 설정 (로딩 상태)
         this.transactions = [];
         
-        eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: 0 });
+        eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: null });
     }
     
     /**
      * 잔액 조회
      */
     getBalance() {
+        // 로딩 중이면 null 반환 (0과 구분)
         return this.currentBalance;
     }
     

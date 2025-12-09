@@ -8,7 +8,7 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 import { SOVEREIGNTY, territoryManager } from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
 import { buffSystem } from '../features/BuffSystem.js';
-import { auctionSystem, AUCTION_STATUS } from '../features/AuctionSystem.js';
+import { auctionSystem, AUCTION_STATUS, AUCTION_TYPE } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
@@ -632,6 +632,9 @@ class TerritoryPanel {
                 <!-- Auction Info (if exists) -->
                 ${auction ? this.renderAuction(auction) : ''}
                 
+                <!-- Protection Extension Auctions (if owned territory) -->
+                ${isOwner ? this.renderProtectionExtensionAuctions(territory) : ''}
+                
                 <!-- Action Buttons -->
                 <div class="territory-actions">
                     ${this.renderActions(territory, isOwner, auction, realPrice, auction ? this.getEffectiveAuctionBid(auction) : null)}
@@ -688,6 +691,70 @@ class TerritoryPanel {
                         </li>
                     `).join('')}
                 </ul>
+            </div>
+        `;
+    }
+    
+    /**
+     * Protection Extension Auctions Rendering
+     */
+    renderProtectionExtensionAuctions(territory) {
+        const protectionAuctions = this.getProtectionExtensionAuctions(territory.id);
+        
+        if (protectionAuctions.length === 0) {
+            return '';
+        }
+        
+        const auctionCards = protectionAuctions.map(auction => {
+            const periodLabels = {
+                7: '1 Week',
+                30: '1 Month',
+                365: '1 Year',
+                null: 'Lifetime'
+            };
+            
+            const periodLabel = periodLabels[auction.protectionDays];
+            const hasBids = !!auction.highestBidder;
+            const currentBid = hasBids ? auction.currentBid : auction.startingBid;
+            const timeRemaining = this.getTimeRemaining(auction.endTime);
+            
+            return `
+                <div class="protection-auction-card">
+                    <div class="protection-auction-header">
+                        <span class="auction-icon">🛡️</span>
+                        <h4>${periodLabel} Extension</h4>
+                    </div>
+                    <div class="protection-auction-info">
+                        <div class="bid-info">
+                            <span class="bid-label">${hasBids ? 'Current Bid' : 'Starting Bid'}:</span>
+                            <span class="bid-value">${this.formatNumber(currentBid)} pt</span>
+                        </div>
+                        <div class="time-info">
+                            <span class="time-label">Time Left:</span>
+                            <span class="time-value">${timeRemaining}</span>
+                        </div>
+                        ${hasBids ? `
+                            <div class="bidder-info">
+                                <span class="bidder-label">Highest Bidder:</span>
+                                <span class="bidder-name">${auction.highestBidderName || 'Unknown'}</span>
+                            </div>
+                        ` : `
+                            <div class="no-bids-notice">
+                                <span class="notice-icon">💡</span>
+                                <span>No bids yet. Be the first to bid!</span>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        return `
+            <div class="protection-extension-auctions-section">
+                <h3>🛡️ Protection Extension Auctions</h3>
+                <div class="protection-auctions-grid">
+                    ${auctionCards}
+                </div>
             </div>
         `;
     }
@@ -809,12 +876,12 @@ class TerritoryPanel {
         let startingBid = auction.startingBid || 10;
         
         // 영토 실제 가격 기반으로 항상 검증 (territory가 있으면)
-        if (territory) {
+        // 보호 기간 연장 경매는 가격 계산이 다르므로 일반 경매와 구분
+        if (territory && auction.type !== AUCTION_TYPE.PROTECTION_EXTENSION) {
             const countryCode = territory.country || 'unknown';
             const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
-            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
             const correctStartingBid = realPrice 
-                ? Math.max(Math.floor(realPrice * auctionRatio), 10)
+                ? realPrice + 1 // 즉시 구매가 + 1pt
                 : 10;
             
             // startingBid가 올바른 값과 다르면 무조건 수정
@@ -884,9 +951,23 @@ class TerritoryPanel {
         // 입찰자가 있든 없든 항상 1pt 증가액 사용 (1pt 단위 입찰)
         const effectiveMinIncrement = 1;
         
+        // 보호 기간 연장 경매인지 확인
+        const isProtectionExtension = auction.type === AUCTION_TYPE.PROTECTION_EXTENSION;
+        
+        // 보호 기간 레이블
+        const periodLabels = {
+            7: '1 Week',
+            30: '1 Month',
+            365: '1 Year',
+            null: 'Lifetime'
+        };
+        const periodLabel = isProtectionExtension && auction.protectionDays !== undefined 
+            ? periodLabels[auction.protectionDays] || 'Unknown'
+            : null;
+        
         return `
-            <div class="auction-section">
-                <h3>Active Auction</h3>
+            <div class="auction-section ${isProtectionExtension ? 'protection-extension' : ''}">
+                <h3>${isProtectionExtension ? `🛡️ Protection Extension Auction (${periodLabel})` : 'Active Auction'}</h3>
                 <div class="auction-info">
                     ${hasBids ? `
                         <div class="current-bid">
@@ -991,6 +1072,10 @@ class TerritoryPanel {
         );
         
         if (actualIsOwner) {
+            // 보호 기간 연장 경매가 활성화되어 있는지 확인
+            const protectionAuctions = this.getProtectionExtensionAuctions(territory.id);
+            const hasActiveProtectionAuctions = protectionAuctions.length > 0;
+            
             return `
                 <button class="action-btn pixel-btn" id="open-pixel-editor">
                     🎨 Edit Pixel Art
@@ -998,10 +1083,19 @@ class TerritoryPanel {
                 <button class="action-btn collab-btn" id="open-collaboration">
                     👥 Open Collaboration
                 </button>
+                <button class="action-btn auction-btn" id="start-protection-extension-auction">
+                    🛡️ Extend Protection (Auction)
+                </button>
+                ${hasActiveProtectionAuctions ? `
+                    <div class="protection-auctions-active">
+                        <span class="info-icon">ℹ️</span>
+                        <span>${protectionAuctions.length} protection extension auction(s) active</span>
+                    </div>
+                ` : ''}
             `;
         }
         
-        // 경매 중인 경우에도 즉시 구매 가능하도록 "Own This Territory" 버튼 표시
+        // 경매 중인 경우
         if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
             const user = firebaseService.getCurrentUser();
             const isUserHighestBidder = auction.highestBidder === user?.uid;
@@ -1012,6 +1106,40 @@ class TerritoryPanel {
                 ? effectiveAuctionBid 
                 : this.getEffectiveAuctionBid(auction);
             
+            // ⚠️ 보호 중인 지역에서는 Buy Now 버튼 표시하지 않음
+            if (isProtected && !isOwner) {
+                // 보호 중이고 소유자가 아닌 경우 - 입찰만 가능
+                return `
+                    <div class="protected-notice">
+                        <span class="protected-icon">🛡️</span>
+                        <span>Protected Territory</span>
+                        <small>You can only bid in the auction. Buy Now is not available during protection period.</small>
+                    </div>
+                    <div class="action-option-card">
+                        <div class="option-header">
+                            <span class="option-icon">⏳</span>
+                            <span class="option-title">Continue Bidding</span>
+                            <span class="option-badge auction">Auction</span>
+                        </div>
+                        <div class="option-price">
+                            <span class="price-label">${hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
+                            <span class="price-value">${this.formatNumber(auctionCurrentBid)} pt</span>
+                        </div>
+                        ${!hasBids ? `
+                            <div class="no-bids-notice">
+                                <span class="notice-icon">💡</span>
+                                <span>No bids yet. Be the first to bid!</span>
+                            </div>
+                        ` : ''}
+                        <div class="auction-action-hint">
+                            <span class="hint-icon">💡</span>
+                            <span>Place your bid in the auction section above</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 보호 중이 아닌 경우 - Buy Now 버튼 표시
             // 최소 입찰가 계산 (현재 입찰가 + 1pt)
             const minBid = auctionCurrentBid + 1;
             
@@ -1217,6 +1345,12 @@ class TerritoryPanel {
         const challengeBtn = document.getElementById('challenge-ruler');
         if (challengeBtn) {
             challengeBtn.addEventListener('click', () => this.handleChallengeOwner());
+        }
+        
+        // Protection Extension Auction 버튼
+        const protectionAuctionBtn = document.getElementById('start-protection-extension-auction');
+        if (protectionAuctionBtn) {
+            protectionAuctionBtn.addEventListener('click', () => this.handleStartProtectionExtensionAuction());
         }
         
         // 픽셀 에디터 버튼
@@ -2182,6 +2316,267 @@ class TerritoryPanel {
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         
         return `${hours}시간 ${minutes}분`;
+    }
+    
+    /**
+     * 보호 기간 연장 경매 가져오기
+     */
+    getProtectionExtensionAuctions(territoryId) {
+        const allAuctions = auctionSystem.getAllActiveAuctions();
+        return allAuctions.filter(auction => 
+            auction.territoryId === territoryId && 
+            auction.type === 'protection_extension' &&
+            auction.status === 'active'
+        );
+    }
+    
+    /**
+     * 보호 기간 연장 경매 시작 처리
+     */
+    async handleStartProtectionExtensionAuction() {
+        const user = firebaseService.getCurrentUser();
+        
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to start protection extension auction'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!this.currentTerritory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No territory selected'
+            });
+            return;
+        }
+        
+        // 소유자 확인
+        if (this.currentTerritory.ruler !== user.uid) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'Only territory owner can start protection extension auction'
+            });
+            return;
+        }
+        
+        // 보호 기간 옵션 모달 표시
+        this.showProtectionExtensionAuctionModal();
+    }
+    
+    /**
+     * 보호 기간 연장 경매 옵션 모달 표시
+     */
+    showProtectionExtensionAuctionModal() {
+        const territoryName = this.extractName(this.currentTerritory.name) || 
+                             this.extractName(this.currentTerritory.properties?.name) ||
+                             this.currentTerritory.id;
+        
+        const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.country || 
+                           'unknown';
+        const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        
+        // 보호 기간 옵션 정의 (아이디어 1: 가격 차등화)
+        const protectionOptions = [
+            {
+                id: 'week',
+                label: '1 Week',
+                days: 7,
+                multiplier: 1.0,
+                icon: '📅',
+                description: '7 days extension',
+                pricePerDay: (basePrice * 1.0 / 7).toFixed(1)
+            },
+            {
+                id: 'month',
+                label: '1 Month',
+                days: 30,
+                multiplier: 4.0,
+                icon: '📆',
+                description: '30 days extension',
+                pricePerDay: (basePrice * 4.0 / 30).toFixed(1)
+            },
+            {
+                id: 'year',
+                label: '1 Year',
+                days: 365,
+                multiplier: 50.0,
+                icon: '🗓️',
+                description: '365 days extension',
+                pricePerDay: (basePrice * 50.0 / 365).toFixed(1)
+            },
+            {
+                id: 'lifetime',
+                label: 'Lifetime',
+                days: null,
+                multiplier: 500.0,
+                icon: '👑',
+                description: 'Permanent protection',
+                pricePerDay: null
+            }
+        ];
+        
+        // 기존 보호 기간 연장 경매 확인
+        const existingAuctions = this.getProtectionExtensionAuctions(this.currentTerritory.id);
+        const existingPeriods = existingAuctions.map(a => a.protectionDays);
+        
+        const optionsHTML = protectionOptions.map(option => {
+            const price = Math.ceil(basePrice * option.multiplier);
+            const alreadyExists = existingPeriods.includes(option.days);
+            const isDisabled = alreadyExists;
+            
+            return `
+                <div class="purchase-option-card ${isDisabled ? 'disabled' : ''}" 
+                     data-option-id="${option.id}" 
+                     data-days="${option.days || 'lifetime'}" 
+                     data-price="${price}"
+                     ${isDisabled ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                    <div class="option-header">
+                        <span class="option-icon">${option.icon}</span>
+                        <div class="option-title">
+                            <h3>${option.label}</h3>
+                            ${option.pricePerDay ? `<span class="option-label-en">${option.pricePerDay} pt/day</span>` : ''}
+                        </div>
+                        ${alreadyExists ? `<span class="option-badge">Active</span>` : ''}
+                    </div>
+                    <div class="option-body">
+                        <div class="option-price">
+                            <span class="price-value">${this.formatNumber(price)}</span>
+                            <span class="price-unit">pt</span>
+                        </div>
+                        <div class="option-description">${option.description}</div>
+                        ${alreadyExists ? `
+                            <div class="option-warning">
+                                <span class="warning-icon">⚠️</span>
+                                <span>Auction already active for this period</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        const modalHTML = `
+            <div class="modal-overlay" id="protection-extension-auction-modal">
+                <div class="modal-content purchase-options-modal">
+                    <div class="modal-header">
+                        <h2>🛡️ Extend Protection (Auction)</h2>
+                        <button class="close-btn" id="close-protection-auction-modal">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="purchase-options-info">
+                            <p>Choose a protection period to start an auction. Highest bidder wins the extension.</p>
+                            <p><strong>Territory:</strong> ${territoryName}</p>
+                            <p><strong>Base Price:</strong> ${this.formatNumber(basePrice)} pt</p>
+                        </div>
+                        <div class="purchase-options-grid">
+                            ${optionsHTML}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달 제거
+        const existingModal = document.getElementById('protection-extension-auction-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // 이벤트 바인딩
+        this.bindProtectionExtensionAuctionModalEvents();
+    }
+    
+    /**
+     * 보호 기간 연장 경매 모달 이벤트 바인딩
+     */
+    bindProtectionExtensionAuctionModalEvents() {
+        // 닫기 버튼
+        const closeBtn = document.getElementById('close-protection-auction-modal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                const modal = document.getElementById('protection-extension-auction-modal');
+                if (modal) modal.remove();
+            });
+        }
+        
+        // 오버레이 클릭 시 닫기
+        const overlay = document.getElementById('protection-extension-auction-modal');
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                }
+            });
+        }
+        
+        // 옵션 카드 클릭
+        document.querySelectorAll('#protection-extension-auction-modal .purchase-option-card').forEach(card => {
+            if (card.classList.contains('disabled')) return;
+            
+            card.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const optionId = card.dataset.optionId;
+                const days = card.dataset.days === 'lifetime' ? null : parseInt(card.dataset.days, 10);
+                const price = parseInt(card.dataset.price, 10);
+                
+                const optionLabels = {
+                    'week': '1 Week',
+                    'month': '1 Month',
+                    'year': '1 Year',
+                    'lifetime': 'Lifetime'
+                };
+                
+                const confirmMessage = `Start auction for ${optionLabels[optionId]} protection extension?\n\nStarting bid: ${this.formatNumber(price)} pt`;
+                
+                if (!confirm(confirmMessage)) {
+                    return;
+                }
+                
+                try {
+                    await auctionSystem.createProtectionExtensionAuction(
+                        this.currentTerritory.id,
+                        days
+                    );
+                    
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'success',
+                        message: `Protection extension auction started for ${optionLabels[optionId]}!`
+                    });
+                    
+                    // 모달 닫기
+                    const modal = document.getElementById('protection-extension-auction-modal');
+                    if (modal) modal.remove();
+                    
+                    // 패널 갱신
+                    this.render();
+                    this.bindActions();
+                    
+                } catch (error) {
+                    log.error('Failed to start protection extension auction:', error);
+                    
+                    let errorMessage = 'Failed to start auction';
+                    if (error.message.includes('already exists')) {
+                        errorMessage = `Auction for ${optionLabels[optionId]} already exists`;
+                    } else if (error.message.includes('Authentication')) {
+                        errorMessage = 'Please sign in first';
+                    } else if (error.message.includes('Only territory owner')) {
+                        errorMessage = 'Only territory owner can start protection extension auction';
+                    }
+                    
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: errorMessage
+                    });
+                }
+            });
+        });
     }
     
     getEventText(event) {
