@@ -58,44 +58,51 @@
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
     
-    <!-- Firebase SDK (v9 modular) - CORS 문제 해결을 위해 HTML에서 미리 로드 -->
+    <!-- Firebase SDK (v9 modular) - CORS 문제 해결을 위해 빠른 실패 및 폴백 -->
     <script type="module">
         // Firebase SDK를 전역으로 로드하여 동적 import 대신 사용
-        // CORS 오류 발생 시 재시도 로직 포함
+        // CORS 오류 발생 시 빠르게 실패하고 FirebaseService에서 처리하도록 함
         (async function() {
-            let retryCount = 0;
-            const maxRetries = 3;
+            // 타임아웃 설정 (5초)
+            const timeout = 5000;
+            const startTime = Date.now();
             
-            while (retryCount < maxRetries) {
-                try {
-                    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-                    const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-                    const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                    
-                    // 전역 window 객체에 Firebase 모듈 저장
-                    window.firebaseModules = {
-                        app: { initializeApp },
-                        auth: { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence },
-                        firestore: { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp }
-                    };
-                    
-                    console.log('[Firebase] SDK loaded successfully');
-                    break; // 성공 시 루프 종료
-                } catch (error) {
-                    retryCount++;
-                    console.warn(`[Firebase] SDK load failed (attempt ${retryCount}/${maxRetries}):`, error);
-                    if (retryCount >= maxRetries) {
-                        console.error('[Firebase] SDK load failed after all retries. FirebaseService will attempt direct import as fallback.');
-                        // 폴백: FirebaseService에서 직접 동적 import 시도하도록 설정
-                        // window.firebaseModules를 null로 설정하면 FirebaseService가 폴백 로직 실행
-                        window.firebaseModules = null;
-                        // FirebaseService가 직접 import를 시도할 수 있도록 플래그 설정
-                        window.firebaseModulesLoadFailed = true;
-                    } else {
-                        // 재시도 전 대기 (지수 백오프)
-                        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-                    }
-                }
+            try {
+                // Promise.race를 사용하여 타임아웃 설정
+                const loadPromise = Promise.all([
+                    import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'),
+                    import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'),
+                    import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js')
+                ]);
+                
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Firebase SDK load timeout')), timeout)
+                );
+                
+                const [appModule, authModule, firestoreModule] = await Promise.race([
+                    loadPromise,
+                    timeoutPromise
+                ]);
+                
+                const { initializeApp } = appModule;
+                const { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } = authModule;
+                const { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp } = firestoreModule;
+                
+                // 전역 window 객체에 Firebase 모듈 저장
+                window.firebaseModules = {
+                    app: { initializeApp },
+                    auth: { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence },
+                    firestore: { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp }
+                };
+                
+                const loadTime = Date.now() - startTime;
+                console.log(`[Firebase] SDK loaded successfully in ${loadTime}ms`);
+            } catch (error) {
+                const loadTime = Date.now() - startTime;
+                console.warn(`[Firebase] SDK load failed after ${loadTime}ms:`, error.message);
+                // 빠르게 실패하고 FirebaseService에서 처리하도록 함
+                window.firebaseModules = null;
+                window.firebaseModulesLoadFailed = true;
             }
         })();
     </script>

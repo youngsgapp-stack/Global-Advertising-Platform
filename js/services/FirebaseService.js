@@ -95,72 +95,57 @@ class FirebaseService {
             if (!modulesLoaded) {
                 log.warn('[FirebaseService] Firebase modules not found in window.firebaseModules, attempting direct import...');
                 try {
-                    // 여러 번 재시도 (CORS 문제가 일시적일 수 있음)
-                    let importRetries = 0;
-                    const maxImportRetries = 5;
-                    let importSuccess = false;
+                    // 타임아웃 설정 (3초) - 빠른 실패로 로딩 속도 개선
+                    const timeout = 3000;
+                    const importPromise = Promise.all([
+                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'),
+                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'),
+                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js')
+                    ]);
                     
-                    while (importRetries < maxImportRetries && !importSuccess) {
-                        try {
-                            const appModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-                            const authModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
-                            const firestoreModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                            
-                            initializeApp = appModule.initializeApp;
-                            
-                            getAuth = authModule.getAuth;
-                            onAuthStateChanged = authModule.onAuthStateChanged;
-                            signInWithPopup = authModule.signInWithPopup;
-                            signInWithRedirect = authModule.signInWithRedirect;
-                            getRedirectResult = authModule.getRedirectResult;
-                            signInWithEmailAndPassword = authModule.signInWithEmailAndPassword;
-                            GoogleAuthProvider = authModule.GoogleAuthProvider;
-                            signOut = authModule.signOut;
-                            setPersistence = authModule.setPersistence;
-                            browserLocalPersistence = authModule.browserLocalPersistence;
-                            browserSessionPersistence = authModule.browserSessionPersistence;
-                            
-                            getFirestore = firestoreModule.getFirestore;
-                            collection = firestoreModule.collection;
-                            doc = firestoreModule.doc;
-                            getDoc = firestoreModule.getDoc;
-                            getDocs = firestoreModule.getDocs;
-                            setDoc = firestoreModule.setDoc;
-                            updateDoc = firestoreModule.updateDoc;
-                            deleteDoc = firestoreModule.deleteDoc;
-                            query = firestoreModule.query;
-                            where = firestoreModule.where;
-                            orderBy = firestoreModule.orderBy;
-                            limit = firestoreModule.limit;
-                            onSnapshot = firestoreModule.onSnapshot;
-                            Timestamp = firestoreModule.Timestamp;
-                            deleteField = firestoreModule.deleteField;
-                            increment = firestoreModule.increment;
-                            serverTimestamp = firestoreModule.serverTimestamp;
-                            
-                            log.info('[FirebaseService] Firebase SDK loaded via direct import (fallback)');
-                            modulesLoaded = true;
-                            importSuccess = true;
-                            break;
-                        } catch (importError) {
-                            importRetries++;
-                            if (importRetries < maxImportRetries) {
-                                log.warn(`[FirebaseService] Direct import failed (attempt ${importRetries}/${maxImportRetries}), retrying...`);
-                                await new Promise(resolve => setTimeout(resolve, 2000 * importRetries));
-                            } else {
-                                log.error('[FirebaseService] Direct import failed after all retries:', importError);
-                                // 초기화 실패해도 앱은 계속 작동하도록 설정
-                                this.initialized = false;
-                                log.warn('[FirebaseService] ⚠️ Firebase initialization failed. App will continue in offline mode.');
-                                // 이벤트 발생하여 다른 서비스에 알림
-                                eventBus.emit(EVENTS.APP_ERROR, { 
-                                    error: 'Firebase initialization failed', 
-                                    message: 'Firebase SDK could not be loaded. Some features may be unavailable.' 
-                                });
-                                return false; // 초기화 실패 반환하지만 앱은 계속 진행
-                            }
-                        }
-                    }
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Firebase SDK import timeout')), timeout)
+                    );
+                    
+                    const [appModule, authModule, firestoreModule] = await Promise.race([
+                        importPromise,
+                        timeoutPromise
+                    ]);
+                    
+                    initializeApp = appModule.initializeApp;
+                    
+                    getAuth = authModule.getAuth;
+                    onAuthStateChanged = authModule.onAuthStateChanged;
+                    signInWithPopup = authModule.signInWithPopup;
+                    signInWithRedirect = authModule.signInWithRedirect;
+                    getRedirectResult = authModule.getRedirectResult;
+                    signInWithEmailAndPassword = authModule.signInWithEmailAndPassword;
+                    GoogleAuthProvider = authModule.GoogleAuthProvider;
+                    signOut = authModule.signOut;
+                    setPersistence = authModule.setPersistence;
+                    browserLocalPersistence = authModule.browserLocalPersistence;
+                    browserSessionPersistence = authModule.browserSessionPersistence;
+                    
+                    getFirestore = firestoreModule.getFirestore;
+                    collection = firestoreModule.collection;
+                    doc = firestoreModule.doc;
+                    getDoc = firestoreModule.getDoc;
+                    getDocs = firestoreModule.getDocs;
+                    setDoc = firestoreModule.setDoc;
+                    updateDoc = firestoreModule.updateDoc;
+                    deleteDoc = firestoreModule.deleteDoc;
+                    query = firestoreModule.query;
+                    where = firestoreModule.where;
+                    orderBy = firestoreModule.orderBy;
+                    limit = firestoreModule.limit;
+                    onSnapshot = firestoreModule.onSnapshot;
+                    Timestamp = firestoreModule.Timestamp;
+                    deleteField = firestoreModule.deleteField;
+                    increment = firestoreModule.increment;
+                    serverTimestamp = firestoreModule.serverTimestamp;
+                    
+                    log.info('[FirebaseService] Firebase SDK loaded via direct import (fallback)');
+                    modulesLoaded = true;
                 } catch (importError) {
                     log.error('[FirebaseService] Direct import also failed:', importError);
                     // 초기화 실패해도 앱은 계속 작동하도록 설정
