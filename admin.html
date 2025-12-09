@@ -199,14 +199,21 @@
                                     <li>영토 정보를 보거나 가격을 수정할 수 있습니다</li>
                                     <li>보기: 영토 상세 정보 확인</li>
                                     <li>수정: 영토 가격 수정</li>
+                                    <li>오너 삭제: 영토 소유자를 삭제하고 구역을 초기화</li>
+                                    <li>오너 설정: 영토의 소유자를 직접 지정</li>
                                 </ul>
                             </div>
-                            <div class="search-box">
-                                <input type="text" id="territory-search" placeholder="영토 검색...">
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                                <div class="search-box">
+                                    <input type="text" id="territory-search" placeholder="영토 검색...">
+                                </div>
+                                <select id="country-filter">
+                                    <option value="">전체 국가</option>
+                                </select>
+                                <button class="btn btn-danger" onclick="adminDashboard.showResetAllTerritoriesModal()" style="margin-left: auto;">
+                                    🔄 모든 영토 초기화
+                                </button>
                             </div>
-                            <select id="country-filter">
-                                <option value="">전체 국가</option>
-                            </select>
                         </div>
                         <div class="data-table-wrapper">
                             <table class="data-table" id="territories-table">

@@ -43,8 +43,9 @@ class FirebaseService {
             // 전역 window 객체에서 Firebase 모듈 가져오기
             const maxRetries = 10;
             let retryCount = 0;
+            let modulesLoaded = false;
             
-            while (retryCount < maxRetries) {
+            while (retryCount < maxRetries && !modulesLoaded) {
                 if (window.firebaseModules && window.firebaseModules.app && window.firebaseModules.auth && window.firebaseModules.firestore) {
                     // 전역 객체에서 모듈 가져오기
                     initializeApp = window.firebaseModules.app.initializeApp;
@@ -81,15 +82,102 @@ class FirebaseService {
                     
                     // 성공적으로 로드됨
                     log.info('[FirebaseService] Firebase SDK loaded from global window object');
+                    modulesLoaded = true;
                     break;
                 } else {
                     retryCount++;
-                    if (retryCount >= maxRetries) {
-                        throw new Error('Firebase SDK not loaded. Make sure Firebase SDK is loaded in HTML before FirebaseService initialization.');
-                    }
                     // 전역 객체가 준비될 때까지 대기
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
+            }
+            
+            // 전역 객체에서 로드 실패 시 직접 동적 import 시도 (폴백)
+            if (!modulesLoaded) {
+                log.warn('[FirebaseService] Firebase modules not found in window.firebaseModules, attempting direct import...');
+                try {
+                    // 여러 번 재시도 (CORS 문제가 일시적일 수 있음)
+                    let importRetries = 0;
+                    const maxImportRetries = 5;
+                    let importSuccess = false;
+                    
+                    while (importRetries < maxImportRetries && !importSuccess) {
+                        try {
+                            const appModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
+                            const authModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js');
+                            const firestoreModule = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                            
+                            initializeApp = appModule.initializeApp;
+                            
+                            getAuth = authModule.getAuth;
+                            onAuthStateChanged = authModule.onAuthStateChanged;
+                            signInWithPopup = authModule.signInWithPopup;
+                            signInWithRedirect = authModule.signInWithRedirect;
+                            getRedirectResult = authModule.getRedirectResult;
+                            signInWithEmailAndPassword = authModule.signInWithEmailAndPassword;
+                            GoogleAuthProvider = authModule.GoogleAuthProvider;
+                            signOut = authModule.signOut;
+                            setPersistence = authModule.setPersistence;
+                            browserLocalPersistence = authModule.browserLocalPersistence;
+                            browserSessionPersistence = authModule.browserSessionPersistence;
+                            
+                            getFirestore = firestoreModule.getFirestore;
+                            collection = firestoreModule.collection;
+                            doc = firestoreModule.doc;
+                            getDoc = firestoreModule.getDoc;
+                            getDocs = firestoreModule.getDocs;
+                            setDoc = firestoreModule.setDoc;
+                            updateDoc = firestoreModule.updateDoc;
+                            deleteDoc = firestoreModule.deleteDoc;
+                            query = firestoreModule.query;
+                            where = firestoreModule.where;
+                            orderBy = firestoreModule.orderBy;
+                            limit = firestoreModule.limit;
+                            onSnapshot = firestoreModule.onSnapshot;
+                            Timestamp = firestoreModule.Timestamp;
+                            deleteField = firestoreModule.deleteField;
+                            increment = firestoreModule.increment;
+                            serverTimestamp = firestoreModule.serverTimestamp;
+                            
+                            log.info('[FirebaseService] Firebase SDK loaded via direct import (fallback)');
+                            modulesLoaded = true;
+                            importSuccess = true;
+                            break;
+                        } catch (importError) {
+                            importRetries++;
+                            if (importRetries < maxImportRetries) {
+                                log.warn(`[FirebaseService] Direct import failed (attempt ${importRetries}/${maxImportRetries}), retrying...`);
+                                await new Promise(resolve => setTimeout(resolve, 2000 * importRetries));
+                            } else {
+                                log.error('[FirebaseService] Direct import failed after all retries:', importError);
+                                // 초기화 실패해도 앱은 계속 작동하도록 설정
+                                this.initialized = false;
+                                log.warn('[FirebaseService] ⚠️ Firebase initialization failed. App will continue in offline mode.');
+                                // 이벤트 발생하여 다른 서비스에 알림
+                                eventBus.emit(EVENTS.APP_ERROR, { 
+                                    error: 'Firebase initialization failed', 
+                                    message: 'Firebase SDK could not be loaded. Some features may be unavailable.' 
+                                });
+                                return false; // 초기화 실패 반환하지만 앱은 계속 진행
+                            }
+                        }
+                    }
+                } catch (importError) {
+                    log.error('[FirebaseService] Direct import also failed:', importError);
+                    // 초기화 실패해도 앱은 계속 작동하도록 설정
+                    this.initialized = false;
+                    log.warn('[FirebaseService] ⚠️ Firebase initialization failed. App will continue in offline mode.');
+                    eventBus.emit(EVENTS.APP_ERROR, { 
+                        error: 'Firebase initialization failed', 
+                        message: 'Firebase SDK could not be loaded. Some features may be unavailable.' 
+                    });
+                    return false; // 초기화 실패 반환하지만 앱은 계속 진행
+                }
+            }
+            
+            // modulesLoaded가 false면 초기화 중단
+            if (!modulesLoaded) {
+                this.initialized = false;
+                return false;
             }
             
             // Firebase 앱 초기화
@@ -762,7 +850,9 @@ class FirebaseService {
      */
     async getDocument(collectionName, docId) {
         if (!this.initialized) {
-            throw new Error('Firebase not initialized');
+            log.warn(`[FirebaseService] getDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
+            // null 반환하여 호출자가 처리할 수 있도록
+            return null;
         }
         
         try {
@@ -809,7 +899,9 @@ class FirebaseService {
      */
     async setDocument(collectionName, docId, data, merge = true) {
         if (!this.initialized) {
-            throw new Error('Firebase not initialized');
+            log.warn(`[FirebaseService] setDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
+            // false 반환하여 호출자가 처리할 수 있도록
+            return false;
         }
         
         try {
@@ -879,7 +971,9 @@ class FirebaseService {
      */
     async updateDocument(collectionName, docId, data) {
         if (!this.initialized) {
-            throw new Error('Firebase not initialized');
+            log.warn(`[FirebaseService] updateDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
+            // 조용히 실패 (앱이 계속 작동하도록)
+            return false;
         }
         
         try {
@@ -917,7 +1011,9 @@ class FirebaseService {
      */
     async queryCollection(collectionName, conditions = [], orderByField = null, limitCount = null) {
         if (!this.initialized) {
-            throw new Error('Firebase not initialized');
+            log.warn(`[FirebaseService] queryCollection called but Firebase not initialized. Collection: ${collectionName}`);
+            // 빈 배열 반환하여 앱이 계속 작동하도록 함
+            return [];
         }
         
         try {

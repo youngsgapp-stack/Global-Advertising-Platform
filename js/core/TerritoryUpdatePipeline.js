@@ -308,7 +308,8 @@ class TerritoryUpdatePipeline {
         
         // sourceId/featureId가 없으면 재검색
         if (!sourceId || !featureId) {
-            log.warn(`[TerritoryUpdatePipeline] Missing sourceId/featureId for ${territory.id}, searching in map...`);
+            // World View가 아직 로드되지 않았을 수 있으므로 조용히 재검색
+            log.debug(`[TerritoryUpdatePipeline] Missing sourceId/featureId for ${territory.id}, searching in map...`);
             const found = await this.findTerritoryInMap(territory.id);
             if (found) {
                 sourceId = found.sourceId;
@@ -317,9 +318,10 @@ class TerritoryUpdatePipeline {
                 territory.sourceId = sourceId;
                 territory.featureId = featureId;
                 territoryManager.territories.set(territory.id, territory);
-                log.info(`[TerritoryUpdatePipeline] ✅ Re-established mapping: territoryId=${territory.id}, sourceId=${sourceId}, featureId=${featureId}`);
+                log.debug(`[TerritoryUpdatePipeline] ✅ Re-established mapping: territoryId=${territory.id}, sourceId=${sourceId}, featureId=${featureId}`);
             } else {
-                log.warn(`[TerritoryUpdatePipeline] Cannot find territory ${territory.id} in map`);
+                // World View가 아직 로드되지 않았을 수 있으므로 경고만 (에러 아님)
+                log.debug(`[TerritoryUpdatePipeline] Territory ${territory.id} not found in map yet (World View may not be loaded)`);
                 return;
             }
         }
@@ -348,8 +350,10 @@ class TerritoryUpdatePipeline {
                         const actualSourceId = sourceId;
                         
                         // 실제 feature ID와 저장된 feature ID가 다른 경우 수정
+                        // World View 로드 시 feature ID가 인덱스 기반으로 재할당되므로 자동 수정
                         if (String(actualFeatureId) !== String(featureId)) {
-                            console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature ID mismatch for ${territory.id}: stored=${featureId}, actual=${actualFeatureId}`);
+                            // 디버그 레벨로 변경 (너무 많은 경고 방지)
+                            log.debug(`[TerritoryUpdatePipeline] Feature ID updated for ${territory.id}: ${featureId} → ${actualFeatureId}`);
                             featureId = actualFeatureId;
                             territory.featureId = actualFeatureId;
                             territoryManager.territories.set(territory.id, territory);
@@ -645,7 +649,21 @@ class TerritoryUpdatePipeline {
         
         try {
             // 0. 먼저 맵의 모든 영토 매핑 확립 (핵심!)
-            await this.establishAllTerritoryMappings();
+            // World View가 로드되지 않았을 수 있으므로 재시도 로직 포함
+            let mappingsEstablished = 0;
+            for (let retry = 0; retry < 3; retry++) {
+                await this.establishAllTerritoryMappings();
+                const style = this.map?.getStyle();
+                const worldSource = style?.sources?.['world-territories'];
+                if (worldSource && worldSource._data && worldSource._data.features) {
+                    mappingsEstablished = worldSource._data.features.length;
+                    if (mappingsEstablished > 0) break;
+                }
+                if (retry < 2) {
+                    log.debug(`[TerritoryUpdatePipeline] No mappings found, retrying... (${retry + 1}/3)`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
             
             // 1. Firestore에서 픽셀 데이터가 있는 모든 영토 ID 가져오기 (단일 원천)
             const territoriesWithPixelArt = await this.getTerritoriesWithPixelArt();

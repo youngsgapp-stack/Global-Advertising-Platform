@@ -32,19 +32,28 @@ class PixelMapRenderer3 {
         this.updatePipeline.initialize(this.map);
         this.setupEvents();
         
-        // 맵 로드 완료 후 파이프라인을 통한 초기 로드
+        // World View 로드 완료 후 초기 로드 (우선순위 1)
+        eventBus.once(EVENTS.WORLD_VIEW_LOADED, () => {
+            console.log('[PixelMapRenderer3] ✅ WORLD_VIEW_LOADED event received, starting initial load...');
+            // World View가 로드되었으므로 Territory 매핑이 가능함
+            setTimeout(() => {
+                this.waitForLayersAndLoad(3, 500); // 재시도 횟수 감소 (이미 World View 로드됨)
+            }, 500);
+        });
+        
+        // 맵 로드 완료 후 파이프라인을 통한 초기 로드 (fallback)
         eventBus.once(EVENTS.MAP_LOADED, () => {
             console.log('[PixelMapRenderer3] ✅ MAP_LOADED event received, waiting for layers...');
             // 레이어가 준비될 때까지 기다린 후 처리
             this.waitForLayersAndLoad();
         });
         
-        // APP_READY 이벤트 후에도 다시 시도 (더 확실하게)
+        // APP_READY 이벤트 후에도 다시 시도 (fallback)
         eventBus.once(EVENTS.APP_READY, () => {
             console.log('[PixelMapRenderer3] ✅ APP_READY event received, waiting for layers...');
             setTimeout(() => {
                 this.waitForLayersAndLoad();
-            }, 1000);
+            }, 2000); // World View 로드를 기다리기 위해 지연 증가
         });
         
         log.info('[PixelMapRenderer3] Initialized with TerritoryUpdatePipeline');
@@ -478,8 +487,8 @@ class PixelMapRenderer3 {
                     }
                 }
             } else {
-                // sourceId/featureId가 없으면 재검색
-                log.warn(`[PixelMapRenderer3] Missing sourceId/featureId for ${territory.id}, re-establishing mapping...`);
+                // sourceId/featureId가 없으면 재검색 (World View가 아직 로드되지 않았을 수 있음)
+                log.debug(`[PixelMapRenderer3] Missing sourceId/featureId for ${territory.id}, re-establishing mapping...`);
                 await this.updatePipeline.refreshTerritory(territory.id);
                 territory = territoryManager.getTerritory(territory.id);
                 if (territory && territory.sourceId && territory.featureId) {
@@ -490,6 +499,9 @@ class PixelMapRenderer3 {
                         featureState
                     );
                     this.map.triggerRepaint();
+                } else {
+                    // World View가 아직 로드되지 않았을 수 있으므로 조용히 실패
+                    log.debug(`[PixelMapRenderer3] Territory ${territory?.id || 'unknown'} mapping not available yet (World View may not be loaded)`);
                 }
             }
             }
@@ -709,19 +721,19 @@ class PixelMapRenderer3 {
         
         // sourceId/featureId 검증 (핵심!)
         if (!territory.sourceId || !territory.featureId) {
-            log.warn(`[PixelMapRenderer3] Missing sourceId/featureId for ${territory.id}, attempting to re-establish mapping...`);
+            log.debug(`[PixelMapRenderer3] Missing sourceId/featureId for ${territory.id}, attempting to re-establish mapping...`);
             
             // TerritoryUpdatePipeline을 통해 매핑 재확립
             await this.updatePipeline.refreshTerritory(territory.id);
             territory = territoryManager.getTerritory(territory.id);
             
-            // 여전히 없으면 에러
+            // 여전히 없으면 World View가 아직 로드되지 않았을 수 있으므로 조용히 실패
             if (!territory || !territory.sourceId || !territory.featureId) {
-                log.error(`[PixelMapRenderer3] Cannot add overlay: missing sourceId/featureId for ${territory?.id || 'unknown'}`);
+                log.debug(`[PixelMapRenderer3] Territory ${territory?.id || 'unknown'} mapping not available yet (World View may not be loaded)`);
                 return;
             }
             
-            log.info(`[PixelMapRenderer3] ✅ Re-established mapping: territoryId=${territory.id}, sourceId=${territory.sourceId}, featureId=${territory.featureId}`);
+            log.debug(`[PixelMapRenderer3] ✅ Re-established mapping: territoryId=${territory.id}, sourceId=${territory.sourceId}, featureId=${territory.featureId}`);
         }
         
         try {

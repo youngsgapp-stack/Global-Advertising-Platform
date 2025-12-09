@@ -85,11 +85,14 @@
                     retryCount++;
                     console.warn(`[Firebase] SDK load failed (attempt ${retryCount}/${maxRetries}):`, error);
                     if (retryCount >= maxRetries) {
-                        console.error('[Firebase] SDK load failed after all retries. Using fallback method.');
-                        // 폴백: 동적 import를 사용하도록 설정
+                        console.error('[Firebase] SDK load failed after all retries. FirebaseService will attempt direct import as fallback.');
+                        // 폴백: FirebaseService에서 직접 동적 import 시도하도록 설정
+                        // window.firebaseModules를 null로 설정하면 FirebaseService가 폴백 로직 실행
                         window.firebaseModules = null;
+                        // FirebaseService가 직접 import를 시도할 수 있도록 플래그 설정
+                        window.firebaseModulesLoadFailed = true;
                     } else {
-                        // 재시도 전 대기
+                        // 재시도 전 대기 (지수 백오프)
                         await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
                     }
                 }

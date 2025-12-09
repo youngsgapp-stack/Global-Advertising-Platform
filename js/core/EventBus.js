@@ -126,6 +126,7 @@ export const EVENTS = {
     MAP_MOVE: 'map:move',
     MAP_MODE_CHANGE: 'map:modeChange',
     MAP_LAYER_ADDED: 'map:layerAdded',
+    WORLD_VIEW_LOADED: 'map:worldViewLoaded',  // World View 로드 완료
     
     // 영토
     TERRITORY_SELECT: 'territory:select',

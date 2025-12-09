@@ -2855,6 +2855,12 @@ class MapController {
             
             log.info(`World View loaded: ${worldData.features.length} regions`);
             
+            // World View 로드 완료 이벤트 발생
+            eventBus.emit(EVENTS.WORLD_VIEW_LOADED, {
+                featureCount: worldData.features.length,
+                sourceId: 'world-territories'
+            });
+            
             // World View 로드 후 소유한 영토 상태 업데이트
             // TerritoryManager에서 소유한 영토를 가져와서 TerritoryUpdatePipeline을 통해 갱신
             this.updateOwnedTerritoriesInWorldView();
@@ -2876,6 +2882,9 @@ class MapController {
                 log.warn('[MapController] PixelMapRenderer not available, skipping owned territories update');
                 return;
             }
+            
+            // World View가 완전히 로드될 때까지 약간 대기 (Territory 매핑 확립)
+            await new Promise(resolve => setTimeout(resolve, 500));
             
             // TerritoryUpdatePipeline을 통해 소유한 영토 가져오기
             const ownedTerritoryIds = await this.pixelMapRenderer.updatePipeline.getOwnedTerritories();
