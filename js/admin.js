@@ -954,8 +954,12 @@ class AdminDashboard {
                         <td>${price.toLocaleString()} pt</td>
                         <td>${pixelCount.toLocaleString()}</td>
                         <td>
-                            <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${doc.id}')">보기</button>
-                            <button class="btn btn-sm" onclick="adminDashboard.editTerritory('${doc.id}')">수정</button>
+                            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                                <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${doc.id}')">보기</button>
+                                <button class="btn btn-sm" onclick="adminDashboard.editTerritory('${doc.id}')">수정</button>
+                                <button class="btn btn-sm btn-danger" onclick="adminDashboard.showResetTerritoryModal('${doc.id}')" title="오너 삭제 및 초기화">삭제</button>
+                                <button class="btn btn-sm btn-secondary" onclick="adminDashboard.showSetOwnerModal('${doc.id}')" title="오너 설정">오너 설정</button>
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -2040,6 +2044,655 @@ class AdminDashboard {
         } catch (error) {
             console.error('Failed to edit territory:', error);
             this.handleFirestoreError(error, '영토 수정');
+        }
+    }
+    
+    /**
+     * 영토 오너 삭제 및 초기화 모달 표시
+     */
+    showResetTerritoryModal(territoryId) {
+        const modalHtml = `
+            <div class="modal-overlay premium-modal-overlay" id="reset-territory-modal-overlay" onclick="adminDashboard.closeResetTerritoryModal()">
+                <div class="modal-content premium-modal-content" onclick="event.stopPropagation()">
+                    <div class="modal-header premium-modal-header">
+                        <div class="modal-icon-wrapper">
+                            <span class="modal-icon">🗑️</span>
+                        </div>
+                        <h2>영토 초기화</h2>
+                        <button class="modal-close premium-modal-close" onclick="adminDashboard.closeResetTerritoryModal()">×</button>
+                    </div>
+                    <div class="modal-body premium-modal-body">
+                        <div class="warning-box">
+                            <div class="warning-icon">⚠️</div>
+                            <div class="warning-content">
+                                <h3>경고</h3>
+                                <p>이 작업은 <strong>되돌릴 수 없습니다</strong>.</p>
+                                <ul>
+                                    <li>영토의 소유자(ruler)가 삭제됩니다</li>
+                                    <li>영토 상태가 'unconquered'로 변경됩니다</li>
+                                    <li>보호 기간이 제거됩니다</li>
+                                    <li>옥션 정보가 초기화됩니다</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="territory-info-box">
+                            <p><strong>영토 ID:</strong> <code>${territoryId}</code></p>
+                        </div>
+                    </div>
+                    <div class="modal-footer premium-modal-footer">
+                        <button class="btn btn-secondary" onclick="adminDashboard.closeResetTerritoryModal()">취소</button>
+                        <button class="btn btn-danger" onclick="adminDashboard.resetTerritory('${territoryId}')">초기화 실행</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달 제거
+        const existingModal = document.getElementById('reset-territory-modal-overlay');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    
+    closeResetTerritoryModal() {
+        const modal = document.getElementById('reset-territory-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 영토 오너 삭제 및 초기화 실행
+     */
+    async resetTerritory(territoryId) {
+        try {
+            // 영토 정보 확인
+            const doc = await this.db.collection('territories').doc(territoryId).get();
+            if (!doc.exists) {
+                alert('영토를 찾을 수 없습니다.');
+                this.closeResetTerritoryModal();
+                return;
+            }
+            
+            const data = doc.data();
+            const previousRuler = data.ruler;
+            const previousRulerName = data.rulerName;
+            
+            // 확인 대화상자
+            if (!confirm(`정말로 이 영토를 초기화하시겠습니까?\n\n영토 ID: ${territoryId}\n현재 소유자: ${previousRulerName || '없음'}\n\n이 작업은 되돌릴 수 없습니다.`)) {
+                return;
+            }
+            
+            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            
+            // 영토 초기화
+            await this.db.collection('territories').doc(territoryId).update({
+                ruler: null,
+                rulerName: null,
+                rulerSince: null,
+                sovereignty: 'unconquered',
+                protectionEndsAt: null,
+                currentAuction: null,
+                purchasedByAdmin: false,
+                purchasedPrice: null,
+                tribute: null,
+                updatedAt: Timestamp,
+                updatedBy: this.currentUser?.email || 'admin'
+            });
+            
+            // 관련 옥션 삭제 (해당 영토의 활성 옥션이 있다면)
+            try {
+                const activeAuctions = await this.db.collection('auctions')
+                    .where('territoryId', '==', territoryId)
+                    .where('status', '==', 'active')
+                    .get();
+                
+                const batch = this.db.batch();
+                activeAuctions.docs.forEach(auctionDoc => {
+                    batch.delete(auctionDoc.ref);
+                });
+                await batch.commit();
+                
+                if (activeAuctions.size > 0) {
+                    console.log(`[AdminDashboard] Deleted ${activeAuctions.size} active auction(s) for territory ${territoryId}`);
+                }
+            } catch (error) {
+                console.warn(`[AdminDashboard] Failed to delete auctions for territory ${territoryId}:`, error);
+            }
+            
+            this.logAdminAction('RESET_TERRITORY', { 
+                territoryId, 
+                previousRuler, 
+                previousRulerName 
+            });
+            
+            // 모달 닫기
+            this.closeResetTerritoryModal();
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+            // 통계 새로고침
+            await this.loadStats();
+            
+            alert(`✅ 영토가 초기화되었습니다.\n\n영토 ID: ${territoryId}\n이전 소유자: ${previousRulerName || '없음'}`);
+            
+        } catch (error) {
+            console.error('Failed to reset territory:', error);
+            this.handleFirestoreError(error, '영토 초기화');
+            alert(`❌ 영토 초기화에 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 영토 오너 설정 모달 표시
+     */
+    async showSetOwnerModal(territoryId) {
+        try {
+            // 영토 정보 가져오기
+            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
+            if (!territoryDoc.exists) {
+                alert('영토를 찾을 수 없습니다.');
+                return;
+            }
+            
+            const territoryData = territoryDoc.data();
+            const currentRuler = territoryData.ruler || null;
+            const currentRulerName = territoryData.rulerName || '없음';
+            
+            // 사용자 목록 가져오기
+            let users = [];
+            try {
+                const usersSnapshot = await this.db.collection('users').limit(100).get();
+                users = usersSnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+            } catch (error) {
+                console.warn('Failed to load users, will use email input instead:', error);
+            }
+            
+            // 영토 이름 추출
+            const extractName = (name) => {
+                if (!name) return null;
+                if (typeof name === 'string') {
+                    if (name === '[object Object]' || name === 'undefined' || name === 'null') {
+                        return null;
+                    }
+                    return name;
+                }
+                if (typeof name === 'object') {
+                    return name.en || name.ko || name.local || Object.values(name)[0] || null;
+                }
+                return String(name);
+            };
+            
+            const territoryName = extractName(territoryData.name) || 
+                                  extractName(territoryData.properties?.name) ||
+                                  extractName(territoryData.properties?.name_en) ||
+                                  territoryId;
+            
+            // 사용자 선택 옵션 생성
+            let userOptionsHtml = '';
+            if (users.length > 0) {
+                userOptionsHtml = users.map(user => {
+                    const displayName = user.displayName || user.email || user.id;
+                    const isSelected = currentRuler === user.id ? 'selected' : '';
+                    return `<option value="${user.id}" ${isSelected}>${displayName} (${user.email || user.id})</option>`;
+                }).join('');
+            }
+            
+            const modalHtml = `
+                <div class="modal-overlay premium-modal-overlay" id="set-owner-modal-overlay" onclick="adminDashboard.closeSetOwnerModal()">
+                    <div class="modal-content premium-modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                        <div class="modal-header premium-modal-header">
+                            <div class="modal-icon-wrapper">
+                                <span class="modal-icon">👑</span>
+                            </div>
+                            <h2>영토 오너 설정</h2>
+                            <button class="modal-close premium-modal-close" onclick="adminDashboard.closeSetOwnerModal()">×</button>
+                        </div>
+                        <div class="modal-body premium-modal-body">
+                            <div class="territory-info-box">
+                                <p><strong>영토 ID:</strong> <code>${territoryId}</code></p>
+                                <p><strong>영토명:</strong> ${territoryName}</p>
+                                <p><strong>현재 소유자:</strong> ${currentRulerName}</p>
+                            </div>
+                            <div class="form-group premium-form-group">
+                                <label>새 소유자 선택</label>
+                                ${users.length > 0 ? `
+                                    <select id="set-owner-user-select" class="premium-input">
+                                        <option value="">-- 사용자 선택 --</option>
+                                        ${userOptionsHtml}
+                                        <option value="__custom__">직접 입력 (이메일 또는 UID)</option>
+                                    </select>
+                                ` : ''}
+                                <input 
+                                    type="text" 
+                                    id="set-owner-user-input" 
+                                    class="premium-input" 
+                                    placeholder="사용자 이메일 또는 UID 입력"
+                                    ${users.length > 0 ? 'style="display: none; margin-top: 10px;"' : ''}
+                                >
+                            </div>
+                            <div class="form-group premium-form-group">
+                                <label>소유자 이름 (선택사항)</label>
+                                <input 
+                                    type="text" 
+                                    id="set-owner-name-input" 
+                                    class="premium-input" 
+                                    placeholder="표시될 이름을 입력하세요"
+                                >
+                            </div>
+                            <div class="info-box">
+                                <p>💡 <strong>참고:</strong></p>
+                                <ul>
+                                    <li>사용자 이메일 또는 UID를 입력할 수 있습니다</li>
+                                    <li>소유자 이름을 입력하지 않으면 이메일이 표시됩니다</li>
+                                    <li>기존 소유자가 있으면 자동으로 교체됩니다</li>
+                                    <li>영토 상태가 'ruled'로 변경되고 보호 기간이 설정됩니다</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="modal-footer premium-modal-footer">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeSetOwnerModal()">취소</button>
+                            <button class="btn btn-primary" onclick="adminDashboard.setTerritoryOwner('${territoryId}')">설정</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('set-owner-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // 사용자 선택 드롭다운 이벤트 리스너
+            if (users.length > 0) {
+                const select = document.getElementById('set-owner-user-select');
+                const input = document.getElementById('set-owner-user-input');
+                
+                select.addEventListener('change', (e) => {
+                    if (e.target.value === '__custom__') {
+                        input.style.display = 'block';
+                        input.value = '';
+                    } else {
+                        input.style.display = 'none';
+                        input.value = e.target.value;
+                    }
+                });
+            }
+            
+        } catch (error) {
+            console.error('Failed to show set owner modal:', error);
+            alert(`모달을 표시하는데 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    closeSetOwnerModal() {
+        const modal = document.getElementById('set-owner-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 영토 오너 설정 실행
+     */
+    async setTerritoryOwner(territoryId) {
+        try {
+            const userSelect = document.getElementById('set-owner-user-select');
+            const userInput = document.getElementById('set-owner-user-input');
+            const nameInput = document.getElementById('set-owner-name-input');
+            
+            let userId = '';
+            if (userSelect && userSelect.value && userSelect.value !== '__custom__') {
+                userId = userSelect.value;
+            } else if (userInput) {
+                userId = userInput.value.trim();
+            }
+            
+            if (!userId) {
+                alert('사용자 이메일 또는 UID를 입력해주세요.');
+                return;
+            }
+            
+            // 사용자 정보 가져오기 (이메일로 검색)
+            let userData = null;
+            let userName = nameInput?.value.trim() || '';
+            
+            try {
+                // 먼저 UID로 직접 조회
+                const userDoc = await this.db.collection('users').doc(userId).get();
+                if (userDoc.exists) {
+                    userData = userDoc.data();
+                    if (!userName) {
+                        userName = userData.displayName || userData.email || userData.name || userId;
+                    }
+                } else {
+                    // 이메일로 검색
+                    const emailQuery = await this.db.collection('users')
+                        .where('email', '==', userId)
+                        .limit(1)
+                        .get();
+                    
+                    if (!emailQuery.empty) {
+                        const doc = emailQuery.docs[0];
+                        userData = doc.data();
+                        userId = doc.id; // 실제 UID로 변경
+                        if (!userName) {
+                            userName = userData.displayName || userData.email || userData.name || userId;
+                        }
+                    } else {
+                        // 사용자를 찾을 수 없으면 입력한 값을 그대로 사용
+                        if (!userName) {
+                            userName = userId;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch user data, using provided values:', error);
+                if (!userName) {
+                    userName = userId;
+                }
+            }
+            
+            // 영토 정보 확인
+            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
+            if (!territoryDoc.exists) {
+                alert('영토를 찾을 수 없습니다.');
+                this.closeSetOwnerModal();
+                return;
+            }
+            
+            const territoryData = territoryDoc.data();
+            const previousRuler = territoryData.ruler;
+            const previousRulerName = territoryData.rulerName;
+            
+            // 확인
+            if (!confirm(`이 영토의 소유자를 설정하시겠습니까?\n\n영토 ID: ${territoryId}\n새 소유자: ${userName} (${userId})\n이전 소유자: ${previousRulerName || '없음'}`)) {
+                return;
+            }
+            
+            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            const now = new Date();
+            const protectionEndsAt = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7일 보호
+            
+            // 영토 소유자 설정
+            await this.db.collection('territories').doc(territoryId).update({
+                ruler: userId,
+                rulerName: userName,
+                rulerSince: Timestamp,
+                sovereignty: 'protected', // 보호 기간 시작
+                protectionEndsAt: firebase.firestore.Timestamp.fromDate(protectionEndsAt),
+                currentAuction: null, // 기존 옥션 제거
+                purchasedByAdmin: true, // 관리자 설정
+                updatedAt: Timestamp,
+                updatedBy: this.currentUser?.email || 'admin'
+            });
+            
+            this.logAdminAction('SET_TERRITORY_OWNER', { 
+                territoryId, 
+                userId, 
+                userName,
+                previousRuler,
+                previousRulerName
+            });
+            
+            // 모달 닫기
+            this.closeSetOwnerModal();
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+            // 통계 새로고침
+            await this.loadStats();
+            
+            alert(`✅ 영토 소유자가 설정되었습니다.\n\n영토 ID: ${territoryId}\n소유자: ${userName} (${userId})`);
+            
+        } catch (error) {
+            console.error('Failed to set territory owner:', error);
+            this.handleFirestoreError(error, '영토 오너 설정');
+            alert(`❌ 영토 오너 설정에 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 모든 영토 초기화 모달 표시
+     */
+    showResetAllTerritoriesModal() {
+        const modalHtml = `
+            <div class="modal-overlay premium-modal-overlay" id="reset-all-territories-modal-overlay" onclick="adminDashboard.closeResetAllTerritoriesModal()">
+                <div class="modal-content premium-modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+                    <div class="modal-header premium-modal-header">
+                        <div class="modal-icon-wrapper">
+                            <span class="modal-icon">🔄</span>
+                        </div>
+                        <h2>모든 영토 초기화</h2>
+                        <button class="modal-close premium-modal-close" onclick="adminDashboard.closeResetAllTerritoriesModal()">×</button>
+                    </div>
+                    <div class="modal-body premium-modal-body">
+                        <div class="warning-box critical-warning">
+                            <div class="warning-icon">🚨</div>
+                            <div class="warning-content">
+                                <h3>심각한 경고</h3>
+                                <p>이 작업은 <strong>모든 점유된 영토를 초기화</strong>합니다.</p>
+                                <ul>
+                                    <li>모든 영토의 소유자가 삭제됩니다</li>
+                                    <li>모든 영토 상태가 'unconquered'로 변경됩니다</li>
+                                    <li>모든 보호 기간이 제거됩니다</li>
+                                    <li>모든 활성 옥션이 삭제됩니다</li>
+                                    <li><strong>이 작업은 되돌릴 수 없습니다!</strong></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="info-box">
+                            <p>💡 <strong>주의사항:</strong></p>
+                            <ul>
+                                <li>이 작업은 시간이 오래 걸릴 수 있습니다</li>
+                                <li>진행 중에는 페이지를 닫지 마세요</li>
+                                <li>초기화 후에는 모든 영토가 미점유 상태가 됩니다</li>
+                            </ul>
+                        </div>
+                        <div class="form-group premium-form-group">
+                            <label>확인을 위해 "초기화"를 입력하세요</label>
+                            <input 
+                                type="text" 
+                                id="reset-all-confirm-input" 
+                                class="premium-input" 
+                                placeholder="초기화"
+                            >
+                        </div>
+                    </div>
+                    <div class="modal-footer premium-modal-footer">
+                        <button class="btn btn-secondary" onclick="adminDashboard.closeResetAllTerritoriesModal()">취소</button>
+                        <button class="btn btn-danger" onclick="adminDashboard.resetAllTerritories()">모든 영토 초기화</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달 제거
+        const existingModal = document.getElementById('reset-all-territories-modal-overlay');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    
+    closeResetAllTerritoriesModal() {
+        const modal = document.getElementById('reset-all-territories-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 모든 영토 초기화 실행
+     */
+    async resetAllTerritories() {
+        try {
+            // 확인 입력 검증
+            const confirmInput = document.getElementById('reset-all-confirm-input');
+            if (!confirmInput || confirmInput.value.trim() !== '초기화') {
+                alert('확인을 위해 "초기화"를 정확히 입력해주세요.');
+                return;
+            }
+            
+            // 최종 확인
+            if (!confirm('정말로 모든 영토를 초기화하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 점유된 영토가 미점유 상태로 변경됩니다.')) {
+                return;
+            }
+            
+            // 진행 상태 표시
+            const modalBody = document.querySelector('#reset-all-territories-modal-overlay .premium-modal-body');
+            const originalContent = modalBody.innerHTML;
+            modalBody.innerHTML = `
+                <div class="loading-state">
+                    <div class="loading-spinner"></div>
+                    <p>영토 초기화 중... 잠시만 기다려주세요.</p>
+                    <p id="reset-progress-text" style="margin-top: 10px; color: var(--color-text-secondary);">준비 중...</p>
+                </div>
+            `;
+            
+            const progressText = document.getElementById('reset-progress-text');
+            
+            // 점유된 영토 가져오기
+            progressText.textContent = '점유된 영토 조회 중...';
+            const ruledSnapshot = await this.db.collection('territories')
+                .where('sovereignty', '==', 'ruled')
+                .get();
+            
+            const protectedSnapshot = await this.db.collection('territories')
+                .where('sovereignty', '==', 'protected')
+                .get();
+            
+            const allTerritories = [...ruledSnapshot.docs, ...protectedSnapshot.docs];
+            const totalCount = allTerritories.length;
+            
+            if (totalCount === 0) {
+                modalBody.innerHTML = `
+                    <div class="info-box">
+                        <p>초기화할 영토가 없습니다.</p>
+                    </div>
+                `;
+                setTimeout(() => {
+                    this.closeResetAllTerritoriesModal();
+                }, 2000);
+                return;
+            }
+            
+            progressText.textContent = `${totalCount}개 영토 초기화 중...`;
+            
+            // 배치 처리로 초기화 (Firestore 배치 제한: 500개)
+            const batchSize = 500;
+            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            let processedCount = 0;
+            
+            for (let i = 0; i < allTerritories.length; i += batchSize) {
+                const batch = this.db.batch();
+                const batchDocs = allTerritories.slice(i, i + batchSize);
+                
+                batchDocs.forEach(doc => {
+                    batch.update(doc.ref, {
+                        ruler: null,
+                        rulerName: null,
+                        rulerSince: null,
+                        sovereignty: 'unconquered',
+                        protectionEndsAt: null,
+                        currentAuction: null,
+                        purchasedByAdmin: false,
+                        purchasedPrice: null,
+                        tribute: null,
+                        updatedAt: Timestamp,
+                        updatedBy: this.currentUser?.email || 'admin'
+                    });
+                });
+                
+                await batch.commit();
+                processedCount += batchDocs.length;
+                progressText.textContent = `${processedCount}/${totalCount}개 영토 초기화 완료...`;
+            }
+            
+            // 활성 옥션 삭제
+            progressText.textContent = '활성 옥션 삭제 중...';
+            const activeAuctions = await this.db.collection('auctions')
+                .where('status', '==', 'active')
+                .get();
+            
+            if (activeAuctions.size > 0) {
+                const auctionBatchSize = 500;
+                for (let i = 0; i < activeAuctions.docs.length; i += auctionBatchSize) {
+                    const batch = this.db.batch();
+                    const batchDocs = activeAuctions.docs.slice(i, i + auctionBatchSize);
+                    
+                    batchDocs.forEach(doc => {
+                        batch.delete(doc.ref);
+                    });
+                    
+                    await batch.commit();
+                }
+            }
+            
+            this.logAdminAction('RESET_ALL_TERRITORIES', { 
+                territoryCount: totalCount,
+                auctionCount: activeAuctions.size
+            });
+            
+            // 완료 메시지
+            modalBody.innerHTML = `
+                <div class="success-box">
+                    <div class="success-icon">✅</div>
+                    <div class="success-content">
+                        <h3>초기화 완료</h3>
+                        <p>총 <strong>${totalCount}</strong>개 영토가 초기화되었습니다.</p>
+                        <p>활성 옥션 <strong>${activeAuctions.size}</strong>개가 삭제되었습니다.</p>
+                    </div>
+                </div>
+            `;
+            
+            // 모달 닫기 (3초 후)
+            setTimeout(() => {
+                this.closeResetAllTerritoriesModal();
+            }, 3000);
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+            // 통계 새로고침
+            await this.loadStats();
+            
+        } catch (error) {
+            console.error('Failed to reset all territories:', error);
+            this.handleFirestoreError(error, '모든 영토 초기화');
+            
+            const modalBody = document.querySelector('#reset-all-territories-modal-overlay .premium-modal-body');
+            if (modalBody) {
+                modalBody.innerHTML = `
+                    <div class="error-box">
+                        <div class="error-icon">❌</div>
+                        <div class="error-content">
+                            <h3>초기화 실패</h3>
+                            <p>${error.message}</p>
+                        </div>
+                    </div>
+                `;
+            }
         }
     }
     
