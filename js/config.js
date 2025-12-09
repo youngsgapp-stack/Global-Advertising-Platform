@@ -381,7 +381,7 @@ export const CONFIG = {
             bidding: 'Bidding',
             ruled: 'Owned',
             owned: 'Owned',
-            conquest: 'Own This Territory',
+            conquest: '영토 구매',
             claim: 'Claim',
             tribute: 'Support',
             support: 'Support',
@@ -400,7 +400,7 @@ export const CONFIG = {
             decorate: 'Decorate',
             fandom: 'Fans',
             mySpot: 'My Spot',
-            getSpot: 'Own This Territory',
+            getSpot: '영토 구매',
             topOwners: 'Top Owners',
             newSpots: 'New Spots'
         }

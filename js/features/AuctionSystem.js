@@ -382,81 +382,64 @@ class AuctionSystem {
     async createAuction(territoryId, options = {}) {
         const user = firebaseService.getCurrentUser();
         if (!user) {
-            throw new Error('Authentication required');
+            throw new Error('로그인이 필요합니다');
         }
         
         // ⚠️ 중요: Territory ID 필수 검증
         // 새로운 Territory ID 형식("COUNTRY_ISO3::ADMIN_CODE") 또는 legacy ID가 있어야 함
         if (!territoryId || typeof territoryId !== 'string' || territoryId.trim() === '') {
-            throw new Error('Territory ID is required and must be a non-empty string');
+            throw new Error('영토 ID가 필요하며 비어있지 않은 문자열이어야 합니다');
         }
         
         const territory = territoryManager.getTerritory(territoryId);
         if (!territory) {
-            throw new Error('Territory not found');
+            throw new Error('영토를 찾을 수 없습니다');
         }
         
-        // ⚠️ 중요: 새로운 Territory ID 형식 검증 및 추출
-        // territory.properties.territoryId가 있으면 (새로운 형식: "SGP::ADM1_003") 우선 사용
-        let finalTerritoryId = territoryId;
-        let countryIso = null;
+        // ⚠️ 중요: Territory ID 정규화 (유틸리티 사용)
+        const { normalizedId: finalTerritoryId, countryIso } = normalizeTerritoryId(territoryId, territory);
         
-        const newTerritoryId = territory.properties?.territoryId || territory.territoryId;
-        if (newTerritoryId && newTerritoryId.includes('::')) {
-            // 새로운 Territory ID 형식 사용
-            finalTerritoryId = newTerritoryId;
-            
-            // Territory ID에서 countryIso 추출
-            const parts = newTerritoryId.split('::');
-            if (parts.length === 2 && parts[0].length === 3) {
-                countryIso = parts[0].toUpperCase();
-            }
-            
-            log.info(`[AuctionSystem] Using new Territory ID format: ${finalTerritoryId} (countryIso: ${countryIso})`);
+        if (isLegacyFormat(territoryId)) {
+            log.warn(`[AuctionSystem] ⚠️ Using legacy Territory ID format: ${territoryId} → ${finalTerritoryId} (countryIso: ${countryIso || 'UNKNOWN'}). Consider migrating to new format.`);
         } else {
-            // Legacy 형식: country 정보를 territory에서 추출
-            countryIso = territory.properties?.adm0_a3 || territory.countryIso;
-            if (countryIso && countryIso.length === 3) {
-                countryIso = countryIso.toUpperCase();
-            } else {
-                // countryIso를 countryCode에서 변환 시도
-                const countryCode = territory.country || territory.properties?.country;
-                if (countryCode) {
-                    // ISO to slug 매핑에서 역변환 시도
-                    const isoToSlugMap = territoryManager.createIsoToSlugMap();
-                    for (const [iso, slug] of Object.entries(isoToSlugMap)) {
-                        if (slug === countryCode) {
-                            countryIso = iso;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            log.warn(`[AuctionSystem] ⚠️ Using legacy Territory ID format: ${finalTerritoryId} (countryIso: ${countryIso || 'UNKNOWN'}). Consider migrating to new format.`);
+            log.info(`[AuctionSystem] Using new Territory ID format: ${finalTerritoryId} (countryIso: ${countryIso})`);
         }
         
         // ⚠️ 중요: countryIso 필수 검증
         // countryIso가 없으면 Auction을 생성할 수 없음 (동일 이름 행정구역 구분 불가)
         if (!countryIso || countryIso.length !== 3) {
-            throw new Error(`Cannot create auction: countryIso is required for territory ${finalTerritoryId}. Got: ${countryIso || 'null'}. Territory must have valid country information.`);
+            throw new Error(`경매를 생성할 수 없습니다: 영토 ${finalTerritoryId}에 국가 정보가 필요합니다. 국가 정보: ${countryIso || '없음'}. 영토에 유효한 국가 정보가 있어야 합니다.`);
         }
         
         // 이미 진행 중인 옥션 확인 (로컬 캐시)
         if (territory.currentAuction) {
-            throw new Error('Auction already in progress');
+            throw new Error('이미 진행 중인 경매가 있습니다');
         }
         
         // Firestore에서도 활성 옥션 확인 (중복 생성 방지)
+        // ⚠️ 중요: Territory ID 정규화 유틸리티를 사용하여 모든 형식 검색
         try {
-            const existingAuctions = await firebaseService.queryCollection('auctions', [
-                { field: 'territoryId', op: '==', value: territoryId },
-                { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-            ]);
+            // 정규화된 ID 목록으로 검색 (Legacy/New 형식 모두 포함)
+            const searchIds = getTerritorySearchIds(territoryId, territory);
             
-            if (existingAuctions && existingAuctions.length > 0) {
-                log.warn(`[AuctionSystem] ⚠️ Active auction already exists for ${territoryId} in Firestore (${existingAuctions.length} found), preventing duplicate creation`);
-                throw new Error(`Auction already exists for this territory (${existingAuctions.length} active auction(s) found)`);
+            // 각 ID로 검색하여 중복 확인
+            let existingAuctions = [];
+            for (const searchId of searchIds) {
+                const found = await firebaseService.queryCollection('auctions', [
+                    { field: 'territoryId', op: '==', value: searchId },
+                    { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
+                ]);
+                if (found && found.length > 0) {
+                    existingAuctions = existingAuctions.concat(found);
+                }
+            }
+            
+            // 중복 제거 (같은 경매가 여러 번 검색될 수 있음)
+            const uniqueAuctions = Array.from(new Map(existingAuctions.map(a => [a.id, a])).values());
+            
+            if (uniqueAuctions.length > 0) {
+                log.warn(`[AuctionSystem] ⚠️ Active auction already exists for ${finalTerritoryId} (original: ${territoryId}, searched: ${searchIds.join(', ')}) in Firestore (${uniqueAuctions.length} found), preventing duplicate creation`);
+                throw new Error(`이미 진행 중인 경매가 있습니다 (${uniqueAuctions.length}개의 활성 경매 발견)`);
             }
         } catch (error) {
             // 권한 오류나 다른 오류인 경우, 에러 메시지에 따라 처리
@@ -470,7 +453,7 @@ class AuctionSystem {
         // Firestore Timestamp 가져오기
         const Timestamp = firebaseService.getTimestamp();
         if (!Timestamp) {
-            throw new Error('Firestore Timestamp not available');
+            throw new Error('Firestore Timestamp를 사용할 수 없습니다');
         }
         
         // 경매 종료 시간 결정
@@ -719,11 +702,11 @@ class AuctionSystem {
         
         const auction = this.activeAuctions.get(auctionId);
         if (!auction) {
-            throw new Error('Auction not found');
+            throw new Error('경매를 찾을 수 없습니다');
         }
         
         if (auction.status !== AUCTION_STATUS.ACTIVE) {
-            throw new Error('Auction is not active');
+            throw new Error('경매가 활성 상태가 아닙니다');
         }
         
         // 입찰자가 없는 경우 startingBid를 기준으로, 있는 경우 currentBid를 기준으로 계산
@@ -748,7 +731,7 @@ class AuctionSystem {
         // 입찰 금액 검증
         const minBid = effectiveCurrentBid + effectiveMinIncrement;
         if (bidAmount < minBid) {
-            throw new Error(`Minimum bid is ${minBid} pt`);
+            throw new Error(`최소 입찰가는 ${minBid} pt입니다`);
         }
         
         // startingBid 검증 및 수정 (입찰 전에 한 번 더 확인)
@@ -948,11 +931,11 @@ class AuctionSystem {
                     auction.id = auctionId;
                     log.info(`[AuctionSystem] Loaded auction ${auctionId} from Firestore`);
                 } else {
-                    throw new Error(`Auction ${auctionId} not found in Firestore`);
+                    throw new Error(`경매 ${auctionId}를 Firestore에서 찾을 수 없습니다`);
                 }
             } catch (error) {
                 log.error(`[AuctionSystem] Failed to load auction ${auctionId} from Firestore:`, error);
-                throw new Error(`Auction not found: ${auctionId}`);
+                throw new Error(`경매를 찾을 수 없습니다: ${auctionId}`);
             }
         }
         
@@ -1063,19 +1046,19 @@ class AuctionSystem {
         const territory = territoryManager.getTerritory(territoryId);
         if (!territory) {
             log.error(`[AuctionSystem] ❌ Territory ${territoryId} not found in TerritoryManager`);
-            throw new Error('Territory not found');
+            throw new Error('영토를 찾을 수 없습니다');
         }
         
         log.info(`[AuctionSystem] 📋 Territory ${territoryId} current state: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
         
         if (territory.sovereignty === SOVEREIGNTY.RULED) {
             log.warn(`[AuctionSystem] ⚠️ Territory ${territoryId} is already ruled by ${territory.ruler}`);
-            throw new Error('Territory is already ruled');
+            throw new Error('이미 소유된 영토입니다');
         }
         
         if (territory.sovereignty === SOVEREIGNTY.CONTESTED) {
             log.warn(`[AuctionSystem] ⚠️ Territory ${territoryId} has auction in progress`);
-            throw new Error('Auction in progress');
+            throw new Error('진행 중인 경매가 있습니다');
         }
         
         const finalPrice = amount || territory.tribute || territory.price || 100;

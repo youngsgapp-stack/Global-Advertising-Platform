@@ -147,7 +147,7 @@ class TerritoryOwnershipService {
                     this.pendingTransactions.delete(territoryId);
                     return {
                         success: false,
-                        error: 'You already own this territory'
+                        error: '이미 소유하고 있는 영토입니다'
                     };
                 } else {
                     // 다른 사람이 소유 중인 경우

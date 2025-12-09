@@ -713,7 +713,7 @@ class TerritoryPanel {
         if (auction.status === 'ended' || auction.status === AUCTION_STATUS.ENDED) {
             return `
                 <div class="auction-section auction-ended">
-                    <h3>⚔️ Auction Ended</h3>
+                    <h3>경매 종료</h3>
                     <div class="auction-info">
                         <div class="auction-result">
                             ${auction.highestBidder 
@@ -788,7 +788,7 @@ class TerritoryPanel {
             // 종료 중임을 표시
             return `
                 <div class="auction-section auction-ending">
-                    <h3>⚔️ Auction Ending...</h3>
+                    <h3>경매 종료 중...</h3>
                     <div class="auction-info">
                         <div class="auction-result">
                             Processing auction results...
@@ -886,7 +886,7 @@ class TerritoryPanel {
         
         return `
             <div class="auction-section">
-                <h3>⚔️ Active Auction</h3>
+                <h3>진행 중인 경매</h3>
                 <div class="auction-info">
                     ${hasBids ? `
                         <div class="current-bid">
@@ -1001,7 +1001,7 @@ class TerritoryPanel {
             `;
         }
         
-        // 경매 중인 경우에도 즉시 구매 가능하도록 "Own This Territory" 버튼 표시
+        // 경매 중인 경우에도 즉시 구매 가능하도록 "영토 구매" 버튼 표시
         if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
             const user = firebaseService.getCurrentUser();
             const isUserHighestBidder = auction.highestBidder === user?.uid;
@@ -1076,7 +1076,7 @@ class TerritoryPanel {
                         </div>
                     ` : ''}
                     <button class="action-btn conquest-btn" id="instant-conquest" data-buy-now-price="${buyNowPrice}">
-                        ⚔️ Buy Now (${this.formatNumber(buyNowPrice)} pt)
+                        즉시 구매 (${this.formatNumber(buyNowPrice)} pt)
                     </button>
                 </div>
                 
@@ -1127,7 +1127,7 @@ class TerritoryPanel {
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
-                    🏴 Own This Territory (${this.formatNumber(realPrice)} pt)
+                    영토 구매 (${this.formatNumber(realPrice)} pt)
                 </button>
                 <button class="action-btn auction-btn" id="start-auction">
                     🏷️ Start Auction
@@ -1153,7 +1153,7 @@ class TerritoryPanel {
             
             return `
                 <button class="action-btn challenge-btn" id="challenge-ruler">
-                    ⚔️ Challenge Owner
+                    경매 시작
                 </button>
             `;
         }
@@ -1352,7 +1352,7 @@ class TerritoryPanel {
             log.error('[TerritoryPanel] No territory selected');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: 'No territory selected'
+                message: '선택된 영토가 없습니다'
             });
             return;
         }
@@ -1846,7 +1846,7 @@ class TerritoryPanel {
         if (!user) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: 'Please sign in to challenge the owner'
+                message: '경매를 시작하려면 로그인이 필요합니다'
             });
             eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
             return;
@@ -1855,7 +1855,7 @@ class TerritoryPanel {
         if (!this.currentTerritory) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: 'No territory selected'
+                message: '선택된 영토가 없습니다'
             });
             return;
         }
@@ -1864,7 +1864,7 @@ class TerritoryPanel {
         if (!this.currentTerritory.ruler) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: 'This territory has no owner'
+                message: '이 영토에는 소유자가 없습니다'
             });
             return;
         }
@@ -1873,7 +1873,7 @@ class TerritoryPanel {
         if (this.currentTerritory.ruler === user.uid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: 'You already own this territory'
+                message: '이미 소유하고 있는 영토입니다'
             });
             return;
         }
@@ -1894,7 +1894,7 @@ class TerritoryPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: '🎯 Challenge started! Auction is now active!'
+                message: '경매가 시작되었습니다!'
             });
             
             // 패널 갱신
@@ -1905,13 +1905,16 @@ class TerritoryPanel {
             log.error('Challenge owner failed:', error);
             
             // 사용자 친화적 에러 메시지
-            let errorMessage = 'Failed to start challenge';
+            let errorMessage = '경매 시작에 실패했습니다';
             if (error.message.includes('Authentication')) {
-                errorMessage = 'Please sign in first';
+                errorMessage = '먼저 로그인해주세요';
             } else if (error.message.includes('not found')) {
-                errorMessage = 'Territory not found';
-            } else if (error.message.includes('in progress')) {
-                errorMessage = 'An auction is already in progress';
+                errorMessage = '영토를 찾을 수 없습니다';
+            } else if (error.message.includes('in progress') || error.message.includes('already exists')) {
+                errorMessage = '이미 진행 중인 경매가 있습니다';
+                // 경매 정보를 다시 로드하여 표시
+                this.render();
+                this.bindActions();
             }
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {

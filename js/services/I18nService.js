@@ -37,7 +37,7 @@ const TRANSLATIONS = {
         'territory.country': 'Country',
         'territory.population': 'Population',
         'territory.area': 'Area',
-        'territory.claimNow': 'Own This Territory',
+        'territory.claimNow': '영토 구매',
         'territory.startAuction': 'Start Auction',
         'territory.placeBid': 'Place Bid',
         'territory.editPixels': 'Edit Pixels',
