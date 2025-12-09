@@ -120,8 +120,8 @@ class PixelMapRenderer3 {
             }
         }
         
-        // 최대 재시도 횟수 초과 시에도 시도
-        log.warn(`[PixelMapRenderer3] Max retries reached, attempting initial load anyway...`);
+        // 최대 재시도 횟수 초과 시에도 시도 (정상적인 동작 - World View 로드 전일 수 있음)
+        log.debug(`[PixelMapRenderer3] Max retries reached, attempting initial load anyway (World View may not be loaded yet)...`);
         try {
             await this.updatePipeline.initialLoad();
         } catch (error) {

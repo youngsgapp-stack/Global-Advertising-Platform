@@ -652,7 +652,7 @@ class TerritoryUpdatePipeline {
             // World View가 로드되지 않았을 수 있으므로 재시도 로직 포함
             let mappingsEstablished = 0;
             for (let retry = 0; retry < 3; retry++) {
-                await this.establishAllTerritoryMappings();
+            await this.establishAllTerritoryMappings();
                 const style = this.map?.getStyle();
                 const worldSource = style?.sources?.['world-territories'];
                 if (worldSource && worldSource._data && worldSource._data.features) {
@@ -786,7 +786,12 @@ class TerritoryUpdatePipeline {
                 }
             }
             
+            // 0개 매핑은 World View가 아직 로드되지 않았을 때 발생 (정상)
+            if (totalMappings > 0) {
             log.info(`[TerritoryUpdatePipeline] ✅ Established ${totalMappings} territory mappings`);
+            } else {
+                log.debug(`[TerritoryUpdatePipeline] No territory mappings yet (World View may not be loaded)`);
+            }
             
         } catch (error) {
             log.error('[TerritoryUpdatePipeline] Failed to establish territory mappings:', error);
