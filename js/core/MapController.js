@@ -797,27 +797,61 @@ class MapController {
             return this.globalAdminData;
         }
         
-        try {
-            log.info('Loading global admin boundaries data...');
-            
-            // Natural Earth Admin 1 데이터 (주/도 레벨)
-            const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch global admin data: ${response.status}`);
+        // Natural Earth Admin 1 데이터 (주/도 레벨)
+        const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
+        
+        // 재시도 로직 (최대 3회)
+        const maxRetries = 3;
+        let retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                log.info(`Loading global admin boundaries data... (attempt ${retryCount + 1}/${maxRetries})`);
+                
+                // AbortController로 타임아웃 설정 (10초)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    cache: 'default' // 브라우저 캐시 사용
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch global admin data: ${response.status}`);
+                }
+                
+                this.globalAdminData = await response.json();
+                this.globalAdminLoaded = true;
+                
+                log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
+                return this.globalAdminData;
+                
+            } catch (error) {
+                retryCount++;
+                
+                if (error.name === 'AbortError') {
+                    log.warn(`Global admin data fetch timeout (attempt ${retryCount}/${maxRetries})`);
+                } else {
+                    log.warn(`Failed to load global admin data (attempt ${retryCount}/${maxRetries}):`, error.message);
+                }
+                
+                if (retryCount < maxRetries) {
+                    // 지수 백오프: 1초, 2초, 4초
+                    const delay = Math.pow(2, retryCount - 1) * 1000;
+                    log.info(`Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                } else {
+                    log.error('Failed to load global admin data after all retries:', error);
+                    // 실패해도 null 반환 (앱은 계속 작동)
+                    return null;
+                }
             }
-            
-            this.globalAdminData = await response.json();
-            this.globalAdminLoaded = true;
-            
-            log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
-            return this.globalAdminData;
-            
-        } catch (error) {
-            log.error('Failed to load global admin data:', error);
-            return null;
         }
+        
+        return null;
     }
     
     /**
@@ -2658,11 +2692,13 @@ class MapController {
             this.setViewMode('world');
             this.clearAllTerritoryLayers();
             
-            // Load global admin data
+            // Load global admin data (재시도 로직 포함)
             await this.loadGlobalAdminData();
             
             if (!this.globalAdminData) {
-                log.error('Failed to load global admin data');
+                log.warn('Failed to load global admin data, but continuing...');
+                // 데이터가 없어도 앱은 계속 작동 (나중에 재시도 가능)
+                // Territory 매핑은 World View가 로드된 후에 재시도됨
                 return false;
             }
             
