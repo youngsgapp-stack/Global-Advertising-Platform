@@ -69,6 +69,27 @@ class TerritoryUpdatePipeline {
                 return;
             }
             
+            // ⚠️ CRITICAL: Territory 업데이트 시 관련 캐시 무효화
+            // 소유권이 변경되었거나 sovereignty가 변경된 경우 캐시 무효화
+            const previousTerritory = territoryManager.getTerritory(territoryId);
+            if (previousTerritory) {
+                const ownershipChanged = previousTerritory.ruler !== territory.ruler;
+                const sovereigntyChanged = previousTerritory.sovereignty !== territory.sovereignty;
+                
+                if (ownershipChanged || sovereigntyChanged) {
+                    log.info(`[TerritoryUpdatePipeline] 🔄 Territory ${territoryId} state changed, invalidating caches`);
+                    // 픽셀 데이터 캐시 무효화
+                    pixelDataService.clearMemoryCache(territoryId);
+                    // IndexedDB 캐시도 무효화 (소유권 변경 시)
+                    if (ownershipChanged) {
+                        const { localCacheService } = await import('../services/LocalCacheService.js');
+                        await localCacheService.clearCache(territoryId).catch(err => {
+                            log.warn(`[TerritoryUpdatePipeline] Failed to clear IndexedDB cache:`, err);
+                        });
+                    }
+                }
+            }
+            
             // 2. 픽셀 데이터 로드 (소유권 검증 포함)
             // 규칙 C: Territory 상태를 먼저 확인하고, 소유자가 없으면 픽셀 데이터를 로드하지 않음
             const pixelData = await pixelDataService.loadPixelData(territoryId, territory);

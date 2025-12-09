@@ -95,6 +95,65 @@ class PixelCanvas3 {
         this.touchStartPanY = 0;
         this.touchStartX = 0;
         this.touchStartY = 0;
+        
+        // 소유권 변경 감지
+        this.ownershipChangeListener = null;
+        this.originalOwnerId = null; // 편집 시작 시 소유자 ID
+    }
+    
+    /**
+     * 소유권 변경 감지 리스너 설정
+     */
+    setupOwnershipChangeListener() {
+        // 기존 리스너 제거
+        if (this.ownershipChangeListener) {
+            eventBus.off(EVENTS.TERRITORY_UPDATE, this.ownershipChangeListener);
+        }
+        
+        // 편집 시작 시 소유자 ID 저장
+        if (this.territory && this.territory.ruler) {
+            this.originalOwnerId = this.territory.ruler;
+        }
+        
+        // TERRITORY_UPDATE 이벤트 구독
+        this.ownershipChangeListener = async (data) => {
+            const territoryId = data.territory?.id || data.territoryId;
+            if (territoryId !== this.territoryId) return;
+            
+            const { firebaseService } = await import('../services/FirebaseService.js');
+            const currentUser = firebaseService.getCurrentUser();
+            
+            if (currentUser && data.territory) {
+                const newOwnerId = data.territory.ruler;
+                
+                // 소유권이 변경되었는지 확인
+                if (newOwnerId && newOwnerId !== this.originalOwnerId && newOwnerId !== currentUser.uid) {
+                    log.error(`[PixelCanvas3] ⚠️ Ownership changed during editing! Territory ${this.territoryId} is now owned by ${newOwnerId}`);
+                    
+                    // 사용자에게 알림
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'warning',
+                        message: '⚠️ 이 영토의 소유권이 변경되었습니다. 편집할 수 없습니다.'
+                    });
+                    
+                    // 저장 상태 업데이트
+                    eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+                        type: 'saveStatus', 
+                        status: 'error',
+                        error: 'Ownership changed',
+                        message: '소유권이 변경되어 편집할 수 없습니다'
+                    });
+                    
+                    // 원래 소유자 ID 업데이트
+                    this.originalOwnerId = newOwnerId;
+                } else if (newOwnerId === currentUser.uid) {
+                    // 현재 사용자가 소유자가 된 경우
+                    this.originalOwnerId = newOwnerId;
+                }
+            }
+        };
+        
+        eventBus.on(EVENTS.TERRITORY_UPDATE, this.ownershipChangeListener);
     }
     
     /**
@@ -110,6 +169,9 @@ class PixelCanvas3 {
         
         // territory 객체 저장
         this.territory = territory || territoryManager.getTerritory(territoryId);
+        
+        // ⚠️ CRITICAL: 소유권 변경 감지 리스너 설정
+        this.setupOwnershipChangeListener();
         
         // 영토 경계 가져오기
         await this.loadTerritoryGeometry();
@@ -1130,6 +1192,48 @@ class PixelCanvas3 {
             return;
         }
         
+        // ⚠️ CRITICAL: 저장 전 소유권 검증 (편집 중 소유권 변경 감지)
+        const { territoryManager } = await import('./TerritoryManager.js');
+        const { firebaseService } = await import('../services/FirebaseService.js');
+        const currentUser = firebaseService.getCurrentUser();
+        
+        if (currentUser) {
+            const territory = territoryManager.getTerritory(this.territoryId);
+            if (territory) {
+                // Firestore에서 최신 소유권 확인 (캐시 불일치 방지)
+                try {
+                    const latestTerritory = await firebaseService.getDocument('territories', this.territoryId);
+                    if (latestTerritory) {
+                        // 소유권이 변경되었는지 확인
+                        if (latestTerritory.ruler && latestTerritory.ruler !== currentUser.uid) {
+                            log.error(`[PixelCanvas3] ❌ Ownership changed! Territory ${this.territoryId} is now owned by ${latestTerritory.ruler}, not ${currentUser.uid}`);
+                            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                                type: 'error',
+                                message: '⚠️ 이 영토의 소유권이 변경되었습니다. 편집할 수 없습니다.'
+                            });
+                            eventBus.emit(EVENTS.PIXEL_UPDATE, { 
+                                type: 'saveStatus', 
+                                status: 'error',
+                                error: 'Ownership changed',
+                                message: '소유권이 변경되어 저장할 수 없습니다'
+                            });
+                            throw new Error('Territory ownership changed during editing');
+                        }
+                        
+                        // 로컬 캐시도 업데이트
+                        territory.ruler = latestTerritory.ruler;
+                        territory.rulerName = latestTerritory.rulerName;
+                        territory.sovereignty = latestTerritory.sovereignty;
+                    }
+                } catch (error) {
+                    if (error.message && error.message.includes('Ownership changed')) {
+                        throw error; // 소유권 변경 에러는 전파
+                    }
+                    log.warn('[PixelCanvas3] Failed to verify ownership, proceeding with save:', error);
+                }
+            }
+        }
+        
         this.isSaving = true;
         
         try {
@@ -1481,6 +1585,12 @@ class PixelCanvas3 {
             }, 5000);
         }
         
+        // 소유권 변경 리스너 제거
+        if (this.ownershipChangeListener) {
+            eventBus.off(EVENTS.TERRITORY_UPDATE, this.ownershipChangeListener);
+            this.ownershipChangeListener = null;
+        }
+        
         this.pixels.clear();
         this.history = [];
         this.historyIndex = -1;
@@ -1494,6 +1604,7 @@ class PixelCanvas3 {
         this.panY = 0;
         this.isSaving = false;
         this.lastSaveTime = null;
+        this.originalOwnerId = null;
         
         if (this.saveTimeout) {
             clearTimeout(this.saveTimeout);

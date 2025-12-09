@@ -1197,7 +1197,8 @@ class TerritoryPanel {
                 });
             });
         } else {
-            log.warn('[TerritoryPanel] instant-conquest button not found');
+            // 이미 소유된 영토나 경매 중인 영토에는 instant-conquest 버튼이 없으므로 정상
+            log.debug('[TerritoryPanel] instant-conquest button not found (territory may be owned or in auction)');
         }
         
         // 옥션 시작 버튼
@@ -1667,9 +1668,54 @@ class TerritoryPanel {
     
     /**
      * 선택한 옵션으로 구매 처리
+     * ⚠️ CRITICAL: 로딩 상태 표시 및 사용자 피드백 개선
      */
     async processPurchaseWithOption(price, protectionDays, territoryName, activeAuction) {
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to purchase this territory'
+            });
+            return;
+        }
+        
+        // ⚠️ 로딩 상태 표시
+        eventBus.emit(EVENTS.UI_NOTIFICATION, {
+            type: 'info',
+            message: '🔄 구매 처리 중... 잠시만 기다려주세요.'
+        });
+        
         try {
+            // 잔액 확인
+            const { walletService } = await import('../services/WalletService.js');
+            const currentBalance = walletService.getBalance();
+            
+            if (currentBalance < price) {
+                const shortage = price - currentBalance;
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'error',
+                    message: `❌ 잔액이 부족합니다. ${this.formatNumber(shortage)} pt가 더 필요합니다.`
+                });
+                return;
+            }
+            
+            // ⚠️ 사용자 피드백: 잔액 차감 시작
+            log.info(`[TerritoryPanel] 💰 Processing purchase: ${price} pt for ${territoryName} (${protectionDays || 'lifetime'} days)`);
+            
+            // 잔액 차감
+            await walletService.deductPoints(price, `Territory purchase: ${territoryName}`, 'purchase', {
+                territoryId: this.currentTerritory.id,
+                protectionDays: protectionDays,
+                territoryName: territoryName
+            });
+            
+            // ⚠️ 사용자 피드백: 구매 처리 중
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'info',
+                message: '✅ 포인트 차감 완료. 영토 구매 처리 중...'
+            });
+            
             // 결제 시작 이벤트 (PaymentService에서 처리)
             // protectionDays를 이벤트에 포함하여 TerritoryManager에서 사용할 수 있도록 함
             eventBus.emit(EVENTS.PAYMENT_START, {
@@ -1681,12 +1727,54 @@ class TerritoryPanel {
                 cancelAuction: !!activeAuction
             });
             
+            // ⚠️ 사용자 피드백: 성공
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: `🎉 ${territoryName} 구매 완료!`
+            });
+            
         } catch (error) {
             log.error('Purchase failed:', error);
+            
+            // ⚠️ 사용자 친화적 에러 메시지
+            let errorMessage = '구매 처리에 실패했습니다.';
+            let errorType = 'error';
+            
+            if (error.message?.includes('Insufficient balance')) {
+                errorMessage = `❌ 잔액이 부족합니다. ${this.formatNumber(price)} pt가 필요합니다.`;
+                errorType = 'error';
+            } else if (error.message?.includes('already owned') || error.message?.includes('already ruled')) {
+                errorMessage = '⚠️ 이 영토는 이미 다른 사용자가 구매했습니다.';
+                errorType = 'warning';
+            } else if (error.message?.includes('Auction in progress')) {
+                errorMessage = '⚠️ 이 영토는 현재 경매 중입니다.';
+                errorType = 'warning';
+            } else if (error.message?.includes('network') || error.message?.includes('offline')) {
+                errorMessage = '🌐 네트워크 연결을 확인하고 다시 시도해주세요.';
+                errorType = 'error';
+            } else if (error.message?.includes('Ownership changed')) {
+                errorMessage = '⚠️ 구매 중 소유권이 변경되었습니다. 잔액은 환불됩니다.';
+                errorType = 'warning';
+            }
+            
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'error',
-                message: 'Failed to process purchase. Please try again.'
+                type: errorType,
+                message: errorMessage
             });
+            
+            // 포인트 환불 시도 (구매 실패 시)
+            if (error.message?.includes('already owned') || error.message?.includes('Ownership changed')) {
+                try {
+                    const { walletService } = await import('../services/WalletService.js');
+                    await walletService.addPoints(price, `Refund: Purchase failed for ${territoryName}`, 'bid_refund', {
+                        territoryId: this.currentTerritory.id,
+                        reason: 'purchase_failed'
+                    });
+                    log.info(`[TerritoryPanel] ✅ Refunded ${price} pt due to purchase failure`);
+                } catch (refundError) {
+                    log.error('[TerritoryPanel] Failed to refund points:', refundError);
+                }
+            }
         }
     }
     

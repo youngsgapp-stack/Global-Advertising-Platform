@@ -1462,72 +1462,107 @@ class PaymentService {
             userId: user.uid
         });
         
-        // 중복 결제 방지
-        try {
-            const existingPayment = await firebaseService.getDocument('payments', `payment_${transactionId}`);
-            if (existingPayment) {
-                if (existingPayment.pointStatus === 'completed') {
-                    log.warn('[Payment] Duplicate payment detected - already processed', {
-                        transactionId: transactionId,
-                        existingStatus: existingPayment.status,
-                        existingPointStatus: existingPayment.pointStatus
-                    });
-                    throw new Error(`이미 처리된 결제입니다. 주문번호: ${transactionId}`);
-                } else if (existingPayment.pointStatus === 'pending') {
-                    log.info('[Payment] Retrying payment processing for pending order', {
-                        transactionId: transactionId
-                    });
-                }
-            }
-        } catch (error) {
-            if (!error.message?.includes('not found') && !error.message?.includes('does not exist')) {
-                log.warn('[Payment] Error checking duplicate payment:', error);
-            }
-        }
-        
+        // ⚠️ CRITICAL: Transaction을 사용하여 중복 결제 방지 강화
         const Timestamp = firebaseService.getTimestamp();
+        const paymentDocId = `payment_${transactionId}`;
         
-        // 결제 로그 저장
-        const paymentRecord = {
-            transactionId: transactionId,
-            method: method,
-            amount: amount,
-            points: points,
-            isCustomAmount: this.isCustomAmount,
-            status: PAYMENT_STATUS.COMPLETED,
-            pointStatus: 'pending',
-            processingStage: 'validation',
-            userId: user.uid,
-            createdAt: Timestamp ? Timestamp.now() : new Date(),
-            updatedAt: Timestamp ? Timestamp.now() : new Date(),
-            paymentDetails: paymentDetails,
-            validation: validation,
-            ...(method === 'paypal' ? { paypalOrderId: transactionId, paypalPayerId: payerId } : {}),
-            ...(method === 'card' ? { payoneerTransactionId: transactionId } : {})
-        };
-        
+        // Transaction으로 결제 로그 저장 및 중복 체크를 원자적으로 처리
+        let paymentRecord;
         try {
-            paymentRecord.processingStage = 'saving';
-            await firebaseService.setDocument(
-                'payments',
-                `payment_${transactionId}`,
-                paymentRecord
-            );
-            log.info('[Payment] Payment record saved to Firestore', {
+            paymentRecord = await firebaseService.runTransaction(async (transaction) => {
+                // Transaction 내에서 중복 체크 (최신 상태 보장)
+                const existingPayment = await transaction.get('payments', paymentDocId);
+                
+                if (existingPayment) {
+                    if (existingPayment.pointStatus === 'completed') {
+                        log.warn('[Payment] 🔒 Transaction: Duplicate payment detected - already processed', {
+                            transactionId: transactionId,
+                            existingStatus: existingPayment.status,
+                            existingPointStatus: existingPayment.pointStatus
+                        });
+                        throw new Error(`이미 처리된 결제입니다. 주문번호: ${transactionId}`);
+                    } else if (existingPayment.pointStatus === 'pending') {
+                        log.info('[Payment] 🔒 Transaction: Retrying payment processing for pending order', {
+                            transactionId: transactionId
+                        });
+                        // pending 상태인 경우 기존 레코드 업데이트
+                        const updatedRecord = {
+                            ...existingPayment,
+                            processingStage: 'retry',
+                            updatedAt: Timestamp ? Timestamp.now() : new Date()
+                        };
+                        transaction.update('payments', paymentDocId, updatedRecord);
+                        return updatedRecord;
+                    }
+                }
+                
+                // 새 결제 레코드 생성
+                const newRecord = {
+                    transactionId: transactionId,
+                    method: method,
+                    amount: amount,
+                    points: points,
+                    isCustomAmount: this.isCustomAmount,
+                    status: PAYMENT_STATUS.COMPLETED,
+                    pointStatus: 'pending',
+                    processingStage: 'validation',
+                    userId: user.uid,
+                    createdAt: Timestamp ? Timestamp.now() : new Date(),
+                    updatedAt: Timestamp ? Timestamp.now() : new Date(),
+                    paymentDetails: paymentDetails,
+                    validation: validation,
+                    ...(method === 'paypal' ? { paypalOrderId: transactionId, paypalPayerId: payerId } : {}),
+                    ...(method === 'card' ? { payoneerTransactionId: transactionId } : {})
+                };
+                
+                transaction.set('payments', paymentDocId, newRecord);
+                log.info('[Payment] 🔒 Transaction: Payment record created in transaction', {
+                    transactionId: transactionId,
+                    method: method
+                });
+                
+                return newRecord;
+            });
+            
+            log.info('[Payment] ✅ Transaction completed: Payment record saved', {
                 transactionId: transactionId,
                 method: method,
                 status: paymentRecord.status
             });
-        } catch (firestoreError) {
-            log.error('[Payment] Failed to save payment record:', firestoreError);
-            throw new Error(`Failed to save payment record: ${firestoreError.message}`);
+        } catch (transactionError) {
+            if (transactionError.message && transactionError.message.includes('이미 처리된')) {
+                // 중복 결제 - 사용자에게 명확한 메시지
+                throw transactionError;
+            }
+            
+            log.error('[Payment] ❌ Transaction failed, falling back to regular save:', transactionError);
+            // Fallback: 기존 방식으로 저장 시도
+            paymentRecord = {
+                transactionId: transactionId,
+                method: method,
+                amount: amount,
+                points: points,
+                isCustomAmount: this.isCustomAmount,
+                status: PAYMENT_STATUS.COMPLETED,
+                pointStatus: 'pending',
+                processingStage: 'validation',
+                userId: user.uid,
+                createdAt: Timestamp ? Timestamp.now() : new Date(),
+                updatedAt: Timestamp ? Timestamp.now() : new Date(),
+                paymentDetails: paymentDetails,
+                validation: validation,
+                ...(method === 'paypal' ? { paypalOrderId: transactionId, paypalPayerId: payerId } : {}),
+                ...(method === 'card' ? { payoneerTransactionId: transactionId } : {})
+            };
+            
+            await firebaseService.setDocument('payments', paymentDocId, paymentRecord);
         }
         
-        // 포인트 충전
+        // 포인트 충전 (Transaction으로 보호)
         try {
             await firebaseService.updateDocument(
                 'payments',
-                `payment_${transactionId}`,
+                paymentDocId,
                 { 
                     processingStage: 'points',
                     updatedAt: Timestamp ? Timestamp.now() : new Date()
@@ -1548,7 +1583,7 @@ class PaymentService {
             
             await firebaseService.updateDocument(
                 'payments',
-                `payment_${transactionId}`,
+                paymentDocId,
                 { 
                     pointStatus: 'completed',
                     processingStage: 'completed',
@@ -1699,14 +1734,58 @@ class PaymentService {
         } catch (error) {
             log.error('Purchase failed:', error);
             
-            if (error.message.includes('Insufficient')) {
+            // ⚠️ 사용자 친화적 에러 메시지
+            let errorMessage = '구매 처리에 실패했습니다.';
+            let errorType = 'error';
+            
+            if (error.message?.includes('Insufficient') || error.message?.includes('balance')) {
                 // 잔액 부족 - 충전 화면으로
                 this.openChargeModal(this.currentPayment.amount);
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'warning',
-                    message: 'Insufficient balance. Please charge points first.'
-                });
-            } else {
+                errorMessage = `❌ 잔액이 부족합니다. ${this.currentPayment.amount} pt가 필요합니다.`;
+                errorType = 'warning';
+            } else if (error.message?.includes('already owned') || error.message?.includes('already ruled')) {
+                errorMessage = '⚠️ 이 영토는 이미 다른 사용자가 구매했습니다. 잔액은 환불됩니다.';
+                errorType = 'warning';
+                // 포인트 환불
+                try {
+                    await walletService.addPoints(
+                        this.currentPayment.amount,
+                        `Refund: Territory already owned`,
+                        TRANSACTION_TYPE.BID_REFUND,
+                        { territoryId: this.currentPayment.territoryId, reason: 'already_owned' }
+                    );
+                } catch (refundError) {
+                    log.error('Failed to refund points:', refundError);
+                }
+            } else if (error.message?.includes('Auction in progress')) {
+                errorMessage = '⚠️ 이 영토는 현재 경매 중입니다.';
+                errorType = 'warning';
+            } else if (error.message?.includes('network') || error.message?.includes('offline')) {
+                errorMessage = '🌐 네트워크 연결을 확인하고 다시 시도해주세요.';
+                errorType = 'error';
+            } else if (error.message?.includes('Ownership changed')) {
+                errorMessage = '⚠️ 구매 중 소유권이 변경되었습니다. 잔액은 환불됩니다.';
+                errorType = 'warning';
+                // 포인트 환불
+                try {
+                    await walletService.addPoints(
+                        this.currentPayment.amount,
+                        `Refund: Ownership changed during purchase`,
+                        TRANSACTION_TYPE.BID_REFUND,
+                        { territoryId: this.currentPayment.territoryId, reason: 'ownership_changed' }
+                    );
+                } catch (refundError) {
+                    log.error('Failed to refund points:', refundError);
+                }
+            }
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: errorType,
+                message: errorMessage
+            });
+            
+            // 일반 에러 처리
+            if (errorType === 'error') {
                 this.handlePaymentError(error);
             }
         }

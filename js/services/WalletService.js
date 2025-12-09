@@ -60,13 +60,36 @@ class WalletService {
             });
             
             // 현재 로그인된 사용자가 있으면 지갑 로드
-            const currentUser = firebaseService.getCurrentUser();
-            if (currentUser) {
-                log.info(`[WalletService] 👤 Current user found: ${currentUser.uid}, loading wallet...`);
-                await this.loadUserWallet(currentUser.uid);
-            } else {
-                log.info('[WalletService] ℹ️ No current user, waiting for login...');
-            }
+            // ⚠️ 새로고침 시 인증 상태 복원을 기다리기 위해 약간의 지연 추가
+            const checkUser = async () => {
+                const currentUser = firebaseService.getCurrentUser();
+                if (currentUser) {
+                    log.info(`[WalletService] 👤 Current user found: ${currentUser.uid}, loading wallet...`);
+                    await this.loadUserWallet(currentUser.uid);
+                } else {
+                    log.info('[WalletService] ℹ️ No current user, waiting for login...');
+                    // 인증 상태 복원을 기다림 (최대 3초)
+                    let retryCount = 0;
+                    const maxRetries = 6; // 500ms * 6 = 3초
+                    const checkInterval = setInterval(() => {
+                        retryCount++;
+                        const delayedUser = firebaseService.getCurrentUser();
+                        if (delayedUser) {
+                            log.info(`[WalletService] 👤 User found after ${retryCount * 500}ms: ${delayedUser.uid}, loading wallet...`);
+                            clearInterval(checkInterval);
+                            this.loadUserWallet(delayedUser.uid).catch(err => {
+                                log.error('[WalletService] Failed to load wallet after retry:', err);
+                            });
+                        } else if (retryCount >= maxRetries) {
+                            log.info('[WalletService] ℹ️ No user found after waiting, will load when user logs in');
+                            clearInterval(checkInterval);
+                        }
+                    }, 500);
+                }
+            };
+            
+            // 약간의 지연 후 사용자 확인 (Firebase 인증 상태 복원 대기)
+            setTimeout(checkUser, 100);
             
             this.initialized = true;
             log.info('[WalletService] ✅ Initialized successfully');

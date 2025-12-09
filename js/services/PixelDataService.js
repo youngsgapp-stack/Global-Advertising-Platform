@@ -23,6 +23,84 @@ class PixelDataService {
         this.SAVE_DEBOUNCE_MS = 1000; // 자동 저장 debounce 시간 (1초로 단축)
         this.localCacheInitialized = false;
         this.pendingPixels = new Map(); // territoryId -> pixel edit queue
+        this.offlineRecoveryQueue = new Map(); // territoryId -> { pixelData, retryCount }
+        this.recoveryInterval = null; // 오프라인 복구 인터벌
+    }
+    
+    /**
+     * 오프라인 복구 설정 (네트워크 복구 시 자동 재시도)
+     */
+    setupOfflineRecovery(territoryId, pixelData) {
+        // 오프라인 복구 큐에 추가
+        this.offlineRecoveryQueue.set(territoryId, {
+            pixelData,
+            retryCount: 0,
+            lastRetry: Date.now()
+        });
+        
+        // 복구 인터벌이 없으면 시작
+        if (!this.recoveryInterval) {
+            this.recoveryInterval = setInterval(() => {
+                this.processOfflineRecovery().catch(err => {
+                    log.error('[PixelDataService] Offline recovery failed:', err);
+                });
+            }, 10000); // 10초마다 체크
+            
+            // 네트워크 복구 이벤트 리스너
+            window.addEventListener('online', () => {
+                log.info('[PixelDataService] Network restored, processing offline recovery queue...');
+                this.processOfflineRecovery().catch(err => {
+                    log.error('[PixelDataService] Offline recovery failed:', err);
+                });
+            });
+        }
+    }
+    
+    /**
+     * 오프라인 복구 큐 처리
+     */
+    async processOfflineRecovery() {
+        if (this.offlineRecoveryQueue.size === 0) return;
+        if (!navigator.onLine) return;
+        
+        const now = Date.now();
+        const maxRetries = 5;
+        const retryDelay = 10000; // 10초
+        
+        for (const [territoryId, recovery] of this.offlineRecoveryQueue.entries()) {
+            // 재시도 간격 확인
+            if (now - recovery.lastRetry < retryDelay) continue;
+            
+            // 최대 재시도 횟수 확인
+            if (recovery.retryCount >= maxRetries) {
+                log.warn(`[PixelDataService] Max retries reached for ${territoryId}, removing from recovery queue`);
+                this.offlineRecoveryQueue.delete(territoryId);
+                continue;
+            }
+            
+            try {
+                log.info(`[PixelDataService] 🔄 Retrying offline save for ${territoryId} (attempt ${recovery.retryCount + 1}/${maxRetries})`);
+                recovery.retryCount++;
+                recovery.lastRetry = now;
+                
+                // 저장 재시도
+                await this._executeSave(territoryId);
+                
+                // 성공 시 큐에서 제거
+                this.offlineRecoveryQueue.delete(territoryId);
+                log.info(`[PixelDataService] ✅ Offline recovery successful for ${territoryId}`);
+                
+                // 성공 알림
+                eventBus.emit(EVENTS.PIXEL_UPDATE, {
+                    type: 'saveStatus',
+                    status: 'saved',
+                    message: '오프라인 저장이 동기화되었습니다.'
+                });
+            } catch (error) {
+                log.warn(`[PixelDataService] Offline recovery retry failed for ${territoryId}:`, error);
+                // 다음 재시도를 위해 큐에 유지
+            }
+        }
     }
     
     /**
@@ -320,12 +398,20 @@ class PixelDataService {
             
             // 영토의 lastActivityAt 업데이트 (활동 기반 유지권 시스템)
             try {
-                // Firestore Timestamp 사용
-                const { Timestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                await firebaseService.updateDocument('territories', territoryId, {
-                    lastActivityAt: Timestamp.now()
-                });
-                log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId}`);
+                // firebaseService의 getTimestamp() 사용 (올바른 Timestamp 객체 반환)
+                const Timestamp = firebaseService.getTimestamp();
+                if (Timestamp) {
+                    await firebaseService.updateDocument('territories', territoryId, {
+                        lastActivityAt: Timestamp.now()
+                    });
+                    log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId}`);
+                } else {
+                    // Timestamp를 사용할 수 없으면 Date 사용
+                    await firebaseService.updateDocument('territories', territoryId, {
+                        lastActivityAt: new Date()
+                    });
+                    log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId} (using Date)`);
+                }
             } catch (error) {
                 log.warn(`[PixelDataService] Failed to update lastActivityAt for territory ${territoryId}:`, error);
                 // 영토 업데이트 실패해도 픽셀 저장은 성공한 것으로 처리
@@ -339,6 +425,38 @@ class PixelDataService {
             
         } catch (error) {
             log.error(`[PixelDataService] Failed to save pixel data for ${territoryId}:`, error);
+            
+            // ⚠️ CRITICAL: 오프라인 상태 처리 및 자동 복구
+            const isNetworkError = error.code === 'unavailable' || 
+                                  error.code === 'deadline-exceeded' ||
+                                  error.message?.includes('network') ||
+                                  error.message?.includes('offline') ||
+                                  !navigator.onLine;
+            
+            if (isNetworkError) {
+                log.warn(`[PixelDataService] ⚠️ Network error detected, saving to local cache for recovery: ${territoryId}`);
+                
+                // 로컬 캐시에 저장 (오프라인 복구용)
+                try {
+                    await this.initializeLocalCache();
+                    await localCacheService.saveToCache(territoryId, pixelData, { offline: true });
+                    
+                    // 오프라인 저장 이벤트 발행
+                    eventBus.emit(EVENTS.PIXEL_UPDATE, {
+                        type: 'saveStatus',
+                        status: 'offline',
+                        message: '오프라인 모드: 로컬에 저장되었습니다. 연결되면 자동으로 동기화됩니다.'
+                    });
+                    
+                    // 네트워크 복구 시 자동 재시도
+                    this.setupOfflineRecovery(territoryId, pixelData);
+                } catch (cacheError) {
+                    log.error(`[PixelDataService] Failed to save to local cache:`, cacheError);
+                }
+            } else {
+                // 네트워크 오류가 아닌 경우 에러 전파
+                throw error;
+            }
             throw error;
         }
     }

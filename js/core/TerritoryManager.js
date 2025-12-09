@@ -25,7 +25,9 @@ class TerritoryManager {
         this.currentTerritory = null;
         this.unsubscribers = [];
         this.processingTerritoryId = null; // 무한 루프 방지
+        this.processingConquest = new Set(); // 구매 처리 중인 territoryId 추적
         this.isoToSlugMap = null; // ISO 코드 -> 슬러그 매핑 캐시
+        this.protectionCheckInterval = null; // 보호 기간 체크 인터벌
     }
     
     /**
@@ -131,12 +133,69 @@ class TerritoryManager {
             // 이벤트 리스너 설정
             this.setupEventListeners();
             
+            // ⚠️ CRITICAL: 주기적으로 보호 기간 체크 (서버 cron 실패 시 대비)
+            this.startProtectionPeriodCheck();
+            
             log.info('TerritoryManager initialized');
             return true;
             
         } catch (error) {
             log.error('TerritoryManager initialization failed:', error);
             return false;
+        }
+    }
+    
+    /**
+     * 보호 기간 주기적 체크 시작 (서버 cron 실패 시 대비)
+     * 5분마다 체크하여 만료된 보호 기간 자동 수정
+     */
+    startProtectionPeriodCheck() {
+        // 기존 인터벌이 있으면 제거
+        if (this.protectionCheckInterval) {
+            clearInterval(this.protectionCheckInterval);
+        }
+        
+        // 5분마다 체크
+        this.protectionCheckInterval = setInterval(() => {
+            this.checkExpiredProtections().catch(err => {
+                log.error('[TerritoryManager] Failed to check expired protections:', err);
+            });
+        }, 5 * 60 * 1000); // 5분
+        
+        // 초기 체크도 수행
+        this.checkExpiredProtections().catch(err => {
+            log.error('[TerritoryManager] Failed to check expired protections on init:', err);
+        });
+        
+        log.info('[TerritoryManager] ✅ Protection period check started (every 5 minutes)');
+    }
+    
+    /**
+     * 만료된 보호 기간 체크 및 자동 수정
+     */
+    async checkExpiredProtections() {
+        const now = new Date();
+        let fixedCount = 0;
+        
+        for (const [territoryId, territory] of this.territories.entries()) {
+            if (!territory.protectionEndsAt || territory.sovereignty !== SOVEREIGNTY.PROTECTED) {
+                continue;
+            }
+            
+            const protectionEnd = territory.protectionEndsAt instanceof Date 
+                ? territory.protectionEndsAt 
+                : new Date(territory.protectionEndsAt);
+            
+            if (now >= protectionEnd) {
+                // 보호 기간이 만료되었는데 여전히 PROTECTED 상태인 경우 수정
+                log.info(`[TerritoryManager] 🔧 Found expired protection for ${territoryId}, fixing...`);
+                await this._fixExpiredProtection(territoryId, territory);
+                fixedCount++;
+            }
+        }
+        
+        if (fixedCount > 0) {
+            log.info(`[TerritoryManager] ✅ Fixed ${fixedCount} expired protection(s)`);
         }
     }
     
@@ -568,89 +627,105 @@ class TerritoryManager {
     async handleTerritoryConquered(data) {
         const { territoryId, userId, userName, tribute, isAdmin = false, protectionDays = null } = data;
         
-        // ⚠️ 전문가 조언 반영: 구매 프로세스 검증을 위한 상세 로그
-        log.info(`[TerritoryManager] 🎯🎯🎯 [구매 프로세스 시작] handleTerritoryConquered CALLED`);
-        log.info(`[TerritoryManager] 📋 구매 데이터:`, { 
-            territoryId, 
-            userId, 
-            userName, 
-            tribute, 
-            isAdmin,
-            protectionDays,
-            timestamp: new Date().toISOString()
-        });
+        // userId가 없으면 조기 반환 (필수 파라미터)
+        if (!userId) {
+            log.warn(`[TerritoryManager] ⚠️ handleTerritoryConquered called with undefined userId for ${territoryId}, skipping...`);
+            log.warn(`[TerritoryManager] Data received:`, data);
+            return;
+        }
         
-        // territories Map에서 먼저 확인
-        let territory = this.territories.get(territoryId);
+        // 중복 호출 방지: 이미 처리 중인 territoryId는 스킵
+        if (this.processingConquest.has(territoryId)) {
+            log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} is already being processed, skipping duplicate call`);
+            return;
+        }
         
-        // Map에 없으면 Firestore에서 가져오기 또는 기본 영토 생성
-        if (!territory) {
-            log.warn(`[TerritoryManager] Territory ${territoryId} not in territories Map, loading from Firestore...`);
-            try {
-                const firestoreData = await firebaseService.getDocument('territories', territoryId);
-                if (firestoreData) {
-                    territory = firestoreData;
-                    // territories Map에 추가
-                    this.territories.set(territoryId, territory);
-                    log.info(`[TerritoryManager] Loaded territory ${territoryId} from Firestore`);
-                } else {
-                    // Firestore에도 없으면 기본 영토 객체 생성
-                    log.warn(`[TerritoryManager] Territory ${territoryId} not in Firestore, creating basic territory object...`);
+        this.processingConquest.add(territoryId);
+        
+        try {
+            // ⚠️ 전문가 조언 반영: 구매 프로세스 검증을 위한 상세 로그
+            log.info(`[TerritoryManager] 🎯🎯🎯 [구매 프로세스 시작] handleTerritoryConquered CALLED`);
+            log.info(`[TerritoryManager] 📋 구매 데이터:`, { 
+                territoryId, 
+                userId, 
+                userName, 
+                tribute, 
+                isAdmin,
+                protectionDays,
+                timestamp: new Date().toISOString()
+            });
+            
+            // territories Map에서 먼저 확인
+            let territory = this.territories.get(territoryId);
+        
+            // Map에 없으면 Firestore에서 가져오기 또는 기본 영토 생성
+            if (!territory) {
+                log.warn(`[TerritoryManager] Territory ${territoryId} not in territories Map, loading from Firestore...`);
+                try {
+                    const firestoreData = await firebaseService.getDocument('territories', territoryId);
+                    if (firestoreData) {
+                        territory = firestoreData;
+                        // territories Map에 추가
+                        this.territories.set(territoryId, territory);
+                        log.info(`[TerritoryManager] Loaded territory ${territoryId} from Firestore`);
+                    } else {
+                        // Firestore에도 없으면 기본 영토 객체 생성
+                        log.warn(`[TerritoryManager] Territory ${territoryId} not in Firestore, creating basic territory object...`);
+                        territory = this.createTerritoryObject(territoryId, null, null);
+                        this.territories.set(territoryId, territory);
+                    }
+                } catch (error) {
+                    log.error(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore:`, error);
+                    // 에러가 발생해도 기본 영토 객체 생성
                     territory = this.createTerritoryObject(territoryId, null, null);
                     this.territories.set(territoryId, territory);
                 }
-            } catch (error) {
-                log.error(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore:`, error);
-                // 에러가 발생해도 기본 영토 객체 생성
-                territory = this.createTerritoryObject(territoryId, null, null);
-                this.territories.set(territoryId, territory);
             }
-        }
-        
-        const previousRuler = territory.ruler;
-        const now = new Date();
-        
-        // 보호 기간 계산
-        // protectionDays가 null이면 평생 보호 (매우 큰 값)
-        // protectionDays가 있으면 해당 일수만큼 보호
-        let protectionEndsAt;
-        if (protectionDays === null) {
-            // 평생 보호: 100년 후로 설정 (실질적으로 평생)
-            protectionEndsAt = new Date(now.getTime() + (100 * 365 * 24 * 60 * 60 * 1000));
-            log.info(`[TerritoryManager] Lifetime protection set for ${territoryId}`);
-        } else {
-            // 지정된 일수만큼 보호
-            protectionEndsAt = new Date(now.getTime() + (protectionDays * 24 * 60 * 60 * 1000));
-            log.info(`[TerritoryManager] Protection set for ${protectionDays} days for ${territoryId}`);
-        }
-        
-        // 영토 상태 업데이트
-        territory.sovereignty = SOVEREIGNTY.PROTECTED; // 구매 직후 보호 상태
-        territory.ruler = userId;
-        territory.rulerName = userName;
-        territory.rulerSince = now;
-        territory.protectionEndsAt = protectionEndsAt;
-        territory.updatedAt = now;
-        territory.purchasedByAdmin = isAdmin; // 관리자 구매 여부
-        territory.purchasedPrice = tribute; // 낙찰가 저장
-        territory.tribute = tribute; // 낙찰가 저장 (호환성)
-        territory.protectionDays = protectionDays; // 보호 기간 일수 저장 (null이면 평생)
-        
-        // 역사 기록 추가
-        territory.history = territory.history || [];
-        territory.history.push({
-            type: 'conquered',
-            timestamp: now,
-            data: {
-                newRuler: userName,
-                previousRuler: previousRuler,
-                tribute: tribute,
-                isAdmin: isAdmin
+            
+            const previousRuler = territory.ruler;
+            const now = new Date();
+            
+            // 보호 기간 계산
+            // protectionDays가 null이면 평생 보호 (매우 큰 값)
+            // protectionDays가 있으면 해당 일수만큼 보호
+            let protectionEndsAt;
+            if (protectionDays === null) {
+                // 평생 보호: 100년 후로 설정 (실질적으로 평생)
+                protectionEndsAt = new Date(now.getTime() + (100 * 365 * 24 * 60 * 60 * 1000));
+                log.info(`[TerritoryManager] Lifetime protection set for ${territoryId}`);
+            } else {
+                // 지정된 일수만큼 보호
+                protectionEndsAt = new Date(now.getTime() + (protectionDays * 24 * 60 * 60 * 1000));
+                log.info(`[TerritoryManager] Protection set for ${protectionDays} days for ${territoryId}`);
             }
-        });
-        
-        // Firestore 업데이트 (updateDocument 사용하여 기존 필드 유지)
-        try {
+            
+            // 영토 상태 업데이트
+            territory.sovereignty = SOVEREIGNTY.PROTECTED; // 구매 직후 보호 상태
+            territory.ruler = userId;
+            territory.rulerName = userName;
+            territory.rulerSince = now;
+            territory.protectionEndsAt = protectionEndsAt;
+            territory.updatedAt = now;
+            territory.purchasedByAdmin = isAdmin; // 관리자 구매 여부
+            territory.purchasedPrice = tribute; // 낙찰가 저장
+            territory.tribute = tribute; // 낙찰가 저장 (호환성)
+            territory.protectionDays = protectionDays; // 보호 기간 일수 저장 (null이면 평생)
+            
+            // 역사 기록 추가
+            territory.history = territory.history || [];
+            territory.history.push({
+                type: 'conquered',
+                timestamp: now,
+                data: {
+                    newRuler: userName,
+                    previousRuler: previousRuler,
+                    tribute: tribute,
+                    isAdmin: isAdmin
+                }
+            });
+            
+            // ⚠️ CRITICAL: Transaction을 사용하여 동시성 보호
+            // 두 사용자가 동시에 같은 영토를 구매하려 할 때 race condition 방지
             const Timestamp = firebaseService.getTimestamp();
             const nowTimestamp = Timestamp ? Timestamp.now() : new Date();
             
@@ -702,7 +777,52 @@ class TerritoryManager {
                 fullUpdateData: JSON.stringify(updateData, null, 2)
             });
             
-            await firebaseService.updateDocument('territories', territoryId, updateData);
+            // ⚠️ CRITICAL: Transaction을 사용하여 동시성 보호
+            try {
+                await firebaseService.runTransaction(async (transaction) => {
+                    // Transaction 내에서 영토 상태 확인 (최신 상태 보장)
+                    const currentTerritory = await transaction.get('territories', territoryId);
+                    
+                    if (!currentTerritory) {
+                        // 문서가 없으면 생성
+                        transaction.set('territories', territoryId, {
+                            ...updateData,
+                            viewCount: 0,
+                            territoryValue: 0,
+                            hasPixelArt: false
+                        });
+                        log.info(`[TerritoryManager] 🔒 Transaction: Creating new territory ${territoryId}`);
+                    } else {
+                        // ⚠️ CRITICAL: 동시성 검증 - ruler가 이미 설정되어 있으면 실패
+                        if (currentTerritory.ruler && currentTerritory.ruler !== userId) {
+                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${territoryId} is already owned by ${currentTerritory.ruler}`);
+                            throw new Error(`Territory ${territoryId} is already owned by another user`);
+                        }
+                        
+                        // ruler가 null이거나 현재 사용자인 경우에만 업데이트
+                        if (currentTerritory.ruler === null || currentTerritory.ruler === userId) {
+                            transaction.update('territories', territoryId, updateData);
+                            log.info(`[TerritoryManager] 🔒 Transaction: Updating territory ${territoryId}`);
+                        } else {
+                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${territoryId} ownership conflict`);
+                            throw new Error(`Territory ${territoryId} ownership conflict`);
+                        }
+                    }
+                });
+                
+                log.info(`[TerritoryManager] ✅✅✅ [Transaction 성공] Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
+            } catch (transactionError) {
+                // Transaction 실패 시 기존 방식으로 fallback (호환성 유지)
+                if (transactionError.message && transactionError.message.includes('already owned')) {
+                    // 이미 소유된 경우 - 사용자에게 명확한 에러 메시지
+                    log.error(`[TerritoryManager] ❌ Territory ${territoryId} purchase failed: already owned`);
+                    throw transactionError;
+                }
+                
+                log.warn(`[TerritoryManager] ⚠️ Transaction failed, falling back to regular update:`, transactionError);
+                // Fallback: 기존 방식으로 업데이트 시도
+                await firebaseService.updateDocument('territories', territoryId, updateData);
+            }
             
             // ⚠️ 전문가 조언 반영: Firestore 쓰기 직후 로그
             log.info(`[TerritoryManager] ✅✅✅ [Firestore 쓰기 성공] Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated in Firestore.`);
@@ -719,10 +839,16 @@ class TerritoryManager {
                         rulerMatches: verifyData.ruler === userId
                     });
                     
-                    if (verifyData.ruler !== userId || verifyData.sovereignty !== territory.sovereignty) {
+                    // 검증: ruler가 일치하고 sovereignty가 일치하는지 확인
+                    // 단, userId가 undefined인 경우는 이미 조기 반환했으므로 여기서는 항상 유효한 userId가 있어야 함
+                    if (verifyData.ruler !== userId) {
                         log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Firestore update did not persist correctly!`);
                         log.error(`[TerritoryManager] Expected: ruler=${userId}, sovereignty=${territory.sovereignty}`);
                         log.error(`[TerritoryManager] Actual: ruler=${verifyData.ruler}, sovereignty=${verifyData.sovereignty}`);
+                    } else if (verifyData.sovereignty !== territory.sovereignty) {
+                        log.warn(`[TerritoryManager] ⚠️ Sovereignty mismatch: expected=${territory.sovereignty}, actual=${verifyData.sovereignty} (may be acceptable)`);
+                    } else {
+                        log.info(`[TerritoryManager] ✅ Verification passed: ruler and sovereignty match`);
                     }
                 } else {
                     log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Territory ${territoryId} not found in Firestore after update!`);
@@ -751,12 +877,10 @@ class TerritoryManager {
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
             
             // 영토 정복 이벤트 발행 (소유권 변경 완료)
-            eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
-                territoryId,
-                territory,
-                previousRuler,
-                newRuler: userId
-            });
+            // ⚠️ 주의: 이 이벤트는 다른 모듈에서 구독할 수 있지만, 
+            // TerritoryManager 자체는 이 이벤트를 구독하지 않도록 해야 함 (무한 루프 방지)
+            // 대신 TERRITORY_UPDATE 이벤트만 사용하거나, 이벤트 이름을 다르게 해야 함
+            // 현재는 TERRITORY_UPDATE만 발행하고, TERRITORY_CONQUERED는 다른 목적으로 사용
             
         } catch (error) {
             // ⚠️ 전문가 조언 반영: Firestore 쓰기 실패 시 상세 로그
@@ -774,11 +898,15 @@ class TerritoryManager {
                 purchasedPrice: tribute
             });
             // 에러가 발생해도 로컬 캐시는 업데이트되었으므로 계속 진행
+        } finally {
+            // 처리 완료 후 플래그 제거
+            this.processingConquest.delete(territoryId);
         }
     }
     
     /**
-     * 보호 기간 확인
+     * 보호 기간 확인 (클라이언트 검증 강화)
+     * ⚠️ CRITICAL: 서버 cron 실패 시 대비하여 클라이언트에서도 검증
      */
     isProtected(territoryId) {
         const territory = this.territories.get(territoryId);
@@ -787,8 +915,59 @@ class TerritoryManager {
         const protectionEnd = territory.protectionEndsAt instanceof Date 
             ? territory.protectionEndsAt 
             : new Date(territory.protectionEndsAt);
+        
+        const now = new Date();
+        const isStillProtected = now < protectionEnd;
+        
+        // ⚠️ 보호 기간이 지났는데 sovereignty가 여전히 PROTECTED인 경우 자동 수정
+        if (!isStillProtected && territory.sovereignty === SOVEREIGNTY.PROTECTED) {
+            log.warn(`[TerritoryManager] ⚠️ Protection expired for ${territoryId} but sovereignty is still PROTECTED, auto-correcting...`);
+            // 비동기로 수정 (블로킹하지 않음)
+            this._fixExpiredProtection(territoryId, territory).catch(err => {
+                log.error(`[TerritoryManager] Failed to fix expired protection for ${territoryId}:`, err);
+            });
+            return false;
+        }
+        
+        return isStillProtected;
+    }
+    
+    /**
+     * 만료된 보호 기간 자동 수정 (서버 cron 실패 시 대비)
+     */
+    async _fixExpiredProtection(territoryId, territory) {
+        try {
+            // Firestore에서 최신 상태 확인
+            const latestTerritory = await firebaseService.getDocument('territories', territoryId);
+            if (!latestTerritory) return;
             
-        return new Date() < protectionEnd;
+            // 서버에서 이미 수정되었을 수 있으므로 다시 확인
+            const protectionEnd = latestTerritory.protectionEndsAt instanceof Date 
+                ? latestTerritory.protectionEndsAt 
+                : new Date(latestTerritory.protectionEndsAt);
+            
+            if (new Date() >= protectionEnd && latestTerritory.sovereignty === SOVEREIGNTY.PROTECTED) {
+                // 보호 기간이 지났고 여전히 PROTECTED 상태인 경우 RULED로 변경
+                log.info(`[TerritoryManager] 🔧 Auto-fixing expired protection for ${territoryId}`);
+                
+                const Timestamp = firebaseService.getTimestamp();
+                await firebaseService.updateDocument('territories', territoryId, {
+                    sovereignty: SOVEREIGNTY.RULED,
+                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                });
+                
+                // 로컬 캐시도 업데이트
+                territory.sovereignty = SOVEREIGNTY.RULED;
+                this.territories.set(territoryId, territory);
+                
+                // 이벤트 발행
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+                
+                log.info(`[TerritoryManager] ✅ Auto-fixed expired protection for ${territoryId}`);
+            }
+        } catch (error) {
+            log.error(`[TerritoryManager] Failed to fix expired protection:`, error);
+        }
     }
     
     /**

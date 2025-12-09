@@ -1051,6 +1051,52 @@ class FirebaseService {
     }
     
     /**
+     * Firestore Transaction 실행 (동시성 보호)
+     * @param {Function} updateFunction - Transaction 내에서 실행할 함수 (transaction 객체를 받음)
+     * @returns {Promise<any>} Transaction 결과
+     */
+    async runTransaction(updateFunction) {
+        if (!this.initialized) {
+            throw new Error('Firebase not initialized');
+        }
+        
+        try {
+            // compat 버전: db.runTransaction 사용
+            return await this.db.runTransaction(async (transaction) => {
+                // transaction 객체를 래핑하여 호환성 제공
+                const transactionWrapper = {
+                    get: (collectionName, docId) => {
+                        const docRef = this.db.collection(collectionName).doc(docId);
+                        return transaction.get(docRef).then(doc => {
+                            if (doc.exists) {
+                                return { id: doc.id, ...doc.data() };
+                            }
+                            return null;
+                        });
+                    },
+                    set: (collectionName, docId, data, options = {}) => {
+                        const docRef = this.db.collection(collectionName).doc(docId);
+                        transaction.set(docRef, data, options);
+                    },
+                    update: (collectionName, docId, data) => {
+                        const docRef = this.db.collection(collectionName).doc(docId);
+                        transaction.update(docRef, data);
+                    },
+                    delete: (collectionName, docId) => {
+                        const docRef = this.db.collection(collectionName).doc(docId);
+                        transaction.delete(docRef);
+                    }
+                };
+                
+                return await updateFunction(transactionWrapper);
+            });
+        } catch (error) {
+            log.error('[FirebaseService] Transaction failed:', error);
+            throw error;
+        }
+    }
+    
+    /**
      * 사용자 프로필 가져오기
      * @param {string} userId - 사용자 ID
      * @returns {Promise<Object|null>} 사용자 프로필 데이터

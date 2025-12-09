@@ -549,6 +549,17 @@ class BillionaireApp {
         eventBus.on(EVENTS.AUTH_STATE_CHANGED, ({ user }) => {
             console.log('[BillionaireApp] 🔐 AUTH_STATE_CHANGED event received, user:', user ? user.email : 'null');
             this.updateAuthUI(user);
+            
+            // 사용자가 로그인한 경우 지갑 잔액 새로고침
+            if (user) {
+                log.info(`[BillionaireApp] 💰 User logged in, refreshing wallet balance for ${user.uid}`);
+                // 약간의 지연 후 지갑 새로고침 (WalletService가 이벤트를 처리한 후)
+                setTimeout(() => {
+                    walletService.refreshBalance().catch(err => {
+                        log.warn('[BillionaireApp] Failed to refresh balance after login:', err);
+                    });
+                }, 500);
+            }
         });
         
         // Notification event
@@ -558,7 +569,15 @@ class BillionaireApp {
         
         // Wallet balance update
         eventBus.on(WALLET_EVENTS.BALANCE_UPDATED, ({ balance }) => {
-            this.updateWalletUI(balance);
+            log.info(`[BillionaireApp] 💰 BALANCE_UPDATED event received: ${balance} pt`);
+            // balance가 undefined이거나 null인 경우 WalletService에서 다시 가져오기
+            if (balance === undefined || balance === null) {
+                const currentBalance = walletService.getBalance();
+                log.info(`[BillionaireApp] 💰 Balance was undefined, using WalletService balance: ${currentBalance} pt`);
+                this.updateWalletUI(currentBalance);
+            } else {
+                this.updateWalletUI(balance);
+            }
         });
         
         // Payment success - handle territory conquest
@@ -962,6 +981,24 @@ class BillionaireApp {
      */
     updateWalletUI(balance) {
         log.info(`[BillionaireApp] 🔄 updateWalletUI called: balance=${balance}`);
+        
+        // balance가 0이고 사용자가 로그인되어 있으면 WalletService에서 다시 확인
+        if (balance === 0) {
+            const user = firebaseService.getCurrentUser();
+            if (user) {
+                const walletBalance = walletService.getBalance();
+                if (walletBalance > 0) {
+                    log.info(`[BillionaireApp] 💰 Balance was 0 but WalletService has ${walletBalance} pt, using WalletService balance`);
+                    balance = walletBalance;
+                } else {
+                    // WalletService도 0이면 지갑을 다시 로드 시도
+                    log.info(`[BillionaireApp] 💰 Both UI and WalletService show 0, refreshing wallet...`);
+                    walletService.refreshBalance().catch(err => {
+                        log.warn('[BillionaireApp] Failed to refresh balance:', err);
+                    });
+                }
+            }
+        }
         
         const walletDisplay = document.getElementById('wallet-balance');
         if (walletDisplay) {

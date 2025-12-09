@@ -41,8 +41,13 @@ class ContestSystem {
      */
     setupEventListeners() {
         // 픽셀 아트 저장 시 콘테스트 자동 참여 체크
-        eventBus.on(EVENTS.PIXEL_DATA_SAVED, ({ territoryId }) => {
-            this.checkContestEligibility(territoryId);
+        eventBus.on(EVENTS.PIXEL_DATA_SAVED, (data) => {
+            // 데이터가 없거나 territoryId가 없으면 스킵
+            if (!data || !data.territoryId) {
+                log.debug('[ContestSystem] PIXEL_DATA_SAVED event received without territoryId, skipping');
+                return;
+            }
+            this.checkContestEligibility(data.territoryId);
         });
     }
     
