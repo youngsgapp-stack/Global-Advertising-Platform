@@ -87,36 +87,40 @@ class TerritoryPanel {
             if (data.territory && data.territory.id && data.territory.properties) {
                 territory = data.territory;
                 log.debug(`[TerritoryPanel] Using territory from event data: ${territory.id}`);
-            } else {
-                // 2. TerritoryManager에서 가져오되, 이벤트 데이터의 country와 properties로 덮어쓰기
-                territory = territoryManager.getTerritory(territoryId);
-                if (territory) {
-                    // 이벤트 데이터의 정확한 country와 properties로 업데이트
-                    if (data.country) {
-                        territory.country = data.country;
-                        log.debug(`[TerritoryPanel] Updated territory.country from event: ${data.country}`);
-                    }
-                    if (data.properties) {
-                        territory.properties = { ...territory.properties, ...data.properties };
-                        log.debug(`[TerritoryPanel] Updated territory.properties from event`);
-                    }
-                    if (data.sourceId) territory.sourceId = data.sourceId;
-                    if (data.featureId) territory.featureId = data.featureId;
-                    if (data.geometry) territory.geometry = data.geometry;
                 } else {
-                    // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성
-                    log.warn(`[TerritoryPanel] Territory ${territoryId} not found in TerritoryManager, creating from event data`);
-                    territory = {
-                        id: territoryId,
-                        name: data.properties?.name || data.properties?.name_en || territoryId,
-                        country: data.country,
-                        properties: data.properties,
-                        geometry: data.geometry,
-                        sourceId: data.sourceId,
-                        featureId: data.featureId
-                    };
+                    // 2. TerritoryManager에서 가져오되, 이벤트 데이터의 country와 properties로 덮어쓰기
+                    territory = territoryManager.getTerritory(territoryId);
+                    if (territory) {
+                        // territory.id가 없으면 설정
+                        if (!territory.id) {
+                            territory.id = territoryId;
+                        }
+                        // 이벤트 데이터의 정확한 country와 properties로 업데이트
+                        if (data.country) {
+                            territory.country = data.country;
+                            log.debug(`[TerritoryPanel] Updated territory.country from event: ${data.country}`);
+                        }
+                        if (data.properties) {
+                            territory.properties = { ...territory.properties, ...data.properties };
+                            log.debug(`[TerritoryPanel] Updated territory.properties from event`);
+                        }
+                        if (data.sourceId) territory.sourceId = data.sourceId;
+                        if (data.featureId) territory.featureId = data.featureId;
+                        if (data.geometry) territory.geometry = data.geometry;
+                    } else {
+                        // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성
+                        log.warn(`[TerritoryPanel] Territory ${territoryId} not found in TerritoryManager, creating from event data`);
+                        territory = {
+                            id: territoryId,
+                            name: data.properties?.name || data.properties?.name_en || territoryId,
+                            country: data.country,
+                            properties: data.properties,
+                            geometry: data.geometry,
+                            sourceId: data.sourceId,
+                            featureId: data.featureId
+                        };
+                    }
                 }
-            }
             
             if (!territory) {
                 log.error(`[TerritoryPanel] Cannot open panel: no territory data for ${territoryId}`);

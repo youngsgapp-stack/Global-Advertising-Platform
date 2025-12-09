@@ -227,6 +227,11 @@ class TerritoryManager {
                 this.territories.set(territoryId, territory);
             }
             
+            // territory.id가 없으면 설정 (중요!)
+            if (!territory.id) {
+                territory.id = territoryId;
+            }
+            
             // Firestore에서 최신 픽셀 정보 로드
             try {
                 const firestoreData = await firebaseService.getDocument('territories', territoryId);
@@ -238,15 +243,20 @@ class TerritoryManager {
                             ...firestoreData.pixelCanvas
                         };
                     }
-                    // 기타 최신 정보 병합
-                    if (firestoreData.ruler) territory.ruler = firestoreData.ruler;
-                    if (firestoreData.rulerName) territory.rulerName = firestoreData.rulerName;
-                    if (firestoreData.sovereignty) territory.sovereignty = firestoreData.sovereignty;
+                    // 기타 최신 정보 병합 (중요: Firestore 데이터가 우선 - null 값도 허용)
+                    if (firestoreData.ruler !== undefined) territory.ruler = firestoreData.ruler;
+                    if (firestoreData.rulerName !== undefined) territory.rulerName = firestoreData.rulerName;
+                    if (firestoreData.sovereignty !== undefined) territory.sovereignty = firestoreData.sovereignty;
+                    if (firestoreData.protectedUntil !== undefined) territory.protectedUntil = firestoreData.protectedUntil;
+                    if (firestoreData.rulerSince !== undefined) territory.rulerSince = firestoreData.rulerSince;
                     if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
-                    log.debug(`Updated territory ${territoryId} from Firestore with pixelCanvas data`);
+                    log.debug(`[TerritoryManager] Updated territory ${territoryId} from Firestore: sovereignty=${territory.sovereignty}, ruler=${territory.ruler}`);
+                } else {
+                    log.debug(`[TerritoryManager] Territory ${territoryId} not found in Firestore (may be a new territory)`);
                 }
             } catch (error) {
-                log.warn(`Failed to load territory ${territoryId} from Firestore:`, error);
+                // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
+                log.debug(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore (using cached data):`, error.message);
             }
             
             // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code

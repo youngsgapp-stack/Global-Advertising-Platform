@@ -100,10 +100,17 @@ self.addEventListener('activate', (event) => {
 
 /**
  * fetch 이벤트 - 네트워크 요청 가로채기
+ * 전문가 조언: 외부 origin 요청은 건드리지 말고 브라우저에 맡김
  */
 self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
+    
+    // ⚠️ 핵심: 외부 origin 요청은 서비스워커가 건드리지 않음
+    // Firebase CDN, Mapbox, 기타 외부 CDN은 브라우저가 직접 처리하도록 함
+    if (url.origin !== self.location.origin) {
+        return; // 서비스워커가 처리하지 않고 브라우저에 맡김 (CORS preflight 방지)
+    }
     
     // GET 요청만 처리
     if (request.method !== 'GET') {
@@ -125,15 +132,12 @@ self.addEventListener('fetch', (event) => {
     }
     
     // JavaScript 파일은 네트워크만 사용 (캐시 완전 우회 - 최신 버전 보장)
+    // ⚠️ 외부 origin은 이미 위에서 필터링되었으므로 여기서는 같은 origin의 JS만 처리
     if (NETWORK_FIRST_JS_PATTERNS.some(pattern => pattern.test(url.pathname))) {
         event.respondWith(
             fetch(request, { 
-                cache: 'no-store',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
+                cache: 'no-store'
+                // ⚠️ Expires 헤더 제거 - CORS preflight 방지
             }).catch(() => {
                 // 에러 발생 시 빈 응답 반환 (에러 방지)
                 return new Response(null, { 
@@ -145,7 +149,8 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     
-    // 외부 도메인 (Mapbox, Firebase 등)은 네트워크 우선
+    // ⚠️ 외부 도메인은 이미 위에서 필터링되었으므로 이 부분은 실행되지 않음
+    // 같은 origin 내의 API 요청만 처리
     if (NETWORK_FIRST_PATTERNS.some(pattern => pattern.test(url.href))) {
         event.respondWith(networkFirst(request).catch(() => {
             // 에러 발생 시 빈 응답 반환 (에러 방지)

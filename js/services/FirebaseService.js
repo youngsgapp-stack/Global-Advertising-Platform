@@ -35,151 +35,81 @@ class FirebaseService {
         }
         
         try {
-            // Firebase 모듈 로드 (HTML에서 미리 로드된 전역 객체 사용)
-            // CORS 문제 해결을 위해 HTML에서 <script type="module">로 미리 로드
-            let initializeApp, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence;
-            let getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp;
-            
-            // 전역 window 객체에서 Firebase 모듈 가져오기
-            const maxRetries = 10;
-            let retryCount = 0;
-            let modulesLoaded = false;
-            
-            while (retryCount < maxRetries && !modulesLoaded) {
-                if (window.firebaseModules && window.firebaseModules.app && window.firebaseModules.auth && window.firebaseModules.firestore) {
-                    // 전역 객체에서 모듈 가져오기
-                    initializeApp = window.firebaseModules.app.initializeApp;
-                    
-                    getAuth = window.firebaseModules.auth.getAuth;
-                    onAuthStateChanged = window.firebaseModules.auth.onAuthStateChanged;
-                    signInWithPopup = window.firebaseModules.auth.signInWithPopup;
-                    signInWithRedirect = window.firebaseModules.auth.signInWithRedirect;
-                    getRedirectResult = window.firebaseModules.auth.getRedirectResult;
-                    signInWithEmailAndPassword = window.firebaseModules.auth.signInWithEmailAndPassword;
-                    GoogleAuthProvider = window.firebaseModules.auth.GoogleAuthProvider;
-                    signOut = window.firebaseModules.auth.signOut;
-                    setPersistence = window.firebaseModules.auth.setPersistence;
-                    browserLocalPersistence = window.firebaseModules.auth.browserLocalPersistence;
-                    browserSessionPersistence = window.firebaseModules.auth.browserSessionPersistence;
-                    
-                    getFirestore = window.firebaseModules.firestore.getFirestore;
-                    collection = window.firebaseModules.firestore.collection;
-                    doc = window.firebaseModules.firestore.doc;
-                    getDoc = window.firebaseModules.firestore.getDoc;
-                    getDocs = window.firebaseModules.firestore.getDocs;
-                    setDoc = window.firebaseModules.firestore.setDoc;
-                    updateDoc = window.firebaseModules.firestore.updateDoc;
-                    deleteDoc = window.firebaseModules.firestore.deleteDoc;
-                    query = window.firebaseModules.firestore.query;
-                    where = window.firebaseModules.firestore.where;
-                    orderBy = window.firebaseModules.firestore.orderBy;
-                    limit = window.firebaseModules.firestore.limit;
-                    onSnapshot = window.firebaseModules.firestore.onSnapshot;
-                    Timestamp = window.firebaseModules.firestore.Timestamp;
-                    deleteField = window.firebaseModules.firestore.deleteField;
-                    increment = window.firebaseModules.firestore.increment;
-                    serverTimestamp = window.firebaseModules.firestore.serverTimestamp;
-                    
-                    // 성공적으로 로드됨
-                    log.info('[FirebaseService] Firebase SDK loaded from global window object');
-                    modulesLoaded = true;
-                    break;
-                } else {
-                    retryCount++;
-                    // 전역 객체가 준비될 때까지 대기
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
-            }
-            
-            // 전역 객체에서 로드 실패 시 직접 동적 import 시도 (폴백)
-            if (!modulesLoaded) {
-                log.warn('[FirebaseService] Firebase modules not found in window.firebaseModules, attempting direct import...');
-                try {
-                    // 타임아웃 설정 (3초) - 빠른 실패로 로딩 속도 개선
-                    const timeout = 3000;
-                    const importPromise = Promise.all([
-                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'),
-                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'),
-                        import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js')
-                    ]);
-                    
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Firebase SDK import timeout')), timeout)
-                    );
-                    
-                    const [appModule, authModule, firestoreModule] = await Promise.race([
-                        importPromise,
-                        timeoutPromise
-                    ]);
-                    
-                    initializeApp = appModule.initializeApp;
-                    
-                    getAuth = authModule.getAuth;
-                    onAuthStateChanged = authModule.onAuthStateChanged;
-                    signInWithPopup = authModule.signInWithPopup;
-                    signInWithRedirect = authModule.signInWithRedirect;
-                    getRedirectResult = authModule.getRedirectResult;
-                    signInWithEmailAndPassword = authModule.signInWithEmailAndPassword;
-                    GoogleAuthProvider = authModule.GoogleAuthProvider;
-                    signOut = authModule.signOut;
-                    setPersistence = authModule.setPersistence;
-                    browserLocalPersistence = authModule.browserLocalPersistence;
-                    browserSessionPersistence = authModule.browserSessionPersistence;
-                    
-                    getFirestore = firestoreModule.getFirestore;
-                    collection = firestoreModule.collection;
-                    doc = firestoreModule.doc;
-                    getDoc = firestoreModule.getDoc;
-                    getDocs = firestoreModule.getDocs;
-                    setDoc = firestoreModule.setDoc;
-                    updateDoc = firestoreModule.updateDoc;
-                    deleteDoc = firestoreModule.deleteDoc;
-                    query = firestoreModule.query;
-                    where = firestoreModule.where;
-                    orderBy = firestoreModule.orderBy;
-                    limit = firestoreModule.limit;
-                    onSnapshot = firestoreModule.onSnapshot;
-                    Timestamp = firestoreModule.Timestamp;
-                    deleteField = firestoreModule.deleteField;
-                    increment = firestoreModule.increment;
-                    serverTimestamp = firestoreModule.serverTimestamp;
-                    
-                    log.info('[FirebaseService] Firebase SDK loaded via direct import (fallback)');
-                    modulesLoaded = true;
-                } catch (importError) {
-                    log.error('[FirebaseService] Direct import also failed:', importError);
-                    // 초기화 실패해도 앱은 계속 작동하도록 설정
-                    this.initialized = false;
-                    log.warn('[FirebaseService] ⚠️ Firebase initialization failed. App will continue in offline mode.');
-                    eventBus.emit(EVENTS.APP_ERROR, { 
-                        error: 'Firebase initialization failed', 
-                        message: 'Firebase SDK could not be loaded. Some features may be unavailable.' 
-                    });
-                    return false; // 초기화 실패 반환하지만 앱은 계속 진행
-                }
-            }
-            
-            // modulesLoaded가 false면 초기화 중단
-            if (!modulesLoaded) {
+            // 전문가 조언: Firebase compat 버전 사용 (정적 script 태그로 로드됨)
+            // window.firebaseCompat는 index.html에서 설정됨
+            if (!window.firebaseCompat || typeof window.firebaseCompat === 'undefined') {
+                // Firebase SDK가 로드되지 않음
+                log.warn('[FirebaseService] ⚠️ Firebase SDK not loaded. App will continue in offline mode.');
                 this.initialized = false;
+                eventBus.emit(EVENTS.APP_ERROR, { 
+                    error: 'Firebase initialization failed', 
+                    message: 'Firebase SDK could not be loaded. Some features may be unavailable.' 
+                });
                 return false;
             }
             
-            // Firebase 앱 초기화
-            this.app = initializeApp(CONFIG.FIREBASE);
-            this.auth = getAuth(this.app);
-            this.db = getFirestore(this.app);
+            const firebase = window.firebaseCompat;
             
-            // Firestore 헬퍼 저장
+            // Firebase 앱 초기화 (compat 버전)
+            if (firebase.apps.length === 0) {
+                this.app = firebase.initializeApp(CONFIG.FIREBASE);
+            } else {
+                this.app = firebase.app();
+            }
+            
+            this.auth = firebase.auth();
+            this.db = firebase.firestore();
+            
+            // Firestore 헬퍼 저장 (compat 버전은 직접 사용)
             this._firestore = {
-                collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-                query, where, orderBy, limit, onSnapshot, Timestamp, deleteField,
-                increment, serverTimestamp
+                collection: (db, collectionPath) => db.collection(collectionPath),
+                doc: (db, collectionPath, docPath) => db.collection(collectionPath).doc(docPath),
+                getDoc: (docRef) => docRef.get(),
+                getDocs: (collectionRef) => collectionRef.get(),
+                setDoc: (docRef, data, options) => docRef.set(data, options),
+                updateDoc: (docRef, data) => docRef.update(data),
+                deleteDoc: (docRef) => docRef.delete(),
+                query: (collectionRef, ...queryConstraints) => {
+                    let q = collectionRef;
+                    for (const constraint of queryConstraints) {
+                        if (constraint.type === 'where') {
+                            q = q.where(constraint.field, constraint.op, constraint.value);
+                        } else if (constraint.type === 'orderBy') {
+                            q = q.orderBy(constraint.field, constraint.direction);
+                        } else if (constraint.type === 'limit') {
+                            q = q.limit(constraint.limit);
+                        }
+                    }
+                    return q;
+                },
+                where: (field, op, value) => ({ type: 'where', field, op, value }),
+                orderBy: (field, direction) => ({ type: 'orderBy', field, direction }),
+                limit: (limit) => ({ type: 'limit', limit }),
+                onSnapshot: (queryOrDocRef, callback, errorCallback) => {
+                    return queryOrDocRef.onSnapshot(callback, errorCallback);
+                },
+                Timestamp: {
+                    now: () => firebase.firestore.Timestamp.now(),
+                    fromDate: (date) => firebase.firestore.Timestamp.fromDate(date),
+                    fromMillis: (millis) => firebase.firestore.Timestamp.fromMillis(millis)
+                },
+                deleteField: () => firebase.firestore.FieldValue.delete(),
+                increment: (n) => firebase.firestore.FieldValue.increment(n),
+                serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            // Auth 헬퍼 저장
+            // Auth 헬퍼 저장 (compat 버전은 직접 사용)
             this._auth = {
-                signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence
+                signInWithPopup: (auth, provider) => auth.signInWithPopup(provider),
+                signInWithRedirect: (auth, provider) => auth.signInWithRedirect(provider),
+                getRedirectResult: (auth) => auth.getRedirectResult(),
+                signInWithEmailAndPassword: (auth, email, password) => auth.signInWithEmailAndPassword(email, password),
+                GoogleAuthProvider: firebase.auth.GoogleAuthProvider,
+                signOut: (auth) => auth.signOut(),
+                onAuthStateChanged: (auth, callback) => auth.onAuthStateChanged(callback),
+                setPersistence: (auth, persistence) => auth.setPersistence(persistence),
+                browserLocalPersistence: firebase.auth.Auth.Persistence.LOCAL,
+                browserSessionPersistence: firebase.auth.Auth.Persistence.SESSION
             };
             
             // Firebase Auth persistence 설정 (리다이렉트 인증을 위해 필수)
@@ -209,7 +139,7 @@ class FirebaseService {
             });
             
             // 인증 상태 감시 (리다이렉트 결과 확인 후 설정)
-            onAuthStateChanged(this.auth, (user) => {
+            this._auth.onAuthStateChanged(this.auth, (user) => {
                 log.info('[FirebaseService] 🔐 Auth state changed:', user ? `Logged in as ${user.email}` : 'Logged out');
                 log.info('[FirebaseService] 🔐 User UID:', user ? user.uid : 'null');
                 log.info('[FirebaseService] 🔐 User email:', user ? user.email : 'null');
@@ -847,10 +777,11 @@ class FirebaseService {
                 monitoring.recordFirestoreRead(1);
             }
             
-            const docRef = this._firestore.doc(this.db, collectionName, docId);
-            const docSnap = await this._firestore.getDoc(docRef);
+            // compat 버전: 직접 사용
+            const docRef = this.db.collection(collectionName).doc(docId);
+            const docSnap = await docRef.get();
             
-            if (docSnap.exists()) {
+            if (docSnap.exists) {
                 return { id: docSnap.id, ...docSnap.data() };
             }
             return null;
@@ -899,8 +830,9 @@ class FirebaseService {
                 monitoring.recordFirestoreWrite(1);
             }
             
-            const docRef = this._firestore.doc(this.db, collectionName, docId);
-            await this._firestore.setDoc(docRef, {
+            // compat 버전: 직접 사용
+            const docRef = this.db.collection(collectionName).doc(docId);
+            await docRef.set({
                 ...cleanData,
                 updatedAt: this._firestore.Timestamp.now()
             }, { merge });
@@ -962,22 +894,23 @@ class FirebaseService {
         }
         
         try {
-            const docRef = this._firestore.doc(this.db, collectionName, docId);
-            const docSnap = await this._firestore.getDoc(docRef);
+            // compat 버전: 직접 사용
+            const docRef = this.db.collection(collectionName).doc(docId);
+            const docSnap = await docRef.get();
             
             // undefined 필드 제거 (재귀적으로 처리)
             const cleanData = this._removeUndefinedFields(data);
             
-            if (docSnap.exists()) {
+            if (docSnap.exists) {
                 // 문서가 존재하면 업데이트
-                await this._firestore.updateDoc(docRef, {
+                await docRef.update({
                     ...cleanData,
                     updatedAt: this._firestore.Timestamp.now()
                 });
                 log.debug(`Document updated: ${collectionName}/${docId}`);
             } else {
                 // 문서가 없으면 생성 (merge=true로 안전하게)
-                await this._firestore.setDoc(docRef, {
+                await docRef.set({
                     ...cleanData,
                     updatedAt: this._firestore.Timestamp.now()
                 }, { merge: true });
@@ -1002,10 +935,10 @@ class FirebaseService {
         }
         
         try {
-            let q = this._firestore.collection(this.db, collectionName);
+            // compat 버전: 직접 체이닝 방식 사용
+            let q = this.db.collection(collectionName);
             
             // 조건 추가
-            const queryConstraints = [];
             for (const condition of conditions) {
                 // op와 operator 둘 다 지원
                 const operator = condition.op || condition.operator;
@@ -1027,7 +960,7 @@ class FirebaseService {
                     continue;
                 }
                 
-                queryConstraints.push(this._firestore.where(condition.field, operator, condition.value));
+                q = q.where(condition.field, operator, condition.value);
             }
             
             // 정렬 추가
@@ -1035,17 +968,16 @@ class FirebaseService {
                 if (!orderByField.field) {
                     log.warn(`[FirebaseService] Skipping orderBy with missing field:`, orderByField);
                 } else {
-                    queryConstraints.push(this._firestore.orderBy(orderByField.field, orderByField.direction || 'asc'));
+                    q = q.orderBy(orderByField.field, orderByField.direction || 'asc');
                 }
             }
             
             // 제한 추가
             if (limitCount) {
-                queryConstraints.push(this._firestore.limit(limitCount));
+                q = q.limit(limitCount);
             }
             
-            q = this._firestore.query(q, ...queryConstraints);
-            const querySnapshot = await this._firestore.getDocs(q);
+            const querySnapshot = await q.get();
             
             const results = [];
             querySnapshot.forEach(doc => {
@@ -1067,9 +999,10 @@ class FirebaseService {
             throw new Error('Firebase not initialized');
         }
         
-        const docRef = this._firestore.doc(this.db, collectionName, docId);
-        return this._firestore.onSnapshot(docRef, (doc) => {
-            if (doc.exists()) {
+        // compat 버전: 직접 사용
+        const docRef = this.db.collection(collectionName).doc(docId);
+        return docRef.onSnapshot((doc) => {
+            if (doc.exists) {
                 callback({ id: doc.id, ...doc.data() });
             } else {
                 callback(null);
@@ -1085,16 +1018,16 @@ class FirebaseService {
             throw new Error('Firebase not initialized');
         }
         
-        let q = this._firestore.collection(this.db, collectionName);
+        // compat 버전: 직접 체이닝
+        let q = this.db.collection(collectionName);
         
         if (conditions.length > 0) {
-            const queryConstraints = conditions.map(c => 
-                this._firestore.where(c.field, c.op, c.value)
-            );
-            q = this._firestore.query(q, ...queryConstraints);
+            for (const c of conditions) {
+                q = q.where(c.field, c.op, c.value);
+            }
         }
         
-        return this._firestore.onSnapshot(q, (snapshot) => {
+        return q.onSnapshot((snapshot) => {
             const results = [];
             snapshot.forEach(doc => {
                 results.push({ id: doc.id, ...doc.data() });
@@ -1174,11 +1107,11 @@ class FirebaseService {
         }
         
         try {
-            const userRef = this._firestore.doc(this.db, 'users', user.uid);
-            const userDoc = await this._firestore.getDoc(userRef);
+            // compat 버전: 직접 사용
+            const userRef = this.db.collection('users').doc(user.uid);
+            const userDoc = await userRef.get();
             
-            const Timestamp = this._firestore.Timestamp;
-            const now = Timestamp.now();
+            const now = this._firestore.Timestamp.now();
             
             const userData = {
                 uid: user.uid,
@@ -1186,16 +1119,16 @@ class FirebaseService {
                 displayName: user.displayName || user.email?.split('@')[0] || 'User',
                 photoURL: user.photoURL || null,
                 emailVerified: user.emailVerified || false,
-                createdAt: userDoc.exists() ? (userDoc.data().createdAt || now) : now,
+                createdAt: userDoc.exists ? (userDoc.data().createdAt || now) : now,
                 updatedAt: now,
                 lastLoginAt: now,
-                territoryCount: userDoc.exists() ? (userDoc.data().territoryCount || 0) : 0,
-                banned: userDoc.exists() ? (userDoc.data().banned || false) : false
+                territoryCount: userDoc.exists ? (userDoc.data().territoryCount || 0) : 0,
+                banned: userDoc.exists ? (userDoc.data().banned || false) : false
             };
             
-            if (userDoc.exists()) {
+            if (userDoc.exists) {
                 // 기존 문서 업데이트 (createdAt은 유지)
-                await this._firestore.updateDoc(userRef, {
+                await userRef.update({
                     email: userData.email,
                     displayName: userData.displayName,
                     photoURL: userData.photoURL,
@@ -1206,7 +1139,7 @@ class FirebaseService {
                 log.info(`[FirebaseService] ✅ Updated user document: ${user.email}`);
             } else {
                 // 새 문서 생성
-                await this._firestore.setDoc(userRef, userData);
+                await userRef.set(userData);
                 log.info(`[FirebaseService] ✅ Created user document: ${user.email}`);
             }
         } catch (error) {

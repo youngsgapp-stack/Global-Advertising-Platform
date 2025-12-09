@@ -800,6 +800,7 @@ class TerritoryUpdatePipeline {
     
     /**
      * Firestore에서 소유된 영토(ruled/protected) 가져오기
+     * Firebase SDK 로드 실패 시 맵의 GeoJSON 소스와 TerritoryManager 캐시 사용
      */
     async getOwnedTerritories() {
         try {
@@ -825,13 +826,50 @@ class TerritoryUpdatePipeline {
             
             return Array.from(territoryIds);
         } catch (error) {
-            log.error('[TerritoryUpdatePipeline] Failed to get owned territories:', error);
-            return [];
+            log.warn('[TerritoryUpdatePipeline] Failed to get owned territories from Firestore, checking map and cache:', error);
+            
+            const ownedTerritories = new Set();
+            
+            // 1. TerritoryManager의 메모리 데이터 확인
+            for (const [territoryId, territory] of territoryManager.territories) {
+                if (territory.sovereignty === 'ruled' || territory.sovereignty === 'protected') {
+                    ownedTerritories.add(territoryId);
+                }
+            }
+            
+            // 2. 맵의 GeoJSON 소스에서 직접 확인 (TerritoryManager가 비어있을 수 있음)
+            if (this.map && ownedTerritories.size === 0) {
+                try {
+                    const style = this.map.getStyle();
+                    if (style && style.sources) {
+                        for (const sourceId of Object.keys(style.sources)) {
+                            const source = this.map.getSource(sourceId);
+                            if (!source || source.type !== 'geojson' || !source._data) continue;
+                            
+                            const features = source._data.features || [];
+                            for (const feature of features) {
+                                const territoryId = feature.properties?.id || feature.properties?.territoryId;
+                                const sovereignty = feature.properties?.sovereignty;
+                                
+                                if (territoryId && (sovereignty === 'ruled' || sovereignty === 'protected')) {
+                                    ownedTerritories.add(territoryId);
+                                }
+                            }
+                        }
+                    }
+                } catch (mapError) {
+                    log.debug('[TerritoryUpdatePipeline] Error checking map sources:', mapError);
+                }
+            }
+            
+            log.info(`[TerritoryUpdatePipeline] Found ${ownedTerritories.size} owned territories from cache/map`);
+            return Array.from(ownedTerritories);
         }
     }
     
     /**
      * Firestore에서 픽셀 데이터가 있는 모든 영토 ID 가져오기
+     * Firebase SDK 로드 실패 시 IndexedDB 캐시 직접 확인
      */
     async getTerritoriesWithPixelArt() {
         try {
@@ -846,8 +884,60 @@ class TerritoryUpdatePipeline {
             return territoryIds;
             
         } catch (error) {
-            log.error('[TerritoryUpdatePipeline] Failed to get territories with pixel art:', error);
-            return [];
+            log.warn('[TerritoryUpdatePipeline] Failed to get territories with pixel art from Firestore, checking IndexedDB cache:', error);
+            
+            const territoriesWithPixelArt = [];
+            
+            try {
+                // IndexedDB에서 직접 모든 캐시된 픽셀 데이터 확인
+                const dbName = 'pixelCanvasCache';
+                const storeName = 'pixelCanvases'; // LocalCacheService의 storeName
+                
+                // IndexedDB 열기
+                const db = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open(dbName, 2);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                
+                // 모든 캐시된 데이터 가져오기
+                const transaction = db.transaction([storeName], 'readonly');
+                const store = transaction.objectStore(storeName);
+                const request = store.getAll();
+                
+                const allCachedData = await new Promise((resolve, reject) => {
+                    request.onsuccess = () => resolve(request.result || []);
+                    request.onerror = () => reject(request.error);
+                });
+                
+                // 픽셀 데이터가 있는 territory만 필터링
+                for (const cached of allCachedData) {
+                    if (cached && cached.pixelData && cached.pixelData.pixels && cached.pixelData.pixels.length > 0) {
+                        territoriesWithPixelArt.push(cached.territoryId);
+                    }
+                }
+                
+                db.close();
+                
+            } catch (indexedDBError) {
+                log.warn('[TerritoryUpdatePipeline] Failed to check IndexedDB cache:', indexedDBError);
+                
+                // IndexedDB 실패 시 TerritoryManager의 territory를 순회하면서 확인
+                for (const [territoryId, territory] of territoryManager.territories) {
+                    try {
+                        const pixelData = await pixelDataService.loadPixelData(territoryId);
+                        if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
+                            territoriesWithPixelArt.push(territoryId);
+                        }
+                    } catch (pixelError) {
+                        // 개별 territory 확인 실패는 무시
+                        log.debug(`[TerritoryUpdatePipeline] Failed to check pixel data for ${territoryId}:`, pixelError);
+                    }
+                }
+            }
+            
+            log.info(`[TerritoryUpdatePipeline] Found ${territoriesWithPixelArt.length} territories with pixel art from IndexedDB cache`);
+            return territoriesWithPixelArt;
         }
     }
 }

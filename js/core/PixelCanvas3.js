@@ -141,8 +141,8 @@ class PixelCanvas3 {
         // 초기 줌 설정 (영토가 전체 보이도록)
         this.fitToView();
         
-        // 세션 자동 저장 시작
-        this.startSessionAutoSave();
+        // 세션 자동 저장 비활성화 (수동 저장만 사용)
+        // this.startSessionAutoSave();
         
         log.info(`[PixelCanvas3] Initialized for ${territoryId}`);
     }
@@ -868,7 +868,8 @@ class PixelCanvas3 {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.lastPos = null;
-            this.autoSave();
+            // 자동저장 제거 - 수동 저장만 사용
+            // this.autoSave();
         }
     }
     
@@ -1043,7 +1044,8 @@ class PixelCanvas3 {
             stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
         }
         
-        this.autoSave();
+        // 자동저장 제거 - 수동 저장만 사용
+        // this.autoSave();
     }
     
     /**
@@ -1379,7 +1381,8 @@ class PixelCanvas3 {
             this.historyIndex--;
             this.decodePixels(this.history[this.historyIndex]);
             this.render();
-            this.autoSave();
+            // 자동저장 제거 - 수동 저장만 사용
+            // this.autoSave();
         }
     }
     
@@ -1391,7 +1394,8 @@ class PixelCanvas3 {
             this.historyIndex++;
             this.decodePixels(this.history[this.historyIndex]);
             this.render();
-            this.autoSave();
+            // 자동저장 제거 - 수동 저장만 사용
+            // this.autoSave();
         }
     }
     
@@ -1450,7 +1454,8 @@ class PixelCanvas3 {
         this.saveHistory();
         this.pixels.clear();
         this.render();
-        this.autoSave();
+        // 자동저장 제거 - 수동 저장만 사용
+        // this.autoSave();
     }
     
     /**

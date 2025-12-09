@@ -340,14 +340,22 @@ class PixelEditor3 {
      * 닫기
      */
     async close() {
-        // 저장 중이면 완료될 때까지 대기
+        // 저장 중이면 사용자에게 확인
         if (pixelCanvas3?.isSaving) {
             const confirmed = confirm(
                 '저장 중입니다.\n\n' +
-                '저장이 완료될 때까지 기다리시겠습니까?\n' +
-                '(취소를 누르면 저장을 취소하고 닫습니다)'
+                '저장을 취소하고 편집기를 닫으시겠습니까?\n' +
+                '(확인: 저장 취소 후 닫기, 취소: 저장 완료 대기)'
             );
             if (confirmed) {
+                // 저장 취소하고 즉시 닫기
+                if (pixelCanvas3.saveTimeout) {
+                    clearTimeout(pixelCanvas3.saveTimeout);
+                    pixelCanvas3.saveTimeout = null;
+                }
+                pixelCanvas3.isSaving = false;
+                // 닫기 계속 진행
+            } else {
                 // 저장 완료를 기다림
                 const checkSave = setInterval(async () => {
                     if (!pixelCanvas3.isSaving) {
@@ -359,6 +367,16 @@ class PixelEditor3 {
                 // 최대 5초 대기
                 setTimeout(() => {
                     clearInterval(checkSave);
+                    if (pixelCanvas3.isSaving) {
+                        // 타임아웃 시 강제로 닫기
+                        pixelCanvas3.isSaving = false;
+                        // 편집기 닫기
+                        this.isOpen = false;
+                        this.container?.classList.add('hidden');
+                        if (pixelCanvas3) {
+                            pixelCanvas3.cleanup();
+                        }
+                    }
                 }, 5000);
                 return;
             }
