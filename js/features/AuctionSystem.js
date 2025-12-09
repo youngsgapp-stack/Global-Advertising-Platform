@@ -1236,31 +1236,29 @@ class AuctionSystem {
                         } else {
                             log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} not found in Firestore during auction end`);
                         }
-                    }
-                }
-                } else {
-                    // 낙찰자 없으면 영토 상태 복구
-                    const territoryDoc = await transaction.get('territories', auction.territoryId);
-                    
-                    if (territoryDoc) {
-                        // 원래 소유자가 있었으면 그 상태로 복구, 없으면 UNCONQUERED로 복구
-                        if (auction.currentOwnerId) {
-                            transaction.update('territories', auction.territoryId, {
-                                sovereignty: SOVEREIGNTY.RULED,
-                                ruler: auction.currentOwnerId,
-                                rulerName: auction.currentOwnerName,
-                                currentAuction: null,
-                                updatedAt: Timestamp ? Timestamp.now() : new Date()
-                            });
-                        } else {
-                            transaction.update('territories', auction.territoryId, {
-                                sovereignty: SOVEREIGNTY.UNCONQUERED,
-                                ruler: null,
-                                rulerName: null,
-                                currentAuction: null,
-                                updatedAt: Timestamp ? Timestamp.now() : new Date()
-                            });
-                        }
+                    } else {
+                        // 낙찰자 없으면 영토 상태 복구 (일반 경매만 해당)
+                        const territoryDoc = await transaction.get('territories', auction.territoryId);
+                        
+                        if (territoryDoc) {
+                            // 원래 소유자가 있었으면 그 상태로 복구, 없으면 UNCONQUERED로 복구
+                            if (auction.currentOwnerId) {
+                                transaction.update('territories', auction.territoryId, {
+                                    sovereignty: SOVEREIGNTY.RULED,
+                                    ruler: auction.currentOwnerId,
+                                    rulerName: auction.currentOwnerName,
+                                    currentAuction: null,
+                                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                                });
+                            } else {
+                                transaction.update('territories', auction.territoryId, {
+                                    sovereignty: SOVEREIGNTY.UNCONQUERED,
+                                    ruler: null,
+                                    rulerName: null,
+                                    currentAuction: null,
+                                    updatedAt: Timestamp ? Timestamp.now() : new Date()
+                                });
+                            }
                     }
                 }
             });
