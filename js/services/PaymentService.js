@@ -449,7 +449,7 @@ class PaymentService {
                     
                     <div class="confirm-actions">
                         <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
-                        <button class="btn btn-primary" id="confirm-purchase">⚔️ Claim Territory</button>
+                        <button class="btn btn-primary" id="confirm-purchase">🏴 Own Territory</button>
                     </div>
                 </div>
                 
@@ -1682,6 +1682,7 @@ class PaymentService {
                 type: PRODUCT_TYPE.TERRITORY,
                 territoryId: this.currentPayment.territoryId,
                 amount: this.currentPayment.amount,
+                protectionDays: this.currentPayment.protectionDays || null, // 보호 기간 전달
                 isAdmin: false // 관리자도 일반 구매로 처리
             });
             
@@ -1692,7 +1693,7 @@ class PaymentService {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: 'Territory claimed successfully! 🎉'
+                message: 'Territory purchased successfully! 🎉'
             });
             
         } catch (error) {

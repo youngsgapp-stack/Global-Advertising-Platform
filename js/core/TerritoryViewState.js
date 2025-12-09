@@ -22,10 +22,21 @@ export class TerritoryViewState {
     }
     
     /**
-     * 픽셀 아트 존재 여부 (Firestore에서 직접 확인한 결과)
-     * 단일 진실의 원천: pixelData.pixels 배열만 확인
+     * 픽셀 아트 존재 여부 (소유권 중심 설계)
+     * 
+     * 핵심 규칙 A: 소유자가 없는 영토에는 절대 픽셀 아트를 표시하지 않는다.
+     * - ruler == null 또는 sovereignty == 'unconquered' 이면 → 무조건 false
+     * - 소유권이 바뀌면 이전 픽셀은 즉시 비표시 상태 (규칙 B)
+     * 
+     * 단일 진실의 원천: Territory 상태(ruler, sovereignty) + pixelData
      */
     get hasPixelArt() {
+        // 규칙 A: 소유자가 없으면 픽셀 아트 표시 안 함
+        if (!this.territory?.ruler || this.territory?.sovereignty === 'unconquered') {
+            return false;
+        }
+        
+        // 소유자가 있는 경우에만 픽셀 데이터 확인
         return this.pixelData?.pixels?.length > 0;
     }
     
@@ -85,6 +96,7 @@ export class TerritoryViewState {
 }
 
 export default TerritoryViewState;
+
 
 
 

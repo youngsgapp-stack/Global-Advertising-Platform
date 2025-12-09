@@ -566,13 +566,15 @@ class BillionaireApp {
             log.info(`[BillionaireApp] 💰 PAYMENT_SUCCESS event received:`, data);
             const user = firebaseService.getCurrentUser();
             if (user && data.territoryId) {
-                log.info(`[BillionaireApp] 🎯 Calling instantConquest for territory: ${data.territoryId}, user: ${user.uid}`);
+                log.info(`[BillionaireApp] 🎯 Calling instantConquest for territory: ${data.territoryId}, user: ${user.uid}, protectionDays: ${data.protectionDays || null}`);
                 try {
-                    await auctionSystem.instantConquest(
-                        data.territoryId,
-                        user.uid,
-                        user.displayName || user.email
-                    );
+                await auctionSystem.instantConquest(
+                    data.territoryId,
+                    user.uid,
+                    user.displayName || user.email,
+                    data.amount,
+                    data.protectionDays || null
+                );
                     log.info(`[BillionaireApp] ✅ instantConquest completed for territory: ${data.territoryId}`);
                 } catch (error) {
                     log.error(`[BillionaireApp] ❌ instantConquest failed for territory: ${data.territoryId}:`, error);
@@ -826,7 +828,7 @@ class BillionaireApp {
                     
                     <div class="help-section">
                         <h3>💰 2. Charge Points</h3>
-                        <p>Click the <strong>💰 Wallet</strong> button to charge points via PayPal. Points are used to claim territories and place auction bids.</p>
+                        <p>Click the <strong>💰 Wallet</strong> button to charge points via PayPal. Points are used to purchase territories and place auction bids.</p>
                         <ul>
                             <li>$10 → 1,000 pt</li>
                             <li>$25 → 2,750 pt (+10% bonus)</li>
@@ -835,8 +837,8 @@ class BillionaireApp {
                     </div>
                     
                     <div class="help-section">
-                        <h3>🏴 3. Claim Territories</h3>
-                        <p>Click on an unclaimed territory and hit <strong>"Claim Now"</strong> to instantly own it. Each territory has a unique price based on population and area.</p>
+                        <h3>🏴 3. Own Territories</h3>
+                        <p>Click on an available territory and hit <strong>"Own This Territory"</strong> to instantly purchase it. Each territory has a unique price based on population and area.</p>
                     </div>
                     
                     <div class="help-section">
@@ -906,7 +908,7 @@ class BillionaireApp {
                     
                     <div class="about-section">
                         <h3>🎮 What is Own a Piece of Earth?</h3>
-                        <p>Own a Piece of Earth is an interactive global territory game where players can claim, auction, and decorate real-world administrative regions. Build your empire, compete with others, and leave your mark on the world!</p>
+                        <p>Own a Piece of Earth is an interactive global territory game where players can purchase, auction, and decorate real-world administrative regions. Build your empire, compete with others, and leave your mark on the world!</p>
                     </div>
                     
                     <div class="about-section">

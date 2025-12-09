@@ -59,8 +59,27 @@ class AdminDashboard {
                 this.currentUser = { email: sessionAuth.id, uid: 'local-' + sessionAuth.id };
                 this.isLocalAuth = true;
                 
-                // Firebase 익명 로그인으로 Firestore 접근 권한 획득
-                await this.signInAnonymouslyForFirestore();
+                // ⚠️ 중요: 로컬 세션 인증 사용 시 Firebase Auth로 관리자 계정 로그인 시도
+                // Firestore rules에서 관리자 권한 확인을 위해 필요
+                const adminEmail = sessionAuth.id;
+                const adminPassword = LOCAL_ADMIN_CREDENTIALS[adminEmail];
+                
+                if (adminEmail && adminPassword && ADMIN_EMAILS.includes(adminEmail)) {
+                    try {
+                        console.log(`[AdminDashboard] Attempting Firebase Auth login for admin: ${adminEmail}`);
+                        await this.auth.signInWithEmailAndPassword(adminEmail, adminPassword);
+                        console.log(`[AdminDashboard] ✅ Firebase Auth login successful for admin: ${adminEmail}`);
+                        // Firebase Auth 로그인 성공 시 isLocalAuth 플래그 해제
+                        this.isLocalAuth = false;
+                    } catch (authError) {
+                        console.warn(`[AdminDashboard] ⚠️ Firebase Auth login failed, using anonymous login:`, authError);
+                        // Firebase Auth 로그인 실패 시 익명 로그인으로 대체 (읽기만 가능)
+                        await this.signInAnonymouslyForFirestore();
+                    }
+                } else {
+                    // 관리자 계정이 아니거나 비밀번호가 없는 경우 익명 로그인
+                    await this.signInAnonymouslyForFirestore();
+                }
                 
                 this.showDashboard();
                 this.loadDashboardData();
@@ -741,6 +760,37 @@ class AdminDashboard {
      * 점유된 영토(sovereignty == 'ruled' 또는 'protected')만 표시
      */
     async loadTerritoriesTable() {
+        // 영토 관리 버튼 추가
+        // HTML에서 섹션 ID는 'section-territories'임
+        const territoriesSection = document.querySelector('#section-territories');
+        if (territoriesSection) {
+            // 이미 버튼이 추가되었는지 확인
+            const existingButton = territoriesSection.querySelector('button[onclick*="clearPixelArtForUnconqueredTerritories"]');
+            if (!existingButton) {
+                // section-header 안의 기존 버튼 컨테이너 찾기
+                const sectionHeader = territoriesSection.querySelector('.section-header');
+                if (sectionHeader) {
+                    // 기존 버튼 컨테이너 찾기 (검색창과 필터가 있는 div)
+                    const existingButtonContainer = sectionHeader.querySelector('div[style*="display: flex"]');
+                    if (existingButtonContainer) {
+                        // 기존 "모든 영토 초기화" 버튼 옆에 새 버튼 추가
+                        const newButton = document.createElement('button');
+                        newButton.className = 'btn btn-warning';
+                        newButton.setAttribute('onclick', 'adminDashboard.clearPixelArtForUnconqueredTerritories()');
+                        newButton.textContent = '초기화된 영토의 픽셀 아트 삭제';
+                        existingButtonContainer.appendChild(newButton);
+                        console.log('[AdminDashboard] Added "초기화된 영토의 픽셀 아트 삭제" button');
+                    } else {
+                        console.warn('[AdminDashboard] Button container not found in section-header');
+                    }
+                } else {
+                    console.warn('[AdminDashboard] Section header not found');
+                }
+            }
+        } else {
+            console.warn('[AdminDashboard] #section-territories not found, cannot add action buttons');
+        }
+        
         const tbody = document.querySelector('#territories-table tbody');
         
         try {
@@ -2128,7 +2178,8 @@ class AdminDashboard {
             
             const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
             
-            // 영토 초기화
+            // 영토 초기화 (픽셀 아트도 함께 초기화)
+            const deleteField = firebase.firestore.FieldValue.delete();
             await this.db.collection('territories').doc(territoryId).update({
                 ruler: null,
                 rulerName: null,
@@ -2139,9 +2190,51 @@ class AdminDashboard {
                 purchasedByAdmin: false,
                 purchasedPrice: null,
                 tribute: null,
+                pixelCanvas: deleteField,  // 픽셀 아트 데이터 삭제
+                territoryValue: 0,  // 영토 가치 초기화
+                hasPixelArt: false,  // 픽셀 아트 플래그 초기화
                 updatedAt: Timestamp,
                 updatedBy: this.currentUser?.email || 'admin'
             });
+            
+            // ⚠️ 중요: pixelCanvases 컬렉션에서도 해당 영토의 픽셀 데이터 삭제
+            try {
+                const pixelCanvasDoc = await this.db.collection('pixelCanvases').doc(territoryId).get();
+                if (pixelCanvasDoc.exists) {
+                    await this.db.collection('pixelCanvases').doc(territoryId).delete();
+                    console.log(`[AdminDashboard] Deleted pixelCanvas document for territory ${territoryId}`);
+                }
+            } catch (error) {
+                console.warn(`[AdminDashboard] Failed to delete pixelCanvas document for territory ${territoryId}:`, error);
+            }
+            
+            // ⚠️ 중요: IndexedDB 캐시에서도 해당 영토의 픽셀 데이터 삭제
+            try {
+                const dbName = 'pixelCanvasCache';
+                const storeName = 'pixelCanvases';
+                
+                const db = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open(dbName, 2);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                
+                const transaction = db.transaction([storeName], 'readwrite');
+                const store = transaction.objectStore(storeName);
+                
+                await new Promise((resolve, reject) => {
+                    const request = store.delete(territoryId);
+                    request.onsuccess = () => {
+                        console.log(`[AdminDashboard] Deleted pixelCanvas cache for territory ${territoryId}`);
+                        resolve();
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+                
+                db.close();
+            } catch (error) {
+                console.warn(`[AdminDashboard] Failed to delete IndexedDB cache for territory ${territoryId}:`, error);
+            }
             
             // 관련 옥션 삭제 (해당 영토의 활성 옥션이 있다면)
             try {
@@ -2469,6 +2562,135 @@ class AdminDashboard {
     }
     
     /**
+     * 이미 초기화된 영토의 픽셀 아트 삭제
+     */
+    async clearPixelArtForUnconqueredTerritories() {
+        if (!confirm('이미 초기화된 영토(소유권이 없는 영토)의 픽셀 아트를 모두 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+            return;
+        }
+        
+        try {
+            console.log('[AdminDashboard] Clearing pixel art for unconquered territories...');
+            
+            // sovereignty가 'unconquered'이고 ruler가 null인 영토들 찾기
+            const unconqueredTerritories = await this.db.collection('territories')
+                .where('sovereignty', '==', 'unconquered')
+                .get();
+            
+            const territoryIds = [];
+            unconqueredTerritories.docs.forEach(doc => {
+                const data = doc.data();
+                if (!data.ruler || data.ruler === null) {
+                    territoryIds.push(doc.id);
+                }
+            });
+            
+            console.log(`[AdminDashboard] Found ${territoryIds.length} unconquered territories`);
+            
+            if (territoryIds.length === 0) {
+                alert('초기화된 영토가 없습니다.');
+                return;
+            }
+            
+            let deletedFirestoreCount = 0;
+            let deletedCacheCount = 0;
+            
+            // 1. Firestore pixelCanvases 컬렉션에서 삭제
+            const pixelCanvasBatchSize = 500;
+            for (let i = 0; i < territoryIds.length; i += pixelCanvasBatchSize) {
+                const batch = this.db.batch();
+                const batchIds = territoryIds.slice(i, i + pixelCanvasBatchSize);
+                
+                for (const territoryId of batchIds) {
+                    const pixelCanvasRef = this.db.collection('pixelCanvases').doc(territoryId);
+                    batch.delete(pixelCanvasRef);
+                }
+                
+                await batch.commit();
+                deletedFirestoreCount += batchIds.length;
+                console.log(`[AdminDashboard] Deleted ${deletedFirestoreCount}/${territoryIds.length} pixelCanvas documents from Firestore`);
+            }
+            
+            // 2. IndexedDB 캐시에서 삭제
+            const dbName = 'pixelCanvasCache';
+            const storeName = 'pixelCanvases';
+            
+            const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName, 2);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            
+            const transaction = db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            
+            for (const territoryId of territoryIds) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const request = store.delete(territoryId);
+                        request.onsuccess = () => {
+                            deletedCacheCount++;
+                            resolve();
+                        };
+                        request.onerror = () => reject(request.error);
+                    });
+                } catch (deleteError) {
+                    // 개별 삭제 실패는 무시 (이미 없을 수 있음)
+                    console.debug(`[AdminDashboard] Failed to delete cache for ${territoryId}:`, deleteError);
+                }
+            }
+            
+            db.close();
+            
+            // 3. territories 컬렉션의 pixelCanvas 필드도 삭제
+            const deleteField = firebase.firestore.FieldValue.delete();
+            const territoryBatchSize = 500;
+            let updatedTerritoryCount = 0;
+            
+            try {
+                for (let i = 0; i < territoryIds.length; i += territoryBatchSize) {
+                    const batch = this.db.batch();
+                    const batchIds = territoryIds.slice(i, i + territoryBatchSize);
+                    
+                    for (const territoryId of batchIds) {
+                        const territoryRef = this.db.collection('territories').doc(territoryId);
+                        batch.update(territoryRef, {
+                            pixelCanvas: deleteField,
+                            territoryValue: 0,
+                            hasPixelArt: false
+                        });
+                    }
+                    
+                    await batch.commit();
+                    updatedTerritoryCount += batchIds.length;
+                    console.log(`[AdminDashboard] Updated ${updatedTerritoryCount}/${territoryIds.length} territory documents`);
+                }
+            } catch (updateError) {
+                console.warn('[AdminDashboard] Failed to update some territory documents (may be due to permissions):', updateError);
+                // territories 업데이트 실패해도 Firestore와 IndexedDB 삭제는 완료되었으므로 계속 진행
+            }
+            
+            this.logAdminAction('CLEAR_PIXEL_ART_UNCONQUERED', {
+                territoryCount: territoryIds.length,
+                firestoreCount: deletedFirestoreCount,
+                cacheCount: deletedCacheCount,
+                updatedCount: updatedTerritoryCount
+            });
+            
+            alert(`✅ 완료!\n\n초기화된 영토: ${territoryIds.length}개\nFirestore 픽셀 아트 삭제: ${deletedFirestoreCount}개\nIndexedDB 캐시 삭제: ${deletedCacheCount}개\n영토 문서 업데이트: ${updatedTerritoryCount}개`);
+            
+            // 테이블 새로고침
+            if (this.currentSection === 'territories') {
+                await this.loadTerritoriesTable();
+            }
+            
+        } catch (error) {
+            console.error('[AdminDashboard] Failed to clear pixel art for unconquered territories:', error);
+            alert('픽셀 아트 삭제 중 오류가 발생했습니다: ' + error.message);
+        }
+    }
+    
+    /**
      * 모든 영토 초기화 모달 표시
      */
     showResetAllTerritoriesModal() {
@@ -2606,6 +2828,9 @@ class AdminDashboard {
                 const batch = this.db.batch();
                 const batchDocs = allTerritories.slice(i, i + batchSize);
                 
+                // ⚠️ 중요: 픽셀 아트도 함께 초기화
+                const deleteField = firebase.firestore.FieldValue.delete();
+                
                 batchDocs.forEach(doc => {
                     batch.update(doc.ref, {
                         ruler: null,
@@ -2617,6 +2842,9 @@ class AdminDashboard {
                         purchasedByAdmin: false,
                         purchasedPrice: null,
                         tribute: null,
+                        pixelCanvas: deleteField,  // 픽셀 아트 데이터 삭제
+                        territoryValue: 0,  // 영토 가치 초기화
+                        hasPixelArt: false,  // 픽셀 아트 플래그 초기화
                         updatedAt: Timestamp,
                         updatedBy: this.currentUser?.email || 'admin'
                     });
@@ -2647,9 +2875,83 @@ class AdminDashboard {
                 }
             }
             
+            // ⚠️ 중요: 초기화된 영토들의 픽셀 아트 데이터도 pixelCanvases 컬렉션에서 삭제
+            progressText.textContent = '픽셀 아트 데이터 삭제 중...';
+            let deletedPixelCount = 0;
+            try {
+                // 초기화된 영토 ID 목록
+                const resetTerritoryIds = allTerritories.map(doc => doc.id);
+                
+                // pixelCanvases 컬렉션에서 해당 영토들의 픽셀 데이터 삭제
+                const pixelCanvasBatchSize = 500;
+                
+                for (let i = 0; i < resetTerritoryIds.length; i += pixelCanvasBatchSize) {
+                    const batch = this.db.batch();
+                    const batchIds = resetTerritoryIds.slice(i, i + pixelCanvasBatchSize);
+                    
+                    for (const territoryId of batchIds) {
+                        const pixelCanvasRef = this.db.collection('pixelCanvases').doc(territoryId);
+                        batch.delete(pixelCanvasRef);
+                    }
+                    
+                    await batch.commit();
+                    deletedPixelCount += batchIds.length;
+                    progressText.textContent = `픽셀 아트 데이터 삭제 중... ${deletedPixelCount}/${resetTerritoryIds.length}개`;
+                }
+                
+                console.log(`[AdminDashboard] Deleted ${deletedPixelCount} pixelCanvas documents from Firestore`);
+            } catch (error) {
+                console.warn(`[AdminDashboard] Failed to delete pixelCanvas documents:`, error);
+                // 픽셀 아트 삭제 실패해도 계속 진행
+            }
+            
+            // ⚠️ 중요: IndexedDB 캐시에서도 픽셀 아트 데이터 삭제
+            progressText.textContent = 'IndexedDB 캐시 삭제 중...';
+            let deletedCacheCount = 0;
+            try {
+                const resetTerritoryIds = allTerritories.map(doc => doc.id);
+                
+                // IndexedDB에서 직접 삭제
+                const dbName = 'pixelCanvasCache';
+                const storeName = 'pixelCanvases';
+                
+                const db = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open(dbName, 2);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                
+                const transaction = db.transaction([storeName], 'readwrite');
+                const store = transaction.objectStore(storeName);
+                
+                // 각 영토의 캐시 삭제
+                for (const territoryId of resetTerritoryIds) {
+                    try {
+                        await new Promise((resolve, reject) => {
+                            const request = store.delete(territoryId);
+                            request.onsuccess = () => {
+                                deletedCacheCount++;
+                                resolve();
+                            };
+                            request.onerror = () => reject(request.error);
+                        });
+                    } catch (deleteError) {
+                        // 개별 삭제 실패는 무시 (이미 없을 수 있음)
+                        console.debug(`[AdminDashboard] Failed to delete cache for ${territoryId}:`, deleteError);
+                    }
+                }
+                
+                db.close();
+                console.log(`[AdminDashboard] Deleted ${deletedCacheCount} pixelCanvas cache entries from IndexedDB`);
+            } catch (error) {
+                console.warn(`[AdminDashboard] Failed to delete IndexedDB cache:`, error);
+                // IndexedDB 캐시 삭제 실패해도 계속 진행
+            }
+            
             this.logAdminAction('RESET_ALL_TERRITORIES', { 
                 territoryCount: totalCount,
-                auctionCount: activeAuctions.size
+                auctionCount: activeAuctions.size,
+                pixelCanvasCount: deletedPixelCount
             });
             
             // 완료 메시지
@@ -2660,6 +2962,8 @@ class AdminDashboard {
                         <h3>초기화 완료</h3>
                         <p>총 <strong>${totalCount}</strong>개 영토가 초기화되었습니다.</p>
                         <p>활성 옥션 <strong>${activeAuctions.size}</strong>개가 삭제되었습니다.</p>
+                        <p>픽셀 아트 데이터 (Firestore) <strong>${deletedPixelCount}</strong>개가 삭제되었습니다.</p>
+                        <p>픽셀 아트 캐시 (IndexedDB) <strong>${deletedCacheCount}</strong>개가 삭제되었습니다.</p>
                     </div>
                 </div>
             `;

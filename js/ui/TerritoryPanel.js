@@ -499,35 +499,53 @@ class TerritoryPanel {
         const countryName = countryInfo.name || countryInfo.nameKo || countryCode || 'Unknown';
         const countryFlag = countryInfo.flag || '🏳️';
         
-        // 소유권 상태 텍스트
-        // 경매 중이면 "Bidding" 표시, 아니면 일반 상태 표시
-        let sovereigntyText = vocab[territory.sovereignty] || 'Available';
-        if (territory.sovereignty === 'protected' || isProtected) {
-            sovereigntyText = '🛡️ Protected';
-        } else if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
-            // 활성 경매가 있으면 "Bidding" 표시
-            sovereigntyText = '⏳ Bidding';
-        } else if (territory.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
+        // UI 상태 단순화: Available / Owned / On Auction 3개만 표시
+        // 내부적으로는 SOVEREIGNTY를 사용하되, 사용자에게는 단순화된 상태만 보여줌
+        let uiStatus = 'available';  // 'available' | 'owned' | 'auction'
+        let sovereigntyText = 'Available';
+        let sovereigntyIcon = '✅';
+        let sovereigntyClass = 'unconquered';
+        
+        // 경매 중인 경우
+        if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
+            uiStatus = 'auction';
+            sovereigntyText = 'On Auction';
+            sovereigntyIcon = '⏳';
+            sovereigntyClass = 'contested';
+        }
+        // 소유자가 있는 경우
+        else if (territory.ruler && territory.sovereignty !== SOVEREIGNTY.UNCONQUERED) {
+            uiStatus = 'owned';
+            sovereigntyText = 'Owned';
+            sovereigntyIcon = '👑';
+            sovereigntyClass = isProtected ? 'protected' : 'ruled';
+        }
+        // 소유자가 없는 경우
+        else {
+            uiStatus = 'available';
+            sovereigntyText = 'Available';
+            sovereigntyIcon = '✅';
+            sovereigntyClass = 'unconquered';
+            
             // CONTESTED 상태인데 경매가 없으면 UNCONQUERED로 복구
-            sovereigntyText = '✅ Available';
-            // 비동기로 상태 복구
-            setTimeout(async () => {
-                try {
-                    const Timestamp = firebaseService.getTimestamp();
-                    await firebaseService.updateDocument('territories', territory.id, {
-                        sovereignty: SOVEREIGNTY.UNCONQUERED,
-                        currentAuction: null,
-                        updatedAt: Timestamp ? Timestamp.now() : new Date()
-                    });
-                    territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
-                    territory.currentAuction = null;
-                    // 패널 다시 렌더링
-                    await this.render();
-                    this.bindActions();
-                } catch (error) {
-                    log.error('Failed to fix territory state:', error);
-                }
-            }, 0);
+            if (territory.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
+                setTimeout(async () => {
+                    try {
+                        const Timestamp = firebaseService.getTimestamp();
+                        await firebaseService.updateDocument('territories', territory.id, {
+                            sovereignty: SOVEREIGNTY.UNCONQUERED,
+                            currentAuction: null,
+                            updatedAt: Timestamp ? Timestamp.now() : new Date()
+                        });
+                        territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
+                        territory.currentAuction = null;
+                        await this.render();
+                        this.bindActions();
+                    } catch (error) {
+                        log.error('Failed to fix territory state:', error);
+                    }
+                }, 0);
+            }
         }
         
         this.container.innerHTML = `
@@ -542,8 +560,8 @@ class TerritoryPanel {
             <div class="panel-content">
                 <!-- Sovereignty Status -->
                 <div class="sovereignty-section">
-                    <div class="sovereignty-badge ${isProtected ? 'protected' : (territory.sovereignty || 'unconquered')}">
-                        <span class="sovereignty-icon">${isProtected ? '🛡️' : this.getSovereigntyIcon(territory.sovereignty)}</span>
+                    <div class="sovereignty-badge ${sovereigntyClass}">
+                        <span class="sovereignty-icon">${sovereigntyIcon}</span>
                         <span class="sovereignty-text">${sovereigntyText}</span>
                     </div>
                     ${territory.ruler ? `
@@ -960,7 +978,7 @@ class TerritoryPanel {
         if (!user) {
             return `
                 <button class="action-btn login-btn" id="login-to-conquer">
-                    🔐 Sign in to Claim
+                    🔐 Sign in to Purchase
                 </button>
             `;
         }
@@ -983,7 +1001,7 @@ class TerritoryPanel {
             `;
         }
         
-        // 경매 중인 경우에도 즉시 구매 가능하도록 "Claim Now" 버튼 표시
+        // 경매 중인 경우에도 즉시 구매 가능하도록 "Own This Territory" 버튼 표시
         if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
             const user = firebaseService.getCurrentUser();
             const isUserHighestBidder = auction.highestBidder === user?.uid;
@@ -1109,7 +1127,7 @@ class TerritoryPanel {
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
-                    ⚔️ Claim Now (${this.formatNumber(realPrice)} pt)
+                    🏴 Own This Territory (${this.formatNumber(realPrice)} pt)
                 </button>
                 <button class="action-btn auction-btn" id="start-auction">
                     🏷️ Start Auction
@@ -1165,7 +1183,21 @@ class TerritoryPanel {
         // 즉시 정복 버튼
         const conquestBtn = document.getElementById('instant-conquest');
         if (conquestBtn) {
-            conquestBtn.addEventListener('click', () => this.handleInstantConquest());
+            log.info('[TerritoryPanel] Binding instant-conquest button click event');
+            conquestBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                log.info('[TerritoryPanel] instant-conquest button clicked');
+                this.handleInstantConquest().catch(error => {
+                    log.error('[TerritoryPanel] Error in handleInstantConquest:', error);
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: 'Failed to process purchase. Please try again.'
+                    });
+                });
+            });
+        } else {
+            log.warn('[TerritoryPanel] instant-conquest button not found');
         }
         
         // 옥션 시작 버튼
@@ -1299,20 +1331,24 @@ class TerritoryPanel {
      * 즉시 정복 처리
      */
     async handleInstantConquest() {
+        log.info('[TerritoryPanel] handleInstantConquest called');
+        
         const user = firebaseService.getCurrentUser();
         const isAdmin = this.isAdminMode();
         
         // 로그인 체크
         if (!user) {
+            log.warn('[TerritoryPanel] User not logged in');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: 'Please sign in to claim this territory'
+                message: 'Please sign in to purchase this territory'
             });
             eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
             return;
         }
         
         if (!this.currentTerritory) {
+            log.error('[TerritoryPanel] No territory selected');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
                 message: 'No territory selected'
@@ -1320,11 +1356,11 @@ class TerritoryPanel {
             return;
         }
         
+        log.info('[TerritoryPanel] Territory selected:', this.currentTerritory.id);
+        
         const territoryName = this.extractName(this.currentTerritory.name) || 
                              this.extractName(this.currentTerritory.properties?.name) ||
                              this.currentTerritory.id;
-        
-        // 관리자 모드: 일반 구매 프로세스 사용 (PaymentService에서 자동 포인트 충전 처리)
         
         // 경매가 활성화되어 있는지 확인
         const activeAuction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
@@ -1337,6 +1373,7 @@ class TerritoryPanel {
                 : `This will cancel the active auction. The current highest bidder will be refunded. Continue?`;
             
             if (!confirm(confirmMessage)) {
+                log.info('[TerritoryPanel] User cancelled auction cancellation');
                 return;
             }
             
@@ -1349,56 +1386,235 @@ class TerritoryPanel {
             }
         }
         
-        // Buy Now 가격 결정 (경매 중일 때 조정된 가격 사용)
-        let price;
+        // 기본 가격 계산
+        const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.country || 
+                           'unknown';
+        let basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        
+        log.info('[TerritoryPanel] Base price calculated:', basePrice);
+        
+        // 경매 중일 때 Buy Now 가격 조정
         if (activeAuction && activeAuction.status === AUCTION_STATUS.ACTIVE) {
-            // 버튼에서 data-buy-now-price 속성 읽기
             const buyNowBtn = document.getElementById('instant-conquest');
             const adjustedPrice = buyNowBtn?.dataset?.buyNowPrice;
             
             if (adjustedPrice) {
-                price = parseFloat(adjustedPrice);
+                basePrice = parseFloat(adjustedPrice);
+                log.info('[TerritoryPanel] Using adjusted price from button:', basePrice);
             } else {
-                // 속성이 없으면 계산
-                const countryCode = this.currentTerritory.country || 
-                                   this.currentTerritory.properties?.country || 
-                                   'unknown';
-                const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
-                
-                // 입찰가 확인
                 const auctionCurrentBid = this.getEffectiveAuctionBid(activeAuction);
                 const minBid = auctionCurrentBid + 1;
                 
-                // 입찰가가 원래 구매가를 넘어섰으면 조정
                 if (auctionCurrentBid >= basePrice) {
-                    price = Math.max(
-                        Math.ceil(minBid * 1.15), // 최소 입찰가의 115%
-                        minBid + 10 // 또는 최소 입찰가 + 10pt
+                    basePrice = Math.max(
+                        Math.ceil(minBid * 1.15),
+                        minBid + 10
                     );
-                } else {
-                    price = basePrice;
+                    log.info('[TerritoryPanel] Adjusted price based on auction bid:', basePrice);
                 }
             }
-        } else {
-            // 경매가 없으면 일반 가격 계산
-            const countryCode = this.currentTerritory.country || 
-                               this.currentTerritory.properties?.country || 
-                               'unknown';
-            price = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         }
         
+        // 구매 옵션 선택 모달 표시
+        log.info('[TerritoryPanel] Showing purchase options modal');
+        try {
+            this.showPurchaseOptionsModal(basePrice, territoryName, activeAuction);
+            log.info('[TerritoryPanel] Purchase options modal shown successfully');
+        } catch (error) {
+            log.error('[TerritoryPanel] Failed to show purchase options modal:', error);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'Failed to open purchase options. Please try again.'
+            });
+        }
+    }
+    
+    /**
+     * 구매 옵션 선택 모달 표시
+     */
+    showPurchaseOptionsModal(basePrice, territoryName, activeAuction) {
+        log.info('[TerritoryPanel] showPurchaseOptionsModal called', { basePrice, territoryName });
+        
+        // 구매 옵션 정의
+        const purchaseOptions = [
+            {
+                id: 'week',
+                label: '1주일',
+                labelEn: '1 Week',
+                days: 7,
+                multiplier: 1.0,
+                icon: '📅',
+                description: '7일 보호 기간',
+                descriptionEn: '7 days protection'
+            },
+            {
+                id: 'month',
+                label: '1개월',
+                labelEn: '1 Month',
+                days: 30,
+                multiplier: 3.5,
+                icon: '📆',
+                description: '30일 보호 기간',
+                descriptionEn: '30 days protection'
+            },
+            {
+                id: 'year',
+                label: '1년',
+                labelEn: '1 Year',
+                days: 365,
+                multiplier: 30.0,
+                icon: '🗓️',
+                description: '365일 보호 기간',
+                descriptionEn: '365 days protection'
+            },
+            {
+                id: 'lifetime',
+                label: '평생',
+                labelEn: 'Lifetime',
+                days: null, // null = 평생
+                multiplier: 100.0,
+                icon: '👑',
+                description: '영구 보호',
+                descriptionEn: 'Permanent protection'
+            }
+        ];
+        
+        // 모달 HTML 생성
+        const optionsHTML = purchaseOptions.map(option => {
+            const price = Math.ceil(basePrice * option.multiplier);
+            const isLifetime = option.id === 'lifetime';
+            return `
+                <div class="purchase-option-card" data-option-id="${option.id}" data-days="${option.days || 'lifetime'}" data-price="${price}">
+                    <div class="option-header">
+                        <span class="option-icon">${option.icon}</span>
+                        <div class="option-title">
+                            <h3>${option.label}</h3>
+                            <span class="option-label-en">${option.labelEn}</span>
+                        </div>
+                    </div>
+                    <div class="option-body">
+                        <div class="option-price">
+                            <span class="price-value">${this.formatNumber(price)}</span>
+                            <span class="price-unit">pt</span>
+                        </div>
+                        <div class="option-description">${option.description}</div>
+                        ${isLifetime ? '<div class="option-badge">⭐ Best Value</div>' : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        const modalHTML = `
+            <div class="purchase-options-modal" id="purchase-options-modal">
+                <div class="modal-overlay"></div>
+                <div class="modal-content purchase-options-content">
+                    <div class="modal-header">
+                        <h2>🏴 구매 옵션 선택</h2>
+                        <button class="modal-close" id="close-purchase-options">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="territory-info-summary">
+                            <span class="territory-name">${territoryName}</span>
+                            <span class="base-price">기본 가격: ${this.formatNumber(basePrice)} pt</span>
+                        </div>
+                        <div class="purchase-options-grid">
+                            ${optionsHTML}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" id="cancel-purchase-options">취소</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달이 있으면 제거
+        const existingModal = document.getElementById('purchase-options-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        log.info('[TerritoryPanel] Modal HTML inserted into DOM');
+        
+        // 이벤트 바인딩
+        const modal = document.getElementById('purchase-options-modal');
+        if (!modal) {
+            log.error('[TerritoryPanel] Modal element not found after insertion!');
+            return;
+        }
+        
+        // CSS가 적용되도록 클래스만 추가 (인라인 스타일 제거)
+        log.info('[TerritoryPanel] Modal styled and displayed');
+        
+        const closeBtn = document.getElementById('close-purchase-options');
+        const cancelBtn = document.getElementById('cancel-purchase-options');
+        const overlay = modal.querySelector('.modal-overlay');
+        const optionCards = modal.querySelectorAll('.purchase-option-card');
+        
+        log.info('[TerritoryPanel] Found elements:', {
+            closeBtn: !!closeBtn,
+            cancelBtn: !!cancelBtn,
+            overlay: !!overlay,
+            optionCards: optionCards.length
+        });
+        
+        // 닫기 버튼
+        const closeModal = () => {
+            modal.remove();
+        };
+        
+        closeBtn?.addEventListener('click', closeModal);
+        cancelBtn?.addEventListener('click', closeModal);
+        overlay?.addEventListener('click', closeModal);
+        
+        // ESC 키로 닫기
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+        
+        // 옵션 카드 클릭
+        optionCards.forEach(card => {
+            card.addEventListener('click', () => {
+                // 선택 표시
+                optionCards.forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                
+                // 구매 진행
+                const optionId = card.dataset.optionId;
+                const days = card.dataset.days === 'lifetime' ? null : parseInt(card.dataset.days);
+                const price = parseInt(card.dataset.price);
+                
+                closeModal();
+                this.processPurchaseWithOption(price, days, territoryName, activeAuction);
+            });
+        });
+    }
+    
+    /**
+     * 선택한 옵션으로 구매 처리
+     */
+    async processPurchaseWithOption(price, protectionDays, territoryName, activeAuction) {
         try {
             // 결제 시작 이벤트 (PaymentService에서 처리)
+            // protectionDays를 이벤트에 포함하여 TerritoryManager에서 사용할 수 있도록 함
             eventBus.emit(EVENTS.PAYMENT_START, {
                 type: 'conquest',
                 territoryId: this.currentTerritory.id,
                 territoryName: territoryName,
                 amount: price,
+                protectionDays: protectionDays, // null이면 평생
                 cancelAuction: !!activeAuction
             });
             
         } catch (error) {
-            log.error('Conquest failed:', error);
+            log.error('Purchase failed:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
                 message: 'Failed to process purchase. Please try again.'

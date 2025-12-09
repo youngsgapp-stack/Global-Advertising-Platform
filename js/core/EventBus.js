@@ -152,6 +152,7 @@ export const EVENTS = {
     PIXEL_CANVAS_UPDATED: 'pixel:canvasUpdated',
     PIXEL_CANVAS_SAVED: 'pixel:canvasSaved',
     PIXEL_DATA_SAVED: 'pixel:dataSaved',
+    PIXEL_DATA_DELETED: 'pixel:dataDeleted',  // 소유권 변경 시 픽셀 아트 삭제
     
     // 랭킹
     RANKING_UPDATE: 'ranking:update',

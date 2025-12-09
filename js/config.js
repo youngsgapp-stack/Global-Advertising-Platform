@@ -349,7 +349,7 @@ export const CONFIG = {
             ruled: '주인 있음',
             owned: '주인 있음',
             conquest: '차지하기',
-            claim: '차지하기',
+            claim: '구매하기',
             tribute: '후원',
             support: '후원',
             ruler: '주인',
@@ -367,7 +367,7 @@ export const CONFIG = {
             decorate: '꾸미기',
             fandom: '팬덤',
             mySpot: '내 스팟',
-            getSpot: '스팟 차지하기',
+            getSpot: '스팟 구매하기',
             topOwners: '인기 주인',
             newSpots: '새로운 스팟'
         },
@@ -381,7 +381,7 @@ export const CONFIG = {
             bidding: 'Bidding',
             ruled: 'Owned',
             owned: 'Owned',
-            conquest: 'Claim',
+            conquest: 'Own This Territory',
             claim: 'Claim',
             tribute: 'Support',
             support: 'Support',
@@ -400,7 +400,7 @@ export const CONFIG = {
             decorate: 'Decorate',
             fandom: 'Fans',
             mySpot: 'My Spot',
-            getSpot: 'Get This Spot',
+            getSpot: 'Own This Territory',
             topOwners: 'Top Owners',
             newSpots: 'New Spots'
         }

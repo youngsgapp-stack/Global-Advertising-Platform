@@ -40,10 +40,42 @@ class PixelDataService {
     }
     
     /**
-     * 픽셀 데이터 로드
+     * 픽셀 데이터 로드 (소유권 중심 설계)
+     * 
+     * 핵심 규칙 C: 캐시는 Territory의 종속물
+     * - Territory 상태를 먼저 확인하고, 소유자가 없으면 픽셀 데이터를 로드하지 않음
+     * - 소유자가 있는 경우에만 캐시/Firestore에서 픽셀 데이터 로드
+     * 
      * 우선순위: 메모리 캐시 → 로컬 캐시(IndexedDB) → Firebase
      */
-    async loadPixelData(territoryId) {
+    async loadPixelData(territoryId, territory = null) {
+        // 규칙 C: Territory 상태를 먼저 확인
+        // territory가 전달되지 않으면 TerritoryManager에서 가져오기
+        if (!territory) {
+            try {
+                const { territoryManager } = await import('../core/TerritoryManager.js');
+                territory = territoryManager.getTerritory(territoryId);
+                
+                // TerritoryManager에 없으면 Firestore에서 확인
+                if (!territory) {
+                    const { firebaseService } = await import('./FirebaseService.js');
+                    territory = await firebaseService.getDocument('territories', territoryId);
+                }
+            } catch (error) {
+                log.debug(`[PixelDataService] Could not check territory ownership for ${territoryId}, proceeding with load`);
+            }
+        }
+        
+        // 규칙 A: 소유자가 없으면 픽셀 데이터를 로드하지 않음
+        if (territory && (!territory.ruler || territory.sovereignty === 'unconquered')) {
+            log.debug(`[PixelDataService] Territory ${territoryId} has no owner, skipping pixel data load`);
+            return {
+                territoryId,
+                pixels: [],
+                filledPixels: 0,
+                lastUpdated: null
+            };
+        }
         // 1. 메모리 캐시 확인 (가장 빠름)
         if (this.memoryCache.has(territoryId)) {
             const cached = this.memoryCache.get(territoryId);
@@ -307,6 +339,66 @@ class PixelDataService {
             
         } catch (error) {
             log.error(`[PixelDataService] Failed to save pixel data for ${territoryId}:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 픽셀 아트 삭제 (소유권 변경 시 자동 초기화용)
+     * 
+     * 규칙 B: 소유권이 바뀌면 이전 픽셀은 즉시 '죽은 상태'가 된다
+     * - Firestore pixelCanvases 문서 삭제
+     * - IndexedDB 캐시 삭제
+     * - 메모리 캐시 삭제
+     * - territories 컬렉션의 pixelCanvas 필드 삭제
+     */
+    async deletePixelData(territoryId) {
+        try {
+            log.info(`[PixelDataService] Deleting pixel data for territory ${territoryId} (ownership changed)`);
+            
+            // 1. Firestore pixelCanvases 문서 삭제
+            try {
+                await firebaseService.deleteDocument('pixelCanvases', territoryId);
+                log.info(`[PixelDataService] Deleted pixelCanvases document for ${territoryId}`);
+            } catch (error) {
+                // 문서가 없으면 정상 (이미 삭제되었거나 없었던 경우)
+                log.debug(`[PixelDataService] pixelCanvases document not found or already deleted for ${territoryId}`);
+            }
+            
+            // 2. territories 컬렉션의 pixelCanvas 필드 삭제
+            try {
+                await firebaseService.updateDocument('territories', territoryId, {
+                    pixelCanvas: null,
+                    territoryValue: 0,
+                    hasPixelArt: false
+                });
+                log.info(`[PixelDataService] Cleared pixelCanvas metadata for territory ${territoryId}`);
+            } catch (error) {
+                log.warn(`[PixelDataService] Failed to clear pixelCanvas metadata for ${territoryId}:`, error);
+            }
+            
+            // 3. IndexedDB 캐시 삭제
+            try {
+                await this.initializeLocalCache();
+                await localCacheService.clearCache(territoryId);
+                log.info(`[PixelDataService] Deleted IndexedDB cache for ${territoryId}`);
+            } catch (error) {
+                log.warn(`[PixelDataService] Failed to delete IndexedDB cache for ${territoryId}:`, error);
+            }
+            
+            // 4. 메모리 캐시 삭제
+            this.clearMemoryCache(territoryId);
+            log.info(`[PixelDataService] Cleared memory cache for ${territoryId}`);
+            
+            // 5. 이벤트 발행 (픽셀 아트 삭제 알림)
+            eventBus.emit(EVENTS.PIXEL_DATA_DELETED, {
+                territoryId
+            });
+            
+            log.info(`[PixelDataService] ✅ Successfully deleted all pixel data for territory ${territoryId}`);
+            
+        } catch (error) {
+            log.error(`[PixelDataService] Failed to delete pixel data for ${territoryId}:`, error);
             throw error;
         }
     }

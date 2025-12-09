@@ -566,7 +566,7 @@ class TerritoryManager {
      * 영토 정복 처리
      */
     async handleTerritoryConquered(data) {
-        const { territoryId, userId, userName, tribute, isAdmin = false } = data;
+        const { territoryId, userId, userName, tribute, isAdmin = false, protectionDays = null } = data;
         
         // ⚠️ 전문가 조언 반영: 구매 프로세스 검증을 위한 상세 로그
         log.info(`[TerritoryManager] 🎯🎯🎯 [구매 프로세스 시작] handleTerritoryConquered CALLED`);
@@ -576,6 +576,7 @@ class TerritoryManager {
             userName, 
             tribute, 
             isAdmin,
+            protectionDays,
             timestamp: new Date().toISOString()
         });
         
@@ -609,16 +610,31 @@ class TerritoryManager {
         const previousRuler = territory.ruler;
         const now = new Date();
         
+        // 보호 기간 계산
+        // protectionDays가 null이면 평생 보호 (매우 큰 값)
+        // protectionDays가 있으면 해당 일수만큼 보호
+        let protectionEndsAt;
+        if (protectionDays === null) {
+            // 평생 보호: 100년 후로 설정 (실질적으로 평생)
+            protectionEndsAt = new Date(now.getTime() + (100 * 365 * 24 * 60 * 60 * 1000));
+            log.info(`[TerritoryManager] Lifetime protection set for ${territoryId}`);
+        } else {
+            // 지정된 일수만큼 보호
+            protectionEndsAt = new Date(now.getTime() + (protectionDays * 24 * 60 * 60 * 1000));
+            log.info(`[TerritoryManager] Protection set for ${protectionDays} days for ${territoryId}`);
+        }
+        
         // 영토 상태 업데이트
         territory.sovereignty = SOVEREIGNTY.PROTECTED; // 구매 직후 보호 상태
         territory.ruler = userId;
         territory.rulerName = userName;
         territory.rulerSince = now;
-        territory.protectionEndsAt = new Date(now.getTime() + PROTECTION_PERIOD); // 7일 보호
+        territory.protectionEndsAt = protectionEndsAt;
         territory.updatedAt = now;
         territory.purchasedByAdmin = isAdmin; // 관리자 구매 여부
         territory.purchasedPrice = tribute; // 낙찰가 저장
         territory.tribute = tribute; // 낙찰가 저장 (호환성)
+        territory.protectionDays = protectionDays; // 보호 기간 일수 저장 (null이면 평생)
         
         // 역사 기록 추가
         territory.history = territory.history || [];
@@ -665,6 +681,7 @@ class TerritoryManager {
                 rulerName: territory.rulerName,
                 rulerSince: rulerSinceTimestamp || nowTimestamp,
                 protectionEndsAt: protectionEndsAtTimestamp,
+                protectionDays: territory.protectionDays, // 보호 기간 일수 저장
                 purchasedByAdmin: territory.purchasedByAdmin || false,
                 purchasedPrice: territory.purchasedPrice || tribute, // 낙찰가 저장
                 tribute: territory.tribute || tribute, // 낙찰가 저장 (호환성)
@@ -714,8 +731,32 @@ class TerritoryManager {
                 log.error(`[TerritoryManager] ❌ Failed to verify Firestore update:`, verifyError);
             }
             
+            // 규칙 B: 소유권이 바뀌면 이전 픽셀 아트 자동 초기화
+            // 이전 소유자가 있었고, 새 소유자가 다른 경우에만 삭제
+            if (previousRuler && previousRuler !== userId) {
+                try {
+                    log.info(`[TerritoryManager] 🎨 [픽셀 아트 자동 초기화] Ownership changed from ${previousRuler} to ${userId}, deleting previous pixel art...`);
+                    
+                    const { pixelDataService } = await import('../services/PixelDataService.js');
+                    await pixelDataService.deletePixelData(territoryId);
+                    
+                    log.info(`[TerritoryManager] ✅ [픽셀 아트 자동 초기화 완료] Territory ${territoryId} pixel art deleted`);
+                } catch (pixelDeleteError) {
+                    // 픽셀 삭제 실패해도 소유권 변경은 성공한 것으로 처리
+                    log.error(`[TerritoryManager] ⚠️ Failed to delete pixel art for ${territoryId}:`, pixelDeleteError);
+                }
+            }
+            
             // 영토 업데이트 이벤트 발행
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+            
+            // 영토 정복 이벤트 발행 (소유권 변경 완료)
+            eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
+                territoryId,
+                territory,
+                previousRuler,
+                newRuler: userId
+            });
             
         } catch (error) {
             // ⚠️ 전문가 조언 반영: Firestore 쓰기 실패 시 상세 로그
@@ -866,8 +907,8 @@ class TerritoryManager {
             const updatedDoc = await firebaseService.db.collection('territories').doc(territoryId).get();
             if (updatedDoc.exists) {
                 const data = updatedDoc.data();
-                const localTerritory = this.territories.get(territoryId);
-                if (localTerritory) {
+            const localTerritory = this.territories.get(territoryId);
+            if (localTerritory) {
                     localTerritory.viewCount = data.viewCount || 0;
                     localTerritory.lastViewedAt = data.lastViewedAt?.toDate() || new Date();
                 }

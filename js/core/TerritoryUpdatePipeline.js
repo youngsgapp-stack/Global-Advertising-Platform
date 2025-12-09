@@ -69,8 +69,9 @@ class TerritoryUpdatePipeline {
                 return;
             }
             
-            // 2. 픽셀 데이터 로드 (Firestore에서 직접 확인 - 단일 원천)
-            const pixelData = await pixelDataService.loadPixelData(territoryId);
+            // 2. 픽셀 데이터 로드 (소유권 검증 포함)
+            // 규칙 C: Territory 상태를 먼저 확인하고, 소유자가 없으면 픽셀 데이터를 로드하지 않음
+            const pixelData = await pixelDataService.loadPixelData(territoryId, territory);
             
             // 3. TerritoryViewState 생성 (상태 계산)
             const viewState = new TerritoryViewState(territoryId, territory, pixelData);
@@ -868,8 +869,10 @@ class TerritoryUpdatePipeline {
     }
     
     /**
-     * Firestore에서 픽셀 데이터가 있는 모든 영토 ID 가져오기
-     * Firebase SDK 로드 실패 시 IndexedDB 캐시 직접 확인
+     * Firestore에서 픽셀 데이터가 있는 모든 영토 ID 가져오기 (소유권 필터링)
+     * 
+     * 핵심 규칙 A: 소유자가 없는 영토에는 절대 픽셀 아트를 표시하지 않는다.
+     * - ruler != null && sovereignty != 'unconquered' 인 영토만 반환
      */
     async getTerritoriesWithPixelArt() {
         try {
@@ -877,11 +880,27 @@ class TerritoryUpdatePipeline {
             const pixelCanvases = await firebaseService.queryCollection('pixelCanvases');
             
             // 픽셀 데이터가 있는 영토 ID만 필터링
-            const territoryIds = pixelCanvases
+            const territoryIdsWithPixels = pixelCanvases
                 .filter(doc => doc.pixels && doc.pixels.length > 0)
                 .map(doc => doc.territoryId || doc.id);
             
-            return territoryIds;
+            // 규칙 A: 소유권 상태 확인 - 소유자가 있는 영토만 필터링
+            const ownedTerritoryIds = [];
+            for (const territoryId of territoryIdsWithPixels) {
+                try {
+                    const territory = await firebaseService.getDocument('territories', territoryId);
+                    // 소유자가 있고, unconquered가 아닌 경우만 포함
+                    if (territory && territory.ruler && territory.sovereignty !== 'unconquered') {
+                        ownedTerritoryIds.push(territoryId);
+                    }
+                } catch (error) {
+                    // 영토를 찾지 못한 경우 제외
+                    log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not found, excluding from pixel art list`);
+                }
+            }
+            
+            log.info(`[TerritoryUpdatePipeline] Found ${ownedTerritoryIds.length} owned territories with pixel art (filtered from ${territoryIdsWithPixels.length} total)`);
+            return ownedTerritoryIds;
             
         } catch (error) {
             log.warn('[TerritoryUpdatePipeline] Failed to get territories with pixel art from Firestore, checking IndexedDB cache:', error);
@@ -910,10 +929,21 @@ class TerritoryUpdatePipeline {
                     request.onerror = () => reject(request.error);
                 });
                 
-                // 픽셀 데이터가 있는 territory만 필터링
+                // 픽셀 데이터가 있는 territory만 필터링 (소유권 검증 포함)
                 for (const cached of allCachedData) {
                     if (cached && cached.pixelData && cached.pixelData.pixels && cached.pixelData.pixels.length > 0) {
-                        territoriesWithPixelArt.push(cached.territoryId);
+                        const territoryId = cached.territoryId;
+                        // 규칙 A: 소유권 상태 확인
+                        try {
+                            const territory = await firebaseService.getDocument('territories', territoryId);
+                            // 소유자가 있고, unconquered가 아닌 경우만 포함
+                            if (territory && territory.ruler && territory.sovereignty !== 'unconquered') {
+                                territoriesWithPixelArt.push(territoryId);
+                            }
+                        } catch (error) {
+                            // 영토를 찾지 못한 경우 제외
+                            log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not found in fallback, excluding`);
+                        }
                     }
                 }
                 

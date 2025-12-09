@@ -562,3 +562,353 @@ select {
     background: var(--color-primary);
 }
 
+/* === 구매 옵션 모달 === */
+.purchase-options-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.purchase-options-modal .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(10px);
+}
+
+.purchase-options-content {
+    position: relative;
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh;
+    background: linear-gradient(145deg, rgba(26, 26, 46, 0.98) 0%, rgba(20, 30, 50, 0.98) 100%);
+    border-radius: 24px;
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    box-shadow: 
+        0 25px 80px rgba(0, 0, 0, 0.6),
+        0 0 60px rgba(78, 205, 196, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 1;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.purchase-options-content .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 28px;
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15), rgba(78, 205, 196, 0.05));
+    border-bottom: 1px solid rgba(78, 205, 196, 0.2);
+}
+
+.purchase-options-content .modal-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #4ecdc4;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.purchase-options-content .modal-close {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 300;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    line-height: 1;
+}
+
+.purchase-options-content .modal-close:hover {
+    background: rgba(255, 107, 107, 0.2);
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #ff6b6b;
+    transform: rotate(90deg);
+}
+
+.purchase-options-content .modal-body {
+    padding: 28px;
+}
+
+.territory-info-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 20px;
+    background: rgba(78, 205, 196, 0.08);
+    border-radius: 12px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    margin-bottom: 24px;
+}
+
+.territory-info-summary .territory-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.territory-info-summary .base-price {
+    font-size: 14px;
+    color: #4ecdc4;
+    font-weight: 500;
+}
+
+.purchase-options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.purchase-option-card {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.purchase-option-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, rgba(78, 205, 196, 0.5), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.purchase-option-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    border-color: rgba(78, 205, 196, 0.5);
+    background: linear-gradient(145deg, rgba(78, 205, 196, 0.15), rgba(78, 205, 196, 0.05));
+    box-shadow: 
+        0 8px 24px rgba(0, 0, 0, 0.4),
+        0 0 20px rgba(78, 205, 196, 0.2);
+}
+
+.purchase-option-card:hover::before {
+    opacity: 1;
+}
+
+.purchase-option-card.selected {
+    border-color: #4ecdc4;
+    background: linear-gradient(145deg, rgba(78, 205, 196, 0.25), rgba(78, 205, 196, 0.1));
+    box-shadow: 
+        0 8px 24px rgba(0, 0, 0, 0.4),
+        0 0 30px rgba(78, 205, 196, 0.4),
+        inset 0 0 20px rgba(78, 205, 196, 0.1);
+}
+
+.purchase-option-card.selected::before {
+    opacity: 1;
+    background: linear-gradient(90deg, transparent, #4ecdc4, transparent);
+}
+
+.option-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.option-icon {
+    font-size: 32px;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.option-title {
+    flex: 1;
+}
+
+.option-title h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+}
+
+.option-label-en {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+    margin-top: 2px;
+}
+
+.option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.option-price {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.price-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: #feca57;
+    line-height: 1;
+    text-shadow: 0 2px 8px rgba(254, 202, 87, 0.3);
+}
+
+.price-unit {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+}
+
+.option-description {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.4;
+}
+
+.option-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    background: linear-gradient(135deg, rgba(254, 202, 87, 0.2), rgba(254, 202, 87, 0.1));
+    border: 1px solid rgba(254, 202, 87, 0.4);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #feca57;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.purchase-options-content .modal-footer {
+    padding: 20px 28px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.purchase-options-content .modal-footer .btn-secondary {
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-weight: 600;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.purchase-options-content .modal-footer .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+/* 평생 옵션 특별 스타일 */
+.purchase-option-card[data-option-id="lifetime"] {
+    border-color: rgba(254, 202, 87, 0.3);
+    background: linear-gradient(145deg, rgba(254, 202, 87, 0.1), rgba(254, 202, 87, 0.05));
+}
+
+.purchase-option-card[data-option-id="lifetime"]:hover {
+    border-color: rgba(254, 202, 87, 0.6);
+    background: linear-gradient(145deg, rgba(254, 202, 87, 0.2), rgba(254, 202, 87, 0.1));
+    box-shadow: 
+        0 8px 24px rgba(0, 0, 0, 0.4),
+        0 0 30px rgba(254, 202, 87, 0.3);
+}
+
+.purchase-option-card[data-option-id="lifetime"].selected {
+    border-color: #feca57;
+    background: linear-gradient(145deg, rgba(254, 202, 87, 0.3), rgba(254, 202, 87, 0.15));
+    box-shadow: 
+        0 8px 24px rgba(0, 0, 0, 0.4),
+        0 0 40px rgba(254, 202, 87, 0.5),
+        inset 0 0 20px rgba(254, 202, 87, 0.15);
+}
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+    .purchase-options-content {
+        width: 95%;
+        max-height: 95vh;
+        border-radius: 20px;
+    }
+    
+    .purchase-options-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .purchase-option-card {
+        padding: 16px;
+    }
+    
+    .option-icon {
+        font-size: 28px;
+    }
+    
+    .price-value {
+        font-size: 24px;
+    }
+    
+    .purchase-options-content .modal-header {
+        padding: 20px;
+    }
+    
+    .purchase-options-content .modal-body {
+        padding: 20px;
+    }
+}
+
