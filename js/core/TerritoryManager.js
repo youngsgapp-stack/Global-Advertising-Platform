@@ -677,52 +677,40 @@ class TerritoryManager {
         if (!territoryId) return;
         
         try {
-            // 중기 해결: 서버 사이드 API 사용 (권장)
-            // 단기 해결: 클라이언트에서 직접 업데이트 (현재)
-            // ⚠️ Vercel Functions 개수 제한으로 인해 클라이언트 직접 업데이트로 전환
-            // 임시 테스트 rules (firestore.rules.test)를 Firebase 콘솔에 배포 필요
-            const USE_SERVER_API = false; // 서버 API 사용 여부 (환경 변수로 제어 가능)
+            // 전문가 조언: read → +1 → write 패턴 버리고 atomic increment 사용
+            // increment(1) + serverTimestamp()로 단순화하고 동시성 안전성 확보
             
-            if (USE_SERVER_API) {
-                // 서버 사이드 API 호출
-                const response = await fetch('/api/territory/increment-view', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ territoryId })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || '조회수 업데이트 실패');
-                }
-                
-                const data = await response.json();
-                
-                // 로컬 캐시 업데이트
+            const docRef = firebaseService._firestore.doc(
+                firebaseService.db, 
+                'territories', 
+                territoryId
+            );
+            
+            // 문서 존재 여부 확인 (territory는 seed 데이터로 미리 생성되어야 함)
+            const docSnap = await firebaseService._firestore.getDoc(docRef);
+            
+            if (!docSnap.exists()) {
+                // territory가 없으면 그냥 실패 (create 허용 안 함)
+                log.warn(`[TerritoryManager] Territory ${territoryId} does not exist, skipping view count increment`);
+                return;
+            }
+            
+            // Atomic increment 사용 (전문가 조언)
+            // increment(1) + serverTimestamp()로 단순화하고 동시성 안전성 확보
+            await firebaseService._firestore.updateDoc(docRef, {
+                viewCount: firebaseService._firestore.increment(1),
+                lastViewedAt: firebaseService._firestore.serverTimestamp(),
+                updatedAt: firebaseService._firestore.serverTimestamp()
+            });
+            
+            // 로컬 캐시 업데이트 (최신 값 가져오기)
+            const updatedDoc = await firebaseService._firestore.getDoc(docRef);
+            if (updatedDoc.exists()) {
+                const data = updatedDoc.data();
                 const localTerritory = this.territories.get(territoryId);
                 if (localTerritory) {
-                    localTerritory.viewCount = data.viewCount;
-                    localTerritory.lastViewedAt = new Date();
-                }
-            } else {
-                // 단기 해결: 클라이언트에서 직접 업데이트
-                // Firestore에서 현재 조회수 가져오기
-                const territory = await firebaseService.getDocument('territories', territoryId);
-                const currentViews = territory?.viewCount || 0;
-                
-                // 조회수 증가 (Firestore increment 연산 사용)
-                await firebaseService.updateDocument('territories', territoryId, {
-                    viewCount: currentViews + 1,
-                    lastViewedAt: new Date()
-                }, true); // merge=true로 기존 데이터 유지
-                
-                // 로컬 캐시도 업데이트
-                const localTerritory = this.territories.get(territoryId);
-                if (localTerritory) {
-                    localTerritory.viewCount = currentViews + 1;
-                    localTerritory.lastViewedAt = new Date();
+                    localTerritory.viewCount = data.viewCount || 0;
+                    localTerritory.lastViewedAt = data.lastViewedAt?.toDate() || new Date();
                 }
             }
             

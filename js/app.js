@@ -1408,6 +1408,9 @@ if (document.readyState === 'loading') {
 
 // 전역 접근용
 window.BillionaireApp = app;
+// Firebase Service와 MapController도 전역으로 등록 (seed 스크립트 등에서 사용)
+window.firebaseService = firebaseService;
+window.mapController = mapController;
 export default app;
 
 

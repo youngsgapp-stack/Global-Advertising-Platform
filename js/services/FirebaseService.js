@@ -38,7 +38,7 @@ class FirebaseService {
             // Firebase 모듈 로드 (HTML에서 미리 로드된 전역 객체 사용)
             // CORS 문제 해결을 위해 HTML에서 <script type="module">로 미리 로드
             let initializeApp, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence;
-            let getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField;
+            let getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, Timestamp, deleteField, increment, serverTimestamp;
             
             // 전역 window 객체에서 Firebase 모듈 가져오기
             const maxRetries = 10;
@@ -76,6 +76,8 @@ class FirebaseService {
                     onSnapshot = window.firebaseModules.firestore.onSnapshot;
                     Timestamp = window.firebaseModules.firestore.Timestamp;
                     deleteField = window.firebaseModules.firestore.deleteField;
+                    increment = window.firebaseModules.firestore.increment;
+                    serverTimestamp = window.firebaseModules.firestore.serverTimestamp;
                     
                     // 성공적으로 로드됨
                     log.info('[FirebaseService] Firebase SDK loaded from global window object');
@@ -98,7 +100,8 @@ class FirebaseService {
             // Firestore 헬퍼 저장
             this._firestore = {
                 collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-                query, where, orderBy, limit, onSnapshot, Timestamp, deleteField
+                query, where, orderBy, limit, onSnapshot, Timestamp, deleteField,
+                increment, serverTimestamp
             };
             
             // Auth 헬퍼 저장
