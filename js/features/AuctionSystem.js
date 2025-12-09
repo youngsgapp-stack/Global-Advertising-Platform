@@ -1259,6 +1259,7 @@ class AuctionSystem {
                                     updatedAt: Timestamp ? Timestamp.now() : new Date()
                                 });
                             }
+                        }
                     }
                 }
             });
