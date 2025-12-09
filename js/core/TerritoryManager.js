@@ -144,9 +144,17 @@ class TerritoryManager {
      * 이벤트 리스너 설정
      */
     setupEventListeners() {
-        // 영토 선택 이벤트
-        eventBus.on(EVENTS.TERRITORY_SELECT, (data) => {
+        // ⚠️ 전문가 조언 반영: TERRITORY_CLICKED (입력) 이벤트만 구독
+        // TERRITORY_SELECTED는 TerritoryManager가 발행만 하고, 구독하지 않음 (순환 참조 방지)
+        eventBus.on(EVENTS.TERRITORY_CLICKED, (data) => {
+            log.debug(`[TerritoryManager] 📥 TERRITORY_CLICKED event received: territoryId=${data.territoryId}`);
             this.handleTerritorySelect(data);
+        });
+        
+        // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
+        eventBus.on(EVENTS.TERRITORY_SELECT, (data) => {
+            log.warn(`[TerritoryManager] ⚠️ Deprecated TERRITORY_SELECT event received, converting to TERRITORY_CLICKED`);
+            eventBus.emit(EVENTS.TERRITORY_CLICKED, data);
         });
         
         // 영토 정복 이벤트
@@ -218,7 +226,8 @@ class TerritoryManager {
         this.processingTerritoryId = territoryId;
         
         try {
-            // Firestore에서 최신 데이터 가져오기 (pixelCanvas 정보 포함)
+            // ⚠️ 전문가 조언 반영: TerritoryManager를 단일 진실 공급자로 만들기
+            // 1단계: GeoJSON 기반 베이스 territory 객체 생성
             let territory = this.territories.get(territoryId);
             
             if (!territory) {
@@ -232,10 +241,44 @@ class TerritoryManager {
                 territory.id = territoryId;
             }
             
-            // Firestore에서 최신 픽셀 정보 로드
+            // 2단계: Firestore에서 최신 데이터 가져오기 (반드시 완료 후 이벤트 발행)
+            // ⚠️ 전문가 조언: Firestore 읽기가 완료된 후에만 SELECT 이벤트 발행
+            let firestoreData = null;
             try {
-                const firestoreData = await firebaseService.getDocument('territories', territoryId);
+                log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                firestoreData = await firebaseService.getDocument('territories', territoryId);
+                
                 if (firestoreData) {
+                    // ⚠️ 전문가 조언: Firestore 문서의 실제 내용을 모두 로깅하여 디버깅
+                    log.info(`[TerritoryManager] 📄 Firestore document found for ${territoryId}:`, {
+                        hasRuler: firestoreData.ruler !== undefined,
+                        ruler: firestoreData.ruler,
+                        hasRulerName: firestoreData.rulerName !== undefined,
+                        rulerName: firestoreData.rulerName,
+                        hasSovereignty: firestoreData.sovereignty !== undefined,
+                        sovereignty: firestoreData.sovereignty,
+                        hasPrice: firestoreData.price !== undefined,
+                        price: firestoreData.price,
+                        hasPurchasedByAdmin: firestoreData.purchasedByAdmin !== undefined,
+                        purchasedByAdmin: firestoreData.purchasedByAdmin,
+                        hasPixelCanvas: firestoreData.pixelCanvas !== undefined,
+                        pixelCanvasKeys: firestoreData.pixelCanvas ? Object.keys(firestoreData.pixelCanvas) : null,
+                        allKeys: Object.keys(firestoreData),
+                        // ⚠️ 전문가 조언: 전체 문서 내용 로깅 (디버깅용 - 콘솔에서 확인)
+                        documentKeys: Object.keys(firestoreData),
+                        documentSize: JSON.stringify(firestoreData).length
+                    });
+                    
+                    // ⚠️ 전문가 조언: 전체 문서 내용을 콘솔에 출력 (디버깅용)
+                    console.log(`[TerritoryManager] 📄 Full Firestore document for ${territoryId}:`, firestoreData);
+                    
+                    // ⚠️ 전문가 조언: Firestore 문서에 ruler/sovereignty가 없으면 경고
+                    if (!firestoreData.ruler && !firestoreData.sovereignty) {
+                        log.warn(`[TerritoryManager] ⚠️⚠️⚠️ WARNING: Territory ${territoryId} has NO ruler/sovereignty in Firestore! This territory may have been purchased but the update failed.`);
+                        log.warn(`[TerritoryManager] ⚠️ Check if handleTerritoryConquered was called and if Firestore update succeeded.`);
+                    }
+                    
+                    // ⚠️ 전문가 조언: Firestore 데이터를 완전히 병합하여 단일 진실 생성
                     // pixelCanvas 정보 병합
                     if (firestoreData.pixelCanvas) {
                         territory.pixelCanvas = {
@@ -250,13 +293,37 @@ class TerritoryManager {
                     if (firestoreData.protectedUntil !== undefined) territory.protectedUntil = firestoreData.protectedUntil;
                     if (firestoreData.rulerSince !== undefined) territory.rulerSince = firestoreData.rulerSince;
                     if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
-                    log.debug(`[TerritoryManager] Updated territory ${territoryId} from Firestore: sovereignty=${territory.sovereignty}, ruler=${territory.ruler}`);
+                    if (firestoreData.price !== undefined) territory.price = firestoreData.price;
+                    if (firestoreData.purchasedByAdmin !== undefined) territory.purchasedByAdmin = firestoreData.purchasedByAdmin;
+                    
+                    // ⚠️ 전문가 조언: sovereignty가 없으면 기본값 설정
+                    if (territory.sovereignty === undefined || territory.sovereignty === null) {
+                        if (territory.ruler) {
+                            // ruler가 있으면 ruled로 설정
+                            territory.sovereignty = 'ruled';
+                            log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} has ruler but no sovereignty, setting to 'ruled'`);
+                        } else {
+                            // ruler가 없으면 unconquered로 설정
+                            territory.sovereignty = 'unconquered';
+                            log.debug(`[TerritoryManager] Territory ${territoryId} has no sovereignty, setting to 'unconquered'`);
+                        }
+                    }
+                    
+                    log.info(`[TerritoryManager] ✅ Territory ${territoryId} fully hydrated from Firestore: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
                 } else {
-                    log.debug(`[TerritoryManager] Territory ${territoryId} not found in Firestore (may be a new territory)`);
+                    log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} not found in Firestore (may be a new territory)`);
+                    // Firestore에 문서가 없으면 기본값 설정
+                    if (territory.sovereignty === undefined || territory.sovereignty === null) {
+                        territory.sovereignty = 'unconquered';
+                    }
                 }
             } catch (error) {
                 // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
-                log.debug(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore (using cached data):`, error.message);
+                log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
+                // 에러 발생 시에도 기본값 설정
+                if (territory.sovereignty === undefined || territory.sovereignty === null) {
+                    territory.sovereignty = 'unconquered';
+                }
             }
             
             // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
@@ -388,30 +455,49 @@ class TerritoryManager {
             
             this.currentTerritory = territory;
             
+            // ⚠️ 전문가 조언: Firestore 읽기 완료 후 territories Map에 저장 (단일 진실 저장)
+            this.territories.set(territoryId, territory);
+            this.currentTerritory = territory;
+            
             // 영토 조회수 증가 (비동기, 에러 무시)
             this.incrementViewCount(territoryId).catch(err => {
                 log.warn(`[TerritoryManager] Failed to increment view count for ${territoryId}:`, err);
             });
             
-            // 영토 패널 열기 이벤트 발행 (TERRITORY_SELECT는 다시 발행하지 않음 - 무한 루프 방지)
+            // ⚠️ 전문가 조언: territory.id가 반드시 설정되어 있는지 확인
+            if (!territory.id) {
+                territory.id = territoryId;
+                log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} had no id, setting it now`);
+            }
+            
+            // ⚠️ 전문가 조언: Firestore 읽기 완료 후에만 TERRITORY_SELECTED (출력) 이벤트 발행
+            // 완전히 하이드레이트된 Territory 객체를 전달 (단일 진실)
+            log.info(`[TerritoryManager] 🎯 [TerritoryManager → TERRITORY_SELECTED] Emitting TERRITORY_SELECTED event for ${territoryId}: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, id=${territory.id}`);
+            eventBus.emit(EVENTS.TERRITORY_SELECTED, {
+                territory: territory,      // 완전히 하이드레이트된 객체
+                territoryId: territoryId, // territoryId도 명시적으로 전달
+                sourceId: sourceId,       // sourceId 전달
+                featureId: featureId,     // featureId 전달
+                country: finalCountry,     // 최종 결정된 country
+                properties: properties,    // properties 전달
+                geometry: geometry        // geometry 전달
+            });
+            
+            // 레거시 호환성: TERRITORY_SELECT도 발행 (deprecated)
+            eventBus.emit(EVENTS.TERRITORY_SELECT, {
+                territory: territory,
+                territoryId: territoryId,
+                sourceId: sourceId,
+                featureId: featureId,
+                country: finalCountry,
+                properties: properties,
+                geometry: geometry
+            });
+            
+            // 영토 패널 열기 이벤트 발행
             eventBus.emit(EVENTS.UI_PANEL_OPEN, {
                 type: 'territory',
                 data: territory
-            });
-            
-            // 영토 업데이트 이벤트 발행 (조건 없이 항상 발행 - 파이프라인에서 Firestore 확인)
-            // 컨설팅 원칙: 메모리 캐시가 아닌 Firestore 단일 원천으로 판단
-            eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
-                territory: territory 
-            });
-            
-            // 영토 선택 이벤트 발행 (조건 없이 항상 발행 - 파이프라인에서 Firestore 확인)
-            // territoryId, sourceId, featureId도 함께 전달하여 undefined 문제 방지
-            eventBus.emit(EVENTS.TERRITORY_SELECT, {
-                territory: territory,
-                territoryId: territoryId,  // territoryId도 명시적으로 전달
-                sourceId: sourceId,       // sourceId 전달
-                featureId: featureId      // featureId 전달
             });
         } finally {
             // 처리 완료 후 플래그 해제 (약간의 지연 후)
@@ -482,7 +568,16 @@ class TerritoryManager {
     async handleTerritoryConquered(data) {
         const { territoryId, userId, userName, tribute, isAdmin = false } = data;
         
-        log.info(`[TerritoryManager] Handling territory conquered: ${territoryId} by ${userName} (${userId})${isAdmin ? ' [Admin]' : ''}`);
+        // ⚠️ 전문가 조언 반영: 구매 프로세스 검증을 위한 상세 로그
+        log.info(`[TerritoryManager] 🎯🎯🎯 [구매 프로세스 시작] handleTerritoryConquered CALLED`);
+        log.info(`[TerritoryManager] 📋 구매 데이터:`, { 
+            territoryId, 
+            userId, 
+            userName, 
+            tribute, 
+            isAdmin,
+            timestamp: new Date().toISOString()
+        });
         
         // territories Map에서 먼저 확인
         let territory = this.territories.get(territoryId);
@@ -564,7 +659,7 @@ class TerritoryManager {
             }
             
             // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
-            await firebaseService.updateDocument('territories', territoryId, {
+            const updateData = {
                 sovereignty: territory.sovereignty,
                 ruler: territory.ruler,
                 rulerName: territory.rulerName,
@@ -575,15 +670,68 @@ class TerritoryManager {
                 tribute: territory.tribute || tribute, // 낙찰가 저장 (호환성)
                 currentAuction: null, // 옥션 종료 후 null로 설정
                 updatedAt: nowTimestamp
+            };
+            
+            // ⚠️ 전문가 조언 반영: Firestore 쓰기 직전 로그
+            log.info(`[TerritoryManager] 📤 [Firestore 쓰기 직전] Updating Firestore: territories/${territoryId}`);
+            log.info(`[TerritoryManager] 📤 업데이트할 데이터:`, {
+                territoryId,
+                ruler: userId,
+                rulerName: userName,
+                sovereignty: territory.sovereignty,
+                purchasedByAdmin: isAdmin,
+                purchasedPrice: tribute,
+                updateDataKeys: Object.keys(updateData),
+                fullUpdateData: JSON.stringify(updateData, null, 2)
             });
             
-            log.info(`[TerritoryManager] ✅ Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Updated in Firestore.`);
+            await firebaseService.updateDocument('territories', territoryId, updateData);
+            
+            // ⚠️ 전문가 조언 반영: Firestore 쓰기 직후 로그
+            log.info(`[TerritoryManager] ✅✅✅ [Firestore 쓰기 성공] Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated in Firestore.`);
+            
+            // ⚠️ 전문가 조언: 업데이트 후 즉시 확인하여 검증
+            try {
+                const verifyData = await firebaseService.getDocument('territories', territoryId);
+                if (verifyData) {
+                    log.info(`[TerritoryManager] ✅ Verification: Firestore document after update:`, {
+                        hasRuler: verifyData.ruler !== undefined,
+                        ruler: verifyData.ruler,
+                        hasSovereignty: verifyData.sovereignty !== undefined,
+                        sovereignty: verifyData.sovereignty,
+                        rulerMatches: verifyData.ruler === userId
+                    });
+                    
+                    if (verifyData.ruler !== userId || verifyData.sovereignty !== territory.sovereignty) {
+                        log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Firestore update did not persist correctly!`);
+                        log.error(`[TerritoryManager] Expected: ruler=${userId}, sovereignty=${territory.sovereignty}`);
+                        log.error(`[TerritoryManager] Actual: ruler=${verifyData.ruler}, sovereignty=${verifyData.sovereignty}`);
+                    }
+                } else {
+                    log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Territory ${territoryId} not found in Firestore after update!`);
+                }
+            } catch (verifyError) {
+                log.error(`[TerritoryManager] ❌ Failed to verify Firestore update:`, verifyError);
+            }
             
             // 영토 업데이트 이벤트 발행
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
             
         } catch (error) {
-            log.error(`[TerritoryManager] ❌ Failed to update territory ${territoryId} in Firestore:`, error);
+            // ⚠️ 전문가 조언 반영: Firestore 쓰기 실패 시 상세 로그
+            log.error(`[TerritoryManager] ❌❌❌ [Firestore 쓰기 실패] Failed to update territory ${territoryId} in Firestore`);
+            log.error(`[TerritoryManager] ❌ 에러 타입: ${error.constructor.name}`);
+            log.error(`[TerritoryManager] ❌ 에러 메시지: ${error.message}`);
+            log.error(`[TerritoryManager] ❌ 에러 코드: ${error.code || 'N/A'}`);
+            log.error(`[TerritoryManager] ❌ 전체 에러 객체:`, error);
+            log.error(`[TerritoryManager] ❌ 업데이트하려던 데이터:`, {
+                territoryId,
+                ruler: userId,
+                rulerName: userName,
+                sovereignty: territory.sovereignty,
+                purchasedByAdmin: isAdmin,
+                purchasedPrice: tribute
+            });
             // 에러가 발생해도 로컬 캐시는 업데이트되었으므로 계속 진행
         }
     }
@@ -697,9 +845,10 @@ class TerritoryManager {
             );
             
             // 문서 존재 여부 확인 (territory는 seed 데이터로 미리 생성되어야 함)
-            const docSnap = await firebaseService._firestore.getDoc(docRef);
+            // compat 버전: docRef.get() 직접 사용
+            const docSnap = await firebaseService.db.collection('territories').doc(territoryId).get();
             
-            if (!docSnap.exists()) {
+            if (!docSnap.exists) {
                 // territory가 없으면 그냥 실패 (create 허용 안 함)
                 log.warn(`[TerritoryManager] Territory ${territoryId} does not exist, skipping view count increment`);
                 return;
@@ -707,15 +856,15 @@ class TerritoryManager {
             
             // Atomic increment 사용 (전문가 조언)
             // increment(1) + serverTimestamp()로 단순화하고 동시성 안전성 확보
-            await firebaseService._firestore.updateDoc(docRef, {
+            await firebaseService.db.collection('territories').doc(territoryId).update({
                 viewCount: firebaseService._firestore.increment(1),
                 lastViewedAt: firebaseService._firestore.serverTimestamp(),
                 updatedAt: firebaseService._firestore.serverTimestamp()
             });
             
             // 로컬 캐시 업데이트 (최신 값 가져오기)
-            const updatedDoc = await firebaseService._firestore.getDoc(docRef);
-            if (updatedDoc.exists()) {
+            const updatedDoc = await firebaseService.db.collection('territories').doc(territoryId).get();
+            if (updatedDoc.exists) {
                 const data = updatedDoc.data();
                 const localTerritory = this.territories.get(territoryId);
                 if (localTerritory) {

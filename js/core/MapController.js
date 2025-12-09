@@ -797,9 +797,9 @@ class MapController {
             return this.globalAdminData;
         }
         
-        // Natural Earth Admin 1 데이터 (주/도 레벨)
-        const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
-        
+            // Natural Earth Admin 1 데이터 (주/도 레벨)
+            const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
+            
         // 재시도 로직 (최대 3회)
         const maxRetries = 3;
         let retryCount = 0;
@@ -819,17 +819,17 @@ class MapController {
                 
                 clearTimeout(timeoutId);
                 
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch global admin data: ${response.status}`);
-                }
-                
-                this.globalAdminData = await response.json();
-                this.globalAdminLoaded = true;
-                
-                log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
-                return this.globalAdminData;
-                
-            } catch (error) {
+            if (!response.ok) {
+                throw new Error(`Failed to fetch global admin data: ${response.status}`);
+            }
+            
+            this.globalAdminData = await response.json();
+            this.globalAdminLoaded = true;
+            
+            log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
+            return this.globalAdminData;
+            
+        } catch (error) {
                 retryCount++;
                 
                 if (error.name === 'AbortError') {
@@ -846,9 +846,9 @@ class MapController {
                 } else {
                     log.error('Failed to load global admin data after all retries:', error);
                     // 실패해도 null 반환 (앱은 계속 작동)
-                    return null;
+            return null;
                 }
-            }
+        }
         }
         
         return null;
@@ -1231,16 +1231,16 @@ class MapController {
         }
         
         // 모든 레이어 제거 (Source 제거 전에)
-        for (const layerId of layersToRemove) {
+                for (const layerId of layersToRemove) {
             try {
-                if (this.map.getLayer(layerId)) {
-                    this.map.removeLayer(layerId);
+                    if (this.map.getLayer(layerId)) {
+                        this.map.removeLayer(layerId);
                 }
             } catch (e) {
                 log.warn(`Failed to remove layer ${layerId}:`, e);
-            }
-        }
-        
+                    }
+                }
+                
         // 모든 Source 제거 (레이어 제거 후)
         for (const sourceId of sourcesToRemove) {
             try {
@@ -1789,17 +1789,19 @@ class MapController {
             log.debug(`[MapController] Using legacy Territory ID format: ${finalTerritoryId}`);
         }
         
-        eventBus.emit(EVENTS.TERRITORY_SELECT, {
-            territoryId: finalTerritoryId,  // 필수: 새로운 Territory ID 형식 또는 legacy ID
+        // ⚠️ 전문가 조언 반영: MapController는 TERRITORY_CLICKED (입력) 이벤트만 발행
+        // TerritoryManager가 이 이벤트를 듣고 Firestore를 읽은 후 TERRITORY_SELECTED (출력) 발행
+        log.info(`[MapController] 🎯 [MapController → TERRITORY_CLICKED] Territory clicked: ${finalTerritoryId}, emitting TERRITORY_CLICKED event...`);
+        
+        eventBus.emit(EVENTS.TERRITORY_CLICKED, {
+            territoryId: finalTerritoryId,
             properties: feature.properties,
             geometry: feature.geometry,
             country: countryCode,
-            featureId: feature.id,  // 원본 feature ID도 함께 전달
-            sourceId: sourceId,     // source ID도 함께 전달
-            originalId: rawTerritoryId // 원본 ID도 전달
+            featureId: feature.id,
+            sourceId: sourceId,
+            originalId: rawTerritoryId
         });
-        
-        // 경매 애니메이션은 TERRITORY_SELECT 이벤트 리스너에서 처리
         
         log.debug(`🗺️ Territory selected: ${finalTerritoryId} (feature.id: ${feature.id}) from source ${sourceId}`);
     }

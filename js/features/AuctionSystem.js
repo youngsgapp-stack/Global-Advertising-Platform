@@ -1049,27 +1049,51 @@ class AuctionSystem {
      * 즉시 구매 (옥션 없이)
      */
     async instantConquest(territoryId, userId, userName) {
+        // ⚠️ 전문가 조언 반영: 정복 시작 지점 로그
+        log.info(`[AuctionSystem] 🎯 [정복 시작] instantConquest called`);
+        log.info(`[AuctionSystem] 📋 정복 데이터:`, {
+            territoryId,
+            userId,
+            userName,
+            timestamp: new Date().toISOString()
+        });
+        
         const territory = territoryManager.getTerritory(territoryId);
         if (!territory) {
+            log.error(`[AuctionSystem] ❌ Territory ${territoryId} not found in TerritoryManager`);
             throw new Error('Territory not found');
         }
         
+        log.info(`[AuctionSystem] 📋 Territory ${territoryId} current state: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
+        
         if (territory.sovereignty === SOVEREIGNTY.RULED) {
+            log.warn(`[AuctionSystem] ⚠️ Territory ${territoryId} is already ruled by ${territory.ruler}`);
             throw new Error('Territory is already ruled');
         }
         
         if (territory.sovereignty === SOVEREIGNTY.CONTESTED) {
+            log.warn(`[AuctionSystem] ⚠️ Territory ${territoryId} has auction in progress`);
             throw new Error('Auction in progress');
         }
         
+        const finalPrice = territory.tribute || territory.price || 100;
+        
         // 정복 이벤트 발행
+        log.info(`[AuctionSystem] 🎉 [정복 이벤트 발행] Emitting TERRITORY_CONQUERED event`);
+        log.info(`[AuctionSystem] 🎉 이벤트 데이터:`, {
+            territoryId,
+            userId,
+            userName,
+            tribute: finalPrice
+        });
         eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
             territoryId,
             userId,
             userName,
-            tribute: territory.tribute
+            tribute: finalPrice
         });
         
+        log.info(`[AuctionSystem] ✅ instantConquest completed for territory: ${territoryId}`);
         return territory;
     }
     

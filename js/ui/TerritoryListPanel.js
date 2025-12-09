@@ -673,7 +673,9 @@ class TerritoryListPanel {
         
         // 맵에서 직접 선택 실패 시 이벤트로 선택
         // ⚠️ territory.id가 원래 클릭한 territoryId와 다를 수 있으므로 원본 territoryId 사용
-        eventBus.emit(EVENTS.TERRITORY_SELECT, { 
+        // ⚠️ 전문가 조언 반영: TERRITORY_CLICKED (입력) 이벤트 발행
+        log.info(`[TerritoryListPanel] 🎯 [TerritoryListPanel → TERRITORY_CLICKED] Emitting TERRITORY_CLICKED event for ${territoryId}`);
+        eventBus.emit(EVENTS.TERRITORY_CLICKED, { 
             territory,
             territoryId: territoryId, // 원본 territoryId 사용 (territory.id가 아닌)
             sourceId: territory.sourceId,

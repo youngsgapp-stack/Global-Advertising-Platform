@@ -40,16 +40,21 @@ class WalletService {
      */
     async initialize() {
         if (this.initialized) {
-            log.info('WalletService already initialized');
+            log.info('[WalletService] Already initialized');
             return true;
         }
         
         try {
-            // 인증 상태 변경 감시
+            log.info('[WalletService] 🔄 Initializing...');
+            
+            // ⚠️ 전문가 조언: 인증 상태 변경 감시 (로그 추가)
             eventBus.on(EVENTS.AUTH_STATE_CHANGED, ({ user }) => {
+                log.info(`[WalletService] 🔐 AUTH_STATE_CHANGED event received: user=${user ? user.uid : 'null'}`);
                 if (user) {
+                    log.info(`[WalletService] 👤 Loading wallet for user: ${user.uid}`);
                     this.loadUserWallet(user.uid);
                 } else {
+                    log.info('[WalletService] 👋 User logged out, clearing wallet');
                     this.clearWallet();
                 }
             });
@@ -57,15 +62,18 @@ class WalletService {
             // 현재 로그인된 사용자가 있으면 지갑 로드
             const currentUser = firebaseService.getCurrentUser();
             if (currentUser) {
+                log.info(`[WalletService] 👤 Current user found: ${currentUser.uid}, loading wallet...`);
                 await this.loadUserWallet(currentUser.uid);
+            } else {
+                log.info('[WalletService] ℹ️ No current user, waiting for login...');
             }
             
             this.initialized = true;
-            log.info('WalletService initialized');
+            log.info('[WalletService] ✅ Initialized successfully');
             return true;
             
         } catch (error) {
-            log.error('WalletService initialization failed:', error);
+            log.error('[WalletService] ❌ Initialization failed:', error);
             return false;
         }
     }
@@ -75,15 +83,20 @@ class WalletService {
      */
     async loadUserWallet(userId) {
         try {
+            log.info(`[WalletService] 🔄 loadUserWallet called for userId: ${userId}`);
+            
             // 기존 구독 해제
             if (this.unsubscriber) {
+                log.info('[WalletService] 🔄 Unsubscribing from previous wallet listener');
                 this.unsubscriber();
             }
             
-            // 지갑 데이터 가져오기 (없으면 생성)
+            // ⚠️ 전문가 조언: Firestore에서 지갑 데이터 가져오기 (로그 추가)
+            log.info(`[WalletService] 📡 Fetching wallet from Firestore: wallets/${userId}`);
             let wallet = await firebaseService.getDocument('wallets', userId);
             
             if (!wallet) {
+                log.info(`[WalletService] 💼 Wallet not found, creating new wallet for user: ${userId}`);
                 // 새 지갑 생성 + 스타터 포인트 지급
                 const STARTER_POINTS = 400; // 4달러 상당 (전문가 제안: 3~5달러 상당)
                 
@@ -118,10 +131,11 @@ class WalletService {
                 );
                 
                 // 스타터 보너스 이벤트 발행
+                log.info(`[WalletService] 🎉 Emitting BALANCE_UPDATED event: balance=${STARTER_POINTS}`);
                 eventBus.emit(WALLET_EVENTS.TRANSACTION_ADDED, { transaction });
                 eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: STARTER_POINTS });
                 
-                log.info(`New wallet created for user ${userId} with ${STARTER_POINTS} starter points`);
+                log.info(`[WalletService] ✅ New wallet created for user ${userId} with ${STARTER_POINTS} starter points`);
             } else {
                 // 기존 지갑 데이터 검증 및 수정
                 if (typeof wallet.balance !== 'number' || isNaN(wallet.balance)) {
@@ -137,27 +151,34 @@ class WalletService {
             // balance가 명시적으로 설정되어 있는지 확인
             this.currentBalance = (typeof wallet.balance === 'number' && !isNaN(wallet.balance)) ? wallet.balance : 0;
             
-            log.info(`[WalletService] Wallet loaded for user ${userId}: balance=${this.currentBalance} pt`);
+            log.info(`[WalletService] ✅ Wallet loaded for user ${userId}: balance=${this.currentBalance} pt`);
             
-            // 실시간 구독 설정
+            // ⚠️ 전문가 조언: 실시간 구독 설정 (로그 추가)
+            log.info(`[WalletService] 📡 Setting up real-time listener for wallets/${userId}`);
             this.unsubscriber = firebaseService.subscribeToDocument('wallets', userId, (data) => {
                 if (data) {
-                    this.currentBalance = data.balance || 0;
+                    const newBalance = data.balance || 0;
+                    log.info(`[WalletService] 🔔 Real-time update received: balance=${newBalance} pt`);
+                    this.currentBalance = newBalance;
+                    log.info(`[WalletService] 🎉 Emitting BALANCE_UPDATED event: balance=${newBalance}`);
                     eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, {
                         balance: this.currentBalance
                     });
+                } else {
+                    log.warn('[WalletService] ⚠️ Real-time update received but data is null');
                 }
             });
             
             // 최근 거래 내역 로드
             await this.loadTransactions(userId);
             
-            // 잔액 업데이트 이벤트 발행
+            // ⚠️ 전문가 조언: 잔액 업데이트 이벤트 발행 (로그 추가)
+            log.info(`[WalletService] 🎉 Emitting initial BALANCE_UPDATED event: balance=${this.currentBalance}`);
             eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, {
                 balance: this.currentBalance
             });
             
-            log.info(`Wallet loaded: ${this.currentBalance} pt`);
+            log.info(`[WalletService] ✅ Wallet fully loaded: ${this.currentBalance} pt`);
             
         } catch (error) {
             log.error('Failed to load wallet:', error);

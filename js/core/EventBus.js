@@ -129,7 +129,10 @@ export const EVENTS = {
     WORLD_VIEW_LOADED: 'map:worldViewLoaded',  // World View 로드 완료
     
     // 영토
-    TERRITORY_SELECT: 'territory:select',
+    // ⚠️ 전문가 조언 반영: 입력/출력 이벤트 분리
+    TERRITORY_CLICKED: 'territory:clicked',      // 입력: 클릭/선택 요청 (territoryId, properties만 있음)
+    TERRITORY_SELECTED: 'territory:selected',    // 출력: 완전히 하이드레이트된 Territory 객체 준비 완료
+    TERRITORY_SELECT: 'territory:select',        // 레거시 호환성 유지 (deprecated)
     TERRITORY_DESELECT: 'territory:deselect',
     TERRITORY_CONQUERED: 'territory:conquered',
     TERRITORY_UPDATE: 'territory:update',

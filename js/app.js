@@ -563,13 +563,22 @@ class BillionaireApp {
         
         // Payment success - handle territory conquest
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
+            log.info(`[BillionaireApp] 💰 PAYMENT_SUCCESS event received:`, data);
             const user = firebaseService.getCurrentUser();
             if (user && data.territoryId) {
-                await auctionSystem.instantConquest(
-                    data.territoryId,
-                    user.uid,
-                    user.displayName || user.email
-                );
+                log.info(`[BillionaireApp] 🎯 Calling instantConquest for territory: ${data.territoryId}, user: ${user.uid}`);
+                try {
+                    await auctionSystem.instantConquest(
+                        data.territoryId,
+                        user.uid,
+                        user.displayName || user.email
+                    );
+                    log.info(`[BillionaireApp] ✅ instantConquest completed for territory: ${data.territoryId}`);
+                } catch (error) {
+                    log.error(`[BillionaireApp] ❌ instantConquest failed for territory: ${data.territoryId}:`, error);
+                }
+            } else {
+                log.warn(`[BillionaireApp] ⚠️ PAYMENT_SUCCESS event missing user or territoryId:`, { user: !!user, territoryId: data.territoryId });
             }
         });
         
@@ -950,14 +959,34 @@ class BillionaireApp {
      * Update Wallet UI
      */
     updateWalletUI(balance) {
+        log.info(`[BillionaireApp] 🔄 updateWalletUI called: balance=${balance}`);
+        
         const walletDisplay = document.getElementById('wallet-balance');
         if (walletDisplay) {
             walletDisplay.textContent = `${balance.toLocaleString()} pt`;
+            log.info(`[BillionaireApp] ✅ Updated wallet-balance element: ${balance.toLocaleString()} pt`);
+        } else {
+            log.warn('[BillionaireApp] ⚠️ wallet-balance element not found');
         }
         
         const headerWallet = document.getElementById('header-wallet-balance');
         if (headerWallet) {
             headerWallet.textContent = `${balance.toLocaleString()} pt`;
+            log.info(`[BillionaireApp] ✅ Updated header-wallet-balance element: ${balance.toLocaleString()} pt`);
+        } else {
+            log.warn('[BillionaireApp] ⚠️ header-wallet-balance element not found');
+        }
+        
+        // ⚠️ 전문가 조언: header-wallet이 hidden 상태인지 확인
+        const headerWalletContainer = document.getElementById('header-wallet');
+        if (headerWalletContainer) {
+            if (headerWalletContainer.classList.contains('hidden')) {
+                log.warn('[BillionaireApp] ⚠️ header-wallet is hidden! Balance updated but not visible.');
+            } else {
+                log.info('[BillionaireApp] ✅ header-wallet is visible');
+            }
+        } else {
+            log.warn('[BillionaireApp] ⚠️ header-wallet container not found');
         }
     }
     

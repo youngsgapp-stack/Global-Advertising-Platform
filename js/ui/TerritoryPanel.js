@@ -69,63 +69,92 @@ class TerritoryPanel {
             }
         });
         
-        // 영토 선택 이벤트 - TerritoryManager에서 처리된 territory를 받아서 패널 열기
+        // ⚠️ 전문가 조언 반영: TERRITORY_SELECTED (출력) 이벤트만 구독
+        // TerritoryManager가 완전히 하이드레이트된 Territory 객체를 전달
+        eventBus.on(EVENTS.TERRITORY_SELECTED, async (data) => {
+            const territoryId = data.territoryId || data.territory?.id;
+            log.info(`[TerritoryPanel] 📥 [TerritoryPanel ← TERRITORY_SELECTED] TERRITORY_SELECTED event received: territoryId=${territoryId}, territory.id=${data.territory?.id}, country=${data.country}, properties.adm0_a3=${data.properties?.adm0_a3}`);
+            
+            // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
+        });
+        
+        // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
         eventBus.on(EVENTS.TERRITORY_SELECT, async (data) => {
             const territoryId = data.territoryId || data.territory?.id;
+            log.warn(`[TerritoryPanel] ⚠️ Deprecated TERRITORY_SELECT event received, converting to TERRITORY_SELECTED handler`);
             log.info(`[TerritoryPanel] TERRITORY_SELECT event received: territoryId=${territoryId}, territory.id=${data.territory?.id}, country=${data.country}, properties.adm0_a3=${data.properties?.adm0_a3}`);
             
             if (!territoryId) {
-                log.warn(`[TerritoryPanel] TERRITORY_SELECT event missing territoryId`);
+                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECT event missing territoryId`);
                 return;
             }
             
-            // ⚠️ 중요: 이벤트 데이터의 properties와 country를 우선 사용 (맵에서 직접 가져온 정확한 데이터)
-            // TerritoryManager의 territory는 이전에 잘못된 country로 저장되었을 수 있음
+            // ⚠️ 전문가 조언 반영: TerritoryManager가 완전히 하이드레이트된 territory 객체를 제공하므로
+            // 이벤트의 territory 객체를 우선 사용 (단일 진실 원칙)
             let territory = null;
             
-            // 1. 이벤트 데이터에 territory 객체가 있고 완전한 정보가 있으면 사용
-            if (data.territory && data.territory.id && data.territory.properties) {
+            // 1. 이벤트 데이터에 territory 객체가 있으면 사용 (TerritoryManager가 완전히 하이드레이트한 객체)
+            if (data.territory && data.territory.id) {
                 territory = data.territory;
-                log.debug(`[TerritoryPanel] Using territory from event data: ${territory.id}`);
-                } else {
-                    // 2. TerritoryManager에서 가져오되, 이벤트 데이터의 country와 properties로 덮어쓰기
-                    territory = territoryManager.getTerritory(territoryId);
-                    if (territory) {
-                        // territory.id가 없으면 설정
-                        if (!territory.id) {
-                            territory.id = territoryId;
-                        }
-                        // 이벤트 데이터의 정확한 country와 properties로 업데이트
-                        if (data.country) {
-                            territory.country = data.country;
-                            log.debug(`[TerritoryPanel] Updated territory.country from event: ${data.country}`);
-                        }
-                        if (data.properties) {
-                            territory.properties = { ...territory.properties, ...data.properties };
-                            log.debug(`[TerritoryPanel] Updated territory.properties from event`);
-                        }
-                        if (data.sourceId) territory.sourceId = data.sourceId;
-                        if (data.featureId) territory.featureId = data.featureId;
-                        if (data.geometry) territory.geometry = data.geometry;
-                    } else {
-                        // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성
-                        log.warn(`[TerritoryPanel] Territory ${territoryId} not found in TerritoryManager, creating from event data`);
-                        territory = {
-                            id: territoryId,
-                            name: data.properties?.name || data.properties?.name_en || territoryId,
-                            country: data.country,
-                            properties: data.properties,
-                            geometry: data.geometry,
-                            sourceId: data.sourceId,
-                            featureId: data.featureId
-                        };
-                    }
+                log.info(`[TerritoryPanel] ✅ Using fully hydrated territory from event: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
+                
+                // 이벤트 데이터의 추가 정보로 보완 (geometry, properties 등)
+                if (data.geometry) territory.geometry = data.geometry;
+                if (data.properties) {
+                    territory.properties = { ...territory.properties, ...data.properties };
                 }
+                if (data.sourceId) territory.sourceId = data.sourceId;
+                if (data.featureId) territory.featureId = data.featureId;
+                if (data.country) territory.country = data.country;
+            } else {
+                // 2. 이벤트에 territory 객체가 없으면 TerritoryManager에서 가져오기 (fallback)
+                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECT event missing territory object, fetching from TerritoryManager`);
+                territory = territoryManager.getTerritory(territoryId);
+                if (territory) {
+                    // territory.id가 없으면 설정
+                    if (!territory.id) {
+                        territory.id = territoryId;
+                    }
+                    // 이벤트 데이터의 정확한 country와 properties로 업데이트
+                    if (data.country) {
+                        territory.country = data.country;
+                    }
+                    if (data.properties) {
+                        territory.properties = { ...territory.properties, ...data.properties };
+                    }
+                    if (data.sourceId) territory.sourceId = data.sourceId;
+                    if (data.featureId) territory.featureId = data.featureId;
+                    if (data.geometry) territory.geometry = data.geometry;
+                } else {
+                    // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성 (최후의 수단)
+                    log.error(`[TerritoryPanel] ❌ Territory ${territoryId} not found in TerritoryManager, creating from event data`);
+                    territory = {
+                        id: territoryId,
+                        name: data.properties?.name || data.properties?.name_en || territoryId,
+                        country: data.country,
+                        properties: data.properties,
+                        geometry: data.geometry,
+                        sourceId: data.sourceId,
+                        featureId: data.featureId,
+                        sovereignty: 'unconquered', // 기본값
+                        ruler: null,
+                        rulerName: null
+                    };
+                }
+            }
             
             if (!territory) {
-                log.error(`[TerritoryPanel] Cannot open panel: no territory data for ${territoryId}`);
+                log.error(`[TerritoryPanel] ❌ Cannot open panel: no territory data for ${territoryId}`);
                 return;
             }
+            
+            // ⚠️ 전문가 조언: territory.id가 반드시 설정되어 있는지 확인
+            if (!territory.id) {
+                territory.id = territoryId;
+                log.warn(`[TerritoryPanel] ⚠️ Territory ${territoryId} had no id, setting it now`);
+            }
+            
+            log.info(`[TerritoryPanel] 📋 Opening panel for territory: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
             
             log.info(`[TerritoryPanel] Opening panel for territory: ${territory.id}, name: ${territory.name || territory.properties?.name}, country: ${territory.country}`);
             this.open(territory);
@@ -225,38 +254,46 @@ class TerritoryPanel {
     /**
      * 패널 렌더링
      */
-    render() {
+    async render() {
         const t = this.currentTerritory;
         if (!t) return;
         
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const user = firebaseService.getCurrentUser();
         const isAdmin = this.isAdminMode();
+        
+        // ⚠️ 전문가 조언 반영: TerritoryPanel은 Firestore를 직접 건드리지 않음
+        // TerritoryManager가 이미 완전히 하이드레이트된 territory 객체를 제공하므로
+        // 그대로 사용 (단일 진실 원칙)
+        const territory = t;
+        
+        log.debug(`[TerritoryPanel] Rendering territory ${territory.id}: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
+        
         // 소유자 체크: 일반 사용자 소유 또는 관리자 모드에서 관리자가 구매한 영토
         const isOwner = user && (
-            t.ruler === user.uid || 
-            (isAdmin && t.purchasedByAdmin)
+            territory.ruler === user.uid || 
+            (isAdmin && territory.purchasedByAdmin)
         );
         // 로그인한 사용자만 경매 정보 표시
-        const auction = user ? auctionSystem.getAuctionByTerritory(t.id) : null;
+        const auction = user ? auctionSystem.getAuctionByTerritory(territory.id) : null;
         
         // 보호 기간 확인
-        const protectionRemaining = territoryManager.getProtectionRemaining(t.id);
+        const protectionRemaining = territoryManager.getProtectionRemaining(territory.id);
         const isProtected = !!protectionRemaining;
         
         // 이름 추출 (객체일 수 있으므로 처리) - 먼저 정의 필요
-        const territoryName = this.extractName(t.name) || 
-                              this.extractName(t.properties?.name) || 
-                              this.extractName(t.properties?.name_en) || 
+        const territoryName = this.extractName(territory.name) || 
+                              this.extractName(territory.properties?.name) || 
+                              this.extractName(territory.properties?.name_en) || 
                               'Unknown Territory';
         
         // 국가 코드 결정 (우선순위: territory.country > properties > fallback)
         // properties에서 사용 가능한 필드: adm0_a3 (USA), country (United States of America), countryCode (US1), sov_a3 (US1)
-        let countryCode = t.country || 
-                        t.properties?.country || 
-                        t.properties?.country_code ||
-                        t.properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
-                        t.properties?.sov_a3?.toLowerCase() ||
+        let countryCode = territory.country || 
+                        territory.properties?.country || 
+                        territory.properties?.country_code ||
+                        territory.properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
+                        territory.properties?.sov_a3?.toLowerCase() ||
                         'unknown';
         
         // 잘못된 값 필터링: "territories", "states", "regions" 등은 무시
@@ -284,10 +321,10 @@ class TerritoryPanel {
         // countryCode가 없거나 유효하지 않은 경우, properties에서 다시 시도
         if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
             // properties에서 다른 필드 시도 (adm0_a3 우선)
-            let altCode = t.properties?.adm0_a3 ||  // ISO 코드 (예: "USA")
-                         t.properties?.country_code || 
-                         t.properties?.sov_a3 ||
-                         t.properties?.iso_a3;
+            let altCode = territory.properties?.adm0_a3 ||  // ISO 코드 (예: "USA")
+                         territory.properties?.country_code || 
+                         territory.properties?.sov_a3 ||
+                         territory.properties?.iso_a3;
             
             if (altCode) {
                 altCode = altCode.toString().toUpperCase(); // ISO 코드는 대문자로 처리
@@ -367,7 +404,7 @@ class TerritoryPanel {
                     countryCode = slugCode;
                 } else {
                     // properties.admin이나 properties.geonunit에서 국가명 추출 시도
-                    let countryName = t.properties?.admin || t.properties?.geonunit;
+                    let countryName = territory.properties?.admin || territory.properties?.geonunit;
                     if (countryName) {
                         // 국가명 정규화 (예: "S. Sudan" → "South Sudan", "U.S.A." → "United States")
                         const countryNameNormalizations = {
@@ -416,7 +453,7 @@ class TerritoryPanel {
             // 여전히 없으면 territoryId에서 국가 코드 추출 시도
             if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
                 // territoryId 형식: "singapore-0", "usa-1" 등
-                const territoryIdParts = t.id?.split('-');
+                const territoryIdParts = territory.id?.split('-');
                 if (territoryIdParts && territoryIdParts.length > 0) {
                     const possibleCountryCode = territoryIdParts[0];
                     if (CONFIG.COUNTRIES[possibleCountryCode]) {
@@ -430,7 +467,7 @@ class TerritoryPanel {
             // ⚠️ mapController.currentCountry를 사용하면 모든 territory의 country가 덮어써질 수 있음
             if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
                 countryCode = 'unknown';
-                log.warn(`[TerritoryPanel] Invalid country code: ${t.country}, territory: ${territoryName}, properties: ${JSON.stringify(t.properties)}`);
+                log.warn(`[TerritoryPanel] Invalid country code: ${territory.country}, territory: ${territoryName}, properties: ${JSON.stringify(territory.properties)}`);
             }
         }
         
@@ -444,8 +481,8 @@ class TerritoryPanel {
             log.warn(`[TerritoryPanel] Country info not found for code: ${countryCode}, territory: ${territoryName}`);
         }
         
-        const population = territoryDataService.extractPopulation(t, countryCode);
-        const area = territoryDataService.extractArea(t, countryCode);
+        const population = territoryDataService.extractPopulation(territory, countryCode);
+        const area = territoryDataService.extractArea(territory, countryCode);
         
         // 디버깅: 인구/면적 데이터 확인
         if (territoryName.toLowerCase() === 'texas') {
@@ -453,10 +490,10 @@ class TerritoryPanel {
         }
         
         // 픽셀 수 계산 (면적 기반)
-        const pixelCount = territoryDataService.calculatePixelCount(t, countryCode);
+        const pixelCount = territoryDataService.calculatePixelCount(territory, countryCode);
         
         // 가격 계산 (픽셀 수 기반)
-        const realPrice = territoryDataService.calculateTerritoryPrice(t, countryCode);
+        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
         
         // 국가명: CONFIG에서 가져오거나, 없으면 countryCode를 그대로 사용 (절대 properties.admin 사용 안 함)
         const countryName = countryInfo.name || countryInfo.nameKo || countryCode || 'Unknown';
@@ -464,28 +501,28 @@ class TerritoryPanel {
         
         // 소유권 상태 텍스트
         // 경매 중이면 "Bidding" 표시, 아니면 일반 상태 표시
-        let sovereigntyText = vocab[t.sovereignty] || 'Available';
-        if (t.sovereignty === 'protected' || isProtected) {
+        let sovereigntyText = vocab[territory.sovereignty] || 'Available';
+        if (territory.sovereignty === 'protected' || isProtected) {
             sovereigntyText = '🛡️ Protected';
         } else if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
             // 활성 경매가 있으면 "Bidding" 표시
             sovereigntyText = '⏳ Bidding';
-        } else if (t.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
+        } else if (territory.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
             // CONTESTED 상태인데 경매가 없으면 UNCONQUERED로 복구
             sovereigntyText = '✅ Available';
             // 비동기로 상태 복구
             setTimeout(async () => {
                 try {
                     const Timestamp = firebaseService.getTimestamp();
-                    await firebaseService.updateDocument('territories', t.id, {
+                    await firebaseService.updateDocument('territories', territory.id, {
                         sovereignty: SOVEREIGNTY.UNCONQUERED,
                         currentAuction: null,
                         updatedAt: Timestamp ? Timestamp.now() : new Date()
                     });
-                    t.sovereignty = SOVEREIGNTY.UNCONQUERED;
-                    t.currentAuction = null;
+                    territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
+                    territory.currentAuction = null;
                     // 패널 다시 렌더링
-                    this.render();
+                    await this.render();
                     this.bindActions();
                 } catch (error) {
                     log.error('Failed to fix territory state:', error);
@@ -496,7 +533,7 @@ class TerritoryPanel {
         this.container.innerHTML = `
             <div class="panel-header">
                 <div class="territory-title">
-                    <span class="territory-icon">${this.getTerritoryIcon(t.sovereignty)}</span>
+                    <span class="territory-icon">${this.getTerritoryIcon(territory.sovereignty)}</span>
                     <h2>${territoryName}</h2>
                 </div>
                 <button class="close-btn" id="close-territory-panel">&times;</button>
@@ -505,15 +542,15 @@ class TerritoryPanel {
             <div class="panel-content">
                 <!-- Sovereignty Status -->
                 <div class="sovereignty-section">
-                    <div class="sovereignty-badge ${isProtected ? 'protected' : (t.sovereignty || 'unconquered')}">
-                        <span class="sovereignty-icon">${isProtected ? '🛡️' : this.getSovereigntyIcon(t.sovereignty)}</span>
+                    <div class="sovereignty-badge ${isProtected ? 'protected' : (territory.sovereignty || 'unconquered')}">
+                        <span class="sovereignty-icon">${isProtected ? '🛡️' : this.getSovereigntyIcon(territory.sovereignty)}</span>
                         <span class="sovereignty-text">${sovereigntyText}</span>
                     </div>
-                    ${t.ruler ? `
+                    ${territory.ruler ? `
                         <div class="ruler-info">
                             <span class="ruler-label">👑 Owner:</span>
-                            <span class="ruler-name">${t.rulerName || 'Unknown'}</span>
-                            ${t.purchasedByAdmin ? '<span class="admin-badge">🔧 Admin</span>' : ''}
+                            <span class="ruler-name">${territory.rulerName || 'Unknown'}</span>
+                            ${territory.purchasedByAdmin ? '<span class="admin-badge">🔧 Admin</span>' : ''}
                         </div>
                         ${isProtected ? `
                             <div class="protection-info">
@@ -579,7 +616,7 @@ class TerritoryPanel {
                 
                 <!-- Action Buttons -->
                 <div class="territory-actions">
-                    ${this.renderActions(t, isOwner, auction, realPrice, auction ? this.getEffectiveAuctionBid(auction) : null)}
+                    ${this.renderActions(territory, isOwner, auction, realPrice, auction ? this.getEffectiveAuctionBid(auction) : null)}
                 </div>
             </div>
         `;
@@ -928,11 +965,17 @@ class TerritoryPanel {
             `;
         }
         
-        // 소유자인 경우 - 꾸미기 버튼
-        if ((territory.sovereignty === SOVEREIGNTY.RULED || territory.sovereignty === SOVEREIGNTY.PROTECTED) && isOwner) {
+        // ⚠️ 중요: 소유자 체크를 먼저 수행 (sovereignty가 unconquered여도 소유자인 경우 Edit 버튼 표시)
+        // isOwner는 render()에서 이미 계산되었지만, 여기서 다시 확인하여 확실하게 처리
+        const actualIsOwner = user && (
+            territory.ruler === user.uid || 
+            (isAdmin && territory.purchasedByAdmin)
+        );
+        
+        if (actualIsOwner) {
             return `
                 <button class="action-btn pixel-btn" id="open-pixel-editor">
-                    🎨 Decorate Territory
+                    🎨 Edit Pixel Art
                 </button>
                 <button class="action-btn collab-btn" id="open-collaboration">
                     👥 Open Collaboration
