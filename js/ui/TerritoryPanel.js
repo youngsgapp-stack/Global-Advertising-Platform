@@ -1539,14 +1539,23 @@ class TerritoryPanel {
         document.body.insertAdjacentHTML('beforeend', modalHTML);
         log.info('[TerritoryPanel] Modal HTML inserted into DOM');
         
-        // 이벤트 바인딩
+        // DOM이 업데이트될 시간을 주기 위해 약간의 지연
+        // 이벤트 바인딩을 다음 이벤트 루프에서 실행
+        setTimeout(() => {
+            this.bindPurchaseOptionsModalEvents(territoryName, activeAuction);
+        }, 0);
+    }
+    
+    /**
+     * 구매 옵션 모달 이벤트 바인딩
+     */
+    bindPurchaseOptionsModalEvents(territoryName, activeAuction) {
         const modal = document.getElementById('purchase-options-modal');
         if (!modal) {
             log.error('[TerritoryPanel] Modal element not found after insertion!');
             return;
         }
         
-        // CSS가 적용되도록 클래스만 추가 (인라인 스타일 제거)
         log.info('[TerritoryPanel] Modal styled and displayed');
         
         const closeBtn = document.getElementById('close-purchase-options');
@@ -1563,12 +1572,30 @@ class TerritoryPanel {
         
         // 닫기 버튼
         const closeModal = () => {
+            log.info('[TerritoryPanel] Closing purchase options modal');
             modal.remove();
         };
         
-        closeBtn?.addEventListener('click', closeModal);
-        cancelBtn?.addEventListener('click', closeModal);
-        overlay?.addEventListener('click', closeModal);
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeModal();
+            });
+        }
+        
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeModal();
+            });
+        }
+        
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeModal();
+            });
+        }
         
         // ESC 키로 닫기
         const handleEsc = (e) => {
@@ -1580,21 +1607,62 @@ class TerritoryPanel {
         document.addEventListener('keydown', handleEsc);
         
         // 옵션 카드 클릭
-        optionCards.forEach(card => {
-            card.addEventListener('click', () => {
+        if (optionCards.length === 0) {
+            log.error('[TerritoryPanel] No option cards found!');
+            return;
+        }
+        
+        optionCards.forEach((card, index) => {
+            const optionId = card.dataset.optionId;
+            log.info(`[TerritoryPanel] Binding click event to option card ${index}:`, {
+                optionId,
+                hasDataset: !!card.dataset,
+                element: card
+            });
+            
+            // 클릭 이벤트
+            card.addEventListener('click', (e) => {
+                log.info(`[TerritoryPanel] ✅ Option card clicked!`, {
+                    optionId,
+                    target: e.target?.className,
+                    currentTarget: e.currentTarget?.className,
+                    dataset: card.dataset
+                });
+                
+                // 이벤트 전파 중지
+                e.stopPropagation();
+                e.preventDefault();
+                
                 // 선택 표시
                 optionCards.forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 
                 // 구매 진행
-                const optionId = card.dataset.optionId;
                 const days = card.dataset.days === 'lifetime' ? null : parseInt(card.dataset.days);
                 const price = parseInt(card.dataset.price);
+                
+                log.info(`[TerritoryPanel] Processing purchase:`, {
+                    optionId,
+                    days,
+                    price,
+                    territoryName
+                });
                 
                 closeModal();
                 this.processPurchaseWithOption(price, days, territoryName, activeAuction);
             });
+            
+            // 디버깅: 마우스 이벤트도 확인
+            card.addEventListener('mousedown', () => {
+                log.info(`[TerritoryPanel] Option card mousedown: ${optionId}`);
+            });
+            
+            card.addEventListener('mouseenter', () => {
+                log.debug(`[TerritoryPanel] Option card mouseenter: ${optionId}`);
+            });
         });
+        
+        log.info(`[TerritoryPanel] ✅ All events bound to ${optionCards.length} option cards`);
     }
     
     /**
