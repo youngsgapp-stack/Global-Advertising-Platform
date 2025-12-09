@@ -634,19 +634,35 @@ class TerritoryManager {
             return;
         }
         
-        // 중복 호출 방지: 이미 처리 중인 territoryId는 스킵
-        if (this.processingConquest.has(territoryId)) {
-            log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} is already being processed, skipping duplicate call`);
+        // ⚠️ Territory ID 정규화 (legacy/new 형식 모두 지원)
+        let normalizedTerritoryId = territoryId;
+        let territory = this.territories.get(territoryId);
+        
+        // territory가 있으면 정규화 시도
+        if (territory) {
+            const { normalizeTerritoryId } = await import('../utils/TerritoryIdUtils.js');
+            normalizedTerritoryId = normalizeTerritoryId(territoryId, territory);
+            if (normalizedTerritoryId !== territoryId) {
+                log.info(`[TerritoryManager] Territory ID normalized: ${territoryId} -> ${normalizedTerritoryId}`);
+                // 정규화된 ID로 territory 다시 가져오기
+                territory = this.territories.get(normalizedTerritoryId) || territory;
+            }
+        }
+        
+        // 중복 호출 방지: 이미 처리 중인 territoryId는 스킵 (정규화된 ID 사용)
+        if (this.processingConquest.has(normalizedTerritoryId)) {
+            log.warn(`[TerritoryManager] ⚠️ Territory ${normalizedTerritoryId} is already being processed, skipping duplicate call`);
             return;
         }
         
-        this.processingConquest.add(territoryId);
+        this.processingConquest.add(normalizedTerritoryId);
         
         try {
             // ⚠️ 전문가 조언 반영: 구매 프로세스 검증을 위한 상세 로그
             log.info(`[TerritoryManager] 🎯🎯🎯 [구매 프로세스 시작] handleTerritoryConquered CALLED`);
             log.info(`[TerritoryManager] 📋 구매 데이터:`, { 
-                territoryId, 
+                territoryId: normalizedTerritoryId, 
+                originalTerritoryId: territoryId,
                 userId, 
                 userName, 
                 tribute, 
@@ -655,30 +671,39 @@ class TerritoryManager {
                 timestamp: new Date().toISOString()
             });
             
-            // territories Map에서 먼저 확인
-            let territory = this.territories.get(territoryId);
-        
-            // Map에 없으면 Firestore에서 가져오기 또는 기본 영토 생성
+            // territories Map에서 먼저 확인 (정규화된 ID 사용)
             if (!territory) {
-                log.warn(`[TerritoryManager] Territory ${territoryId} not in territories Map, loading from Firestore...`);
+                territory = this.territories.get(normalizedTerritoryId);
+            }
+        
+            // Map에 없으면 Firestore에서 가져오기 또는 기본 영토 생성 (정규화된 ID 사용)
+            if (!territory) {
+                log.warn(`[TerritoryManager] Territory ${normalizedTerritoryId} not in territories Map, loading from Firestore...`);
                 try {
-                    const firestoreData = await firebaseService.getDocument('territories', territoryId);
+                    // 정규화된 ID로 Firestore 조회 시도
+                    let firestoreData = await firebaseService.getDocument('territories', normalizedTerritoryId);
+                    
+                    // 정규화된 ID로 찾지 못했으면 원본 ID로 시도
+                    if (!firestoreData && normalizedTerritoryId !== territoryId) {
+                        firestoreData = await firebaseService.getDocument('territories', territoryId);
+                    }
+                    
                     if (firestoreData) {
                         territory = firestoreData;
-                        // territories Map에 추가
-                        this.territories.set(territoryId, territory);
-                        log.info(`[TerritoryManager] Loaded territory ${territoryId} from Firestore`);
+                        // territories Map에 추가 (정규화된 ID 사용)
+                        this.territories.set(normalizedTerritoryId, territory);
+                        log.info(`[TerritoryManager] Loaded territory ${normalizedTerritoryId} from Firestore`);
                     } else {
                         // Firestore에도 없으면 기본 영토 객체 생성
-                        log.warn(`[TerritoryManager] Territory ${territoryId} not in Firestore, creating basic territory object...`);
-                        territory = this.createTerritoryObject(territoryId, null, null);
-                        this.territories.set(territoryId, territory);
+                        log.warn(`[TerritoryManager] Territory ${normalizedTerritoryId} not in Firestore, creating basic territory object...`);
+                        territory = this.createTerritoryObject(normalizedTerritoryId, null, null);
+                        this.territories.set(normalizedTerritoryId, territory);
                     }
                 } catch (error) {
-                    log.error(`[TerritoryManager] Failed to load territory ${territoryId} from Firestore:`, error);
+                    log.error(`[TerritoryManager] Failed to load territory ${normalizedTerritoryId} from Firestore:`, error);
                     // 에러가 발생해도 기본 영토 객체 생성
-                    territory = this.createTerritoryObject(territoryId, null, null);
-                    this.territories.set(territoryId, territory);
+                    territory = this.createTerritoryObject(normalizedTerritoryId, null, null);
+                    this.territories.set(normalizedTerritoryId, territory);
                 }
             }
             
@@ -764,10 +789,11 @@ class TerritoryManager {
                 updatedAt: nowTimestamp
             };
             
-            // ⚠️ 전문가 조언 반영: Firestore 쓰기 직전 로그
-            log.info(`[TerritoryManager] 📤 [Firestore 쓰기 직전] Updating Firestore: territories/${territoryId}`);
+            // ⚠️ 전문가 조언 반영: Firestore 쓰기 직전 로그 (정규화된 ID 사용)
+            log.info(`[TerritoryManager] 📤 [Firestore 쓰기 직전] Updating Firestore: territories/${normalizedTerritoryId}`);
             log.info(`[TerritoryManager] 📤 업데이트할 데이터:`, {
-                territoryId,
+                territoryId: normalizedTerritoryId,
+                originalTerritoryId: territoryId,
                 ruler: userId,
                 rulerName: userName,
                 sovereignty: territory.sovereignty,
@@ -777,59 +803,59 @@ class TerritoryManager {
                 fullUpdateData: JSON.stringify(updateData, null, 2)
             });
             
-            // ⚠️ CRITICAL: Transaction을 사용하여 동시성 보호
+            // ⚠️ CRITICAL: Transaction을 사용하여 동시성 보호 (정규화된 ID 사용)
             try {
                 await firebaseService.runTransaction(async (transaction) => {
-                    // Transaction 내에서 영토 상태 확인 (최신 상태 보장)
-                    const currentTerritory = await transaction.get('territories', territoryId);
+                    // Transaction 내에서 영토 상태 확인 (최신 상태 보장, 정규화된 ID 사용)
+                    const currentTerritory = await transaction.get('territories', normalizedTerritoryId);
                     
                     if (!currentTerritory) {
-                        // 문서가 없으면 생성
-                        transaction.set('territories', territoryId, {
+                        // 문서가 없으면 생성 (정규화된 ID 사용)
+                        transaction.set('territories', normalizedTerritoryId, {
                             ...updateData,
                             viewCount: 0,
                             territoryValue: 0,
                             hasPixelArt: false
                         });
-                        log.info(`[TerritoryManager] 🔒 Transaction: Creating new territory ${territoryId}`);
+                        log.info(`[TerritoryManager] 🔒 Transaction: Creating new territory ${normalizedTerritoryId}`);
                     } else {
                         // ⚠️ CRITICAL: 동시성 검증 - ruler가 이미 설정되어 있으면 실패
                         if (currentTerritory.ruler && currentTerritory.ruler !== userId) {
-                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${territoryId} is already owned by ${currentTerritory.ruler}`);
-                            throw new Error(`Territory ${territoryId} is already owned by another user`);
+                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${normalizedTerritoryId} is already owned by ${currentTerritory.ruler}`);
+                            throw new Error(`Territory ${normalizedTerritoryId} is already owned by another user`);
                         }
                         
-                        // ruler가 null이거나 현재 사용자인 경우에만 업데이트
+                        // ruler가 null이거나 현재 사용자인 경우에만 업데이트 (정규화된 ID 사용)
                         if (currentTerritory.ruler === null || currentTerritory.ruler === userId) {
-                            transaction.update('territories', territoryId, updateData);
-                            log.info(`[TerritoryManager] 🔒 Transaction: Updating territory ${territoryId}`);
+                            transaction.update('territories', normalizedTerritoryId, updateData);
+                            log.info(`[TerritoryManager] 🔒 Transaction: Updating territory ${normalizedTerritoryId}`);
                         } else {
-                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${territoryId} ownership conflict`);
-                            throw new Error(`Territory ${territoryId} ownership conflict`);
+                            log.error(`[TerritoryManager] ❌❌❌ TRANSACTION ABORTED: Territory ${normalizedTerritoryId} ownership conflict`);
+                            throw new Error(`Territory ${normalizedTerritoryId} ownership conflict`);
                         }
                     }
                 });
                 
-                log.info(`[TerritoryManager] ✅✅✅ [Transaction 성공] Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
+                log.info(`[TerritoryManager] ✅✅✅ [Transaction 성공] Territory ${normalizedTerritoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}`);
             } catch (transactionError) {
-                // Transaction 실패 시 기존 방식으로 fallback (호환성 유지)
+                // Transaction 실패 시 기존 방식으로 fallback (호환성 유지, 정규화된 ID 사용)
                 if (transactionError.message && transactionError.message.includes('already owned')) {
                     // 이미 소유된 경우 - 사용자에게 명확한 에러 메시지
-                    log.error(`[TerritoryManager] ❌ Territory ${territoryId} purchase failed: already owned`);
+                    log.error(`[TerritoryManager] ❌ Territory ${normalizedTerritoryId} purchase failed: already owned`);
                     throw transactionError;
                 }
                 
                 log.warn(`[TerritoryManager] ⚠️ Transaction failed, falling back to regular update:`, transactionError);
-                // Fallback: 기존 방식으로 업데이트 시도
-                await firebaseService.updateDocument('territories', territoryId, updateData);
+                // Fallback: 기존 방식으로 업데이트 시도 (정규화된 ID 사용)
+                await firebaseService.updateDocument('territories', normalizedTerritoryId, updateData);
             }
             
             // ⚠️ 전문가 조언 반영: Firestore 쓰기 직후 로그
-            log.info(`[TerritoryManager] ✅✅✅ [Firestore 쓰기 성공] Territory ${territoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated in Firestore.`);
+            log.info(`[TerritoryManager] ✅✅✅ [Firestore 쓰기 성공] Territory ${normalizedTerritoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated in Firestore.`);
             
-            // ⚠️ 전문가 조언: 업데이트 후 즉시 확인하여 검증
+            // ⚠️ 전문가 조언: 업데이트 후 즉시 확인하여 검증 (정규화된 ID 사용)
             try {
-                const verifyData = await firebaseService.getDocument('territories', territoryId);
+                const verifyData = await firebaseService.getDocument('territories', normalizedTerritoryId);
                 if (verifyData) {
                     log.info(`[TerritoryManager] ✅ Verification: Firestore document after update:`, {
                         hasRuler: verifyData.ruler !== undefined,
@@ -850,9 +876,9 @@ class TerritoryManager {
                     } else {
                         log.info(`[TerritoryManager] ✅ Verification passed: ruler and sovereignty match`);
                     }
-                } else {
-                    log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Territory ${territoryId} not found in Firestore after update!`);
-                }
+                    } else {
+                        log.error(`[TerritoryManager] ❌❌❌ VERIFICATION FAILED: Territory ${normalizedTerritoryId} not found in Firestore after update!`);
+                    }
             } catch (verifyError) {
                 log.error(`[TerritoryManager] ❌ Failed to verify Firestore update:`, verifyError);
             }

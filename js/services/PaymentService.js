@@ -425,7 +425,7 @@ class PaymentService {
                 <!-- 구매 확인 화면 -->
                 <div id="confirm-screen" class="payment-screen hidden">
                     <div class="modal-header">
-                        <h2>구매 확인</h2>
+                        <h2>⚔️ Confirm Purchase</h2>
                     </div>
                     
                     <div class="purchase-summary">

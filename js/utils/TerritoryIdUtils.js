@@ -177,3 +177,76 @@ export function getAdminCodeFromTerritoryId(territoryId) {
     return parsed ? parsed.adminCode : null;
 }
 
+/**
+ * Territory ID 정규화 (legacy/new 형식 모두 지원)
+ * @param {string} territoryId - Territory ID (legacy 또는 new 형식)
+ * @param {object} territory - Territory 객체 (선택적, countryIso 추출용)
+ * @returns {string} 정규화된 Territory ID (new 형식 우선, 불가능하면 원본 반환)
+ */
+export function normalizeTerritoryId(territoryId, territory = null) {
+    if (!territoryId || typeof territoryId !== 'string') {
+        return territoryId;
+    }
+    
+    // 이미 new 형식이면 그대로 반환
+    if (isValidTerritoryId(territoryId)) {
+        return territoryId;
+    }
+    
+    // Legacy 형식인 경우 new 형식으로 변환 시도
+    if (territory) {
+        // territory에서 countryIso 추출
+        const countryIso = territory.properties?.adm0_a3 || 
+                          territory.countryIso || 
+                          territory.country;
+        
+        if (countryIso && countryIso.length === 3) {
+            // new 형식으로 변환
+            const normalizedCountryIso = String(countryIso).toUpperCase().trim();
+            const adminCode = territoryId; // legacy ID를 adminCode로 사용
+            return createTerritoryId(normalizedCountryIso, adminCode);
+        }
+    }
+    
+    // 변환 불가능하면 원본 반환
+    return territoryId;
+}
+
+/**
+ * Territory ID 매칭 (legacy/new 형식 모두 지원)
+ * @param {string} id1 - 첫 번째 Territory ID
+ * @param {string} id2 - 두 번째 Territory ID
+ * @returns {boolean} 두 ID가 같은 영토를 가리키는지 여부
+ */
+export function matchTerritoryIds(id1, id2) {
+    if (!id1 || !id2) return false;
+    
+    // 정확히 일치하면 true
+    if (id1 === id2) return true;
+    
+    // 둘 다 new 형식이면 파싱하여 비교
+    const parsed1 = parseTerritoryId(id1);
+    const parsed2 = parseTerritoryId(id2);
+    
+    if (parsed1 && parsed2) {
+        // countryIso와 adminCode가 모두 일치하면 true
+        return parsed1.countryIso === parsed2.countryIso && 
+               parsed1.adminCode === parsed2.adminCode;
+    }
+    
+    // 하나는 new 형식, 하나는 legacy 형식인 경우
+    // legacy 형식을 new 형식으로 변환하여 비교 시도
+    if (parsed1 && !parsed2) {
+        // id2가 legacy 형식이고, id1의 adminCode와 일치하면 true
+        return parsed1.adminCode === id2 || parsed1.adminCode.toLowerCase() === id2.toLowerCase();
+    }
+    
+    if (parsed2 && !parsed1) {
+        // id1이 legacy 형식이고, id2의 adminCode와 일치하면 true
+        return parsed2.adminCode === id1 || parsed2.adminCode.toLowerCase() === id1.toLowerCase();
+    }
+    
+    // 둘 다 legacy 형식이면 대소문자 무시하고 비교
+    return id1.toLowerCase() === id2.toLowerCase();
+}
+

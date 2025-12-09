@@ -713,7 +713,7 @@ class TerritoryPanel {
         if (auction.status === 'ended' || auction.status === AUCTION_STATUS.ENDED) {
             return `
                 <div class="auction-section auction-ended">
-                    <h3>경매 종료</h3>
+                    <h3>Auction Ended</h3>
                     <div class="auction-info">
                         <div class="auction-result">
                             ${auction.highestBidder 
@@ -788,7 +788,7 @@ class TerritoryPanel {
             // 종료 중임을 표시
             return `
                 <div class="auction-section auction-ending">
-                    <h3>경매 종료 중...</h3>
+                    <h3>Auction Ending...</h3>
                     <div class="auction-info">
                         <div class="auction-result">
                             Processing auction results...
@@ -886,7 +886,7 @@ class TerritoryPanel {
         
         return `
             <div class="auction-section">
-                <h3>진행 중인 경매</h3>
+                <h3>Active Auction</h3>
                 <div class="auction-info">
                     ${hasBids ? `
                         <div class="current-bid">
@@ -1001,7 +1001,7 @@ class TerritoryPanel {
             `;
         }
         
-        // 경매 중인 경우에도 즉시 구매 가능하도록 "영토 구매" 버튼 표시
+        // 경매 중인 경우에도 즉시 구매 가능하도록 "Own This Territory" 버튼 표시
         if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
             const user = firebaseService.getCurrentUser();
             const isUserHighestBidder = auction.highestBidder === user?.uid;
@@ -1076,7 +1076,7 @@ class TerritoryPanel {
                         </div>
                     ` : ''}
                     <button class="action-btn conquest-btn" id="instant-conquest" data-buy-now-price="${buyNowPrice}">
-                        즉시 구매 (${this.formatNumber(buyNowPrice)} pt)
+                        Buy Now (${this.formatNumber(buyNowPrice)} pt)
                     </button>
                 </div>
                 
@@ -1127,7 +1127,7 @@ class TerritoryPanel {
         if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
             return `
                 <button class="action-btn conquest-btn" id="instant-conquest">
-                    영토 구매 (${this.formatNumber(realPrice)} pt)
+                    🏴 Own This Territory (${this.formatNumber(realPrice)} pt)
                 </button>
                 <button class="action-btn auction-btn" id="start-auction">
                     🏷️ Start Auction
@@ -2113,7 +2113,7 @@ class TerritoryPanel {
     getTerritoryIcon(sovereignty) {
         const icons = {
             [SOVEREIGNTY.UNCONQUERED]: '🏴',
-            [SOVEREIGNTY.CONTESTED]: '⚔️',
+            [SOVEREIGNTY.CONTESTED]: '🏷️',
             [SOVEREIGNTY.RULED]: '🏰'
         };
         return icons[sovereignty] || '🏴';

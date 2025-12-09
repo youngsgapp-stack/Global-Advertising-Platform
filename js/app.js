@@ -857,7 +857,7 @@ class BillionaireApp {
                     
                     <div class="help-section">
                         <h3>🏴 3. Own Territories</h3>
-                        <p>사용 가능한 영토를 클릭하고 <strong>"영토 구매"</strong> 버튼을 눌러 즉시 구매하세요. 각 영토는 인구와 면적에 따라 고유한 가격이 있습니다.</p>
+                        <p>Click on an available territory and hit <strong>"Own This Territory"</strong> to instantly purchase it. Each territory has a unique price based on population and area.</p>
                     </div>
                     
                     <div class="help-section">
