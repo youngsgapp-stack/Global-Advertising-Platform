@@ -191,7 +191,14 @@ export const EVENTS = {
     TERRITORY_OWNERSHIP_TRANSFERRED: 'territory:ownershipTransferred',
     
     // API
-    API_ERROR: 'api:error'
+    API_ERROR: 'api:error',
+    
+    // WebSocket
+    WEBSOCKET_CONNECTED: 'websocket:connected',
+    WEBSOCKET_DISCONNECTED: 'websocket:disconnected',
+    WEBSOCKET_ERROR: 'websocket:error',
+    
+    // WebSocket 메시지 (동적으로 생성됨: websocket:bidUpdate, websocket:territoryUpdate 등)
 };
 
 // 싱글톤 인스턴스 생성 및 내보내기

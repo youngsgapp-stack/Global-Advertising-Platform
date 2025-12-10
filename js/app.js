@@ -34,6 +34,8 @@ import { cacheService } from './services/CacheService.js';
 import { monitoringService } from './services/MonitoringService.js';
 import { serviceModeManager } from './services/ServiceModeManager.js';
 import { rateLimiter } from './services/RateLimiter.js';
+import { apiService } from './services/ApiService.js';
+import { webSocketService } from './services/WebSocketService.js';
 import { galleryView } from './ui/GalleryView.js';
 import { contestPanel } from './ui/ContestPanel.js';
 import { contestSystem } from './features/ContestSystem.js';
@@ -59,12 +61,18 @@ class BillionaireApp {
             // 2. Initialize Firebase & Data Services
             await firebaseService.initialize();
             
+            // 2.1. Initialize API Service (새 백엔드)
+            await apiService.initialize();
+            
             // Firebase 초기화 후 현재 사용자 상태 확인 (리다이렉트 후 복원)
-            setTimeout(() => {
+            setTimeout(async () => {
                 const currentUser = firebaseService.getCurrentUser();
                 if (currentUser) {
                     console.log('[BillionaireApp] 🔍 Found existing user after init:', currentUser.email);
                     this.updateAuthUI(currentUser);
+                    
+                    // 사용자가 있으면 WebSocket 연결
+                    await webSocketService.connect();
                 }
             }, 1000);
             
@@ -568,8 +576,20 @@ class BillionaireApp {
      */
     setupEventListeners() {
         // Auth state change
-        eventBus.on(EVENTS.AUTH_STATE_CHANGED, ({ user }) => {
+        eventBus.on(EVENTS.AUTH_STATE_CHANGED, async ({ user }) => {
             console.log('[BillionaireApp] 🔐 AUTH_STATE_CHANGED event received, user:', user ? user.email : 'null');
+            
+            // 사용자가 로그인하면 WebSocket 연결
+            if (user) {
+                try {
+                    await webSocketService.connect();
+                } catch (error) {
+                    log.error('[BillionaireApp] Failed to connect WebSocket:', error);
+                }
+            } else {
+                // 로그아웃 시 WebSocket 연결 해제
+                webSocketService.disconnect();
+            }
             this.updateAuthUI(user);
             
             // 사용자가 로그인한 경우 지갑 잔액 새로고침

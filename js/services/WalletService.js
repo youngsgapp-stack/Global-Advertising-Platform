@@ -114,87 +114,34 @@ class WalletService {
                 this.unsubscriber();
             }
             
-            // ⚠️ 전문가 조언: Firestore에서 지갑 데이터 가져오기 (로그 추가)
-            log.info(`[WalletService] 📡 Fetching wallet from Firestore: wallets/${userId}`);
-            let wallet = await firebaseService.getDocument('wallets', userId);
+            // 새 백엔드 API에서 지갑 데이터 가져오기
+            log.info(`[WalletService] 📡 Fetching wallet from API`);
+            const { apiService } = await import('./ApiService.js');
+            let walletData = await apiService.getWallet();
             
-            if (!wallet) {
-                log.info(`[WalletService] 💼 Wallet not found, creating new wallet for user: ${userId}`);
-                // 새 지갑 생성 + 스타터 포인트 지급
-                const STARTER_POINTS = 400; // 4달러 상당 (전문가 제안: 3~5달러 상당)
-                
-                wallet = {
-                    userId,
-                    balance: STARTER_POINTS,
-                    totalCharged: 0,
-                    totalSpent: 0,
-                    starterBonusGiven: true,
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                };
-                await firebaseService.setDocument('wallets', userId, wallet, false); // merge=false로 새 문서 생성
-                
-                // 스타터 보너스 거래 내역 저장
-                const transaction = {
-                    type: TRANSACTION_TYPE.STARTER_BONUS,
-                    amount: STARTER_POINTS,
-                    balanceAfter: STARTER_POINTS,
-                    description: 'Welcome Bonus - 스타터 포인트',
-                    metadata: {
-                        reason: 'new_user_registration',
-                        message: '회원가입을 환영합니다! 첫 영토 구매에 사용할 수 있는 포인트를 드립니다.'
-                    },
-                    createdAt: new Date()
-                };
-                
-                await firebaseService.setDocument(
-                    `wallets/${userId}/transactions`,
-                    `txn_starter_${Date.now()}`,
-                    transaction
-                );
-                
-                // 스타터 보너스 이벤트 발행
-                log.info(`[WalletService] 🎉 Emitting BALANCE_UPDATED event: balance=${STARTER_POINTS}`);
-                eventBus.emit(WALLET_EVENTS.TRANSACTION_ADDED, { transaction });
-                eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, { balance: STARTER_POINTS });
-                
-                log.info(`[WalletService] ✅ New wallet created for user ${userId} with ${STARTER_POINTS} starter points`);
-            } else {
-                // 기존 지갑 데이터 검증 및 수정
-                if (typeof wallet.balance !== 'number' || isNaN(wallet.balance)) {
-                    log.warn(`[WalletService] Invalid balance for user ${userId}, resetting to 0. Current value:`, wallet.balance);
-                    wallet.balance = 0;
-                    await firebaseService.updateDocument('wallets', userId, {
-                        balance: 0,
-                        updatedAt: new Date()
-                    });
-                }
-            }
+            // API 응답 형식: { balance: number, updatedAt: timestamp }
+            const balance = walletData?.balance ?? 400; // 없으면 기본값 400 (스타터 포인트)
             
             // balance가 명시적으로 설정되어 있는지 확인
-            this.currentBalance = (typeof wallet.balance === 'number' && !isNaN(wallet.balance)) ? wallet.balance : 0;
+            this.currentBalance = (typeof balance === 'number' && !isNaN(balance)) ? balance : 400;
             
             log.info(`[WalletService] ✅ Wallet loaded for user ${userId}: balance=${this.currentBalance} pt`);
             
-            // ⚠️ 전문가 조언: 실시간 구독 설정 (로그 추가)
-            // ⚠️ Step 5-1: 지갑은 중요 리스너로 표시 (백그라운드에서도 유지)
-            log.info(`[WalletService] 📡 Setting up real-time listener for wallets/${userId}`);
-            this.unsubscriber = firebaseService.subscribeToDocument('wallets', userId, (data) => {
-                if (data) {
-                    const newBalance = data.balance || 0;
-                    log.info(`[WalletService] 🔔 Real-time update received: balance=${newBalance} pt`);
-                    this.currentBalance = newBalance;
-                    log.info(`[WalletService] 🎉 Emitting BALANCE_UPDATED event: balance=${newBalance}`);
+            // WebSocket으로 실시간 업데이트 구독 (지갑 잔액 변경 시)
+            const { webSocketService } = await import('./WebSocketService.js');
+            webSocketService.on('walletUpdate', (data) => {
+                if (data && data.balance !== undefined) {
+                    log.info(`[WalletService] 🔔 Real-time wallet update received: balance=${data.balance} pt`);
+                    this.currentBalance = data.balance;
+                    log.info(`[WalletService] 🎉 Emitting BALANCE_UPDATED event: balance=${data.balance}`);
                     eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, {
                         balance: this.currentBalance
                     });
-                } else {
-                    log.warn('[WalletService] ⚠️ Real-time update received but data is null');
                 }
-            }, { important: true }); // ⚠️ Step 5-1: 중요 리스너로 표시 (백그라운드에서도 유지)
+            });
             
-            // 최근 거래 내역 로드
-            await this.loadTransactions(userId);
+            // 최근 거래 내역 로드 (API 엔드포인트 추가 필요 시)
+            // await this.loadTransactions(userId);
             
             // ⚠️ 전문가 조언: 잔액 업데이트 이벤트 발행 (로그 추가)
             log.info(`[WalletService] 🎉 Emitting initial BALANCE_UPDATED event: balance=${this.currentBalance}`);

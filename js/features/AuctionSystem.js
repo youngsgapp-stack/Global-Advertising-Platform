@@ -80,25 +80,21 @@ class AuctionSystem {
             return Array.from(this.activeAuctions.values());
         }
         
-        try {
-            // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
-            let auctions = [];
             try {
-                auctions = await firebaseService.queryCollection('auctions', [
-                    { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-                ]);
-                
-                // ⚡ 캐시 업데이트: 로드 시간 기록
-                this._lastLoadTime = now;
-            } catch (error) {
-                // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
-                if (error.message && error.message.includes('permissions')) {
-                    log.debug('Cannot load auctions: user not authenticated (this is normal for logged-out users)');
+                // 새 백엔드 API에서 활성 경매 조회
+                let auctions = [];
+                try {
+                    const { apiService } = await import('../services/ApiService.js');
+                    const response = await apiService.get('/auctions?status=active');
+                    auctions = response.auctions || [];
+                    
+                    // ⚡ 캐시 업데이트: 로드 시간 기록
+                    this._lastLoadTime = now;
+                } catch (error) {
+                    log.error('Failed to load auctions from API:', error);
                     this.activeAuctions.clear();
-                    return;
+                    return [];
                 }
-                throw error; // 다른 오류는 다시 throw
-            }
             
             for (const auction of auctions) {
                 // 경매 종료 시간 확인 및 자동 종료 처리

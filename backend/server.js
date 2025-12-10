@@ -94,6 +94,20 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// 루트 경로 (기본 응답)
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'WorldAd Backend API Server',
+        status: 'running',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            health: '/api/health',
+            api: '/api'
+        }
+    });
+});
+
 // 헬스체크
 app.get('/api/health', (req, res) => {
     res.json({ 
@@ -145,10 +159,11 @@ async function startServer() {
         console.log('✅ Redis connected');
         
         // 서버 시작
-        server.listen(PORT, () => {
+        server.listen(PORT, '0.0.0.0', () => {
             console.log(`🚀 Server running on port ${PORT}`);
             console.log(`📡 WebSocket server ready`);
             console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`🔗 Health check: http://0.0.0.0:${PORT}/api/health`);
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error);

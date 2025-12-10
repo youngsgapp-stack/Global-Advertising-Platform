@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from './EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { analyticsService } from '../services/AnalyticsService.js';
 
 // 주권 상태 열거형
@@ -346,22 +347,29 @@ class TerritoryManager {
                     log.debug(`[TerritoryManager] View model not available for ${territoryId}, falling back to territories collection`);
                 }
                 
-                // 뷰 모델이 없으면 territories 컬렉션에서 읽기
+                // 뷰 모델이 없으면 새 백엔드 API에서 읽기
                 if (!usedViewModel) {
                     try {
-                        log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                        firestoreData = await firebaseService.getDocument('territories', territoryId, {
-                            useCache: true,
-                            staleWhileRevalidate: true
-                        });
+                        log.info(`[TerritoryManager] 📡 Fetching territory from API: territories/${territoryId}`);
+                        firestoreData = await apiService.getTerritory(territoryId);
                         
-                        // ⚡ 캐시 업데이트: fetch 시간 기록
+                        // API 응답을 Firestore 형식으로 변환 (호환성 유지)
                         if (firestoreData) {
+                            // API 응답 필드명을 Firestore 형식으로 매핑
+                            firestoreData = {
+                                ...firestoreData,
+                                ruler: firestoreData.ruler_id || firestoreData.ruler?.id,
+                                rulerName: firestoreData.ruler_name || firestoreData.ruler?.name,
+                                sovereignty: firestoreData.status || firestoreData.sovereignty,
+                                price: firestoreData.base_price,
+                            };
+                            
+                            // ⚡ 캐시 업데이트: fetch 시간 기록
                             this._lastFetched.set(territoryId, now);
                         }
                     } catch (error) {
-                        // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
-                        log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
+                        // API 호출 실패 시에도 계속 진행 (기존 territory 데이터 사용)
+                        log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from API:`, error);
                         firestoreData = null;
                     }
                 }

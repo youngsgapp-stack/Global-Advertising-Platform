@@ -119,6 +119,9 @@ export const CONFIG = {
         }
     },
     
+    // API 설정
+    API_BASE_URL: process.env.API_BASE_URL || 'https://global-advertising-platform-production.up.railway.app/api', // Railway 백엔드 API URL
+    
     // 전 세계 국가 설정 (200+ 국가)
     COUNTRIES: {
         // ═══════════════════════════════════════════════
