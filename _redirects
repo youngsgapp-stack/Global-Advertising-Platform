@@ -1,0 +1,6 @@
+# Cloudflare Pages redirects
+# API 경로는 Functions로 라우팅, 나머지는 SPA 라우팅
+
+/api/*    200
+/*    /index.html   200
+
