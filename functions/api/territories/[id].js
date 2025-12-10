@@ -86,6 +86,32 @@ export async function onRequest(context) {
         if (response.status === 429) {
           // 전문가 조언: "429 + 캐시 없음이면 placeholder Territory 반환"
           // 사용자가 뭔가라도 보게 하기 위한 응급처방
+          
+          // Territory ID에서 국가 코드 추출 (간단한 매핑)
+          // 예: "texas" → "usa", "california" → "usa", "tokyo" → "jpn"
+          const getCountryFromId = (territoryId) => {
+            const lowerId = territoryId.toLowerCase();
+            // 미국 주들
+            if (['texas', 'california', 'new-york', 'florida', 'illinois', 'pennsylvania', 
+                 'ohio', 'georgia', 'north-carolina', 'michigan'].includes(lowerId)) {
+              return 'usa';
+            }
+            // 일본 도도부현
+            if (['tokyo', 'osaka', 'kyoto', 'hokkaido'].includes(lowerId)) {
+              return 'jpn';
+            }
+            // 한국 지역
+            if (['seoul', 'busan', 'incheon', 'daegu'].includes(lowerId)) {
+              return 'kor';
+            }
+            // 기본값: ID에 언더스코어가 있으면 첫 번째 부분을 국가로 간주
+            const parts = territoryId.split('_');
+            if (parts.length > 1) {
+              return parts[0].toLowerCase();
+            }
+            return 'unknown';
+          };
+          
           const placeholderTerritory = {
             id: id,
             status: 'temporarily_unavailable',
@@ -94,7 +120,7 @@ export async function onRequest(context) {
             ownership: 'unknown',
             sovereignty: 'unknown',
             // 기본 정보만 포함 (UI가 완전히 깨지지 않도록)
-            country: id.split('_')[0] || 'unknown',
+            country: getCountryFromId(id),
             adminLevel: 'Region'
           };
           
