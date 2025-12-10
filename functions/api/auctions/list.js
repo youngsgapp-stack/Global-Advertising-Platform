@@ -1,10 +1,11 @@
 /**
  * Cloudflare Pages Functions - Auctions List API
  * Firebase REST API 사용 (Edge Runtime 호환)
+ * 캐싱 계층 도입: Edge Cache → Firestore
  */
 
 export async function onRequest(context) {
-  const { env } = context;
+  const { request, env } = context;
   
   try {
     // Firebase REST API 사용
@@ -24,69 +25,141 @@ export async function onRequest(context) {
       });
     }
     
-    // Firestore REST API - API Key를 쿼리 파라미터로 전달
-    // 복잡한 쿼리는 지원하지 않으므로 모든 경매를 가져온 후 필터링
+    // 캐시 설정 (전문가 조언: auction은 10~30초 또는 1분)
+    const cacheTTL = 30; // 30초 캐시
+    
+    // 1. 먼저 캐시에서 찾기 (캐시 우선 조회)
+    const cache = caches.default;
+    const cachedResponse = await cache.match(request);
+    
+    if (cachedResponse) {
+      // 캐시 히트 - 즉시 반환 (Firestore 호출 없음)
+      // 전문가 조언: "트래픽 90% 이상은 캐시 히트"
+      const cachedData = await cachedResponse.json();
+      return new Response(JSON.stringify(cachedData), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': `public, max-age=${cacheTTL}, s-maxage=${cacheTTL}`,
+          'X-Cache-Status': 'HIT'
+        }
+      });
+    }
+    
+    // 2. 캐시 미스 - Firestore에서 가져오기
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions?key=${apiKey}`;
     
-    const response = await fetch(firestoreUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // 타임아웃 설정 (10초)
+    const timeout = 10000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
-    if (!response.ok) {
-      // 429 오류 처리
-      if (response.status === 429) {
+    try {
+      const response = await fetch(firestoreUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+    
+      if (!response.ok) {
+        // 429 오류 처리 (전문가 조언: "재시도보다는 캐시/스테일에 의지")
+        if (response.status === 429) {
+          // 전문가 조언: "429가 뜰 땐 Firestore를 잠시 잊고 캐시/스테일에 의지"
+          return new Response(JSON.stringify({ 
+            error: 'Rate limit exceeded',
+            message: 'Too many requests. Please try again later.' 
+          }), {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Retry-After': '60',
+              'X-Cache-Status': 'MISS'
+            }
+          });
+        }
+        
+        const errorText = await response.text();
+        throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
+      }
+    
+      const firestoreData = await response.json();
+      
+      // Firestore REST API 응답을 일반 객체 배열로 변환
+      let auctions = [];
+      if (firestoreData.documents) {
+        auctions = firestoreData.documents.map(doc => {
+          const auction = convertFirestoreToObject(doc);
+          // 문서 ID 추출
+          const docPath = doc.name.split('/');
+          auction.id = docPath[docPath.length - 1];
+          return auction;
+        });
+      }
+      
+      // status가 'active'인 것만 필터링
+      auctions = auctions.filter(auction => auction.status === 'active');
+      
+      const responseData = {
+        auctions,
+        count: auctions.length,
+        cached: true
+      };
+      
+      // 3. 응답 생성 및 캐시 저장
+      const responseToCache = new Response(JSON.stringify(responseData), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': `public, max-age=${cacheTTL}, s-maxage=${cacheTTL}`,
+          'X-Cache-Status': 'MISS'
+        }
+      });
+      
+      // 캐시에 저장 (비동기, 응답 지연 없음)
+      context.waitUntil(cache.put(request, responseToCache.clone()));
+      
+      return responseToCache;
+      
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      // 타임아웃 오류 처리
+      if (error.name === 'AbortError') {
         return new Response(JSON.stringify({ 
-          error: 'Rate limit exceeded',
-          message: 'Too many requests. Please try again later.' 
+          error: 'Request timeout',
+          message: 'The request took too long. Please try again later.' 
         }), {
-          status: 429,
+          status: 504,
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Retry-After': '60'
+            'X-Cache-Status': 'MISS'
           }
         });
       }
       
-      const errorText = await response.text();
-      throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
-    }
-    
-    const firestoreData = await response.json();
-    
-    // Firestore REST API 응답을 일반 객체 배열로 변환
-    let auctions = [];
-    if (firestoreData.documents) {
-      auctions = firestoreData.documents.map(doc => {
-        const auction = convertFirestoreToObject(doc);
-        // 문서 ID 추출: projects/.../databases/.../documents/auctions/auction_id → auction_id
-        const docPath = doc.name.split('/');
-        auction.id = docPath[docPath.length - 1];
-        return auction;
+      console.error('Error fetching auctions:', error);
+      return new Response(JSON.stringify({ 
+        error: 'Internal server error',
+        message: error.message 
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'X-Cache-Status': 'MISS'
+        }
       });
     }
-    
-    // status가 'active'인 것만 필터링 (REST API 쿼리가 작동하지 않을 수 있으므로)
-    auctions = auctions.filter(auction => auction.status === 'active');
-    
-    return new Response(JSON.stringify({ 
-      auctions,
-      count: auctions.length,
-      cached: true
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=300, s-maxage=600'
-      }
-    });
-    
   } catch (error) {
-    console.error('Error fetching auctions:', error);
+    console.error('Error in auctions API:', error);
     return new Response(JSON.stringify({ 
       error: 'Internal server error',
       message: error.message 
