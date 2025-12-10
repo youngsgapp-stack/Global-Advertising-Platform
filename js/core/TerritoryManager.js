@@ -315,24 +315,55 @@ class TerritoryManager {
             let firestoreData = null;
             const now = Date.now();
             const lastFetched = this._lastFetched.get(territoryId);
+            let usedViewModel = false;
             
-            // 캐시된 territory가 있고 30초 이내면 Firestore 읽기 스킵
+            // ⚠️ 최적화: 캐시된 territory가 있고 최근에 fetch했으면 Firestore 읽기 완전히 스킵
             if (territory && lastFetched && (now - lastFetched) < this.CACHE_TTL) {
-                log.debug(`[TerritoryManager] Using cached territory ${territoryId} (${Math.floor((now - lastFetched) / 1000)}s ago)`);
-                firestoreData = null; // 캐시 사용, Firestore 읽기 스킵
+                log.debug(`[TerritoryManager] ✅ Using fully cached territory ${territoryId} (${Math.floor((now - lastFetched) / 1000)}s ago, skipping all Firestore reads)`);
+                // 캐시된 데이터 사용, Firestore 읽기 완전히 스킵
+                // territory 객체는 이미 최신 상태이므로 그대로 사용
+                firestoreData = null; // Firestore 읽기 스킵
             } else {
+                // ⚠️ Step 6-2: 뷰 모델 우선 읽기 (CQRS 라이트) - 먼저 시도하여 중복 읽기 방지
+                // territory_views 컬렉션이 있으면 그것만 읽고, 없으면 territories 읽기
+                let viewData = null;
                 try {
-                    log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                    firestoreData = await firebaseService.getDocument('territories', territoryId);
-                    
-                    // ⚡ 캐시 업데이트: fetch 시간 기록
-                    if (firestoreData) {
+                    viewData = await firebaseService.getDocument('territory_views', territoryId, {
+                        useCache: true,
+                        staleWhileRevalidate: true,
+                        ttl: 30 * 1000 // 30초 캐시
+                    });
+                    if (viewData) {
+                        log.debug(`[TerritoryManager] ✅ Using view model for ${territoryId} (skipping territories read)`);
+                        firestoreData = viewData; // 뷰 모델을 firestoreData로 사용
+                        usedViewModel = true;
+                        // 뷰 데이터에서 territory 정보 병합
+                        territory = { ...territory, ...viewData };
+                        // ⚡ 캐시 업데이트: fetch 시간 기록
                         this._lastFetched.set(territoryId, now);
                     }
-                } catch (error) {
-                    // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
-                    log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
-                    firestoreData = null;
+                } catch (viewError) {
+                    log.debug(`[TerritoryManager] View model not available for ${territoryId}, falling back to territories collection`);
+                }
+                
+                // 뷰 모델이 없으면 territories 컬렉션에서 읽기
+                if (!usedViewModel) {
+                    try {
+                        log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                        firestoreData = await firebaseService.getDocument('territories', territoryId, {
+                            useCache: true,
+                            staleWhileRevalidate: true
+                        });
+                        
+                        // ⚡ 캐시 업데이트: fetch 시간 기록
+                        if (firestoreData) {
+                            this._lastFetched.set(territoryId, now);
+                        }
+                    } catch (error) {
+                        // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
+                        log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
+                        firestoreData = null;
+                    }
                 }
             }
             
@@ -340,6 +371,7 @@ class TerritoryManager {
             if (firestoreData) {
                     // ⚠️ 전문가 조언: Firestore 문서의 실제 내용을 모두 로깅하여 디버깅
                     log.info(`[TerritoryManager] 📄 Firestore document found for ${territoryId}:`, {
+                        source: usedViewModel ? 'territory_views' : 'territories',
                         hasRuler: firestoreData.ruler !== undefined,
                         ruler: firestoreData.ruler,
                         hasRulerName: firestoreData.rulerName !== undefined,
@@ -368,22 +400,25 @@ class TerritoryManager {
                     }
                     
                     // ⚠️ 전문가 조언: Firestore 데이터를 완전히 병합하여 단일 진실 생성
-                    // pixelCanvas 정보 병합
-                    if (firestoreData.pixelCanvas) {
-                        territory.pixelCanvas = {
-                            ...territory.pixelCanvas,
-                            ...firestoreData.pixelCanvas
-                        };
+                    // 뷰 모델을 이미 병합했으면 스킵
+                    if (!usedViewModel) {
+                        // pixelCanvas 정보 병합
+                        if (firestoreData.pixelCanvas) {
+                            territory.pixelCanvas = {
+                                ...territory.pixelCanvas,
+                                ...firestoreData.pixelCanvas
+                            };
+                        }
+                        // 기타 최신 정보 병합 (중요: Firestore 데이터가 우선 - null 값도 허용)
+                        if (firestoreData.ruler !== undefined) territory.ruler = firestoreData.ruler;
+                        if (firestoreData.rulerName !== undefined) territory.rulerName = firestoreData.rulerName;
+                        if (firestoreData.sovereignty !== undefined) territory.sovereignty = firestoreData.sovereignty;
+                        if (firestoreData.protectedUntil !== undefined) territory.protectedUntil = firestoreData.protectedUntil;
+                        if (firestoreData.rulerSince !== undefined) territory.rulerSince = firestoreData.rulerSince;
+                        if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
+                        if (firestoreData.price !== undefined) territory.price = firestoreData.price;
+                        if (firestoreData.purchasedByAdmin !== undefined) territory.purchasedByAdmin = firestoreData.purchasedByAdmin;
                     }
-                    // 기타 최신 정보 병합 (중요: Firestore 데이터가 우선 - null 값도 허용)
-                    if (firestoreData.ruler !== undefined) territory.ruler = firestoreData.ruler;
-                    if (firestoreData.rulerName !== undefined) territory.rulerName = firestoreData.rulerName;
-                    if (firestoreData.sovereignty !== undefined) territory.sovereignty = firestoreData.sovereignty;
-                    if (firestoreData.protectedUntil !== undefined) territory.protectedUntil = firestoreData.protectedUntil;
-                    if (firestoreData.rulerSince !== undefined) territory.rulerSince = firestoreData.rulerSince;
-                    if (firestoreData.territoryValue !== undefined) territory.territoryValue = firestoreData.territoryValue;
-                    if (firestoreData.price !== undefined) territory.price = firestoreData.price;
-                    if (firestoreData.purchasedByAdmin !== undefined) territory.purchasedByAdmin = firestoreData.purchasedByAdmin;
                     
                     // ⚠️ 전문가 조언: sovereignty가 없으면 기본값 설정
                     if (territory.sovereignty === undefined || territory.sovereignty === null) {
@@ -399,7 +434,7 @@ class TerritoryManager {
                     }
                     
                     log.info(`[TerritoryManager] ✅ Territory ${territoryId} fully hydrated from Firestore: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
-                } else if (!lastFetched) {
+                } else if (!lastFetched && !usedViewModel) {
                     // Firestore에 문서가 없고 캐시도 없으면 기본값 설정
                     log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} not found in Firestore (may be a new territory)`);
                     if (territory.sovereignty === undefined || territory.sovereignty === null) {
@@ -554,23 +589,6 @@ class TerritoryManager {
             if (!territory.id) {
                 territory.id = territoryId;
                 log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} had no id, setting it now`);
-            }
-            
-            // ⚠️ Step 6-2: 뷰 모델 우선 읽기 (CQRS 라이트)
-            // territory_views 컬렉션이 있으면 우선 읽기 시도
-            let viewData = null;
-            try {
-                viewData = await firebaseService.getDocument('territory_views', territoryId, {
-                    useCache: true,
-                    ttl: 30 * 1000 // 30초 캐시
-                });
-                if (viewData) {
-                    log.debug(`[TerritoryManager] ✅ Using view model for ${territoryId}`);
-                    // 뷰 데이터에서 territory 정보 병합
-                    territory = { ...territory, ...viewData };
-                }
-            } catch (viewError) {
-                log.debug(`[TerritoryManager] View model not available for ${territoryId}, using standard read`);
             }
             
             // ⚠️ 전문가 조언: Firestore 읽기 완료 후에만 TERRITORY_SELECTED (출력) 이벤트 발행
