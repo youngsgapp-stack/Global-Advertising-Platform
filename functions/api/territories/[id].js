@@ -42,26 +42,56 @@ export async function onRequest(context) {
     // Firestore REST API - API Key를 쿼리 파라미터로 전달
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/territories/${id}?key=${apiKey}`;
     
-    const response = await fetch(firestoreUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // 재시도 로직 (최대 3회)
+    let response;
+    let lastError;
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1초
     
-    if (!response.ok) {
-      if (response.status === 404) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        response = await fetch(firestoreUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        // 429 오류가 아니면 재시도 중단
+        if (response.status !== 429) {
+          break;
+        }
+        
+        // 429 오류인 경우 재시도
+        if (attempt < maxRetries - 1) {
+          const retryAfter = response.headers.get('Retry-After') || retryDelay;
+          await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000));
+          continue;
+        }
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
+          continue;
+        }
+        throw error;
+      }
+    }
+    
+    if (!response || !response.ok) {
+      if (response && response.status === 404) {
         return new Response(JSON.stringify({ error: 'Territory not found' }), {
           status: 404,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=300, s-maxage=600'
           }
         });
       }
       
-      // 429 오류 처리
-      if (response.status === 429) {
+      // 429 오류 처리 (재시도 실패)
+      if (response && response.status === 429) {
         return new Response(JSON.stringify({ 
           error: 'Rate limit exceeded',
           message: 'Too many requests. Please try again later.' 
@@ -70,13 +100,14 @@ export async function onRequest(context) {
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Retry-After': '60'
+            'Retry-After': '60',
+            'Cache-Control': 'public, max-age=60, s-maxage=300'
           }
         });
       }
       
-      const errorText = await response.text();
-      throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
+      const errorText = response ? await response.text() : lastError?.message || 'Unknown error';
+      throw new Error(`Firestore API error: ${response?.status || 'Network'} - ${errorText}`);
     }
     
     const firestoreData = await response.json();
@@ -90,7 +121,7 @@ export async function onRequest(context) {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=60, s-maxage=300'
+        'Cache-Control': 'public, max-age=300, s-maxage=600' // 캐싱 강화 (5분)
       }
     });
     
