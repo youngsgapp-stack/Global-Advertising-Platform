@@ -67,7 +67,7 @@ export async function initDatabase() {
     }
     
     // 연결 문자열 정리 (앞뒤 공백 제거)
-    const cleanConnectionString = connectionString.trim();
+    let cleanConnectionString = connectionString.trim();
     if (cleanConnectionString !== connectionString) {
         console.log('⚠️  [DB Init] DATABASE_URL had leading/trailing whitespace, trimmed');
     }
@@ -80,6 +80,31 @@ export async function initDatabase() {
         console.error('❌ [DB Init] DATABASE_URL must start with postgresql:// or postgres://');
         console.error('   Current value (first 50 chars):', cleanConnectionString.substring(0, 50));
         throw new Error('Invalid DATABASE_URL format - must start with postgresql:// or postgres://');
+    }
+    
+    // ==========================================
+    // 🔧 비밀번호에 특수문자가 있는 경우 URL 인코딩 처리
+    // ==========================================
+    // postgresql://user:password@host 형식에서 비밀번호 부분 찾기
+    const urlMatch = cleanConnectionString.match(/^(postgresql?:\/\/)([^:]+):([^@]+)@(.+)$/);
+    
+    if (urlMatch) {
+        const [, protocol, username, password, rest] = urlMatch;
+        
+        // 비밀번호에 특수문자가 있는지 확인 (이미 인코딩된 %는 제외)
+        const needsEncoding = password && !password.includes('%') && 
+            (password.includes('/') || password.includes('@') || password.includes(':') || 
+             password.includes('#') || password.includes('&') || password.includes('=') ||
+             password.includes('?') || password.includes('%') || password.includes(' '));
+        
+        if (needsEncoding) {
+            console.log('⚠️  [DB Init] Password contains special characters, encoding...');
+            const encodedPassword = encodeURIComponent(password);
+            cleanConnectionString = `${protocol}${username}:${encodedPassword}@${rest}`;
+            console.log('✅ [DB Init] Password encoded successfully');
+        } else if (password && password.includes('%')) {
+            console.log('✅ [DB Init] Password appears to be already encoded');
+        }
     }
     
     // 최종 검증: cleanConnectionString이 유효한지 확인
