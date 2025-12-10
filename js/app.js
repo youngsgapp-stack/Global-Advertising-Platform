@@ -1030,9 +1030,8 @@ class BillionaireApp {
         if (walletDisplay) {
             walletDisplay.textContent = `${balance.toLocaleString()} pt`;
             log.info(`[BillionaireApp] ✅ Updated wallet-balance element: ${balance.toLocaleString()} pt`);
-        } else {
-            log.warn('[BillionaireApp] ⚠️ wallet-balance element not found');
         }
+        // wallet-balance 요소가 없어도 정상 동작 (header-wallet-balance만 사용하는 경우)
         
         const headerWallet = document.getElementById('header-wallet-balance');
         if (headerWallet) {

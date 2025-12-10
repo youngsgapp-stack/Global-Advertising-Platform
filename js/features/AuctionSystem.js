@@ -70,14 +70,23 @@ class AuctionSystem {
     /**
      * 활성 옥션 로드
      */
-    async loadActiveAuctions() {
+    async loadActiveAuctions(forceRefresh = false) {
         try {
+            // ⚡ 최적화: 최근에 로드한 경우 캐시 사용 (5분 이내)
+            const CACHE_DURATION_MS = 5 * 60 * 1000; // 5분
+            if (!forceRefresh && this._lastLoadTime && 
+                (Date.now() - this._lastLoadTime) < CACHE_DURATION_MS) {
+                log.debug(`[AuctionSystem] Using cached active auctions (age: ${Math.round((Date.now() - this._lastLoadTime) / 1000)}s)`);
+                return; // 캐시된 데이터 사용
+            }
+            
             // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
             let auctions = [];
             try {
                 auctions = await firebaseService.queryCollection('auctions', [
                     { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
                 ]);
+                this._lastLoadTime = Date.now(); // 로드 시간 기록
             } catch (error) {
                 // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
                 if (error.message && error.message.includes('permissions')) {
@@ -478,18 +487,21 @@ class AuctionSystem {
         let auctionEndTime;
         const protectionRemaining = territoryManager.getProtectionRemaining(territoryId);
         
-        if (protectionRemaining && protectionRemaining.totalMs > 0) {
+        // 사용자가 지정한 경매 종료 시간이 있으면 우선 사용
+        if (options.endTime) {
+            auctionEndTime = Timestamp.fromDate(new Date(options.endTime));
+        } else if (protectionRemaining && protectionRemaining.totalMs > 0) {
             // 보호 기간 중인 영토: 보호 기간 종료 시점에 경매 종료
             const endDate = new Date(Date.now() + protectionRemaining.totalMs);
             auctionEndTime = Timestamp.fromDate(endDate);
         } else if (territory.sovereignty === SOVEREIGNTY.RULED || 
                    territory.sovereignty === SOVEREIGNTY.PROTECTED) {
-            // 이미 소유된 영토: 7일 경매
+            // 이미 소유된 영토: 7일 경매 (보호 기간이 만료되었거나 없으면 7일 경매)
             const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
             auctionEndTime = Timestamp.fromDate(endDate);
         } else {
             // 미점유 영토: 24시간 경매
-            const endDate = options.endTime ? new Date(options.endTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
             auctionEndTime = Timestamp.fromDate(endDate);
         }
         
@@ -595,6 +607,9 @@ class AuctionSystem {
             countryCodeSlug = isoToSlugMap[countryIso] || countryCode; // ISO 매핑이 없으면 기존 countryCode 사용
         }
         
+        // 보호 기간 옵션 처리 (소유권 획득 경매용)
+        const protectionDays = options.protectionDays !== undefined ? options.protectionDays : null;
+        
         const auction = {
             id: `auction_${finalTerritoryId.replace(/::/g, '_')}_${Date.now()}`, // Territory ID의 ::를 _로 변환하여 auction ID 생성
             territoryId: finalTerritoryId,  // 새로운 Territory ID 형식 또는 legacy ID
@@ -616,6 +631,9 @@ class AuctionSystem {
             
             startTime: Timestamp.now(),
             endTime: auctionEndTime,
+            
+            // 보호 기간 옵션 (소유권 획득 경매용)
+            protectionDays: protectionDays, // 7, 30, 365, 또는 null (lifetime)
             
             // 보호 기간 중 경매 여부
             isProtectedAuction: !!(protectionRemaining && protectionRemaining.totalMs > 0),
@@ -706,7 +724,18 @@ class AuctionSystem {
         // 이벤트 발행
         eventBus.emit(EVENTS.AUCTION_START, { auction });
         
-        const daysRemaining = Math.ceil((auctionEndTime - new Date()) / (24 * 60 * 60 * 1000));
+        // 경매 종료까지 남은 일수 계산 (디버깅용)
+        let daysRemaining = 0;
+        try {
+            const endDate = auctionEndTime && typeof auctionEndTime.toDate === 'function' 
+                ? auctionEndTime.toDate() 
+                : (auctionEndTime instanceof Date ? auctionEndTime : new Date(auctionEndTime));
+            if (endDate && !isNaN(endDate.getTime())) {
+                daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+            }
+        } catch (e) {
+            log.warn('[AuctionSystem] Failed to calculate days remaining:', e);
+        }
         log.info(`Auction created for territory ${territoryId}, ends in ${daysRemaining} days`);
         return auction;
     }
@@ -1000,6 +1029,15 @@ class AuctionSystem {
         } catch (error) {
             log.error(`[AuctionSystem] Failed to save bid to Firestore:`, error);
             
+            // Firebase 할당량 초과 에러인 경우 특별 처리
+            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
+                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+                log.warn(`[AuctionSystem] ⚠️ Firestore quota exceeded. Transaction will not be retried automatically.`);
+                // 할당량 초과 시에는 로컬 캐시 롤백도 시도하지 않음 (추가 요청 방지)
+                // 에러를 그대로 상위로 전달하여 UI에서 처리하도록 함
+                throw error;
+            }
+            
             // Transaction 실패 시 로컬 변경사항 롤백
             // Firestore에서 최신 경매 데이터 다시 로드
             try {
@@ -1009,7 +1047,10 @@ class AuctionSystem {
                     log.info(`[AuctionSystem] Rolled back local cache, reloaded from Firestore`);
                 }
             } catch (reloadError) {
-                log.error(`[AuctionSystem] Failed to reload auction after transaction failure:`, reloadError);
+                // 할당량 초과 에러인 경우 재로드도 시도하지 않음
+                if (reloadError.code !== 'resource-exhausted' && reloadError.code !== 'quota-exceeded') {
+                    log.error(`[AuctionSystem] Failed to reload auction after transaction failure:`, reloadError);
+                }
             }
             
             throw error; // 상위로 에러 전달
@@ -1211,7 +1252,7 @@ class AuctionSystem {
                         }
                     }
                 } else {
-                    // 일반 경매: 낙찰자가 있으면 영토 소유권 이전
+                    // 경매: 낙찰자가 있으면 영토 소유권 이전
                     if (currentAuction.highestBidder) {
                         // 영토 문서 가져오기
                         const territoryDoc = await transaction.get('territories', auction.territoryId);
@@ -1222,22 +1263,39 @@ class AuctionSystem {
                                 log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} ownership changed during auction end. Current ruler: ${territoryDoc.ruler}, Expected: ${currentAuction.highestBidder}`);
                                 // 소유권이 변경되었으면 경매만 종료하고 소유권 이전은 건너뛰기
                             } else {
-                                // 소유권 이전
+                                // 보호 기간 계산 (경매에 protectionDays가 있으면 사용, 없으면 기본 7일)
+                                const now = new Date();
+                                let protectionEndsAt;
+                                let finalProtectionDays = currentAuction.protectionDays !== undefined 
+                                    ? currentAuction.protectionDays 
+                                    : 7; // 기본값: 7일
+                                
+                                if (finalProtectionDays === null) {
+                                    // 평생 보호: 100년 후
+                                    protectionEndsAt = new Date(now.getTime() + (100 * 365 * 24 * 60 * 60 * 1000));
+                                } else {
+                                    // 지정된 기간만큼 보호
+                                    protectionEndsAt = new Date(now.getTime() + (finalProtectionDays * 24 * 60 * 60 * 1000));
+                                }
+                                
+                                // 소유권 이전 및 보호 기간 설정
                                 transaction.update('territories', auction.territoryId, {
                                     ruler: currentAuction.highestBidder,
                                     rulerName: currentAuction.highestBidderName,
                                     sovereignty: SOVEREIGNTY.PROTECTED, // 구매 직후 보호 상태
+                                    protectionEndsAt: Timestamp ? Timestamp.fromDate(protectionEndsAt) : protectionEndsAt,
+                                    protectionDays: finalProtectionDays,
                                     currentAuction: null,
                                     updatedAt: Timestamp ? Timestamp.now() : new Date()
                                 });
                                 
-                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName}`);
+                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName} with ${finalProtectionDays === null ? 'lifetime' : finalProtectionDays + ' days'} protection`);
                             }
                         } else {
                             log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} not found in Firestore during auction end`);
                         }
                     } else {
-                        // 낙찰자 없으면 영토 상태 복구 (일반 경매만 해당)
+                        // 낙찰자 없으면 영토 상태 복구
                         const territoryDoc = await transaction.get('territories', auction.territoryId);
                         
                         if (territoryDoc) {

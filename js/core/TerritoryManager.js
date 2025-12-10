@@ -301,11 +301,31 @@ class TerritoryManager {
             }
             
             // 2단계: Firestore에서 최신 데이터 가져오기 (반드시 완료 후 이벤트 발행)
-            // ⚠️ 전문가 조언: Firestore 읽기가 완료된 후에만 SELECT 이벤트 발행
+            // ⚡ 최적화: 캐시에 있는 데이터를 먼저 확인
             let firestoreData = null;
+            const cachedTerritory = this.territories.get(territoryId);
+            const CACHE_VALIDITY_MS = 30000; // 30초 캐시 유효 기간
+            
+            // 캐시된 데이터가 있고 최근에 업데이트된 경우 사용
+            if (cachedTerritory && cachedTerritory._lastFetched && 
+                (Date.now() - cachedTerritory._lastFetched) < CACHE_VALIDITY_MS) {
+                log.debug(`[TerritoryManager] ✅ Using cached territory data for ${territoryId} (age: ${Math.round((Date.now() - cachedTerritory._lastFetched) / 1000)}s)`);
+                firestoreData = cachedTerritory;
+            } else {
+                try {
+                    log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                    firestoreData = await firebaseService.getDocument('territories', territoryId);
+                    // 캐시 타임스탬프 추가
+                    if (firestoreData) {
+                        firestoreData._lastFetched = Date.now();
+                    }
+                } catch (error) {
+                    log.error(`[TerritoryManager] Failed to fetch territory from Firestore: ${territoryId}`, error);
+                    throw error;
+                }
+            }
+            
             try {
-                log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                firestoreData = await firebaseService.getDocument('territories', territoryId);
                 
                 if (firestoreData) {
                     // ⚠️ 전문가 조언: Firestore 문서의 실제 내용을 모두 로깅하여 디버깅

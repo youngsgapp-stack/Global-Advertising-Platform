@@ -670,6 +670,85 @@ select {
     padding: 28px;
 }
 
+.purchase-options-info {
+    margin-bottom: 24px;
+}
+
+.info-header {
+    margin-bottom: 16px;
+}
+
+.info-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.info-description {
+    margin: 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.6;
+}
+
+.territory-summary {
+    display: flex;
+    gap: 20px;
+    padding: 16px;
+    background: rgba(78, 205, 196, 0.08);
+    border-radius: 12px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    margin-top: 16px;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.summary-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.summary-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: #4ecdc4;
+}
+
+.auction-info-footer {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    background: rgba(78, 205, 196, 0.1);
+    border-radius: 12px;
+    border-left: 4px solid #4ecdc4;
+    margin-top: 24px;
+}
+
+.auction-info-footer .info-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.auction-info-footer .info-text {
+    flex: 1;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.6;
+}
+
+.auction-info-footer .info-text strong {
+    color: #4ecdc4;
+    font-weight: 600;
+}
+
 .territory-info-summary {
     display: flex;
     flex-direction: column;
@@ -709,6 +788,34 @@ select {
     transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
     overflow: hidden;
+}
+
+.purchase-option-card.best-value {
+    border-color: rgba(254, 202, 87, 0.4);
+    background: linear-gradient(145deg, rgba(254, 202, 87, 0.12), rgba(254, 202, 87, 0.05));
+}
+
+.best-value-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: linear-gradient(135deg, #feca57, #ff9ff3);
+    color: #000;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(254, 202, 87, 0.4);
+    z-index: 1;
+}
+
+.option-hint {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+    margin-top: 4px;
 }
 
 .purchase-option-card::before {
@@ -752,9 +859,25 @@ select {
 
 .option-header {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
     margin-bottom: 16px;
+}
+
+.option-label {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+}
+
+.option-period {
+    font-size: 12px;
+    color: rgba(78, 205, 196, 0.8);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .option-icon {
@@ -786,13 +909,37 @@ select {
 .option-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
+}
+
+.option-price-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: rgba(78, 205, 196, 0.1);
+    border-radius: 12px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+}
+
+.price-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
 }
 
 .option-price {
     display: flex;
     align-items: baseline;
     gap: 4px;
+}
+
+.option-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .price-value {
@@ -909,6 +1056,39 @@ select {
     
     .purchase-options-content .modal-body {
         padding: 20px;
+    }
+    
+    .territory-summary {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .option-price-section {
+        padding: 12px;
+    }
+    
+    .info-header h3 {
+        font-size: 16px;
+    }
+    
+    .option-label {
+        font-size: 18px;
+    }
+    
+    .price-value {
+        font-size: 24px;
+    }
+    
+    .auction-info-footer {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .best-value-badge {
+        top: 8px;
+        right: 8px;
+        font-size: 9px;
+        padding: 3px 8px;
     }
 }
 

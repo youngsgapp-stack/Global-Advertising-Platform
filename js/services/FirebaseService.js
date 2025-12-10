@@ -115,8 +115,14 @@ class FirebaseService {
             // Firebase Auth persistence 설정 (리다이렉트 인증을 위해 필수)
             // localStorage를 사용하여 리다이렉트 후에도 인증 상태가 유지되도록 함
             try {
-                await setPersistence(this.auth, browserLocalPersistence);
-                log.info('[FirebaseService] ✅ Auth persistence set to localStorage');
+                // this._auth 객체에서 setPersistence와 browserLocalPersistence 사용
+                if (this._auth.setPersistence && this._auth.browserLocalPersistence) {
+                    await this._auth.setPersistence(this.auth, this._auth.browserLocalPersistence);
+                    log.info('[FirebaseService] ✅ Auth persistence set to localStorage');
+                } else {
+                    // setPersistence가 없으면 기본 동작에 의존 (compat 버전은 기본적으로 LOCAL 사용)
+                    log.info('[FirebaseService] ℹ️ Using default auth persistence (localStorage)');
+                }
             } catch (persistenceError) {
                 log.warn('[FirebaseService] ⚠️ Failed to set persistence:', persistenceError);
                 // persistence 설정 실패해도 계속 진행

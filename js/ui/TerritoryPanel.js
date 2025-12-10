@@ -12,6 +12,17 @@ import { auctionSystem, AUCTION_STATUS, AUCTION_TYPE } from '../features/Auction
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
+import { rateLimiter, RATE_LIMIT_TYPE } from '../services/RateLimiter.js';
+
+// View Mode 정의 (전문가 조언 반영)
+const VIEW_MODE = {
+    AVAILABLE: 'available',           // 아무도 소유하지 않음, 경매 없음
+    AVAILABLE_AUCTION: 'available_auction', // 아무도 소유하지 않음, 경매 중
+    MINE_IDLE: 'mine_idle',           // 내가 소유, 경매 없음
+    MINE_AUCTION: 'mine_auction',     // 내가 소유, 경매 중
+    OTHER_IDLE: 'other_idle',         // 남이 소유, 경매 없음
+    OTHER_AUCTION: 'other_auction'    // 남이 소유, 경매 중
+};
 
 class TerritoryPanel {
     constructor() {
@@ -172,11 +183,10 @@ class TerritoryPanel {
                     (this.currentTerritory.currentAuction && this.currentTerritory.currentAuction.id === auctionId)) {
                     log.debug(`[TerritoryPanel] Auction ${auctionId} updated, refreshing panel`);
                     
-                    // 옥션 데이터 새로고침
-                    await auctionSystem.loadActiveAuctions();
-                    
-                    // 업데이트된 옥션 데이터 가져오기
-                    const updatedAuction = auctionSystem.activeAuctions.get(auctionId);
+                    // ⚡ 최적화: 전체 경매 재로드 대신 이벤트 데이터로 직접 업데이트
+                    // loadActiveAuctions()는 이미 handleBid에서 캐시를 업데이트했으므로 불필요
+                    // 이벤트로 전달된 데이터를 직접 사용
+                    const updatedAuction = data.auction;
                     if (updatedAuction && this.currentTerritory) {
                         this.currentTerritory.currentAuction = updatedAuction;
                     }
@@ -506,19 +516,24 @@ class TerritoryPanel {
         let sovereigntyIcon = '✅';
         let sovereigntyClass = 'unconquered';
         
-        // 경매 중인 경우
-        if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
-            uiStatus = 'auction';
-            sovereigntyText = 'On Auction';
-            sovereigntyIcon = '⏳';
-            sovereigntyClass = 'contested';
-        }
-        // 소유자가 있는 경우
-        else if (territory.ruler && territory.sovereignty !== SOVEREIGNTY.UNCONQUERED) {
+        // ⚠️ 중요: 소유자 상태 우선 체크
+        // 소유자가 있는 경우에도 경매는 정상적으로 표시됨 (소유권 획득 경매)
+        const hasOwner = territory.ruler && territory.ruler.trim() !== '';
+        const hasActiveAuction = auction && auction.status === AUCTION_STATUS.ACTIVE;
+        
+        // 소유자가 있는 경우 우선 (경매가 있어도 소유자 상태 표시)
+        if (territory.ruler && territory.sovereignty !== SOVEREIGNTY.UNCONQUERED) {
             uiStatus = 'owned';
             sovereigntyText = 'Owned';
             sovereigntyIcon = '👑';
             sovereigntyClass = isProtected ? 'protected' : 'ruled';
+        }
+        // 경매 중인 경우 (소유자가 없는 경우만)
+        else if (hasActiveAuction && !hasOwner) {
+            uiStatus = 'auction';
+            sovereigntyText = 'On Auction';
+            sovereigntyIcon = '⏳';
+            sovereigntyClass = 'contested';
         }
         // 소유자가 없는 경우
         else {
@@ -570,10 +585,10 @@ class TerritoryPanel {
                             <span class="ruler-name">${territory.rulerName || 'Unknown'}</span>
                             ${territory.purchasedByAdmin ? '<span class="admin-badge">🔧 Admin</span>' : ''}
                         </div>
-                        ${isProtected ? `
+                        ${isProtected && protectionRemaining ? `
                             <div class="protection-info">
                                 <span class="protection-icon">🛡️</span>
-                                <span>Protected for ${protectionRemaining.days}d ${protectionRemaining.hours}h</span>
+                                <span>Protected for ${protectionRemaining.days || 0}d ${protectionRemaining.hours || 0}h</span>
                             </div>
                         ` : ''}
                     ` : ''}
@@ -630,9 +645,9 @@ class TerritoryPanel {
                 </div>
                 
                 <!-- Auction Info (if exists) -->
-                ${auction ? this.renderAuction(auction) : ''}
+                ${auction && auction.status === AUCTION_STATUS.ACTIVE ? this.renderAuction(auction) : ''}
                 
-                <!-- Protection Extension Auctions (if owned territory) -->
+                <!-- Protection Extension Auctions List (if owned territory, shows summary) -->
                 ${isOwner ? this.renderProtectionExtensionAuctions(territory) : ''}
                 
                 <!-- Action Buttons -->
@@ -869,85 +884,15 @@ class TerritoryPanel {
             `;
         }
         
-        // 입찰자가 있는지 확인
-        const hasBids = !!auction.highestBidder;
-        
-        // startingBid 검증 (잘못된 값이면 수정) - 항상 검증 (50pt 이상이 아니어도)
-        let startingBid = auction.startingBid || 10;
-        
-        // 영토 실제 가격 기반으로 항상 검증 (territory가 있으면)
-        // 보호 기간 연장 경매는 가격 계산이 다르므로 일반 경매와 구분
-        if (territory && auction.type !== AUCTION_TYPE.PROTECTION_EXTENSION) {
-            const countryCode = territory.country || 'unknown';
-            const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
-            const correctStartingBid = realPrice 
-                ? realPrice + 1 // 즉시 구매가 + 1pt
-                : 10;
-            
-            // startingBid가 올바른 값과 다르면 무조건 수정
-            if (startingBid !== correctStartingBid) {
-                log.warn(`[TerritoryPanel] ⚠️ Invalid startingBid ${startingBid} detected in renderAuction, correcting to ${correctStartingBid} (realPrice: ${realPrice}, country: ${countryCode})`);
-                startingBid = correctStartingBid;
-                auction.startingBid = correctStartingBid;
-                
-                // activeAuctions Map도 업데이트 (메모리 캐시 동기화)
-                if (auctionSystem.activeAuctions.has(auction.id)) {
-                    const cachedAuction = auctionSystem.activeAuctions.get(auction.id);
-                    cachedAuction.startingBid = correctStartingBid;
-                    if (!hasBids) {
-                        cachedAuction.currentBid = correctStartingBid;
-                    }
-                    log.debug(`[TerritoryPanel] Updated cached auction ${auction.id} in activeAuctions Map`);
-                }
-                
-                // 비동기로 Firestore 업데이트 (렌더링 블로킹 방지)
-                if (firebaseService.isAuthenticated()) {
-                    firebaseService.updateDocument('auctions', auction.id, {
-                        startingBid: correctStartingBid,
-                        currentBid: hasBids ? auction.currentBid : correctStartingBid,
-                        updatedAt: firebaseService.getTimestamp()
-                    }).then(() => {
-                        log.info(`[TerritoryPanel] ✅ Successfully updated auction ${auction.id} in Firestore: startingBid=${correctStartingBid}`);
-                    }).catch(err => {
-                        log.warn(`[TerritoryPanel] Failed to update startingBid in Firestore:`, err);
-                    });
-                } else {
-                    log.debug(`[TerritoryPanel] Skipping Firestore update (user not authenticated)`);
-                }
-            }
+        // 가격 정보는 단일 출처 함수 사용 (전문가 조언 반영)
+        const priceInfo = this.getUserFacingPriceInfo(auction, territory);
+        if (!priceInfo) {
+            return '<div class="auction-section">Invalid auction data</div>';
         }
         
-        // 입찰자가 없으면 startingBid를 직접 사용 (화면 표시와 일치)
-        // 입찰자가 있으면 currentBid 또는 bids 배열의 최고 입찰가 사용
-        let effectiveCurrentBid;
-        if (!hasBids) {
-            // 입찰자가 없으면 startingBid를 그대로 사용 (currentBid는 무시)
-            effectiveCurrentBid = startingBid;
-        } else {
-            // 입찰자가 있으면 bids 배열의 최고 입찰가를 우선 확인
-            let highestBidFromArray = 0;
-            if (auction.bids && Array.isArray(auction.bids) && auction.bids.length > 0) {
-                highestBidFromArray = Math.max(...auction.bids.map(b => b.amount || b.buffedAmount || 0));
-            }
-            
-            // currentBid와 bids 배열의 최고 입찰가 중 더 큰 값 사용
-            const candidateBid = Math.max(
-                auction.currentBid || 0,
-                highestBidFromArray
-            );
-            
-            // 최소 startingBid 이상이어야 함
-            effectiveCurrentBid = candidateBid >= startingBid
-                ? candidateBid
-                : startingBid;
-            
-            // 디버깅 로그
-            if (candidateBid !== auction.currentBid) {
-                log.warn(`[TerritoryPanel] ⚠️ currentBid (${auction.currentBid}) doesn't match highest bid from array (${highestBidFromArray}), using ${effectiveCurrentBid}`);
-            }
-        }
-        
-        // minIncrement 계산
+        const hasBids = priceInfo.hasBids;
+        const startingBid = priceInfo.startingBid;
+        const effectiveCurrentBid = priceInfo.currentBid;
         // 입찰자가 있든 없든 항상 1pt 증가액 사용 (1pt 단위 입찰)
         const effectiveMinIncrement = 1;
         
@@ -1005,56 +950,120 @@ class TerritoryPanel {
     }
     
     /**
-     * 경매의 유효한 입찰가 계산 (입찰자가 없으면 startingBid 사용)
-     * 주의: 이 함수는 화면 표시용이므로 auction.startingBid를 직접 사용
-     * 하지만 startingBid가 잘못된 값이면 검증하여 수정
+     * 경매의 유효한 입찰가 계산 (단일 출처 사용 - 전문가 조언 반영)
+     * @deprecated getUserFacingPriceInfo() 사용 권장
      */
     getEffectiveAuctionBid(auction) {
-        if (!auction) return null;
+        if (!auction || !this.currentTerritory) return null;
         
-        // startingBid 검증 (잘못된 값이면 수정) - 60pt 같은 잘못된 값 강제 수정
-        let startingBid = auction.startingBid || 10;
-        
-        // startingBid가 50pt 이상이면 의심스러움 - 영토 실제 가격 기반으로 검증
-        if (startingBid >= 50 && this.currentTerritory) {
-            const countryCode = this.currentTerritory.country || 'unknown';
-            const realPrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
-            const auctionRatio = CONFIG.TERRITORY.AUCTION_STARTING_BID_RATIO || 0.6;
-            const correctStartingBid = realPrice 
-                ? Math.max(Math.floor(realPrice * auctionRatio), 10)
-                : 10;
-            
-            if (startingBid !== correctStartingBid) {
-                log.warn(`[TerritoryPanel] Invalid startingBid ${startingBid} in getEffectiveAuctionBid, correcting to ${correctStartingBid} (realPrice: ${realPrice})`);
-                startingBid = correctStartingBid;
-                auction.startingBid = correctStartingBid;
-                // 비동기로 Firestore 업데이트 (렌더링 블로킹 방지)
-                if (firebaseService.isAuthenticated()) {
-                    firebaseService.updateDocument('auctions', auction.id, {
-                        startingBid: correctStartingBid
-                    }).catch(err => {
-                        log.warn(`[TerritoryPanel] Failed to update startingBid:`, err);
-                    });
-                }
-            }
-        }
-        
-        // 입찰자가 없으면 startingBid를 그대로 반환
-        if (!auction.highestBidder) {
-            return startingBid;
-        }
-        
-        // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
-        return Math.max(auction.currentBid || startingBid || 10, startingBid || 10);
+        const priceInfo = this.getUserFacingPriceInfo(auction, this.currentTerritory);
+        return priceInfo ? priceInfo.currentBid : null;
     }
     
     /**
-     * Action Buttons Rendering
+     * View Mode 결정 (전문가 조언 반영)
+     * 상태를 사람이 이해하기 쉬운 View Mode로 압축
+     */
+    determineViewMode(territory, auction, isOwner) {
+        const hasOwner = territory.ruler && territory.ruler.trim() !== '';
+        const hasActiveAuction = auction && auction.status === AUCTION_STATUS.ACTIVE;
+        
+        log.info('[TerritoryPanel] determineViewMode:', {
+            territoryId: territory.id,
+            hasOwner,
+            isOwner,
+            hasActiveAuction,
+            auctionStatus: auction?.status,
+            auctionId: auction?.id
+        });
+        
+        if (!hasOwner && !hasActiveAuction) {
+            return VIEW_MODE.AVAILABLE;
+        }
+        if (!hasOwner && hasActiveAuction) {
+            return VIEW_MODE.AVAILABLE_AUCTION;
+        }
+        if (isOwner && !hasActiveAuction) {
+            log.info('[TerritoryPanel] View mode: MINE_IDLE (owner, no auction)');
+            return VIEW_MODE.MINE_IDLE;
+        }
+        if (isOwner && hasActiveAuction) {
+            log.info('[TerritoryPanel] View mode: MINE_AUCTION (owner, active auction)');
+            return VIEW_MODE.MINE_AUCTION;
+        }
+        if (hasOwner && !isOwner && !hasActiveAuction) {
+            return VIEW_MODE.OTHER_IDLE;
+        }
+        if (hasOwner && !isOwner && hasActiveAuction) {
+            return VIEW_MODE.OTHER_AUCTION;
+        }
+        
+        // 기본값
+        log.warn('[TerritoryPanel] View mode: AVAILABLE (default fallback)');
+        return VIEW_MODE.AVAILABLE;
+    }
+    
+    /**
+     * 경매 시작가 계산 (단일 출처 - 전문가 조언 반영)
+     */
+    getAuctionStartingPrice(auction, territory) {
+        if (!auction || !territory) return null;
+        
+        // 영토 실제 가격 계산
+        const countryCode = territory.country || 
+                          territory.properties?.country || 
+                          territory.properties?.adm0_a3?.toLowerCase() || 
+                          'unknown';
+        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        const correctStartingBid = realPrice ? realPrice + 1 : 10;
+        
+        // 경매에 startingBid가 있으면 검증 후 사용
+        if (auction.startingBid && auction.startingBid > 0) {
+            // startingBid가 올바른 값인지 검증 (realPrice + 1과 비교)
+            // 10pt 차이 이내면 허용 (버프나 다른 요인 고려)
+            const diff = Math.abs(auction.startingBid - correctStartingBid);
+            if (diff <= 10) {
+                return auction.startingBid;
+            } else {
+                // 잘못된 값이면 올바른 값으로 수정
+                log.warn(`[TerritoryPanel] Invalid startingBid ${auction.startingBid} in getAuctionStartingPrice, using correct value ${correctStartingBid} (realPrice: ${realPrice})`);
+                return correctStartingBid;
+            }
+        }
+        
+        // startingBid가 없으면 계산된 값 반환
+        return correctStartingBid;
+    }
+    
+    /**
+     * 사용자에게 표시할 경매 가격 정보 (단일 출처)
+     */
+    getUserFacingPriceInfo(auction, territory) {
+        if (!auction) return null;
+        
+        const startingBid = this.getAuctionStartingPrice(auction, territory);
+        const hasBids = !!auction.highestBidder;
+        const currentBid = hasBids 
+            ? Math.max(auction.currentBid || startingBid, startingBid)
+            : startingBid;
+        const minNextBid = currentBid + 1;
+        
+        return {
+            startingBid,
+            currentBid,
+            minNextBid,
+            hasBids,
+            highestBidder: auction.highestBidder,
+            highestBidderName: auction.highestBidderName
+        };
+    }
+    
+    /**
+     * Action Buttons Rendering (View Mode 기반 - 전문가 조언 반영)
      */
     renderActions(territory, isOwner, auction, realPrice = 100, effectiveAuctionBid = null) {
         const user = firebaseService.getCurrentUser();
         const isAdmin = this.isAdminMode();
-        const isProtected = territoryManager.isProtected(territory.id);
         
         if (!user) {
             return `
@@ -1064,68 +1073,77 @@ class TerritoryPanel {
             `;
         }
         
-        // ⚠️ 중요: 소유자 체크를 먼저 수행 (sovereignty가 unconquered여도 소유자인 경우 Edit 버튼 표시)
-        // isOwner는 render()에서 이미 계산되었지만, 여기서 다시 확인하여 확실하게 처리
-        const actualIsOwner = user && (
-            territory.ruler === user.uid || 
-            (isAdmin && territory.purchasedByAdmin)
-        );
+        // View Mode 결정
+        const viewMode = this.determineViewMode(territory, auction, isOwner);
+        log.info('[TerritoryPanel] renderActions - viewMode:', viewMode, 'for territory:', territory.id);
         
-        if (actualIsOwner) {
-            // 보호 기간 연장 경매가 활성화되어 있는지 확인
-            const protectionAuctions = this.getProtectionExtensionAuctions(territory.id);
-            const hasActiveProtectionAuctions = protectionAuctions.length > 0;
-            
-            return `
-                <button class="action-btn pixel-btn" id="open-pixel-editor">
-                    🎨 Edit Pixel Art
-                </button>
-                <button class="action-btn collab-btn" id="open-collaboration">
-                    👥 Open Collaboration
-                </button>
-                <button class="action-btn auction-btn" id="start-protection-extension-auction">
-                    🛡️ Extend Protection (Auction)
-                </button>
-                ${hasActiveProtectionAuctions ? `
-                    <div class="protection-auctions-active">
-                        <span class="info-icon">ℹ️</span>
-                        <span>${protectionAuctions.length} protection extension auction(s) active</span>
-                    </div>
-                ` : ''}
-            `;
-        }
-        
-        // 경매 중인 경우
-        if (auction && auction.status === AUCTION_STATUS.ACTIVE) {
-            const user = firebaseService.getCurrentUser();
-            const isUserHighestBidder = auction.highestBidder === user?.uid;
-            const hasBids = !!auction.highestBidder;
-            
-            // 가격 비교 정보 (유효한 입찰가 사용 - 입찰자가 없으면 startingBid 사용)
-            const auctionCurrentBid = effectiveAuctionBid !== null 
-                ? effectiveAuctionBid 
-                : this.getEffectiveAuctionBid(auction);
-            
-            // ⚠️ 보호 중인 지역에서는 Buy Now 버튼 표시하지 않음
-            if (isProtected && !isOwner) {
-                // 보호 중이고 소유자가 아닌 경우 - 입찰만 가능
+        // View Mode별 UI 렌더링
+        switch (viewMode) {
+            case VIEW_MODE.AVAILABLE:
+                // 아무도 소유하지 않음, 경매 없음
                 return `
-                    <div class="protected-notice">
-                        <span class="protected-icon">🛡️</span>
-                        <span>Protected Territory</span>
-                        <small>You can only bid in the auction. Buy Now is not available during protection period.</small>
+                    <button class="action-btn conquest-btn" id="instant-conquest">
+                        🏴 Claim This Spot (${this.formatNumber(realPrice)} pt)
+                    </button>
+                    <button class="action-btn auction-btn" id="start-auction">
+                        🏷️ Start Auction
+                    </button>
+                `;
+                
+            case VIEW_MODE.AVAILABLE_AUCTION:
+                // 아무도 소유하지 않음, 경매 중
+                // 전문가 조언: 소유자 없는 경매에만 Buy Now 허용 가능
+                const priceInfo1 = this.getUserFacingPriceInfo(auction, territory);
+                if (!priceInfo1) return '';
+                
+                const isUserHighestBidder1 = auction.highestBidder === user?.uid;
+                const minBid1 = priceInfo1.minNextBid;
+                
+                // Buy Now 가격: realPrice 또는 현재 입찰가의 115%
+                let buyNowPrice1 = realPrice;
+                if (priceInfo1.currentBid >= realPrice) {
+                    buyNowPrice1 = Math.max(
+                        Math.ceil(minBid1 * 1.15),
+                        minBid1 + 10
+                    );
+                }
+                
+                return `
+                    <div class="action-options-header">
+                        <h4>📋 Choose Your Action</h4>
+                        <p class="action-hint">You have two options to acquire this territory</p>
                     </div>
+                    
+                    <div class="action-option-card">
+                        <div class="option-header">
+                            <span class="option-icon">⚡</span>
+                            <span class="option-title">Buy Now</span>
+                            <span class="option-badge instant">Instant</span>
+                        </div>
+                        <div class="option-price">
+                            <span class="price-label">Price:</span>
+                            <span class="price-value">${this.formatNumber(buyNowPrice1)} pt</span>
+                        </div>
+                        <button class="action-btn conquest-btn" id="instant-conquest" data-buy-now-price="${buyNowPrice1}">
+                            Buy Now (${this.formatNumber(buyNowPrice1)} pt)
+                        </button>
+                    </div>
+                    
+                    <div class="action-divider">
+                        <span>OR</span>
+                    </div>
+                    
                     <div class="action-option-card">
                         <div class="option-header">
                             <span class="option-icon">⏳</span>
-                            <span class="option-title">Continue Bidding</span>
+                            <span class="option-title">Bid to Claim</span>
                             <span class="option-badge auction">Auction</span>
                         </div>
                         <div class="option-price">
-                            <span class="price-label">${hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
-                            <span class="price-value">${this.formatNumber(auctionCurrentBid)} pt</span>
+                            <span class="price-label">${priceInfo1.hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
+                            <span class="price-value">${this.formatNumber(priceInfo1.currentBid)} pt</span>
                         </div>
-                        ${!hasBids ? `
+                        ${!priceInfo1.hasBids ? `
                             <div class="no-bids-notice">
                                 <span class="notice-icon">💡</span>
                                 <span>No bids yet. Be the first to bid!</span>
@@ -1133,186 +1151,173 @@ class TerritoryPanel {
                         ` : ''}
                         <div class="auction-action-hint">
                             <span class="hint-icon">💡</span>
-                            <span>Place your bid in the auction section above</span>
+                            <span>Place your bid in the auction section above (minimum: ${this.formatNumber(priceInfo1.minNextBid)} pt)</span>
                         </div>
                     </div>
                 `;
-            }
-            
-            // 보호 중이 아닌 경우 - Buy Now 버튼 표시
-            // 최소 입찰가 계산 (현재 입찰가 + 1pt)
-            const minBid = auctionCurrentBid + 1;
-            
-            // Buy Now 가격 결정
-            // 입찰가가 원래 구매가보다 낮으면 원래 구매가 사용
-            // 입찰가가 원래 구매가를 넘어섰으면 최소 입찰가보다 높게 설정 (일반 경매 시장 규칙: 현재 입찰가의 110-115%)
-            let buyNowPrice = realPrice;
-            if (auctionCurrentBid >= realPrice) {
-                // 입찰가가 원래 구매가를 넘어섰을 때: 최소 입찰가의 115% 또는 최소 입찰가 + 10pt 중 큰 값
-                const adjustedPrice = Math.max(
-                    Math.ceil(minBid * 1.15), // 최소 입찰가의 115%
-                    minBid + 10 // 또는 최소 입찰가 + 10pt
-                );
-                buyNowPrice = adjustedPrice;
-            }
-            
-            const priceDifference = buyNowPrice - auctionCurrentBid;
-            const isCheaper = priceDifference < 0;
-            
-            return `
-                <div class="action-options-header">
-                    <h4>📋 Choose Your Action</h4>
-                    <p class="action-hint">You have two options to acquire this territory</p>
-                </div>
                 
-                <div class="action-option-card">
-                    <div class="option-header">
-                        <span class="option-icon">⚡</span>
-                        <span class="option-title">Buy Now</span>
-                        <span class="option-badge instant">Instant</span>
-                    </div>
-                    <div class="option-price">
-                        <span class="price-label">Price:</span>
-                        <span class="price-value">${this.formatNumber(buyNowPrice)} pt</span>
-                    </div>
-                    ${auctionCurrentBid >= realPrice ? `
-                        <div class="price-comparison note">
-                            <span class="note-icon">📈</span>
-                            <span>Buy Now price adjusted (current bid exceeded original price)</span>
-                        </div>
-                    ` : isCheaper ? `
-                        <div class="price-comparison save">
-                            <span class="save-icon">💰</span>
-                            <span>Save ${this.formatNumber(Math.abs(priceDifference))} pt vs current bid</span>
-                        </div>
-                    ` : priceDifference > 0 ? `
-                        <div class="price-comparison note">
-                            <span class="note-icon">ℹ️</span>
-                            <span>${this.formatNumber(priceDifference)} pt more than current bid</span>
-                        </div>
-                    ` : ''}
-                    ${hasBids ? `
-                        <div class="auction-warning">
-                            <span class="warning-icon">⚠️</span>
-                            <span>This will cancel the active auction</span>
-                        </div>
-                    ` : ''}
-                    ${isUserHighestBidder ? `
-                        <div class="bidder-notice">
-                            <span class="notice-icon">💬</span>
-                            <span>You are the highest bidder. Your bid will be refunded if you buy now.</span>
-                        </div>
-                    ` : ''}
-                    <button class="action-btn conquest-btn" id="instant-conquest" data-buy-now-price="${buyNowPrice}">
-                        Buy Now (${this.formatNumber(buyNowPrice)} pt)
-                    </button>
-                </div>
-                
-                <div class="action-divider">
-                    <span>OR</span>
-                </div>
-                
-                <div class="action-option-card">
-                    <div class="option-header">
-                        <span class="option-icon">⏳</span>
-                        <span class="option-title">Continue Bidding</span>
-                        <span class="option-badge auction">Auction</span>
-                    </div>
-                    <div class="option-price">
-                        <span class="price-label">${hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
-                        <span class="price-value">${this.formatNumber(auctionCurrentBid)} pt</span>
-                    </div>
-                    ${!hasBids ? `
-                        <div class="no-bids-notice">
-                            <span class="notice-icon">💡</span>
-                            <span>No bids yet. Be the first to bid!</span>
-                        </div>
-                    ` : ''}
-                    <div class="auction-action-hint">
-                        <span class="hint-icon">💡</span>
-                        <span>Place your bid in the auction section above</span>
-                    </div>
-                </div>
-            `;
-        }
-        
-        // 보호 기간 중인 경우 - 경매 입찰은 가능 (7일 후 낙찰)
-        if (isProtected && !isOwner) {
-            const remaining = territoryManager.getProtectionRemaining(territory.id);
-            return `
-                <div class="protected-notice">
-                    <span class="protected-icon">🛡️</span>
-                    <span>Protected Territory</span>
-                    <small>Auction ends in ${remaining.days}d ${remaining.hours}h</small>
-                </div>
-                <button class="action-btn auction-btn" id="start-auction">
-                    🏷️ Start Auction (ends after protection)
-                </button>
-            `;
-        }
-        
-        // 미정복 영토 - 구매 가능
-        if (territory.sovereignty === SOVEREIGNTY.UNCONQUERED || (!territory.ruler && !auction)) {
-            return `
-                <button class="action-btn conquest-btn" id="instant-conquest">
-                    🏴 Own This Territory (${this.formatNumber(realPrice)} pt)
-                </button>
-                <button class="action-btn auction-btn" id="start-auction">
-                    🏷️ Start Auction
-                </button>
-            `;
-        }
-        
-        // 다른 사람 소유 영토 (보호 기간 아님, 경매 없음)
-        // 관리자 모드이고 관리자가 점유한 영토인 경우 challenge 버튼 표시하지 않음
-        if (territory.ruler && !isOwner && !auction) {
-            // 관리자 모드이고 관리자가 점유한 영토인지 확인
-            const isAdminOwned = isAdmin && territory.purchasedByAdmin;
-            
-            if (isAdminOwned) {
-                // 관리자가 점유한 영토는 관리자 모드에서 challenge 버튼 표시하지 않음
+            case VIEW_MODE.MINE_IDLE:
+                // 내가 소유, 경매 없음
                 return `
-                    <div class="admin-territory-notice">
-                        <span class="notice-icon">🔧</span>
-                        <span>관리자가 점유한 영토입니다</span>
+                    <button class="action-btn pixel-btn" id="open-pixel-editor">
+                        🎨 Edit My Spot
+                    </button>
+                    <button class="action-btn collab-btn" id="open-collaboration">
+                        👥 Open Collaboration
+                    </button>
+                    <button class="action-btn auction-btn" id="start-territory-auction">
+                        🏷️ Start Auction
+                    </button>
+                `;
+                
+            case VIEW_MODE.MINE_AUCTION:
+                // 내가 소유, 경매 중
+                // 전문가 조언: 소유 지역 경매는 오직 입찰만, Buy Now 없음
+                const priceInfo2 = this.getUserFacingPriceInfo(auction, territory);
+                if (!priceInfo2) return '';
+                
+                const isUserHighestBidder2 = auction.highestBidder === user?.uid;
+                
+                return `
+                    <div class="auction-active-notice">
+                        <span class="info-icon">ℹ️</span>
+                        <span>Your territory is under challenge. Bid to defend your ownership.</span>
+                    </div>
+                    <button class="action-btn pixel-btn" id="open-pixel-editor">
+                        🎨 Edit My Spot
+                    </button>
+                    <button class="action-btn collab-btn" id="open-collaboration">
+                        👥 Open Collaboration
+                    </button>
+                    <div class="action-option-card">
+                        <div class="option-header">
+                            <span class="option-icon">🛡️</span>
+                            <span class="option-title">Bid to Defend</span>
+                            <span class="option-badge auction">Auction</span>
+                        </div>
+                        <div class="option-price">
+                            <span class="price-label">${priceInfo2.hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
+                            <span class="price-value">${this.formatNumber(priceInfo2.currentBid)} pt</span>
+                            ${isUserHighestBidder2 ? `
+                                <span class="bidder-badge">(You are leading)</span>
+                            ` : ''}
+                        </div>
+                        ${!priceInfo2.hasBids ? `
+                            <div class="no-bids-notice">
+                                <span class="notice-icon">💡</span>
+                                <span>No bids yet. Be the first to bid!</span>
+                            </div>
+                        ` : ''}
+                        <div class="auction-action-hint">
+                            <span class="hint-icon">💡</span>
+                            <span>Place your bid in the auction section above (minimum: ${this.formatNumber(priceInfo2.minNextBid)} pt)</span>
+                        </div>
                     </div>
                 `;
-            }
-            
-            return `
-                <button class="action-btn challenge-btn" id="challenge-ruler">
-                    경매 시작
-                </button>
-            `;
+                
+            case VIEW_MODE.OTHER_IDLE:
+                // 남이 소유, 경매 없음
+                const isAdminOwned = isAdmin && territory.purchasedByAdmin;
+                
+                if (isAdminOwned) {
+                    return `
+                        <div class="admin-territory-notice">
+                            <span class="notice-icon">🔧</span>
+                            <span>Admin-owned territory</span>
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <button class="action-btn auction-btn" id="start-territory-auction">
+                        🏷️ Start Auction
+                    </button>
+                `;
+                
+            case VIEW_MODE.OTHER_AUCTION:
+                // 남이 소유, 경매 중
+                // 전문가 조언: 소유 지역 경매는 오직 입찰만, Buy Now 없음
+                const priceInfo3 = this.getUserFacingPriceInfo(auction, territory);
+                if (!priceInfo3) return '';
+                
+                const isProtected = territoryManager.isProtected(territory.id);
+                const protectionRemaining = isProtected ? territoryManager.getProtectionRemaining(territory.id) : null;
+                
+                return `
+                    ${isProtected && protectionRemaining ? `
+                        <div class="protected-notice">
+                            <span class="protected-icon">🛡️</span>
+                            <span>Protected Territory</span>
+                            <small>Protection ends in ${protectionRemaining.days || 0}d ${protectionRemaining.hours || 0}h</small>
+                        </div>
+                    ` : ''}
+                    <div class="action-option-card">
+                        <div class="option-header">
+                            <span class="option-icon">⚔️</span>
+                            <span class="option-title">Bid to Conquer</span>
+                            <span class="option-badge auction">Auction</span>
+                        </div>
+                        <div class="option-price">
+                            <span class="price-label">${priceInfo3.hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
+                            <span class="price-value">${this.formatNumber(priceInfo3.currentBid)} pt</span>
+                            ${priceInfo3.highestBidderName ? `
+                                <span class="bidder-info">by ${priceInfo3.highestBidderName}</span>
+                            ` : ''}
+                        </div>
+                        ${!priceInfo3.hasBids ? `
+                            <div class="no-bids-notice">
+                                <span class="notice-icon">💡</span>
+                                <span>No bids yet. Be the first to bid!</span>
+                            </div>
+                        ` : ''}
+                        <div class="auction-action-hint">
+                            <span class="hint-icon">💡</span>
+                            <span>Place your bid in the auction section above (minimum: ${this.formatNumber(priceInfo3.minNextBid)} pt)</span>
+                        </div>
+                    </div>
+                `;
+                
+            default:
+                return '';
         }
-        
-        // 기본: 아무 버튼도 표시하지 않음
-        return '';
     }
     
     /**
-     * 액션 바인딩
+     * 액션 바인딩 (이벤트 위임 패턴 적용 - 전문가 조언 반영)
      */
     bindActions() {
-        // 닫기 버튼
-        const closeBtn = document.getElementById('close-territory-panel');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => this.close());
+        if (!this.container) return;
+        
+        // 기존 리스너 제거 (중복 방지)
+        if (this._actionClickHandler) {
+            this.container.removeEventListener('click', this._actionClickHandler);
         }
         
-        // 로그인 버튼
-        const loginBtn = document.getElementById('login-to-conquer');
-        if (loginBtn) {
-            loginBtn.addEventListener('click', () => {
+        // 이벤트 위임: container에 단일 리스너로 모든 버튼 클릭 처리
+        this._actionClickHandler = (e) => {
+            // 버튼이나 클릭 가능한 요소를 찾음
+            const target = e.target.closest('button[id], [id].action-btn, [id].auction-btn');
+            if (!target) return;
+            
+            const id = target.id;
+            log.info('[TerritoryPanel] Action button clicked:', id);
+            
+            // 닫기 버튼
+            if (id === 'close-territory-panel') {
+                e.preventDefault();
+                this.close();
+                return;
+            }
+            
+            // 로그인 버튼
+            if (id === 'login-to-conquer') {
+                e.preventDefault();
                 eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
-            });
-        }
-        
-        // 즉시 정복 버튼
-        const conquestBtn = document.getElementById('instant-conquest');
-        if (conquestBtn) {
-            log.info('[TerritoryPanel] Binding instant-conquest button click event');
-            conquestBtn.addEventListener('click', (e) => {
+                return;
+            }
+            
+            // 즉시 정복 버튼
+            if (id === 'instant-conquest') {
                 e.preventDefault();
                 e.stopPropagation();
                 log.info('[TerritoryPanel] instant-conquest button clicked');
@@ -1323,53 +1328,75 @@ class TerritoryPanel {
                         message: 'Failed to process purchase. Please try again.'
                     });
                 });
-            });
-        } else {
-            // 이미 소유된 영토나 경매 중인 영토에는 instant-conquest 버튼이 없으므로 정상
-            log.debug('[TerritoryPanel] instant-conquest button not found (territory may be owned or in auction)');
-        }
-        
-        // 옥션 시작 버튼
-        const auctionBtn = document.getElementById('start-auction');
-        if (auctionBtn) {
-            auctionBtn.addEventListener('click', () => this.handleStartAuction());
-        }
-        
-        // 입찰 버튼
-        const bidBtn = document.getElementById('place-bid-btn');
-        if (bidBtn) {
-            bidBtn.addEventListener('click', () => this.handlePlaceBid());
-        }
-        
-        // Owner Challenge 버튼
-        const challengeBtn = document.getElementById('challenge-ruler');
-        if (challengeBtn) {
-            challengeBtn.addEventListener('click', () => this.handleChallengeOwner());
-        }
-        
-        // Protection Extension Auction 버튼
-        const protectionAuctionBtn = document.getElementById('start-protection-extension-auction');
-        if (protectionAuctionBtn) {
-            protectionAuctionBtn.addEventListener('click', () => this.handleStartProtectionExtensionAuction());
-        }
-        
-        // 픽셀 에디터 버튼
-        const pixelBtn = document.getElementById('open-pixel-editor');
-        if (pixelBtn) {
-            pixelBtn.addEventListener('click', () => {
+                return;
+            }
+            
+            // 옥션 시작 버튼
+            if (id === 'start-auction') {
+                e.preventDefault();
+                this.handleStartAuction();
+                return;
+            }
+            
+            // 입찰 버튼
+            if (id === 'place-bid-btn') {
+                e.preventDefault();
+                this.handlePlaceBid();
+                return;
+            }
+            
+            // Owner Challenge 버튼
+            if (id === 'challenge-ruler') {
+                e.preventDefault();
+                this.handleChallengeOwner();
+                return;
+            }
+            
+            // Protection Extension Auction 버튼
+            if (id === 'start-protection-extension-auction') {
+                e.preventDefault();
+                this.handleStartProtectionExtensionAuction();
+                return;
+            }
+            
+            // Start Territory Auction 버튼 (소유자가 있는 지역의 경매 시작)
+            if (id === 'start-territory-auction') {
+                e.preventDefault();
+                e.stopPropagation();
+                log.info('[TerritoryPanel] start-territory-auction button clicked');
+                this.showTerritoryAuctionOptionsModal();
+                return;
+            }
+            
+            // 픽셀 에디터 버튼
+            if (id === 'open-pixel-editor') {
+                e.preventDefault();
                 eventBus.emit(EVENTS.UI_MODAL_OPEN, { 
                     type: 'pixelEditor', 
                     data: this.currentTerritory 
                 });
-            });
-        }
+                return;
+            }
+            
+            // 협업 버튼
+            if (id === 'open-collaboration') {
+                e.preventDefault();
+                // TODO: 협업 모달 열기
+                return;
+            }
+        };
         
-        // 소셜 공유 버튼
-        this.container.querySelectorAll('.share-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const platform = e.currentTarget.dataset.platform;
+        // 리스너 추가
+        this.container.addEventListener('click', this._actionClickHandler);
+        
+        // 소셜 공유 버튼 (이벤트 위임)
+        this.container.addEventListener('click', (e) => {
+            const shareBtn = e.target.closest('.share-btn');
+            if (shareBtn) {
+                e.preventDefault();
+                const platform = shareBtn.dataset.platform;
                 this.shareTerritory(platform);
-            });
+            }
         });
     }
     
@@ -2160,6 +2187,20 @@ class TerritoryPanel {
         }
         
         try {
+            // Rate Limiting 체크 (관리자가 아닌 경우에만)
+            if (!isAdmin && user?.uid) {
+                const rateLimitCheck = await rateLimiter.checkLimit(user.uid, RATE_LIMIT_TYPE.AUCTION_BID);
+                if (!rateLimitCheck.allowed) {
+                    const waitTime = rateLimitCheck.retryAfter ? Math.ceil(rateLimitCheck.retryAfter / 1000) : 0;
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: `⚠️ Too many bids. Please wait ${waitTime > 0 ? waitTime + ' seconds' : 'a moment'} before bidding again.`,
+                        duration: 5000
+                    });
+                    return;
+                }
+            }
+            
             // 관리자 모드가 아닌 경우에만 포인트 차감
             if (!isAdmin) {
                 await walletService.deductPoints(bidAmount, `Auction bid for ${auction.territoryId}`, 'bid', {
@@ -2184,8 +2225,16 @@ class TerritoryPanel {
             // 입력 필드 초기화
             input.value = '';
             
-            // 옥션 데이터 새로고침 (Firestore에서 최신 데이터 가져오기)
-            await auctionSystem.loadActiveAuctions();
+            // ⚡ 최적화: 전체 경매 재로드 대신 특정 경매만 업데이트
+            // handleBid가 이미 로컬 캐시를 업데이트했으므로, Firestore에서 특정 경매만 다시 가져오기
+            try {
+                const updatedAuctionData = await firebaseService.getDocument('auctions', auction.id);
+                if (updatedAuctionData) {
+                    auctionSystem.activeAuctions.set(auction.id, updatedAuctionData);
+                }
+            } catch (error) {
+                log.warn('[TerritoryPanel] Failed to refresh single auction, using cached data:', error);
+            }
             
             // 현재 옥션 데이터 다시 가져오기 (최신 데이터 보장)
             const updatedAuction = auctionSystem.activeAuctions.get(auction.id);
@@ -2217,15 +2266,31 @@ class TerritoryPanel {
             log.error('Bid failed:', error);
             
             let errorMessage = 'Failed to place bid';
-            if (error.message.includes('Minimum')) {
+            let shouldRetry = false;
+            
+            // Firebase 할당량 초과 에러 처리
+            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
+                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+                errorMessage = '⚠️ Service temporarily unavailable due to high traffic. Please try again in a few moments.';
+                log.warn('[TerritoryPanel] Firestore quota exceeded, suggesting user to retry later');
+            } 
+            // 최소 입찰가 에러
+            else if (error.message.includes('Minimum')) {
                 errorMessage = error.message;
-            } else if (error.message.includes('not active')) {
+            } 
+            // 경매 종료 에러
+            else if (error.message.includes('not active')) {
                 errorMessage = 'Auction has ended';
+            }
+            // 일반적인 에러
+            else if (error.message) {
+                errorMessage = `Bid failed: ${error.message}`;
             }
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: errorMessage
+                message: errorMessage,
+                duration: error.code === 'resource-exhausted' || error.code === 'quota-exceeded' ? 8000 : 5000
             });
         }
     }
@@ -2491,6 +2556,253 @@ class TerritoryPanel {
         
         // 이벤트 바인딩
         this.bindProtectionExtensionAuctionModalEvents();
+    }
+    
+    /**
+     * 지역 소유권 획득 경매 옵션 모달 표시
+     * 소유자가 있는 지역에서 경매를 시작할 때 기간 옵션 선택
+     */
+    showTerritoryAuctionOptionsModal() {
+        log.info('[TerritoryPanel] showTerritoryAuctionOptionsModal() called');
+        
+        const user = firebaseService.getCurrentUser();
+        
+        if (!user) {
+            log.warn('[TerritoryPanel] User not logged in, showing login modal');
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: 'Please sign in to start an auction'
+            });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        
+        if (!this.currentTerritory) {
+            log.error('[TerritoryPanel] No territory selected');
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'No territory selected'
+            });
+            return;
+        }
+        
+        log.info('[TerritoryPanel] Showing territory auction options modal for:', this.currentTerritory.id);
+        
+        const territoryName = this.extractName(this.currentTerritory.name) || this.currentTerritory.id;
+        const countryCode = this.currentTerritory.country || this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 'unknown';
+        const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        
+        // 기간 옵션 정의
+        const options = [
+            {
+                id: 'week',
+                days: 7,
+                label: '1 Week',
+                description: 'Own for 7 days with protection',
+                priceMultiplier: 1.0
+            },
+            {
+                id: 'month',
+                days: 30,
+                label: '1 Month',
+                description: 'Own for 1 month with protection',
+                priceMultiplier: 4.0
+            },
+            {
+                id: 'year',
+                days: 365,
+                label: '1 Year',
+                description: 'Own for 1 year with protection',
+                priceMultiplier: 50.0
+            },
+            {
+                id: 'lifetime',
+                days: null,
+                label: 'Lifetime',
+                description: 'Own forever with permanent protection',
+                priceMultiplier: 500.0
+            }
+        ];
+        
+        // 옵션 HTML 생성
+        const optionsHTML = options.map((option, index) => {
+            const price = Math.max(Math.ceil(basePrice * option.priceMultiplier), 10);
+            const isBestValue = option.id === 'month'; // 1개월이 가장 합리적인 선택으로 표시
+            const periodText = option.days === null 
+                ? 'Permanent' 
+                : option.days === 7 
+                    ? '7 Days' 
+                    : option.days === 30 
+                        ? '30 Days' 
+                        : '365 Days';
+            
+            return `
+                <div class="purchase-option-card ${isBestValue ? 'best-value' : ''}" data-option-id="${option.id}" data-days="${option.days || 'lifetime'}" data-price="${price}">
+                    ${isBestValue ? '<div class="best-value-badge">✨ Best Value</div>' : ''}
+                    <div class="option-header">
+                        <span class="option-label">${option.label}</span>
+                        <span class="option-period">${periodText} Protection</span>
+                    </div>
+                    <div class="option-body">
+                        <div class="option-price-section">
+                            <div class="price-label">Starting Bid</div>
+                            <div class="option-price">
+                                <span class="price-value">${this.formatNumber(price)}</span>
+                                <span class="price-unit">pt</span>
+                            </div>
+                        </div>
+                        <div class="option-details">
+                            <div class="option-description">${option.description}</div>
+                            <div class="option-hint">
+                                ${option.id === 'week' ? '💡 Quick ownership for 7 days' : ''}
+                                ${option.id === 'month' ? '💡 Balanced choice for monthly protection' : ''}
+                                ${option.id === 'year' ? '💡 Secure ownership for a full year' : ''}
+                                ${option.id === 'lifetime' ? '💡 Own forever with permanent protection' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        const modalHTML = `
+            <div class="purchase-options-modal" id="territory-auction-options-modal">
+                <div class="modal-overlay"></div>
+                <div class="purchase-options-content">
+                    <div class="modal-header">
+                        <h2>🏷️ Start Territory Auction</h2>
+                        <button class="modal-close" id="close-territory-auction-modal">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="purchase-options-info">
+                            <div class="info-header">
+                                <h3>🏷️ Select Auction Duration</h3>
+                                <p class="info-description">Choose a protection period. The highest bidder will own <strong>${territoryName}</strong> with the selected protection period.</p>
+                            </div>
+                            <div class="territory-summary">
+                                <div class="summary-item">
+                                    <span class="summary-label">Territory:</span>
+                                    <span class="summary-value">${territoryName}</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Base Price:</span>
+                                    <span class="summary-value">${this.formatNumber(basePrice)} pt</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="purchase-options-grid">
+                            ${optionsHTML}
+                        </div>
+                        <div class="auction-info-footer">
+                            <div class="info-icon">ℹ️</div>
+                            <div class="info-text">
+                                <strong>How it works:</strong> Each option shows the starting bid price. Other users can bid higher, and the highest bidder wins the territory with the selected protection period.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달 제거
+        const existingModal = document.getElementById('territory-auction-options-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        log.info('[TerritoryPanel] Modal HTML inserted into DOM for territory:', this.currentTerritory.id);
+        
+        // 이벤트 바인딩
+        this.bindTerritoryAuctionOptionsModalEvents();
+        log.info('[TerritoryPanel] Modal events bound');
+    }
+    
+    /**
+     * 지역 소유권 획득 경매 옵션 모달 이벤트 바인딩
+     */
+    bindTerritoryAuctionOptionsModalEvents() {
+        const modal = document.getElementById('territory-auction-options-modal');
+        if (!modal) return;
+        
+        // 닫기 버튼
+        const closeBtn = document.getElementById('close-territory-auction-modal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.remove();
+            });
+        }
+        
+        // 오버레이 클릭 시 닫기
+        const overlay = modal.querySelector('.modal-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                e.stopPropagation();
+                modal.remove();
+            });
+        }
+        
+        // 옵션 카드 클릭 (이벤트 위임 사용)
+        modal.addEventListener('click', async (e) => {
+            const card = e.target.closest('.purchase-option-card');
+            if (!card) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const optionId = card.dataset.optionId;
+            const days = card.dataset.days === 'lifetime' ? null : parseInt(card.dataset.days, 10);
+            const price = parseInt(card.dataset.price, 10);
+            
+            const optionLabels = {
+                'week': '1 Week',
+                'month': '1 Month',
+                'year': '1 Year',
+                'lifetime': 'Lifetime'
+            };
+            
+            const confirmMessage = `Start auction for ${optionLabels[optionId]} ownership?\n\nStarting bid: ${this.formatNumber(price)} pt\n\nHighest bidder will own this territory with ${optionLabels[optionId]} protection.`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            try {
+                // 경매 생성 (기간 옵션 포함)
+                await auctionSystem.createAuction(this.currentTerritory.id, {
+                    protectionDays: days,
+                    startingBid: price
+                });
+                
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'success',
+                    message: `Territory auction started for ${optionLabels[optionId]}!`
+                });
+                
+                // 모달 닫기
+                modal.remove();
+                
+                // 패널 갱신
+                this.render();
+                this.bindActions();
+                
+            } catch (error) {
+                log.error('Failed to start territory auction:', error);
+                
+                let errorMessage = 'Failed to start auction';
+                if (error.message.includes('already exists')) {
+                    errorMessage = 'An auction is already in progress for this territory';
+                } else if (error.message.includes('Authentication')) {
+                    errorMessage = 'Please sign in first';
+                }
+                
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'error',
+                    message: errorMessage
+                });
+            }
+        });
     }
     
     /**
