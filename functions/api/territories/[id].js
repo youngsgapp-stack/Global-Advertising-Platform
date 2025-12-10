@@ -22,9 +22,16 @@ export async function onRequest(context) {
   }
   
   try {
-    // Firebase REST API 사용
+    // Firebase REST API 사용 (API Key 필요)
     const projectId = env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/territories/${id}`;
+    const apiKey = env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    
+    if (!projectId || !apiKey) {
+      throw new Error('Firebase configuration missing');
+    }
+    
+    // Firestore REST API는 API Key를 쿼리 파라미터로 전달
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/territories/${id}?key=${apiKey}`;
     
     const response = await fetch(firestoreUrl, {
       method: 'GET',

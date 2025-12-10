@@ -7,14 +7,19 @@ export async function onRequest(context) {
   const { env } = context;
   
   try {
-    // Firebase REST API 사용
+    // Firebase REST API 사용 (API Key 필요)
     const projectId = env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions`;
+    const apiKey = env.NEXT_PUBLIC_FIREBASE_API_KEY;
     
-    // status가 'active'인 경매만 조회
-    const queryUrl = `${firestoreUrl}?where=status%3D%3Dactive`;
+    if (!projectId || !apiKey) {
+      throw new Error('Firebase configuration missing');
+    }
     
-    const response = await fetch(queryUrl, {
+    // Firestore REST API는 API Key를 쿼리 파라미터로 전달
+    // 복잡한 쿼리는 지원하지 않으므로 모든 경매를 가져온 후 필터링
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions?key=${apiKey}`;
+    
+    const response = await fetch(firestoreUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
