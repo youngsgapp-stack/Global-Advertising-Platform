@@ -1,23 +1,7 @@
 /**
  * Cloudflare Pages Functions - Territory API
+ * Firebase REST API 사용 (Edge Runtime 호환)
  */
-
-async function getFirestoreInstance(env) {
-  const { initializeApp } = await import('firebase/app');
-  const { getFirestore } = await import('firebase/firestore');
-  
-  const firebaseConfig = {
-    apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: env.NEXT_PUBLIC_FIREBASE_APP_ID
-  };
-  
-  const app = initializeApp(firebaseConfig);
-  return getFirestore(app);
-}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -38,26 +22,35 @@ export async function onRequest(context) {
   }
   
   try {
-    const firestore = await getFirestoreInstance(env);
-    const { doc, getDoc } = await import('firebase/firestore');
+    // Firebase REST API 사용
+    const projectId = env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/territories/${id}`;
     
-    const territoryRef = doc(firestore, 'territories', id);
-    const territorySnap = await getDoc(territoryRef);
+    const response = await fetch(firestoreUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
     
-    if (!territorySnap.exists()) {
-      return new Response(JSON.stringify({ error: 'Territory not found' }), {
-        status: 404,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
+    if (!response.ok) {
+      if (response.status === 404) {
+        return new Response(JSON.stringify({ error: 'Territory not found' }), {
+          status: 404,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+      throw new Error(`Firestore API error: ${response.status}`);
     }
     
-    const territory = {
-      id: territorySnap.id,
-      ...territorySnap.data()
-    };
+    const firestoreData = await response.json();
+    
+    // Firestore REST API 응답을 일반 객체로 변환
+    const territory = convertFirestoreToObject(firestoreData);
+    territory.id = id;
     
     return new Response(JSON.stringify(territory), {
       status: 200,
@@ -83,3 +76,55 @@ export async function onRequest(context) {
   }
 }
 
+/**
+ * Firestore REST API 응답을 일반 객체로 변환
+ */
+function convertFirestoreToObject(firestoreDoc) {
+  if (!firestoreDoc.fields) {
+    return {};
+  }
+  
+  const result = {};
+  for (const [key, value] of Object.entries(firestoreDoc.fields)) {
+    result[key] = convertFirestoreValue(value);
+  }
+  
+  return result;
+}
+
+/**
+ * Firestore 값 타입 변환
+ */
+function convertFirestoreValue(value) {
+  if (value.stringValue !== undefined) {
+    return value.stringValue;
+  }
+  if (value.integerValue !== undefined) {
+    return parseInt(value.integerValue, 10);
+  }
+  if (value.doubleValue !== undefined) {
+    return parseFloat(value.doubleValue);
+  }
+  if (value.booleanValue !== undefined) {
+    return value.booleanValue === 'true';
+  }
+  if (value.timestampValue !== undefined) {
+    return new Date(value.timestampValue).getTime();
+  }
+  if (value.nullValue !== undefined) {
+    return null;
+  }
+  if (value.arrayValue !== undefined) {
+    return value.arrayValue.values.map(v => convertFirestoreValue(v));
+  }
+  if (value.mapValue !== undefined) {
+    const result = {};
+    if (value.mapValue.fields) {
+      for (const [k, v] of Object.entries(value.mapValue.fields)) {
+        result[k] = convertFirestoreValue(v);
+      }
+    }
+    return result;
+  }
+  return value;
+}

@@ -1,39 +1,46 @@
 /**
  * Cloudflare Pages Functions - Auctions List API
+ * Firebase REST API 사용 (Edge Runtime 호환)
  */
-
-async function getFirestoreInstance(env) {
-  const { initializeApp } = await import('firebase/app');
-  const { getFirestore } = await import('firebase/firestore');
-  
-  const firebaseConfig = {
-    apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: env.NEXT_PUBLIC_FIREBASE_APP_ID
-  };
-  
-  const app = initializeApp(firebaseConfig);
-  return getFirestore(app);
-}
 
 export async function onRequest(context) {
   const { env } = context;
   
   try {
-    const firestore = await getFirestoreInstance(env);
-    const { collection, query, where, getDocs } = await import('firebase/firestore');
+    // Firebase REST API 사용
+    const projectId = env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions`;
     
-    const auctionsRef = collection(firestore, 'auctions');
-    const q = query(auctionsRef, where('status', '==', 'active'));
-    const querySnapshot = await getDocs(q);
+    // status가 'active'인 경매만 조회
+    const queryUrl = `${firestoreUrl}?where=status%3D%3Dactive`;
     
-    const auctions = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const response = await fetch(queryUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Firestore API error: ${response.status}`);
+    }
+    
+    const firestoreData = await response.json();
+    
+    // Firestore REST API 응답을 일반 객체 배열로 변환
+    let auctions = [];
+    if (firestoreData.documents) {
+      auctions = firestoreData.documents.map(doc => {
+        const auction = convertFirestoreToObject(doc);
+        // 문서 ID 추출: projects/.../databases/.../documents/auctions/auction_id → auction_id
+        const docPath = doc.name.split('/');
+        auction.id = docPath[docPath.length - 1];
+        return auction;
+      });
+    }
+    
+    // status가 'active'인 것만 필터링 (REST API 쿼리가 작동하지 않을 수 있으므로)
+    auctions = auctions.filter(auction => auction.status === 'active');
     
     return new Response(JSON.stringify({ 
       auctions,
@@ -63,3 +70,55 @@ export async function onRequest(context) {
   }
 }
 
+/**
+ * Firestore REST API 응답을 일반 객체로 변환
+ */
+function convertFirestoreToObject(firestoreDoc) {
+  if (!firestoreDoc.fields) {
+    return {};
+  }
+  
+  const result = {};
+  for (const [key, value] of Object.entries(firestoreDoc.fields)) {
+    result[key] = convertFirestoreValue(value);
+  }
+  
+  return result;
+}
+
+/**
+ * Firestore 값 타입 변환
+ */
+function convertFirestoreValue(value) {
+  if (value.stringValue !== undefined) {
+    return value.stringValue;
+  }
+  if (value.integerValue !== undefined) {
+    return parseInt(value.integerValue, 10);
+  }
+  if (value.doubleValue !== undefined) {
+    return parseFloat(value.doubleValue);
+  }
+  if (value.booleanValue !== undefined) {
+    return value.booleanValue === 'true';
+  }
+  if (value.timestampValue !== undefined) {
+    return new Date(value.timestampValue).getTime();
+  }
+  if (value.nullValue !== undefined) {
+    return null;
+  }
+  if (value.arrayValue !== undefined) {
+    return value.arrayValue.values.map(v => convertFirestoreValue(v));
+  }
+  if (value.mapValue !== undefined) {
+    const result = {};
+    if (value.mapValue.fields) {
+      for (const [k, v] of Object.entries(value.mapValue.fields)) {
+        result[k] = convertFirestoreValue(v);
+      }
+    }
+    return result;
+  }
+  return value;
+}
