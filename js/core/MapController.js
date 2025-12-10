@@ -23,6 +23,12 @@ class MapController {
         this.globalAdminLoaded = false;
         this.viewMode = 'country';  // 'world' or 'country'
         this.activeLayerIds = new Set();  // Track active layers
+        // ⚠️ Step 5-4: 지연 로딩을 위한 추적
+        this.lastQueryTime = 0; // 마지막 쿼리 시간
+        this.lastQueryPosition = null; // 마지막 쿼리 위치 { center, zoom }
+        this.queryDebounceTimer = null; // 쿼리 디바운스 타이머
+        this.QUERY_DEBOUNCE_DELAY = 500; // 500ms 지연
+        this.MIN_QUERY_DISTANCE = 0.01; // 최소 이동 거리 (도 단위)
         
         // ⚠️ 중요: Territory ID → Feature 인덱스 테이블
         // 이 테이블을 통해 O(1)로 feature를 찾을 수 있으며, 이름 기반 매칭 문제를 해결합니다.
@@ -156,18 +162,89 @@ class MapController {
         });
         
         // 이동 이벤트
+        // ⚠️ Step 5-4: 지연 로딩 적용 (일정 시간/거리 이상 이동한 뒤에만 쿼리)
         this.map.on('moveend', () => {
-            eventBus.emit(EVENTS.MAP_MOVE, {
-                center: this.map.getCenter(),
-                zoom: this.map.getZoom(),
-                bounds: this.map.getBounds()
-            });
+            const center = this.map.getCenter();
+            const zoom = this.map.getZoom();
+            const bounds = this.map.getBounds();
+            
+            // ⚠️ Step 5-4: 지연 로딩 - 마지막 쿼리 이후 일정 시간/거리 이상 이동했을 때만 쿼리
+            const now = Date.now();
+            const timeSinceLastQuery = now - this.lastQueryTime;
+            const shouldQuery = this.shouldTriggerQuery(center, zoom);
+            
+            if (shouldQuery) {
+                // 디바운스: 500ms 안에 다시 움직이면 마지막 위치 기준 한 번만 실행
+                if (this.queryDebounceTimer) {
+                    clearTimeout(this.queryDebounceTimer);
+                }
+                
+                this.queryDebounceTimer = setTimeout(() => {
+                    this.lastQueryTime = Date.now();
+                    this.lastQueryPosition = { center, zoom };
+                    this.queryDebounceTimer = null;
+                    
+                    eventBus.emit(EVENTS.MAP_MOVE, {
+                        center,
+                        zoom,
+                        bounds
+                    });
+                }, this.QUERY_DEBOUNCE_DELAY);
+            } else {
+                // 쿼리 없이 이벤트만 발행 (UI 업데이트용)
+                eventBus.emit(EVENTS.MAP_MOVE, {
+                    center,
+                    zoom,
+                    bounds
+                });
+            }
         });
         
         // 픽셀 캔버스 업데이트는 PixelMapRenderer에서 처리 (V2)
         // PixelMapRenderer가 이미 이벤트를 구독하고 있음
         
         // 영토 업데이트 이벤트 (일반적인 업데이트는 PixelMapRenderer가 처리)
+    }
+    
+    /**
+     * ⚠️ Step 5-4: 쿼리 트리거 여부 판단
+     * 마지막 쿼리 이후 일정 시간/거리 이상 이동했을 때만 true 반환
+     */
+    shouldTriggerQuery(center, zoom) {
+        const now = Date.now();
+        const timeSinceLastQuery = now - this.lastQueryTime;
+        
+        // 첫 쿼리인 경우
+        if (this.lastQueryTime === 0 || !this.lastQueryPosition) {
+            return true;
+        }
+        
+        // 마지막 쿼리 이후 5초 이상 지났는지 확인
+        const MIN_QUERY_INTERVAL = 5000; // 5초
+        if (timeSinceLastQuery >= MIN_QUERY_INTERVAL) {
+            return true;
+        }
+        
+        // 마지막 쿼리 위치에서 일정 거리 이상 이동했는지 확인
+        const lastCenter = this.lastQueryPosition.center;
+        if (lastCenter) {
+            const distance = center.distanceTo(lastCenter);
+            if (distance > this.MIN_QUERY_DISTANCE) {
+                return true;
+            }
+        }
+        
+        // 줌 레벨이 일정 이상 변경되었는지 확인
+        const lastZoom = this.lastQueryPosition.zoom;
+        if (lastZoom !== undefined) {
+            const zoomDiff = Math.abs(zoom - lastZoom);
+            if (zoomDiff > 0.1) {
+                return true;
+            }
+        }
+        
+        // 위 조건에 해당하지 않으면 쿼리 불필요
+        return false;
     }
     
     /**
@@ -1645,10 +1722,14 @@ class MapController {
                     log.debug('Failed to set hover state:', error);
                 }
                 
+                // ⚠️ Step 5-4: 호버 시 Firestore 읽기 없이 로컬 데이터만 사용
+                // properties에서 기본 정보만 추출하여 이벤트 발행 (Firestore 호출 없음)
                 eventBus.emit(EVENTS.TERRITORY_HOVER, {
                     territoryId: feature.properties.id || feature.id,
                     properties: feature.properties,
-                    lngLat: e.lngLat
+                    lngLat: e.lngLat,
+                    // ⚠️ Step 5-4: 호버는 로컬 데이터만 사용, Firestore 읽기 없음
+                    fromCache: true
                 });
             }
         });
@@ -1675,9 +1756,11 @@ class MapController {
         });
         
         // 클릭
+        // ⚠️ Step 5-4: 클릭 시에만 Firestore 읽기 (호버는 읽지 않음)
         this.map.on('click', fillLayerId, (e) => {
             if (e.features.length > 0) {
                 const feature = e.features[0];
+                // ⚠️ Step 5-4: 클릭 시에만 selectTerritory 호출 (Firestore 읽기 발생)
                 this.selectTerritory(sourceId, feature);
             }
         });

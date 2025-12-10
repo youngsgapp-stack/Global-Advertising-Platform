@@ -10,7 +10,8 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 export const SERVICE_MODE = {
     NORMAL: 'normal',      // 일상 모드
     BUSY: 'busy',          // 높은 부하 모드
-    EMERGENCY: 'emergency' // 비상 모드
+    EMERGENCY: 'emergency', // 비상 모드
+    READ_ONLY: 'read-only' // ⚠️ Step 6-4: 저비용 모드 (읽기 전용)
 };
 
 // 모드별 기능 설정
@@ -62,6 +63,24 @@ const MODE_CONFIG = {
         filtersEnabled: false,
         searchEnabled: false,
         liveIndicatorsEnabled: false
+    },
+    // ⚠️ Step 6-4: 저비용 모드 (읽기 전용)
+    [SERVICE_MODE.READ_ONLY]: {
+        realtimeRanking: false,
+        realtimeRankingInterval: 0,
+        pixelEditorEnabled: false, // 읽기 전용
+        animationsEnabled: false,
+        effectsEnabled: false,
+        mapThumbnailMode: false,
+        pixelSaveDelay: 0, // 저장 불가
+        pixelSaveBatchSize: 0,
+        rankingUpdateInterval: 0,
+        statisticsEnabled: true, // 통계는 읽기만
+        filtersEnabled: true, // 필터는 읽기만
+        searchEnabled: true, // 검색은 읽기만
+        liveIndicatorsEnabled: false,
+        biddingEnabled: false, // ⚠️ 입찰 불가
+        territoryPurchaseEnabled: false // ⚠️ 구매 불가
     }
 };
 
@@ -121,13 +140,15 @@ class ServiceModeManager {
     
     /**
      * 모드 설정
+     * ⚠️ Step 6-4: options 파라미터 추가 (reason 등)
      */
-    setMode(mode, saveToStorage = true) {
+    setMode(mode, options = {}) {
         if (!Object.values(SERVICE_MODE).includes(mode)) {
             log.warn(`[ServiceModeManager] Invalid mode: ${mode}`);
             return;
         }
         
+        const saveToStorage = options.saveToStorage !== false; // 기본값: true
         const previousMode = this.currentMode;
         this.currentMode = mode;
         this.config = { ...MODE_CONFIG[mode] };
@@ -136,17 +157,25 @@ class ServiceModeManager {
             localStorage.setItem('serviceMode', mode);
         }
         
-        log.info(`[ServiceModeManager] Mode changed: ${previousMode} → ${mode}`);
+        log.info(`[ServiceModeManager] Mode changed: ${previousMode} → ${mode}${options.reason ? ` (reason: ${options.reason})` : ''}`);
         
         // 이벤트 발행
         eventBus.emit(EVENTS.SERVICE_MODE_CHANGED, {
             previousMode,
             currentMode: mode,
-            config: this.config
+            config: this.config,
+            reason: options.reason || 'manual' // ⚠️ Step 6-4: 모드 변경 이유 추가
         });
         
+        // ⚠️ Step 6-4: READ_ONLY 모드일 때 UI 배너 표시
+        if (this.currentMode === SERVICE_MODE.READ_ONLY) {
+            this.showReadOnlyBanner(options.reason || 'high-traffic');
+        } else {
+            this.hideReadOnlyBanner();
+        }
+        
         // UI 업데이트 알림
-        if (mode === SERVICE_MODE.EMERGENCY) {
+        if (mode === SERVICE_MODE.EMERGENCY || mode === SERVICE_MODE.READ_ONLY) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
                 message: '⚠️ 서비스가 높은 부하 상태입니다. 일부 기능이 제한될 수 있습니다.',
@@ -282,9 +311,79 @@ class ServiceModeManager {
             mode: this.currentMode
         };
     }
+    
+    /**
+     * ⚠️ Step 6-4: 읽기 전용 모드 배너 표시
+     */
+    showReadOnlyBanner(reason = 'high-traffic') {
+        // 기존 배너 제거
+        this.hideReadOnlyBanner();
+        
+        const banner = document.createElement('div');
+        banner.id = 'read-only-mode-banner';
+        banner.className = 'read-only-mode-banner';
+        banner.innerHTML = `
+            <div class="banner-content">
+                <span class="banner-icon">⚠️</span>
+                <span class="banner-message">
+                    현재 트래픽이 높아 일부 기능이 '보기 전용 모드'로 전환되었습니다. 
+                    잠시 뒤 자동으로 복구됩니다.
+                </span>
+                <button class="banner-close" onclick="this.parentElement.parentElement.remove()">×</button>
+            </div>
+        `;
+        
+        // 스타일 추가 (인라인으로)
+        banner.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            padding: 12px 20px;
+            z-index: 10000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 14px;
+        `;
+        
+        const content = banner.querySelector('.banner-content');
+        content.style.cssText = `
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            max-width: 1200px;
+            margin: 0 auto;
+        `;
+        
+        const closeBtn = banner.querySelector('.banner-close');
+        closeBtn.style.cssText = `
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 10px;
+            border-radius: 4px;
+        `;
+        
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+    
+    /**
+     * ⚠️ Step 6-4: 읽기 전용 모드 배너 제거
+     */
+    hideReadOnlyBanner() {
+        const banner = document.getElementById('read-only-mode-banner');
+        if (banner) {
+            banner.remove();
+        }
+    }
 }
 
 // 싱글톤 인스턴스
 export const serviceModeManager = new ServiceModeManager();
 export default serviceModeManager;
+// ⚠️ Step 6-4: SERVICE_MODE는 이미 10번째 줄에서 export됨 (중복 제거)
 

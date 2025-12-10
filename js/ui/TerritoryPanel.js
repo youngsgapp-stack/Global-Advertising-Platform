@@ -31,6 +31,7 @@ class TerritoryPanel {
         this.currentTerritory = null;
         this.lang = 'en';  // English default
         this.countryData = null;
+        this.isProcessingBid = false;  // ⚡ 입찰 처리 중 플래그 (중복 클릭 방지)
     }
     
     /**
@@ -80,23 +81,14 @@ class TerritoryPanel {
             }
         });
         
-        // ⚠️ 전문가 조언 반영: TERRITORY_SELECTED (출력) 이벤트만 구독
-        // TerritoryManager가 완전히 하이드레이트된 Territory 객체를 전달
+        // ⚠️ 응급 조치: 이벤트 단순화 - TERRITORY_SELECTED만 구독 (중복 읽기 방지)
+        // TERRITORY_SELECT 이벤트 리스너 제거됨
         eventBus.on(EVENTS.TERRITORY_SELECTED, async (data) => {
             const territoryId = data.territoryId || data.territory?.id;
             log.info(`[TerritoryPanel] 📥 [TerritoryPanel ← TERRITORY_SELECTED] TERRITORY_SELECTED event received: territoryId=${territoryId}, territory.id=${data.territory?.id}, country=${data.country}, properties.adm0_a3=${data.properties?.adm0_a3}`);
             
-            // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
-        });
-        
-        // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
-        eventBus.on(EVENTS.TERRITORY_SELECT, async (data) => {
-            const territoryId = data.territoryId || data.territory?.id;
-            log.warn(`[TerritoryPanel] ⚠️ Deprecated TERRITORY_SELECT event received, converting to TERRITORY_SELECTED handler`);
-            log.info(`[TerritoryPanel] TERRITORY_SELECT event received: territoryId=${territoryId}, territory.id=${data.territory?.id}, country=${data.country}, properties.adm0_a3=${data.properties?.adm0_a3}`);
-            
             if (!territoryId) {
-                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECT event missing territoryId`);
+                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECTED event missing territoryId`);
                 return;
             }
             
@@ -104,7 +96,7 @@ class TerritoryPanel {
             // 이벤트의 territory 객체를 우선 사용 (단일 진실 원칙)
             let territory = null;
             
-            // 1. 이벤트 데이터에 territory 객체가 있으면 사용 (TerritoryManager가 완전히 하이드레이트한 객체)
+            // 이벤트 데이터에 territory 객체가 있으면 사용 (TerritoryManager가 완전히 하이드레이트한 객체)
             if (data.territory && data.territory.id) {
                 territory = data.territory;
                 log.info(`[TerritoryPanel] ✅ Using fully hydrated territory from event: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
@@ -118,8 +110,8 @@ class TerritoryPanel {
                 if (data.featureId) territory.featureId = data.featureId;
                 if (data.country) territory.country = data.country;
             } else {
-                // 2. 이벤트에 territory 객체가 없으면 TerritoryManager에서 가져오기 (fallback)
-                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECT event missing territory object, fetching from TerritoryManager`);
+                // 이벤트에 territory 객체가 없으면 TerritoryManager에서 가져오기 (fallback)
+                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECTED event missing territory object, fetching from TerritoryManager`);
                 territory = territoryManager.getTerritory(territoryId);
                 if (territory) {
                     // territory.id가 없으면 설정
@@ -137,7 +129,7 @@ class TerritoryPanel {
                     if (data.featureId) territory.featureId = data.featureId;
                     if (data.geometry) territory.geometry = data.geometry;
                 } else {
-                    // 3. TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성 (최후의 수단)
+                    // TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성 (최후의 수단)
                     log.error(`[TerritoryPanel] ❌ Territory ${territoryId} not found in TerritoryManager, creating from event data`);
                     territory = {
                         id: territoryId,
@@ -2089,6 +2081,12 @@ class TerritoryPanel {
      * 입찰 처리
      */
     async handlePlaceBid() {
+        // ⚡ 중복 클릭 방지: 이미 처리 중이면 무시
+        if (this.isProcessingBid) {
+            log.debug('[TerritoryPanel] Bid already processing, ignoring duplicate click');
+            return;
+        }
+        
         const input = document.getElementById('bid-amount-input');
         if (!input) return;
         
@@ -2096,6 +2094,16 @@ class TerritoryPanel {
         const user = firebaseService.getCurrentUser();
         const auction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
         const isAdmin = this.isAdminMode();
+        
+        // ⚡ 처리 시작 플래그 설정
+        this.isProcessingBid = true;
+        
+        // 버튼 비활성화 (UI 피드백)
+        const bidButton = document.getElementById('place-bid-btn');
+        if (bidButton) {
+            bidButton.disabled = true;
+            bidButton.textContent = 'Processing...';
+        }
         
         // 로그인 체크
         if (!user) {
@@ -2186,6 +2194,17 @@ class TerritoryPanel {
             }
         }
         
+        // ⚠️ Step 6-4: READ_ONLY 모드 체크
+        const { serviceModeManager } = await import('../services/ServiceModeManager.js');
+        if (serviceModeManager.currentMode === serviceModeManager.SERVICE_MODE.READ_ONLY) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: '현재는 입찰이 제한된 상태입니다. 다시 시도해주세요.',
+                duration: 5000
+            });
+            return;
+        }
+        
         try {
             // Rate Limiting 체크 (관리자가 아닌 경우에만)
             if (!isAdmin && user?.uid) {
@@ -2201,6 +2220,32 @@ class TerritoryPanel {
                 }
             }
             
+            // ⚠️ Step 6-3: Optimistic Update - 입찰 전 상태 저장
+            const previousAuctionState = JSON.parse(JSON.stringify(auction)); // Deep copy
+            const previousWalletBalance = !isAdmin ? walletService.currentBalance : null;
+            
+            // Optimistic Update: UI에 즉시 반영
+            auction.currentBid = bidAmount;
+            auction.highestBidder = user.uid;
+            auction.highestBidderName = user.displayName || user.email;
+            if (!auction.bids) auction.bids = [];
+            auction.bids.push({
+                userId: user.uid,
+                userName: user.displayName || user.email,
+                amount: bidAmount,
+                timestamp: new Date()
+            });
+            
+            // 로컬 캐시에 즉시 반영
+            auctionSystem.activeAuctions.set(auction.id, auction);
+            if (this.currentTerritory) {
+                this.currentTerritory.currentAuction = auction;
+            }
+            
+            // UI 즉시 업데이트
+            this.render();
+            this.bindActions();
+            
             // 관리자 모드가 아닌 경우에만 포인트 차감
             if (!isAdmin) {
                 await walletService.deductPoints(bidAmount, `Auction bid for ${auction.territoryId}`, 'bid', {
@@ -2209,6 +2254,7 @@ class TerritoryPanel {
                 });
             }
             
+            // ⚠️ Step 6-1: 서버 권위 강화 - 실제 서버 호출 (현재는 클라이언트 트랜잭션, 나중에 Cloud Functions로 전환)
             await auctionSystem.handleBid({
                 auctionId: auction.id,
                 bidAmount,
@@ -2225,18 +2271,9 @@ class TerritoryPanel {
             // 입력 필드 초기화
             input.value = '';
             
-            // ⚡ 최적화: 전체 경매 재로드 대신 특정 경매만 업데이트
-            // handleBid가 이미 로컬 캐시를 업데이트했으므로, Firestore에서 특정 경매만 다시 가져오기
-            try {
-                const updatedAuctionData = await firebaseService.getDocument('auctions', auction.id);
-                if (updatedAuctionData) {
-                    auctionSystem.activeAuctions.set(auction.id, updatedAuctionData);
-                }
-            } catch (error) {
-                log.warn('[TerritoryPanel] Failed to refresh single auction, using cached data:', error);
-            }
-            
-            // 현재 옥션 데이터 다시 가져오기 (최신 데이터 보장)
+            // ⚠️ 응급 조치: 입찰 후 Firestore 재조회 제거 (불필요한 읽기 방지)
+            // handleBid가 이미 로컬 캐시(activeAuctions)를 업데이트했으므로 Firestore 재조회 불필요
+            // 로컬 캐시에서 직접 가져오기
             const updatedAuction = auctionSystem.activeAuctions.get(auction.id);
             if (updatedAuction && this.currentTerritory) {
                 // currentTerritory의 옥션 정보 업데이트
@@ -2265,14 +2302,38 @@ class TerritoryPanel {
         } catch (error) {
             log.error('Bid failed:', error);
             
+            // ⚠️ Step 6-3: Optimistic Update 롤백
+            try {
+                if (previousAuctionState) {
+                    auctionSystem.activeAuctions.set(auction.id, previousAuctionState);
+                    if (this.currentTerritory) {
+                        this.currentTerritory.currentAuction = previousAuctionState;
+                    }
+                }
+                if (previousWalletBalance !== null && !isAdmin) {
+                    // 지갑 잔액 롤백 (실제로는 서버에서 처리되지만, UI만 롤백)
+                    walletService.currentBalance = previousWalletBalance;
+                    eventBus.emit('wallet:balance-updated', { balance: previousWalletBalance });
+                }
+                // UI 롤백
+                this.render();
+                this.bindActions();
+            } catch (rollbackError) {
+                log.error('[TerritoryPanel] Failed to rollback optimistic update:', rollbackError);
+            }
+            
             let errorMessage = 'Failed to place bid';
             let shouldRetry = false;
             
-            // Firebase 할당량 초과 에러 처리
+            // ⚠️ Step 6-4: Firebase 할당량 초과 에러 처리 - 저비용 모드 전환
             if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
                 error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
                 errorMessage = '⚠️ Service temporarily unavailable due to high traffic. Please try again in a few moments.';
-                log.warn('[TerritoryPanel] Firestore quota exceeded, suggesting user to retry later');
+                log.warn('[TerritoryPanel] Firestore quota exceeded, switching to read-only mode');
+                
+                // ⚠️ Step 6-4: 저비용 모드 전환
+                const { serviceModeManager } = await import('../services/ServiceModeManager.js');
+                serviceModeManager.setMode(serviceModeManager.SERVICE_MODE.READ_ONLY, { reason: 'quota-exceeded' });
             } 
             // 최소 입찰가 에러
             else if (error.message.includes('Minimum')) {
@@ -2292,6 +2353,14 @@ class TerritoryPanel {
                 message: errorMessage,
                 duration: error.code === 'resource-exhausted' || error.code === 'quota-exceeded' ? 8000 : 5000
             });
+        } finally {
+            // ⚡ 처리 완료 플래그 해제 및 버튼 복원
+            this.isProcessingBid = false;
+            const bidButton = document.getElementById('place-bid-btn');
+            if (bidButton) {
+                bidButton.disabled = false;
+                bidButton.textContent = 'Place Bid';
+            }
         }
     }
     

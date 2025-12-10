@@ -15,7 +15,12 @@ class MonitoringService {
                 reads: 0,
                 writes: 0,
                 errors: 0,
-                lastError: null
+                lastError: null,
+                // ⚠️ Step 5-3: 기능별/컬렉션별 read count 추적
+                readsByCollection: new Map(), // collectionName -> count
+                readsByOperation: new Map(),  // operation -> count (getDocument, queryCollection, onSnapshot)
+                readsByPage: new Map(),       // page/feature -> count
+                readsByTime: []               // { timestamp, count, collection } - 최근 100개
             },
             api: {
                 requests: 0,
@@ -138,10 +143,53 @@ class MonitoringService {
     
     /**
      * Firestore 읽기 기록
+     * ⚠️ Step 5-3: 기능별/컬렉션별 read count 추적
      */
-    recordFirestoreRead(count = 1) {
+    recordFirestoreRead(count = 1, context = {}) {
         this.metrics.firestore.reads += count;
         serviceModeManager.recordMetric('firestoreRead', count);
+        
+        // ⚠️ Step 5-3: 컬렉션별 추적
+        if (context.collection) {
+            const current = this.metrics.firestore.readsByCollection.get(context.collection) || 0;
+            this.metrics.firestore.readsByCollection.set(context.collection, current + count);
+        }
+        
+        // ⚠️ Step 5-3: 작업 유형별 추적
+        const operation = context.operation || 'unknown';
+        const currentOp = this.metrics.firestore.readsByOperation.get(operation) || 0;
+        this.metrics.firestore.readsByOperation.set(operation, currentOp + count);
+        
+        // ⚠️ Step 5-3: 페이지/기능별 추적
+        if (context.page || context.feature) {
+            const pageKey = context.page || context.feature;
+            const currentPage = this.metrics.firestore.readsByPage.get(pageKey) || 0;
+            this.metrics.firestore.readsByPage.set(pageKey, currentPage + count);
+        }
+        
+        // ⚠️ Step 5-3: 시간별 추적 (최근 100개만 유지)
+        this.metrics.firestore.readsByTime.push({
+            timestamp: Date.now(),
+            count,
+            collection: context.collection,
+            operation: operation
+        });
+        if (this.metrics.firestore.readsByTime.length > 100) {
+            this.metrics.firestore.readsByTime.shift();
+        }
+        
+        // ⚠️ Step 5-3: 이상치 감지 (10분 내 5,000회 이상 읽기)
+        const recentReads = this.metrics.firestore.readsByTime
+            .filter(entry => Date.now() - entry.timestamp < 10 * 60 * 1000)
+            .reduce((sum, entry) => sum + entry.count, 0);
+        
+        if (recentReads > 5000) {
+            log.warn(`[MonitoringService] ⚠️ 이상치 감지: 10분 내 ${recentReads}회 읽기 발생`, {
+                collection: context.collection,
+                operation: operation,
+                page: context.page || context.feature
+            });
+        }
     }
     
     /**

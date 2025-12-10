@@ -280,6 +280,12 @@ class PerformanceOptimizer {
                 info.paused = true;
             }
         }
+        
+        // ⚠️ CPU 모니터링 일시 중지
+        if (this.optimizations.cpuMonitor) {
+            clearInterval(this.optimizations.cpuMonitor);
+            this.optimizations.cpuMonitor = null;
+        }
     }
     
     /**
@@ -295,52 +301,62 @@ class PerformanceOptimizer {
                 info.paused = false;
             }
         }
+        
+        // ⚠️ CPU 모니터링 재개
+        if (!this.optimizations.cpuMonitor) {
+            this.startCPUMonitoring();
+        }
     }
     
     /**
      * CPU 모니터링 시작
+     * ⚠️ 최적화: 간단한 setInterval 기반 모니터링 (requestAnimationFrame 제거)
      */
     startCPUMonitoring() {
         if (!window.performance || !window.performance.mark) {
             return; // Performance API 미지원
         }
         
-        // CPU 사용량 추정 (프레임 드롭 기반)
-        let lastFrameTime = performance.now();
+        // CPU 사용량 추정 (간단한 방식)
+        let lastCheckTime = performance.now();
         let frameCount = 0;
         let droppedFrames = 0;
         
-        const monitorFrame = () => {
-            const now = performance.now();
-            const frameTime = now - lastFrameTime;
-            
-            frameCount++;
-            
-            // 16.67ms (60fps)보다 길면 프레임 드롭
-            if (frameTime > 20) {
-                droppedFrames++;
+        // ⚠️ 최적화: requestAnimationFrame 제거, setInterval만 사용 (10초마다)
+        const checkCPU = () => {
+            // 페이지가 숨겨져 있으면 모니터링 중지
+            if (!this.optimizations.isPageVisible) {
+                return;
             }
             
-            // 1초마다 CPU 사용률 계산
-            if (frameCount >= 60) {
-                const dropRate = droppedFrames / frameCount;
-                this.optimizations.cpuUsage = dropRate * 100;
+            const now = performance.now();
+            const timeSinceLastCheck = now - lastCheckTime;
+            
+            // 간단한 CPU 사용률 추정 (시간 기반)
+            // 이상적으로는 10초에 600프레임 (60fps)이어야 함
+            const expectedFrames = (timeSinceLastCheck / 1000) * 60;
+            const actualFrames = frameCount;
+            
+            if (expectedFrames > 0) {
+                const frameRatio = actualFrames / expectedFrames;
+                // 프레임 비율이 낮으면 CPU 사용률이 높은 것으로 추정
+                this.optimizations.cpuUsage = (1 - frameRatio) * 100;
                 
-                // CPU 사용률이 50% 이상이면 경고
-                if (this.optimizations.cpuUsage > 50) {
+                // CPU 사용률이 80% 이상이면 경고
+                if (this.optimizations.cpuUsage > 80) {
                     log.warn(`[PerformanceOptimizer] ⚠️ High CPU usage detected: ${this.optimizations.cpuUsage.toFixed(1)}%`);
                     this.triggerPerformanceWarning();
                 }
-                
-                frameCount = 0;
-                droppedFrames = 0;
             }
             
-            lastFrameTime = now;
-            requestAnimationFrame(monitorFrame);
+            frameCount = 0;
+            droppedFrames = 0;
+            lastCheckTime = now;
         };
         
-        this.optimizations.cpuMonitor = requestAnimationFrame(monitorFrame);
+        // ⚠️ 최적화: 10초마다 체크 (기존: 매 프레임)
+        // requestAnimationFrame 루프 제거로 CPU 사용량 대폭 감소
+        this.optimizations.cpuMonitor = setInterval(checkCPU, 10000);
     }
     
     /**

@@ -28,6 +28,8 @@ class TerritoryManager {
         this.processingConquest = new Set(); // 구매 처리 중인 territoryId 추적
         this.isoToSlugMap = null; // ISO 코드 -> 슬러그 매핑 캐시
         this.protectionCheckInterval = null; // 보호 기간 체크 인터벌
+        this._lastFetched = new Map(); // ⚡ 캐시: territoryId -> 마지막 fetch 시간 (가이드 권장)
+        this.CACHE_TTL = 30 * 1000; // ⚡ 30초 캐시 (가이드 권장)
     }
     
     /**
@@ -148,8 +150,17 @@ class TerritoryManager {
     /**
      * 보호 기간 주기적 체크 시작 (서버 cron 실패 시 대비)
      * 5분마다 체크하여 만료된 보호 기간 자동 수정
+     * ⚠️ 응급 조치: 폴링 비활성화 (Firestore 읽기 폭발 방지)
+     * TODO: Cloud Functions Cron으로 이동 필요
      */
     startProtectionPeriodCheck() {
+        // ⚠️ 응급 조치: 폴링 비활성화
+        log.warn('[TerritoryManager] ⚠️ Protection check interval DISABLED to prevent Firestore read explosion');
+        log.warn('[TerritoryManager] TODO: Move to Cloud Functions Cron job');
+        return;
+        
+        // 아래 코드는 나중에 Cloud Functions로 이동 예정
+        /*
         // 기존 인터벌이 있으면 제거
         if (this.protectionCheckInterval) {
             clearInterval(this.protectionCheckInterval);
@@ -168,6 +179,7 @@ class TerritoryManager {
         });
         
         log.info('[TerritoryManager] ✅ Protection period check started (every 5 minutes)');
+        */
     }
     
     /**
@@ -210,11 +222,9 @@ class TerritoryManager {
             this.handleTerritorySelect(data);
         });
         
-        // 레거시 호환성: TERRITORY_SELECT도 처리 (deprecated)
-        eventBus.on(EVENTS.TERRITORY_SELECT, (data) => {
-            log.warn(`[TerritoryManager] ⚠️ Deprecated TERRITORY_SELECT event received, converting to TERRITORY_CLICKED`);
-            eventBus.emit(EVENTS.TERRITORY_CLICKED, data);
-        });
+        // ⚠️ 응급 조치: TERRITORY_SELECT 이벤트 제거 (중복 읽기 방지)
+        // 레거시 호환성 제거 - TERRITORY_CLICKED만 사용
+        // eventBus.on(EVENTS.TERRITORY_SELECT, ...) 제거됨
         
         // 영토 정복 이벤트
         eventBus.on(EVENTS.TERRITORY_CONQUERED, (data) => {
@@ -301,13 +311,33 @@ class TerritoryManager {
             }
             
             // 2단계: Firestore에서 최신 데이터 가져오기 (반드시 완료 후 이벤트 발행)
-            // ⚠️ 전문가 조언: Firestore 읽기가 완료된 후에만 SELECT 이벤트 발행
+            // ⚡ 캐시 확인: 30초 이내면 캐시된 데이터 사용 (가이드 권장)
             let firestoreData = null;
-            try {
-                log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                firestoreData = await firebaseService.getDocument('territories', territoryId);
-                
-                if (firestoreData) {
+            const now = Date.now();
+            const lastFetched = this._lastFetched.get(territoryId);
+            
+            // 캐시된 territory가 있고 30초 이내면 Firestore 읽기 스킵
+            if (territory && lastFetched && (now - lastFetched) < this.CACHE_TTL) {
+                log.debug(`[TerritoryManager] Using cached territory ${territoryId} (${Math.floor((now - lastFetched) / 1000)}s ago)`);
+                firestoreData = null; // 캐시 사용, Firestore 읽기 스킵
+            } else {
+                try {
+                    log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                    firestoreData = await firebaseService.getDocument('territories', territoryId);
+                    
+                    // ⚡ 캐시 업데이트: fetch 시간 기록
+                    if (firestoreData) {
+                        this._lastFetched.set(territoryId, now);
+                    }
+                } catch (error) {
+                    // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
+                    log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
+                    firestoreData = null;
+                }
+            }
+            
+            // Firestore 데이터 병합 (캐시 사용 시에도 기존 territory 데이터 유지)
+            if (firestoreData) {
                     // ⚠️ 전문가 조언: Firestore 문서의 실제 내용을 모두 로깅하여 디버깅
                     log.info(`[TerritoryManager] 📄 Firestore document found for ${territoryId}:`, {
                         hasRuler: firestoreData.ruler !== undefined,
@@ -369,21 +399,18 @@ class TerritoryManager {
                     }
                     
                     log.info(`[TerritoryManager] ✅ Territory ${territoryId} fully hydrated from Firestore: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
-                } else {
+                } else if (!lastFetched) {
+                    // Firestore에 문서가 없고 캐시도 없으면 기본값 설정
                     log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} not found in Firestore (may be a new territory)`);
-                    // Firestore에 문서가 없으면 기본값 설정
                     if (territory.sovereignty === undefined || territory.sovereignty === null) {
                         territory.sovereignty = 'unconquered';
                     }
                 }
-            } catch (error) {
-                // Firebase SDK 로드 실패 시에도 계속 진행 (기존 territory 데이터 사용)
-                log.error(`[TerritoryManager] ❌ Failed to load territory ${territoryId} from Firestore:`, error);
+                
                 // 에러 발생 시에도 기본값 설정
                 if (territory.sovereignty === undefined || territory.sovereignty === null) {
                     territory.sovereignty = 'unconquered';
                 }
-            }
             
             // 국가 코드 결정: 전달된 country > properties.adm0_a3 > properties.country > properties.country_code
         // adm0_a3는 ISO 3166-1 alpha-3 코드 (예: "USA")를 포함하므로 우선 사용
@@ -529,6 +556,23 @@ class TerritoryManager {
                 log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} had no id, setting it now`);
             }
             
+            // ⚠️ Step 6-2: 뷰 모델 우선 읽기 (CQRS 라이트)
+            // territory_views 컬렉션이 있으면 우선 읽기 시도
+            let viewData = null;
+            try {
+                viewData = await firebaseService.getDocument('territory_views', territoryId, {
+                    useCache: true,
+                    ttl: 30 * 1000 // 30초 캐시
+                });
+                if (viewData) {
+                    log.debug(`[TerritoryManager] ✅ Using view model for ${territoryId}`);
+                    // 뷰 데이터에서 territory 정보 병합
+                    territory = { ...territory, ...viewData };
+                }
+            } catch (viewError) {
+                log.debug(`[TerritoryManager] View model not available for ${territoryId}, using standard read`);
+            }
+            
             // ⚠️ 전문가 조언: Firestore 읽기 완료 후에만 TERRITORY_SELECTED (출력) 이벤트 발행
             // 완전히 하이드레이트된 Territory 객체를 전달 (단일 진실)
             log.info(`[TerritoryManager] 🎯 [TerritoryManager → TERRITORY_SELECTED] Emitting TERRITORY_SELECTED event for ${territoryId}: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, id=${territory.id}`);
@@ -542,16 +586,9 @@ class TerritoryManager {
                 geometry: geometry        // geometry 전달
             });
             
-            // 레거시 호환성: TERRITORY_SELECT도 발행 (deprecated)
-            eventBus.emit(EVENTS.TERRITORY_SELECT, {
-                territory: territory,
-                territoryId: territoryId,
-                sourceId: sourceId,
-                featureId: featureId,
-                country: finalCountry,
-                properties: properties,
-                geometry: geometry
-            });
+            // ⚠️ 응급 조치: TERRITORY_SELECT 이벤트 제거 (중복 읽기 방지)
+            // TERRITORY_SELECTED만 발행
+            // eventBus.emit(EVENTS.TERRITORY_SELECT, ...) 제거됨
             
             // 영토 패널 열기 이벤트 발행
             eventBus.emit(EVENTS.UI_PANEL_OPEN, {

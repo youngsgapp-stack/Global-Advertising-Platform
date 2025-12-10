@@ -32,6 +32,8 @@ class AuctionSystem {
         this.activeAuctions = new Map();
         this.unsubscribers = [];
         this.endCheckInterval = null; // 옥션 종료 체크 인터벌
+        this._lastLoadTime = null; // ⚡ 캐시: 마지막 로드 시간 (가이드 권장)
+        this.CACHE_TTL = 5 * 60 * 1000; // ⚡ 5분 캐시 (가이드 권장)
     }
     
     /**
@@ -71,6 +73,13 @@ class AuctionSystem {
      * 활성 옥션 로드
      */
     async loadActiveAuctions() {
+        // ⚡ 캐시 확인: 5분 이내면 캐시된 데이터 사용 (가이드 권장)
+        const now = Date.now();
+        if (this._lastLoadTime && (now - this._lastLoadTime) < this.CACHE_TTL) {
+            log.debug(`[AuctionSystem] Using cached auctions (${Math.floor((now - this._lastLoadTime) / 1000)}s ago)`);
+            return Array.from(this.activeAuctions.values());
+        }
+        
         try {
             // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
             let auctions = [];
@@ -78,6 +87,9 @@ class AuctionSystem {
                 auctions = await firebaseService.queryCollection('auctions', [
                     { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
                 ]);
+                
+                // ⚡ 캐시 업데이트: 로드 시간 기록
+                this._lastLoadTime = now;
             } catch (error) {
                 // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
                 if (error.message && error.message.includes('permissions')) {
@@ -946,9 +958,24 @@ class AuctionSystem {
         auction.purchasedByAdmin = isAdmin;
         
         // ⚠️ CRITICAL: Transaction을 사용하여 동시 입찰 보호
+        // ⚡ 최적화: 로컬 캐시를 우선 사용하여 불필요한 읽기 방지
         try {
+            // 로컬 캐시에서 최신 경매 상태 확인 (트랜잭션 전 사전 검증)
+            const cachedAuction = this.activeAuctions.get(auctionId);
+            if (cachedAuction) {
+                // 로컬 캐시 기반 사전 검증 (불필요한 트랜잭션 방지)
+                if (cachedAuction.status !== AUCTION_STATUS.ACTIVE) {
+                    throw new Error(`Auction ${auctionId} is not active (status: ${cachedAuction.status})`);
+                }
+                
+                const cachedCurrentBid = cachedAuction.currentBid || cachedAuction.startingBid || 0;
+                if (bidAmount < cachedCurrentBid + 1) {
+                    throw new Error(`Minimum bid is ${cachedCurrentBid + 1} pt (current bid: ${cachedCurrentBid} pt)`);
+                }
+            }
+            
             await firebaseService.runTransaction(async (transaction) => {
-                // Transaction 내에서 최신 경매 상태 확인
+                // Transaction 내에서 최신 경매 상태 확인 (동시성 보호를 위해 필수)
                 const currentAuction = await transaction.get('auctions', auctionId);
                 
                 if (!currentAuction) {
@@ -1003,11 +1030,22 @@ class AuctionSystem {
             // Transaction 성공 후 로컬 캐시 업데이트
             this.activeAuctions.set(auctionId, auction);
             
+            // ⚠️ 응급 조치: Firestore 캐시 무효화 (다음 읽기 시 최신 데이터 가져오기)
+            firebaseService.invalidateCache('auctions', auctionId);
+            
         } catch (error) {
+            // ⚠️ 할당량 초과 에러는 재시도하지 않음 (이미 FirebaseService에서 처리)
+            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
+                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+                log.error(`[AuctionSystem] Quota exceeded - stopping transaction retries:`, error);
+                // 할당량 초과 시 로컬 캐시 롤백은 하지 않음 (불필요한 읽기 방지)
+                throw error;
+            }
+            
             log.error(`[AuctionSystem] Failed to save bid to Firestore:`, error);
             
             // Transaction 실패 시 로컬 변경사항 롤백
-            // Firestore에서 최신 경매 데이터 다시 로드
+            // ⚠️ 할당량 초과가 아닌 경우에만 Firestore에서 다시 로드
             try {
                 const latestAuction = await firebaseService.getDocument('auctions', auctionId);
                 if (latestAuction) {
@@ -1515,8 +1553,17 @@ class AuctionSystem {
     
     /**
      * 옥션 종료 시간 주기적 체크
+     * ⚠️ 응급 조치: 폴링 비활성화 (Firestore 읽기 폭발 방지)
+     * TODO: Cloud Functions Cron으로 이동 필요
      */
     startAuctionEndCheckInterval() {
+        // ⚠️ 응급 조치: 폴링 비활성화
+        log.warn('[AuctionSystem] ⚠️ Auction end check interval DISABLED to prevent Firestore read explosion');
+        log.warn('[AuctionSystem] TODO: Move to Cloud Functions Cron job');
+        return;
+        
+        // 아래 코드는 나중에 Cloud Functions로 이동 예정
+        /*
         // 이미 실행 중이면 스킵
         if (this.endCheckInterval) {
             return;
@@ -1566,6 +1613,7 @@ class AuctionSystem {
                 log.info(`[AuctionSystem] Processed ${expiredCount} expired auction(s)`);
             }
         }, 5000); // 5초마다 체크
+        */
     }
 }
 

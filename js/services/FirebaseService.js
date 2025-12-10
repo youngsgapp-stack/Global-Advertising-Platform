@@ -23,6 +23,121 @@ class FirebaseService {
         this.storage = null;
         this.initialized = false;
         this.currentUser = null;
+        // ⚠️ 응급 조치: 실시간 리스너 추적 시스템
+        this.activeListeners = new Map(); // key -> unsubscribe 함수
+        this.listenerCount = 0; // 총 리스너 개수 추적
+        // ⚠️ 응급 조치: 전역 캐시 시스템
+        this.documentCache = new Map(); // `${collection}/${docId}` -> { data, timestamp, staleAt }
+        this.queryCache = new Map(); // `${collection}_${conditionsKey}` -> { data, timestamp, staleAt }
+        // ⚠️ Step 5-2: Stale-While-Revalidate를 위한 백그라운드 업데이트 추적
+        this.backgroundUpdates = new Map(); // key -> Promise
+        // ⚠️ Step 5-2: TTL 계층화 (변동성에 따라)
+        this.cacheTTL = {
+            // 거의 변하지 않는 데이터: 세션 동안 불변
+            territory: 60 * 60 * 1000,      // 1시간 (거의 변하지 않음)
+            territories: 60 * 60 * 1000,    // 1시간 (전체 영토 목록)
+            pixelCanvases: 30 * 60 * 1000,  // 30분 (픽셀 데이터)
+            
+            // 중간 변동성: 적절한 TTL
+            auction: 30 * 1000,             // 30초 (경매는 빠르게 변함)
+            auctions: 30 * 1000,            // 30초 (활성 경매 목록)
+            ranking: 5 * 60 * 1000,        // 5분 (랭킹은 자주 변하지 않음)
+            
+            // 자주 변하는 데이터: 짧은 TTL
+            wallet: 10 * 1000,             // 10초 (잔액은 자주 변함)
+            user: 60 * 1000,               // 1분 (사용자 프로필)
+            collaboration: 60 * 1000,      // 1분 (협업 데이터)
+            
+            // 세션 내 재조회 금지 (강제 invalidation만 사용)
+            userProfile: Infinity,         // 세션 동안 불변
+            settings: Infinity,            // 세션 동안 불변
+            
+            default: 30 * 1000            // 30초 (기본값)
+        };
+        // ⚠️ 응급 조치: 디바운스 시스템
+        this.debounceTimers = new Map(); // key -> timeout ID
+        this.debounceDelay = 100; // 100ms
+        // ⚠️ Step 5-1: 탭 포커스 상태 추적
+        this.isPageVisible = !document.hidden;
+        this.isPageFocused = document.hasFocus();
+        this.suspendedListeners = new Map(); // key -> { unsubscribe, context }
+        this.setupVisibilityHandlers();
+    }
+    
+    /**
+     * ⚠️ Step 5-1: 페이지 가시성 및 포커스 핸들러 설정
+     * 탭이 백그라운드로 가면 고비용 리스너 일시 중지
+     */
+    setupVisibilityHandlers() {
+        // 페이지 가시성 변경 감지
+        document.addEventListener('visibilitychange', () => {
+            const wasVisible = this.isPageVisible;
+            this.isPageVisible = !document.hidden;
+            
+            if (wasVisible && !this.isPageVisible) {
+                // 탭이 백그라운드로 감 → 리스너 일시 중지
+                log.info('[FirebaseService] 📴 Page hidden, suspending expensive listeners');
+                this.suspendExpensiveListeners();
+            } else if (!wasVisible && this.isPageVisible) {
+                // 탭이 다시 보임 → 리스너 재개
+                log.info('[FirebaseService] 📱 Page visible, resuming listeners');
+                this.resumeSuspendedListeners();
+            }
+        });
+        
+        // 페이지 포커스 변경 감지
+        window.addEventListener('focus', () => {
+            this.isPageFocused = true;
+            if (this.isPageVisible) {
+                log.debug('[FirebaseService] 🎯 Page focused');
+            }
+        });
+        
+        window.addEventListener('blur', () => {
+            this.isPageFocused = false;
+            log.debug('[FirebaseService] ⚠️ Page blurred');
+        });
+        
+        // 페이지 언로드 시 모든 리스너 정리
+        window.addEventListener('beforeunload', () => {
+            log.info('[FirebaseService] 🧹 Page unloading, cleaning up all listeners');
+            this.cleanupAllListeners();
+        });
+    }
+    
+    /**
+     * ⚠️ Step 5-1: 고비용 리스너 일시 중지
+     * 백그라운드로 갈 때 불필요한 실시간 리스너 중지
+     */
+    suspendExpensiveListeners() {
+        // 지갑 리스너는 유지 (중요한 데이터)
+        // 영토/경매 리스너는 일시 중지
+        for (const [key, unsubscribe] of this.activeListeners.entries()) {
+            // 지갑은 제외
+            if (key.startsWith('wallets/')) {
+                continue;
+            }
+            
+            // 나머지는 일시 중지
+            this.suspendedListeners.set(key, {
+                unsubscribe,
+                context: { suspendedAt: Date.now() }
+            });
+            unsubscribe();
+            this.activeListeners.delete(key);
+            this.listenerCount--;
+            log.debug(`[FirebaseService] ⏸️ Suspended listener: ${key}`);
+        }
+    }
+    
+    /**
+     * ⚠️ Step 5-1: 일시 중지된 리스너 재개
+     * 탭이 다시 포커스될 때 필요한 리스너만 재개
+     */
+    resumeSuspendedListeners() {
+        // 현재는 재개하지 않음 (필요 시에만 재구독)
+        // 패널이 열려있을 때만 재구독하도록 호출자가 처리
+        log.info(`[FirebaseService] ▶️ ${this.suspendedListeners.size} listeners available for resume (will resume on demand)`);
     }
     
     /**
@@ -175,6 +290,8 @@ class FirebaseService {
                         });
                     } else {
                         log.info('[FirebaseService] 👋 User logged out');
+                        // ⚠️ 응급 조치: 로그아웃 시 모든 리스너 정리
+                        this.cleanupAllListeners();
                         eventBus.emit(EVENTS.AUTH_LOGOUT, {});
                     }
                 } else {
@@ -768,29 +885,109 @@ class FirebaseService {
     
     /**
      * 문서 가져오기
+     * ⚠️ 응급 조치: 캐시 및 디바운스 적용
      */
-    async getDocument(collectionName, docId) {
+    async getDocument(collectionName, docId, options = {}) {
         if (!this.initialized) {
             log.warn(`[FirebaseService] getDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
-            // null 반환하여 호출자가 처리할 수 있도록
             return null;
         }
         
+        const cacheKey = `${collectionName}/${docId}`;
+        const ttl = options.ttl || this.cacheTTL[collectionName] || this.cacheTTL.default;
+        const useCache = options.useCache !== false; // 기본값: true
+        const useDebounce = options.useDebounce !== false; // 기본값: true
+        const useStaleWhileRevalidate = options.staleWhileRevalidate !== false; // 기본값: true
+        const staleAt = ttl * 2; // staleAt = TTL * 2 (예: TTL 30초면 60초까지 stale 허용)
+        
+        // ⚠️ Step 5-2: Stale-While-Revalidate 패턴 적용
+        if (useCache) {
+            const cached = this.documentCache.get(cacheKey);
+            if (cached) {
+                const age = Date.now() - cached.timestamp;
+                
+                if (age < ttl) {
+                    // 캐시가 유효함
+                    log.debug(`[FirebaseService] ✅ Cache HIT (fresh) for ${cacheKey} (age: ${Math.floor(age / 1000)}s)`);
+                    return cached.data;
+                } else if (age < staleAt && useStaleWhileRevalidate) {
+                    // 캐시가 약간 오래되었지만 사용 가능 (Stale-While-Revalidate)
+                    log.debug(`[FirebaseService] ⚠️ Cache HIT (stale) for ${cacheKey} (age: ${Math.floor(age / 1000)}s), revalidating in background`);
+                    
+                    // 백그라운드에서 최신 데이터 가져오기 (이미 진행 중이 아니면)
+                    if (!this.backgroundUpdates.has(cacheKey)) {
+                        this._revalidateInBackground(collectionName, docId, cacheKey, ttl).catch(err => {
+                            log.warn(`[FirebaseService] Background revalidation failed for ${cacheKey}:`, err);
+                        });
+                    }
+                    
+                    // 오래된 캐시라도 즉시 반환
+                    return cached.data;
+                }
+            }
+        }
+        
+        // ⚠️ 응급 조치: 디바운스 적용 (같은 요청이 100ms 내에 여러 번 오면 마지막 것만 실행)
+        if (useDebounce) {
+            return new Promise((resolve, reject) => {
+                // 기존 타이머가 있으면 취소
+                if (this.debounceTimers.has(cacheKey)) {
+                    clearTimeout(this.debounceTimers.get(cacheKey));
+                }
+                
+                // 새 타이머 설정
+                const timerId = setTimeout(async () => {
+                    this.debounceTimers.delete(cacheKey);
+                    try {
+                        const result = await this._getDocumentInternal(collectionName, docId, cacheKey, ttl);
+                        resolve(result);
+                    } catch (error) {
+                        reject(error);
+                    }
+                }, this.debounceDelay);
+                
+                this.debounceTimers.set(cacheKey, timerId);
+            });
+        }
+        
+        // 디바운스 없이 즉시 실행
+        return await this._getDocumentInternal(collectionName, docId, cacheKey, ttl);
+    }
+    
+    /**
+     * 문서 가져오기 내부 구현
+     */
+    async _getDocumentInternal(collectionName, docId, cacheKey, ttl) {
         try {
-            // 모니터링: Firestore 읽기 기록
+            // ⚠️ Step 5-3: 모니터링: Firestore 읽기 기록 (컨텍스트 포함)
             const monitoring = getMonitoringService();
             if (monitoring) {
-                monitoring.recordFirestoreRead(1);
+                monitoring.recordFirestoreRead(1, {
+                    collection: collectionName,
+                    operation: 'getDocument',
+                    docId: docId
+                });
             }
             
             // compat 버전: 직접 사용
             const docRef = this.db.collection(collectionName).doc(docId);
             const docSnap = await docRef.get();
             
+            let result = null;
             if (docSnap.exists) {
-                return { id: docSnap.id, ...docSnap.data() };
+                result = { id: docSnap.id, ...docSnap.data() };
+                
+                // ⚠️ 응급 조치: 캐시 저장
+                this.documentCache.set(cacheKey, {
+                    data: result,
+                    timestamp: Date.now(),
+                    staleAt: ttl * 2 // ⚠️ Step 5-2: Stale-While-Revalidate를 위한 staleAt
+                });
+                
+                log.debug(`[FirebaseService] 📡 Cache MISS for ${cacheKey}, fetched from Firestore`);
             }
-            return null;
+            
+            return result;
         } catch (error) {
             // 오프라인 에러나 존재하지 않는 문서는 조용히 처리 (에러 로그 제거)
             // pixelCanvases 컬렉션은 존재하지 않는 문서가 많을 수 있으므로 에러를 조용히 처리
@@ -842,6 +1039,9 @@ class FirebaseService {
                 ...cleanData,
                 updatedAt: this._firestore.Timestamp.now()
             }, { merge });
+            
+            // ⚠️ 응급 조치: 캐시 무효화 (쓰기 후 캐시 삭제)
+            this.invalidateCache(collectionName, docId);
             
             log.debug(`Document saved: ${collectionName}/${docId}`);
             return true;
@@ -923,6 +1123,9 @@ class FirebaseService {
                 log.debug(`Document created: ${collectionName}/${docId}`);
             }
             
+            // ⚠️ 응급 조치: 캐시 무효화 (업데이트 후 캐시 삭제)
+            this.invalidateCache(collectionName, docId);
+            
             return true;
         } catch (error) {
             log.error(`Failed to update document ${collectionName}/${docId}:`, error);
@@ -932,14 +1135,84 @@ class FirebaseService {
     
     /**
      * 컬렉션 쿼리
+     * ⚠️ 응급 조치: 캐시 및 디바운스 적용
      */
-    async queryCollection(collectionName, conditions = [], orderByField = null, limitCount = null) {
+    async queryCollection(collectionName, conditions = [], orderByField = null, limitCount = null, options = {}) {
         if (!this.initialized) {
             log.warn(`[FirebaseService] queryCollection called but Firebase not initialized. Collection: ${collectionName}`);
-            // 빈 배열 반환하여 앱이 계속 작동하도록 함
             return [];
         }
         
+        // ⚠️ 응급 조치: 캐시 키 생성 (조건 포함)
+        const conditionsKey = conditions.map(c => `${c.field}${c.op || c.operator}${c.value}`).join('_');
+        const orderKey = orderByField ? `_order_${orderByField}` : '';
+        const limitKey = limitCount ? `_limit_${limitCount}` : '';
+        const cacheKey = `${collectionName}_${conditionsKey}${orderKey}${limitKey}`;
+        const ttl = options.ttl || this.cacheTTL[collectionName] || this.cacheTTL.default;
+        const useCache = options.useCache !== false; // 기본값: true
+        const useDebounce = options.useDebounce !== false; // 기본값: true
+        
+        // ⚠️ Step 5-2: Stale-While-Revalidate 패턴 적용 (쿼리)
+        const useStaleWhileRevalidate = options.staleWhileRevalidate !== false; // 기본값: true
+        const staleAt = ttl * 2; // staleAt = TTL * 2
+        
+        if (useCache) {
+            const cached = this.queryCache.get(cacheKey);
+            if (cached) {
+                const age = Date.now() - cached.timestamp;
+                
+                if (age < ttl) {
+                    // 캐시가 유효함
+                    log.debug(`[FirebaseService] ✅ Cache HIT (fresh) for query ${cacheKey} (age: ${Math.floor(age / 1000)}s)`);
+                    return cached.data;
+                } else if (age < staleAt && useStaleWhileRevalidate) {
+                    // 캐시가 약간 오래되었지만 사용 가능 (Stale-While-Revalidate)
+                    log.debug(`[FirebaseService] ⚠️ Cache HIT (stale) for query ${cacheKey} (age: ${Math.floor(age / 1000)}s), revalidating in background`);
+                    
+                    // 백그라운드에서 최신 데이터 가져오기 (이미 진행 중이 아니면)
+                    if (!this.backgroundUpdates.has(cacheKey)) {
+                        this._revalidateQueryInBackground(collectionName, conditions, orderByField, limitCount, cacheKey, ttl).catch(err => {
+                            log.warn(`[FirebaseService] Background revalidation failed for query ${cacheKey}:`, err);
+                        });
+                    }
+                    
+                    // 오래된 캐시라도 즉시 반환
+                    return cached.data;
+                }
+            }
+        }
+        
+        // ⚠️ 응급 조치: 디바운스 적용
+        if (useDebounce) {
+            return new Promise((resolve, reject) => {
+                // 기존 타이머가 있으면 취소
+                if (this.debounceTimers.has(cacheKey)) {
+                    clearTimeout(this.debounceTimers.get(cacheKey));
+                }
+                
+                // 새 타이머 설정
+                const timerId = setTimeout(async () => {
+                    this.debounceTimers.delete(cacheKey);
+                    try {
+                        const result = await this._queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl);
+                        resolve(result);
+                    } catch (error) {
+                        reject(error);
+                    }
+                }, this.debounceDelay);
+                
+                this.debounceTimers.set(cacheKey, timerId);
+            });
+        }
+        
+        // 디바운스 없이 즉시 실행
+        return await this._queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl);
+    }
+    
+    /**
+     * 컬렉션 쿼리 내부 구현
+     */
+    async _queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl) {
         try {
             // compat 버전: 직접 체이닝 방식 사용
             let q = this.db.collection(collectionName);
@@ -985,10 +1258,30 @@ class FirebaseService {
             
             const querySnapshot = await q.get();
             
+            // ⚠️ Step 5-3: 모니터링: Firestore 읽기 기록 (쿼리 결과 수만큼)
+            const monitoring = getMonitoringService();
+            if (monitoring) {
+                monitoring.recordFirestoreRead(querySnapshot.size, {
+                    collection: collectionName,
+                    operation: 'queryCollection',
+                    conditions: conditions.length,
+                    resultCount: querySnapshot.size
+                });
+            }
+            
             const results = [];
             querySnapshot.forEach(doc => {
                 results.push({ id: doc.id, ...doc.data() });
             });
+            
+            // ⚠️ 응급 조치: 캐시 저장
+            this.queryCache.set(cacheKey, {
+                data: results,
+                timestamp: Date.now(),
+                staleAt: ttl * 2 // ⚠️ Step 5-2: Stale-While-Revalidate를 위한 staleAt
+            });
+            
+            log.debug(`[FirebaseService] 📡 Cache MISS for query ${cacheKey}, fetched from Firestore (${results.length} results)`);
             
             return results;
         } catch (error) {
@@ -998,30 +1291,130 @@ class FirebaseService {
     }
     
     /**
-     * 실시간 문서 구독
+     * 캐시 무효화
+     * ⚠️ 응급 조치: 특정 문서/컬렉션 캐시 삭제
      */
-    subscribeToDocument(collectionName, docId, callback) {
+    invalidateCache(collectionName, docId = null) {
+        if (docId) {
+            // 특정 문서 캐시 삭제
+            const cacheKey = `${collectionName}/${docId}`;
+            this.documentCache.delete(cacheKey);
+            log.debug(`[FirebaseService] 🗑️ Invalidated cache for ${cacheKey}`);
+        } else {
+            // 컬렉션 전체 캐시 삭제
+            const prefix = `${collectionName}/`;
+            const queryPrefix = `${collectionName}_`;
+            
+            for (const key of this.documentCache.keys()) {
+                if (key.startsWith(prefix)) {
+                    this.documentCache.delete(key);
+                }
+            }
+            
+            for (const key of this.queryCache.keys()) {
+                if (key.startsWith(queryPrefix)) {
+                    this.queryCache.delete(key);
+                }
+            }
+            
+            log.debug(`[FirebaseService] 🗑️ Invalidated all cache for collection ${collectionName}`);
+        }
+    }
+    
+    /**
+     * 실시간 문서 구독
+     * ⚠️ 응급 조치: 리스너 추적 시스템 추가
+     * ⚠️ Step 5-1: 상황 한정 리스너 (탭 포커스 확인)
+     */
+    subscribeToDocument(collectionName, docId, callback, options = {}) {
         if (!this.initialized) {
             throw new Error('Firebase not initialized');
         }
         
+        // ⚠️ Step 5-1: 탭이 백그라운드에 있으면 중요 리스너만 허용
+        const isImportant = options.important || false; // 지갑 등 중요 데이터
+        if (!this.isPageVisible && !isImportant) {
+            log.debug(`[FirebaseService] ⏸️ Skipping non-important listener ${collectionName}/${docId} (page hidden)`);
+            // 일시 중지된 리스너로 등록 (나중에 재개 가능)
+            const listenerKey = `${collectionName}/${docId}`;
+            this.suspendedListeners.set(listenerKey, {
+                unsubscribe: null, // 아직 구독 안 함
+                context: { suspendedAt: Date.now(), callback, options }
+            });
+            return () => {
+                this.suspendedListeners.delete(listenerKey);
+            };
+        }
+        
+        // ⚠️ 응급 조치: 기존 리스너가 있으면 해제
+        const listenerKey = `${collectionName}/${docId}`;
+        if (this.activeListeners.has(listenerKey)) {
+            log.warn(`[FirebaseService] ⚠️ Unsubscribing existing listener for ${listenerKey}`);
+            this.activeListeners.get(listenerKey)();
+            this.listenerCount--;
+        }
+        
         // compat 버전: 직접 사용
         const docRef = this.db.collection(collectionName).doc(docId);
-        return docRef.onSnapshot((doc) => {
+        const unsubscribe = docRef.onSnapshot((doc) => {
             if (doc.exists) {
                 callback({ id: doc.id, ...doc.data() });
             } else {
                 callback(null);
             }
         });
+        
+        // ⚠️ 응급 조치: 리스너 추적
+        this.activeListeners.set(listenerKey, unsubscribe);
+        this.listenerCount++;
+        log.debug(`[FirebaseService] 📡 Subscribed to document ${listenerKey} (total listeners: ${this.listenerCount})`);
+        
+        // unsubscribe 함수 래핑하여 추적 유지
+        const wrappedUnsubscribe = () => {
+            if (this.activeListeners.has(listenerKey)) {
+                this.activeListeners.delete(listenerKey);
+                this.listenerCount--;
+                log.debug(`[FirebaseService] 🔌 Unsubscribed from document ${listenerKey} (remaining listeners: ${this.listenerCount})`);
+            }
+            unsubscribe();
+        };
+        
+        // ⚠️ Step 5-1: 페이지 가시성 변경 시 자동 해제 (중요하지 않은 리스너)
+        if (!isImportant) {
+            const visibilityHandler = () => {
+                if (document.hidden && this.activeListeners.has(listenerKey)) {
+                    log.debug(`[FirebaseService] ⏸️ Auto-suspending listener ${listenerKey} (page hidden)`);
+                    this.suspendedListeners.set(listenerKey, {
+                        unsubscribe: wrappedUnsubscribe,
+                        context: { suspendedAt: Date.now(), callback, options }
+                    });
+                    wrappedUnsubscribe();
+                }
+            };
+            document.addEventListener('visibilitychange', visibilityHandler);
+        }
+        
+        return wrappedUnsubscribe;
     }
     
     /**
      * 실시간 컬렉션 구독
+     * ⚠️ 응급 조치: 리스너 추적 시스템 추가
      */
     subscribeToCollection(collectionName, callback, conditions = []) {
         if (!this.initialized) {
             throw new Error('Firebase not initialized');
+        }
+        
+        // ⚠️ 응급 조치: 리스너 키 생성 (조건 포함)
+        const conditionsKey = conditions.map(c => `${c.field}${c.op}${c.value}`).join('_');
+        const listenerKey = `${collectionName}/${conditionsKey || 'all'}`;
+        
+        // ⚠️ 응급 조치: 기존 리스너가 있으면 해제
+        if (this.activeListeners.has(listenerKey)) {
+            log.warn(`[FirebaseService] ⚠️ Unsubscribing existing listener for collection ${listenerKey}`);
+            this.activeListeners.get(listenerKey)();
+            this.listenerCount--;
         }
         
         // compat 버전: 직접 체이닝
@@ -1033,13 +1426,93 @@ class FirebaseService {
             }
         }
         
-        return q.onSnapshot((snapshot) => {
+        const unsubscribe = q.onSnapshot((snapshot) => {
             const results = [];
             snapshot.forEach(doc => {
                 results.push({ id: doc.id, ...doc.data() });
             });
             callback(results);
         });
+        
+        // ⚠️ 응급 조치: 리스너 추적
+        this.activeListeners.set(listenerKey, unsubscribe);
+        this.listenerCount++;
+        log.debug(`[FirebaseService] 📡 Subscribed to collection ${listenerKey} (total listeners: ${this.listenerCount})`);
+        
+        // unsubscribe 함수 래핑하여 추적 유지
+        return () => {
+            if (this.activeListeners.has(listenerKey)) {
+                this.activeListeners.delete(listenerKey);
+                this.listenerCount--;
+                log.debug(`[FirebaseService] 🔌 Unsubscribed from collection ${listenerKey} (remaining listeners: ${this.listenerCount})`);
+            }
+            unsubscribe();
+        };
+    }
+    
+    /**
+     * 모든 활성 리스너 해제
+     * ⚠️ 응급 조치: 리스너 누수 방지
+     */
+    cleanupAllListeners() {
+        log.info(`[FirebaseService] 🧹 Cleaning up ${this.activeListeners.size} active listeners`);
+        for (const [key, unsubscribe] of this.activeListeners.entries()) {
+            try {
+                unsubscribe();
+                log.debug(`[FirebaseService] 🔌 Unsubscribed from ${key}`);
+            } catch (error) {
+                log.error(`[FirebaseService] ❌ Failed to unsubscribe from ${key}:`, error);
+            }
+        }
+        this.activeListeners.clear();
+        this.listenerCount = 0;
+        log.info(`[FirebaseService] ✅ All listeners cleaned up`);
+    }
+    
+    /**
+     * 활성 리스너 상태 조회
+     */
+    getListenerStatus() {
+        return {
+            count: this.listenerCount,
+            listeners: Array.from(this.activeListeners.keys())
+        };
+    }
+    
+    /**
+     * ⚠️ Step 5-2: 백그라운드에서 캐시 재검증 (Stale-While-Revalidate) - 문서
+     */
+    async _revalidateInBackground(collectionName, docId, cacheKey, ttl) {
+        // 이미 진행 중인 업데이트가 있으면 기다림
+        if (this.backgroundUpdates.has(cacheKey)) {
+            return await this.backgroundUpdates.get(cacheKey);
+        }
+        
+        // 백그라운드 업데이트 시작
+        const updatePromise = this._getDocumentInternal(collectionName, docId, cacheKey, ttl).finally(() => {
+            this.backgroundUpdates.delete(cacheKey);
+        });
+        
+        this.backgroundUpdates.set(cacheKey, updatePromise);
+        return await updatePromise;
+    }
+    
+    /**
+     * ⚠️ Step 5-2: 백그라운드에서 캐시 재검증 (Stale-While-Revalidate) - 쿼리
+     */
+    async _revalidateQueryInBackground(collectionName, conditions, orderByField, limitCount, cacheKey, ttl) {
+        // 이미 진행 중인 업데이트가 있으면 기다림
+        if (this.backgroundUpdates.has(cacheKey)) {
+            return await this.backgroundUpdates.get(cacheKey);
+        }
+        
+        // 백그라운드 업데이트 시작
+        const updatePromise = this._queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl).finally(() => {
+            this.backgroundUpdates.delete(cacheKey);
+        });
+        
+        this.backgroundUpdates.set(cacheKey, updatePromise);
+        return await updatePromise;
     }
     
     /**
@@ -1068,6 +1541,8 @@ class FirebaseService {
         
         try {
             // compat 버전: db.runTransaction 사용
+            // ⚠️ 주의: compat 버전에서는 maxAttempts 옵션이 지원되지 않을 수 있음
+            // 대신 에러를 즉시 감지하고 재시도를 중단하도록 에러 처리에서 처리
             return await this.db.runTransaction(async (transaction) => {
                 // transaction 객체를 래핑하여 호환성 제공
                 const transactionWrapper = {
@@ -1078,6 +1553,15 @@ class FirebaseService {
                                 return { id: doc.id, ...doc.data() };
                             }
                             return null;
+                        }).catch(error => {
+                            // ⚠️ 할당량 초과 에러를 즉시 감지하여 재시도 방지
+                            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
+                                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+                                log.error('[FirebaseService] Quota exceeded in transaction.get, stopping retry:', error);
+                                // 할당량 초과 에러는 즉시 전달 (재시도 방지)
+                                throw error;
+                            }
+                            throw error;
                         });
                     },
                     set: (collectionName, docId, data, options = {}) => {
@@ -1097,6 +1581,14 @@ class FirebaseService {
                 return await updateFunction(transactionWrapper);
             });
         } catch (error) {
+            // ⚠️ 할당량 초과 에러는 재시도하지 않음
+            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
+                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+                log.error('[FirebaseService] Transaction failed due to quota exceeded (no retry):', error);
+                // 할당량 초과 에러는 그대로 전달 (재시도 방지)
+                throw error;
+            }
+            
             log.error('[FirebaseService] Transaction failed:', error);
             throw error;
         }

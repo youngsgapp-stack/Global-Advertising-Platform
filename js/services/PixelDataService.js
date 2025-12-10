@@ -38,6 +38,21 @@ class PixelDataService {
             lastRetry: Date.now()
         });
         
+        // ⚠️ 응급 조치: 폴링 비활성화 (Firestore 읽기 폭발 방지)
+        // 네트워크 복구 이벤트 리스너는 유지 (필요 시에만 실행)
+        window.addEventListener('online', () => {
+            log.info('[PixelDataService] Network restored, processing offline recovery queue...');
+            this.processOfflineRecovery().catch(err => {
+                log.error('[PixelDataService] Offline recovery failed:', err);
+            });
+        });
+        
+        // ⚠️ 폴링 비활성화: setInterval 제거
+        log.warn('[PixelDataService] ⚠️ Recovery interval DISABLED to prevent Firestore read explosion');
+        return;
+        
+        // 아래 코드는 나중에 필요 시 재활성화
+        /*
         // 복구 인터벌이 없으면 시작
         if (!this.recoveryInterval) {
             this.recoveryInterval = setInterval(() => {
@@ -45,15 +60,8 @@ class PixelDataService {
                     log.error('[PixelDataService] Offline recovery failed:', err);
                 });
             }, 10000); // 10초마다 체크
-            
-            // 네트워크 복구 이벤트 리스너
-            window.addEventListener('online', () => {
-                log.info('[PixelDataService] Network restored, processing offline recovery queue...');
-                this.processOfflineRecovery().catch(err => {
-                    log.error('[PixelDataService] Offline recovery failed:', err);
-                });
-            });
         }
+        */
     }
     
     /**

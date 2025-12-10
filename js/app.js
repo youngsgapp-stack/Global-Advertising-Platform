@@ -105,50 +105,65 @@ class BillionaireApp {
             await walletService.initialize();
             await paymentService.initialize();
             
-            // 3. Initialize Map
+            // ⚠️ Step 6-5: 순차 로딩 전략 - 맵은 먼저, 나머지는 순차적으로
+            this.updateLoadingProgress('Initializing map...', 30);
+            
+            // 3. Initialize Map (우선 로드)
             await mapController.initialize('map');
+            this.updateLoadingProgress('Map loaded', 40);
             
             // 4. Initialize Territory Manager
             await territoryManager.initialize();
+            this.updateLoadingProgress('Territory system ready', 50);
             
-            // 5. Initialize Feature Systems
-            await Promise.all([
-                auctionSystem.initialize(),
+            // 5. Initialize Core Features (우선 로드)
+            await auctionSystem.initialize();
+            this.updateLoadingProgress('Auction system ready', 60);
+            
+            // 6. Initialize UI (기본 UI 먼저)
+            territoryPanel.initialize();
+            territoryListPanel.initialize();
+            this.initializeUI();
+            this.updateLoadingProgress('UI components ready', 70);
+            
+            // 7. Setup Event Listeners
+            this.setupEventListeners();
+            this.setupGlobalErrorHandlers();
+            
+            // 8. Load Initial Data (맵과 기본 기능 로드 완료 후)
+            this.updateLoadingProgress('Loading initial data...', 80);
+            await this.loadInitialData();
+            this.updateLoadingProgress('Initial data loaded', 90);
+            
+            // 9. Initialize Secondary Features (백그라운드에서 순차 로드)
+            // ⚠️ Step 6-5: 나머지 기능들은 병렬로 로드하되, UI는 즉시 표시
+            Promise.all([
                 rankingSystem.initialize(),
                 buffSystem.initialize(),
                 collaborationHub.initialize(),
                 historyLogger.initialize(),
                 recommendationSystem.initialize(),
                 contestSystem.initialize(),
-                seasonSystem.initialize()
-            ]);
+                seasonSystem.initialize(),
+                pixelEditor3.initialize(),
+                rankingBoard.initialize(),
+                timelineWidget.initialize(),
+                recommendationPanel.initialize(),
+                onboardingGuide.initialize(),
+                galleryView.initialize(),
+                contestPanel.initialize(),
+                this.initializeFeedbackButton()
+            ]).then(() => {
+                this.updateLoadingProgress('All features loaded', 95);
+            }).catch(err => {
+                log.warn('[BillionaireApp] Some features failed to load:', err);
+            });
             
-            // 6. Initialize UI
-            territoryPanel.initialize();
-            territoryListPanel.initialize();
-            pixelEditor3.initialize();
-            rankingBoard.initialize();
-            timelineWidget.initialize();
-            recommendationPanel.initialize();
-            onboardingGuide.initialize();
-            galleryView.initialize();
-            contestPanel.initialize();
-            this.initializeUI();
-            
-            // 6.5. Initialize Feedback Button
-            this.initializeFeedbackButton();
-            
-            // 7. Setup Event Listeners
-            this.setupEventListeners();
-            
-            // 7.5. Setup Global Error Handlers
-            this.setupGlobalErrorHandlers();
-            
-            // 8. Load Initial Data
-            await this.loadInitialData();
-            
-            // 9. Hide loading
-            this.hideLoading();
+            // 10. Hide loading (맵과 기본 기능 로드 완료 후)
+            this.updateLoadingProgress('Ready!', 100);
+            setTimeout(() => {
+                this.hideLoading();
+            }, 500);
             
             this.initialized = true;
             log.info('App initialized successfully!');
@@ -1366,11 +1381,42 @@ class BillionaireApp {
     
     /**
      * Show Loading
+     * ⚠️ Step 6-5: 로딩 전략 고도화
      */
     showLoading() {
         const loading = document.getElementById('loading');
         if (loading) {
             loading.classList.remove('hidden');
+            // ⚠️ Step 6-5: 진행률 표시 추가
+            const progressBar = loading.querySelector('.loading-progress');
+            if (!progressBar) {
+                const progressHtml = `
+                    <div class="loading-progress-container">
+                        <div class="loading-progress-bar">
+                            <div class="loading-progress" style="width: 0%"></div>
+                        </div>
+                        <div class="loading-progress-text">Initializing...</div>
+                    </div>
+                `;
+                loading.insertAdjacentHTML('beforeend', progressHtml);
+            }
+        }
+    }
+    
+    /**
+     * ⚠️ Step 6-5: 로딩 진행률 업데이트
+     */
+    updateLoadingProgress(message, percent) {
+        const loading = document.getElementById('loading');
+        if (loading) {
+            const progressBar = loading.querySelector('.loading-progress');
+            const progressText = loading.querySelector('.loading-progress-text');
+            if (progressBar) {
+                progressBar.style.width = `${percent}%`;
+            }
+            if (progressText) {
+                progressText.textContent = message || `Loading... ${percent}%`;
+            }
         }
     }
     

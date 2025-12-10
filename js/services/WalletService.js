@@ -177,6 +177,7 @@ class WalletService {
             log.info(`[WalletService] ✅ Wallet loaded for user ${userId}: balance=${this.currentBalance} pt`);
             
             // ⚠️ 전문가 조언: 실시간 구독 설정 (로그 추가)
+            // ⚠️ Step 5-1: 지갑은 중요 리스너로 표시 (백그라운드에서도 유지)
             log.info(`[WalletService] 📡 Setting up real-time listener for wallets/${userId}`);
             this.unsubscriber = firebaseService.subscribeToDocument('wallets', userId, (data) => {
                 if (data) {
@@ -190,7 +191,7 @@ class WalletService {
                 } else {
                     log.warn('[WalletService] ⚠️ Real-time update received but data is null');
                 }
-            });
+            }, { important: true }); // ⚠️ Step 5-1: 중요 리스너로 표시 (백그라운드에서도 유지)
             
             // 최근 거래 내역 로드
             await this.loadTransactions(userId);
