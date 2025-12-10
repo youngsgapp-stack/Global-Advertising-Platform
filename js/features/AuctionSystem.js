@@ -70,39 +70,14 @@ class AuctionSystem {
     /**
      * 활성 옥션 로드
      */
-    async loadActiveAuctions(forceRefresh = false) {
+    async loadActiveAuctions() {
         try {
-            // ⚡ 최적화: 최근에 로드한 경우 캐시 사용 (5분 이내)
-            const CACHE_DURATION_MS = 5 * 60 * 1000; // 5분
-            if (!forceRefresh && this._lastLoadTime && 
-                (Date.now() - this._lastLoadTime) < CACHE_DURATION_MS) {
-                log.debug(`[AuctionSystem] Using cached active auctions (age: ${Math.round((Date.now() - this._lastLoadTime) / 1000)}s)`);
-                return; // 캐시된 데이터 사용
-            }
-            
             // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
             let auctions = [];
             try {
-                // ⚡ 최적화: 먼저 Vercel API를 통해 시도 (CDN 캐시 활용)
-                log.debug(`[AuctionSystem] 📡 Attempting to fetch auctions via API`);
-                try {
-                    const response = await fetch('/api/auctions/list');
-                    if (response.ok) {
-                        const data = await response.json();
-                        auctions = data.auctions || [];
-                        this._lastLoadTime = Date.now();
-                        log.debug(`[AuctionSystem] ✅ Fetched from API (cached): ${auctions.length} auctions`);
-                    } else {
-                        throw new Error(`API returned ${response.status}`);
-                    }
-                } catch (apiError) {
-                    // API 실패 시 기존 방식으로 폴백
-                    log.warn(`[AuctionSystem] API failed, using direct Firestore: ${apiError.message}`);
-                    auctions = await firebaseService.queryCollection('auctions', [
-                        { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-                    ]);
-                    this._lastLoadTime = Date.now();
-                }
+                auctions = await firebaseService.queryCollection('auctions', [
+                    { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
+                ]);
             } catch (error) {
                 // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
                 if (error.message && error.message.includes('permissions')) {
@@ -503,21 +478,18 @@ class AuctionSystem {
         let auctionEndTime;
         const protectionRemaining = territoryManager.getProtectionRemaining(territoryId);
         
-        // 사용자가 지정한 경매 종료 시간이 있으면 우선 사용
-        if (options.endTime) {
-            auctionEndTime = Timestamp.fromDate(new Date(options.endTime));
-        } else if (protectionRemaining && protectionRemaining.totalMs > 0) {
+        if (protectionRemaining && protectionRemaining.totalMs > 0) {
             // 보호 기간 중인 영토: 보호 기간 종료 시점에 경매 종료
             const endDate = new Date(Date.now() + protectionRemaining.totalMs);
             auctionEndTime = Timestamp.fromDate(endDate);
         } else if (territory.sovereignty === SOVEREIGNTY.RULED || 
                    territory.sovereignty === SOVEREIGNTY.PROTECTED) {
-            // 이미 소유된 영토: 7일 경매 (보호 기간이 만료되었거나 없으면 7일 경매)
+            // 이미 소유된 영토: 7일 경매
             const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
             auctionEndTime = Timestamp.fromDate(endDate);
         } else {
             // 미점유 영토: 24시간 경매
-            const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const endDate = options.endTime ? new Date(options.endTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
             auctionEndTime = Timestamp.fromDate(endDate);
         }
         
@@ -740,18 +712,7 @@ class AuctionSystem {
         // 이벤트 발행
         eventBus.emit(EVENTS.AUCTION_START, { auction });
         
-        // 경매 종료까지 남은 일수 계산 (디버깅용)
-        let daysRemaining = 0;
-        try {
-            const endDate = auctionEndTime && typeof auctionEndTime.toDate === 'function' 
-                ? auctionEndTime.toDate() 
-                : (auctionEndTime instanceof Date ? auctionEndTime : new Date(auctionEndTime));
-            if (endDate && !isNaN(endDate.getTime())) {
-                daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-            }
-        } catch (e) {
-            log.warn('[AuctionSystem] Failed to calculate days remaining:', e);
-        }
+        const daysRemaining = Math.ceil((auctionEndTime - new Date()) / (24 * 60 * 60 * 1000));
         log.info(`Auction created for territory ${territoryId}, ends in ${daysRemaining} days`);
         return auction;
     }
@@ -1045,15 +1006,6 @@ class AuctionSystem {
         } catch (error) {
             log.error(`[AuctionSystem] Failed to save bid to Firestore:`, error);
             
-            // Firebase 할당량 초과 에러인 경우 특별 처리
-            if (error.code === 'resource-exhausted' || error.code === 'quota-exceeded' || 
-                error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
-                log.warn(`[AuctionSystem] ⚠️ Firestore quota exceeded. Transaction will not be retried automatically.`);
-                // 할당량 초과 시에는 로컬 캐시 롤백도 시도하지 않음 (추가 요청 방지)
-                // 에러를 그대로 상위로 전달하여 UI에서 처리하도록 함
-                throw error;
-            }
-            
             // Transaction 실패 시 로컬 변경사항 롤백
             // Firestore에서 최신 경매 데이터 다시 로드
             try {
@@ -1063,10 +1015,7 @@ class AuctionSystem {
                     log.info(`[AuctionSystem] Rolled back local cache, reloaded from Firestore`);
                 }
             } catch (reloadError) {
-                // 할당량 초과 에러인 경우 재로드도 시도하지 않음
-                if (reloadError.code !== 'resource-exhausted' && reloadError.code !== 'quota-exceeded') {
-                    log.error(`[AuctionSystem] Failed to reload auction after transaction failure:`, reloadError);
-                }
+                log.error(`[AuctionSystem] Failed to reload auction after transaction failure:`, reloadError);
             }
             
             throw error; // 상위로 에러 전달

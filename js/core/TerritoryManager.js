@@ -301,46 +301,11 @@ class TerritoryManager {
             }
             
             // 2단계: Firestore에서 최신 데이터 가져오기 (반드시 완료 후 이벤트 발행)
-            // ⚡ 최적화: 캐시에 있는 데이터를 먼저 확인
+            // ⚠️ 전문가 조언: Firestore 읽기가 완료된 후에만 SELECT 이벤트 발행
             let firestoreData = null;
-            const cachedTerritory = this.territories.get(territoryId);
-            const CACHE_VALIDITY_MS = 30000; // 30초 캐시 유효 기간
-            
-            // 캐시된 데이터가 있고 최근에 업데이트된 경우 사용
-            if (cachedTerritory && cachedTerritory._lastFetched && 
-                (Date.now() - cachedTerritory._lastFetched) < CACHE_VALIDITY_MS) {
-                log.debug(`[TerritoryManager] ✅ Using cached territory data for ${territoryId} (age: ${Math.round((Date.now() - cachedTerritory._lastFetched) / 1000)}s)`);
-                firestoreData = cachedTerritory;
-            } else {
-                try {
-                    // ⚡ 최적화: 먼저 Vercel API를 통해 시도 (서버 캐시 활용)
-                    log.debug(`[TerritoryManager] 📡 Attempting to fetch via API: territories/${territoryId}`);
-                    try {
-                        const response = await fetch(`/api/territories/${territoryId}`);
-                        if (response.ok) {
-                            firestoreData = await response.json();
-                            firestoreData._lastFetched = Date.now();
-                            log.debug(`[TerritoryManager] ✅ Fetched from API (cached): ${territoryId}`);
-                        } else {
-                            throw new Error(`API returned ${response.status}`);
-                        }
-                    } catch (apiError) {
-                        // API 실패 시 기존 방식으로 폴백
-                        log.warn(`[TerritoryManager] API failed, using direct Firestore: ${apiError.message}`);
-                        log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                        firestoreData = await firebaseService.getDocument('territories', territoryId);
-                        // 캐시 타임스탬프 추가
-                        if (firestoreData) {
-                            firestoreData._lastFetched = Date.now();
-                        }
-                    }
-                } catch (error) {
-                    log.error(`[TerritoryManager] Failed to fetch territory: ${territoryId}`, error);
-                    throw error;
-                }
-            }
-            
             try {
+                log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                firestoreData = await firebaseService.getDocument('territories', territoryId);
                 
                 if (firestoreData) {
                     // ⚠️ 전문가 조언: Firestore 문서의 실제 내용을 모두 로깅하여 디버깅
