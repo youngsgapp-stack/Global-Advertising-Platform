@@ -85,7 +85,11 @@ class BillionaireApp {
             // 2.4.4. Initialize Rate Limiter
             await rateLimiter.initialize();
             
-            // 2.4.5. Make monitoringService globally available for FirebaseService
+            // 2.4.5. Initialize Performance Optimizer (CPU 최적화)
+            const { performanceOptimizer } = await import('./services/PerformanceOptimizer.js');
+            await performanceOptimizer.initialize();
+            
+            // 2.4.6. Make monitoringService globally available for FirebaseService
             window.monitoringService = monitoringService;
             
             // 2.5. Initialize Services

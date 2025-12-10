@@ -63,7 +63,8 @@ export const CONFIG = {
     // 디버그 모드 설정
     DEBUG: {
         PAYMENT: true, // 결제 관련 상세 로그 및 디버그 메시지 표시
-        PAYMENT_VERBOSE: true // 결제 단계별 상세 로깅
+        PAYMENT_VERBOSE: true, // 결제 단계별 상세 로깅
+        PERFORMANCE: false // 성능 최적화 로그 (기본값: false, 개발 시 true로 설정)
     },
     
     // 영토 기본 설정
