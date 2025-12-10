@@ -3,6 +3,14 @@
  * Postgres + Redis + WebSocket 구조
  */
 
+// ==========================================
+// 🔍 1단계: 버전 배너 (최신 코드 검증용)
+// ==========================================
+const BUILD_VERSION = '2025-01-11-02-FIX-001'; // 배포마다 변경하여 최신 코드 확인
+console.log('🚀 ========================================');
+console.log(`🚀 Build Version: ${BUILD_VERSION}`);
+console.log(`🚀 ========================================`);
+
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -11,6 +19,50 @@ import dotenv from 'dotenv';
 
 // 환경 변수 로드
 dotenv.config();
+
+// ==========================================
+// 🔍 2단계: 실험용 모드 (환경변수만 확인)
+// ==========================================
+const DEBUG_ENV_ONLY = process.env.DEBUG_ENV_ONLY === 'true';
+
+if (DEBUG_ENV_ONLY) {
+    console.log('🔍 ========================================');
+    console.log('🔍 DEBUG MODE: Environment Variables Check Only');
+    console.log('🔍 ========================================');
+    console.log('Total env vars:', Object.keys(process.env).length);
+    
+    // DATABASE 관련 변수만 필터링
+    const dbVars = Object.keys(process.env).filter(k => 
+        k.includes('DATABASE') || k.includes('POSTGRES') || k.includes('DB')
+    );
+    console.log('Database-related vars:', dbVars.length > 0 ? dbVars : 'NONE');
+    
+    // DATABASE_URL 상세 정보
+    const dbUrl = process.env.DATABASE_URL;
+    console.log('\n📦 DATABASE_URL Analysis:');
+    console.log('  exists:', !!dbUrl);
+    console.log('  type:', typeof dbUrl);
+    console.log('  length:', dbUrl ? dbUrl.length : 'N/A');
+    
+    if (dbUrl) {
+        console.log('  preview:', dbUrl.substring(0, Math.min(60, dbUrl.length)) + (dbUrl.length > 60 ? '...' : ''));
+        console.log('  first char:', `"${dbUrl[0]}"`);
+        console.log('  last char:', `"${dbUrl[dbUrl.length - 1]}"`);
+        console.log('  has leading space:', dbUrl[0] === ' ');
+        console.log('  has trailing space:', dbUrl[dbUrl.length - 1] === ' ');
+        console.log('  starts with quote:', dbUrl[0] === '"' || dbUrl[0] === "'");
+        console.log('  ends with quote:', dbUrl[dbUrl.length - 1] === '"' || dbUrl[dbUrl.length - 1] === "'");
+        console.log('  starts with postgresql://', dbUrl.startsWith('postgresql://'));
+        console.log('  starts with postgres://', dbUrl.startsWith('postgres://'));
+    } else {
+        console.log('  ⚠️  DATABASE_URL is missing or undefined!');
+    }
+    
+    console.log('\n🔍 ========================================');
+    console.log('🔍 Check Complete - Exiting...');
+    console.log('🔍 ========================================');
+    process.exit(0); // 여기서 종료 (서버 실행 안 함)
+}
 
 // 라우터 import
 import { authRouter } from './routes/auth.js';
