@@ -5,8 +5,11 @@
  * 설정 방법:
  * 1. Cloudflare Dashboard → Workers & Pages → Cron Triggers
  * 2. "Add Cron Trigger" 클릭
- * 3. Cron Expression: "*/5 * * * *" (5분마다)
+ * 3. Cron Expression: "0,5,10,15,20,25,30,35,40,45,50,55 * * * *" (5분마다)
  * 4. Worker 선택: 이 파일이 있는 프로젝트
+ * 
+ * 참고: Cloudflare Pages에서는 functions/scheduled/ 디렉토리에 파일이 있으면
+ * 자동으로 Cron Trigger로 인식됩니다.
  */
 
 export default {
