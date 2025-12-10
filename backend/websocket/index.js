@@ -3,8 +3,37 @@
  * 실시간 업데이트 브로드캐스트
  */
 
-import { authenticateToken } from '../middleware/auth.js';
-import admin from 'firebase-admin';
+// Firebase Admin은 동적으로 import하여 빌드 단계에서 에러 방지
+let admin = null;
+let getAuth = null;
+
+async function getFirebaseAdmin() {
+    if (!admin) {
+        const firebaseAdmin = await import('firebase-admin');
+        admin = firebaseAdmin.default;
+        getAuth = firebaseAdmin.getAuth;
+        
+        // Firebase 초기화 확인
+        if (!admin.apps.length) {
+            const projectId = process.env.FIREBASE_PROJECT_ID;
+            const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+            const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+            
+            if (!projectId || !privateKey || !clientEmail) {
+                throw new Error('Firebase Admin SDK environment variables are not set');
+            }
+            
+            admin.initializeApp({
+                credential: admin.credential.cert({
+                    projectId: projectId,
+                    privateKey: privateKey.replace(/\\n/g, '\n'),
+                    clientEmail: clientEmail,
+                }),
+            });
+        }
+    }
+    return { admin, getAuth };
+}
 
 const connections = new Map(); // userId -> Set of WebSocket connections
 
@@ -24,8 +53,9 @@ export function setupWebSocket(wss) {
         }
         
         try {
-            // Firebase 토큰 검증
-            const decodedToken = await admin.auth().verifyIdToken(token);
+            // Firebase Admin 동적 로드 및 토큰 검증
+            const { admin: fbAdmin, getAuth } = await getFirebaseAdmin();
+            const decodedToken = await getAuth().verifyIdToken(token);
             const userId = decodedToken.uid;
             
             // 연결 저장

@@ -31,7 +31,8 @@ import { initDatabase } from './db/init.js';
 import { initRedis } from './redis/init.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Railway는 자동으로 PORT를 할당하므로, 정수로 파싱
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN?.split(',') || ['http://localhost:8888'];
 
 // 미들웨어

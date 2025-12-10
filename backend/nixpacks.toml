@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = ['nodejs-18_x', 'npm-9_x']
+
+[phases.install]
+cmds = ['npm install']
+
+[phases.build]
+cmds = []
+# 빌드 단계에서는 환경 변수를 사용하지 않음
+
+[start]
+cmd = 'npm run start'
+
