@@ -71,7 +71,7 @@ export async function onRequest(context) {
         if (response.status === 429) {
           // 전문가 조언: "429 + 캐시 없음이면 빈 배열 반환"
           // 사용자가 뭔가라도 보게 하기 위한 응급처방
-          const placeholderResponse = {
+          const placeholderData = {
             auctions: [],
             count: 0,
             cached: false,
@@ -80,7 +80,9 @@ export async function onRequest(context) {
             retryInSeconds: 30
           };
           
-          return new Response(JSON.stringify(placeholderResponse), {
+          // Placeholder 응답도 캐시에 저장 (중요: 429 오류가 반복되지 않도록)
+          const cache = caches.default;
+          const placeholderResponse = new Response(JSON.stringify(placeholderData), {
             status: 200, // 200으로 반환하여 UI가 깨지지 않게
             headers: {
               'Content-Type': 'application/json',
@@ -91,6 +93,11 @@ export async function onRequest(context) {
               'X-Placeholder': 'true'
             }
           });
+          
+          // 캐시에 저장 (비동기, 응답 지연 없음)
+          context.waitUntil(cache.put(request, placeholderResponse.clone()));
+          
+          return placeholderResponse;
         }
         
         const errorText = await response.text();

@@ -124,7 +124,8 @@ export async function onRequest(context) {
             adminLevel: 'Region'
           };
           
-          return new Response(JSON.stringify(placeholderTerritory), {
+          // Placeholder 응답도 캐시에 저장 (중요: 429 오류가 반복되지 않도록)
+          const placeholderResponse = new Response(JSON.stringify(placeholderTerritory), {
             status: 200, // 200으로 반환하여 UI가 깨지지 않게
             headers: {
               'Content-Type': 'application/json',
@@ -135,6 +136,11 @@ export async function onRequest(context) {
               'X-Placeholder': 'true'
             }
           });
+          
+          // 캐시에 저장 (비동기, 응답 지연 없음)
+          context.waitUntil(cache.put(request, placeholderResponse.clone()));
+          
+          return placeholderResponse;
         }
         
         if (response.status === 404) {
