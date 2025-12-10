@@ -28,13 +28,31 @@ export async function onRequest(context) {
     // 캐시 설정 (전문가 조언: 응급처방 - TTL 크게 늘리기)
     const cacheTTL = 300; // 5분 캐시 (응급처방: 1~5분)
     
-    // 1. 먼저 캐시에서 찾기 (캐시 우선 조회)
+    // 1. 먼저 KV에서 찾기 (KV 우선 조회)
+    if (env.AUCTION_CACHE) {
+      const kvData = await env.AUCTION_CACHE.get('auctions:list');
+      
+      if (kvData) {
+        // KV 히트 - 즉시 반환 (Firestore 호출 없음)
+        const data = JSON.parse(kvData);
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': `public, max-age=${cacheTTL}, s-maxage=${cacheTTL}`,
+            'X-Cache-Status': 'KV-HIT'
+          }
+        });
+      }
+    }
+    
+    // 2. KV 미스 - Edge Cache에서 찾기 (폴백)
     const cache = caches.default;
     const cachedResponse = await cache.match(request);
     
     if (cachedResponse) {
-      // 캐시 히트 - 즉시 반환 (Firestore 호출 없음)
-      // 전문가 조언: "트래픽 90% 이상은 캐시 히트"
+      // Edge Cache 히트 - 즉시 반환 (Firestore 호출 없음)
       const cachedData = await cachedResponse.json();
       return new Response(JSON.stringify(cachedData), {
         status: 200,
@@ -42,138 +60,37 @@ export async function onRequest(context) {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': `public, max-age=${cacheTTL}, s-maxage=${cacheTTL}`,
-          'X-Cache-Status': 'HIT'
+          'X-Cache-Status': 'EDGE-HIT'
         }
       });
     }
     
-    // 2. 캐시 미스 - Firestore에서 가져오기
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions?key=${apiKey}`;
+    // 3. 모두 미스 - 빈 배열 반환 (Firestore 호출 안 함)
+    // Scheduled Worker가 KV에 동기화하므로 직접 호출하지 않음
+    const placeholderData = {
+      auctions: [],
+      count: 0,
+      cached: false,
+      status: 'loading',
+      message: 'Auction data is being synchronized. Please try again in a moment.',
+      retryInSeconds: 30
+    };
     
-    // 타임아웃 설정 (10초)
-    const timeout = 10000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
-    try {
-      const response = await fetch(firestoreUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-    
-      if (!response.ok) {
-        // 429 오류 처리 (전문가 조언: "graceful fallback")
-        if (response.status === 429) {
-          // 전문가 조언: "429 + 캐시 없음이면 빈 배열 반환"
-          // 사용자가 뭔가라도 보게 하기 위한 응급처방
-          const placeholderData = {
-            auctions: [],
-            count: 0,
-            cached: false,
-            status: 'temporarily_unavailable',
-            message: 'Auction data is temporarily unavailable. Please try again in a moment.',
-            retryInSeconds: 30
-          };
-          
-          // Placeholder 응답도 캐시에 저장 (중요: 429 오류가 반복되지 않도록)
-          const cache = caches.default;
-          const placeholderResponse = new Response(JSON.stringify(placeholderData), {
-            status: 200, // 200으로 반환하여 UI가 깨지지 않게
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-              'Cache-Control': 'public, max-age=30, s-maxage=60', // 짧은 캐시 (30초)
-              'X-Cache-Status': 'MISS',
-              'X-Rate-Limited': 'true',
-              'X-Placeholder': 'true'
-            }
-          });
-          
-          // 캐시에 저장 (비동기, 응답 지연 없음)
-          context.waitUntil(cache.put(request, placeholderResponse.clone()));
-          
-          return placeholderResponse;
-        }
-        
-        const errorText = await response.text();
-        throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
+    // Placeholder 응답도 Edge Cache에 저장
+    const placeholderResponse = new Response(JSON.stringify(placeholderData), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=30, s-maxage=60',
+        'X-Cache-Status': 'KV-MISS',
+        'X-Placeholder': 'true'
       }
+    });
     
-      const firestoreData = await response.json();
-      
-      // Firestore REST API 응답을 일반 객체 배열로 변환
-      let auctions = [];
-      if (firestoreData.documents) {
-        auctions = firestoreData.documents.map(doc => {
-          const auction = convertFirestoreToObject(doc);
-          // 문서 ID 추출
-          const docPath = doc.name.split('/');
-          auction.id = docPath[docPath.length - 1];
-          return auction;
-        });
-      }
-      
-      // status가 'active'인 것만 필터링
-      auctions = auctions.filter(auction => auction.status === 'active');
-      
-      const responseData = {
-        auctions,
-        count: auctions.length,
-        cached: true
-      };
-      
-      // 3. 응답 생성 및 캐시 저장
-      const responseToCache = new Response(JSON.stringify(responseData), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': `public, max-age=${cacheTTL}, s-maxage=${cacheTTL}`,
-          'X-Cache-Status': 'MISS'
-        }
-      });
-      
-      // 캐시에 저장 (비동기, 응답 지연 없음)
-      context.waitUntil(cache.put(request, responseToCache.clone()));
-      
-      return responseToCache;
-      
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // 타임아웃 오류 처리
-      if (error.name === 'AbortError') {
-        return new Response(JSON.stringify({ 
-          error: 'Request timeout',
-          message: 'The request took too long. Please try again later.' 
-        }), {
-          status: 504,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'X-Cache-Status': 'MISS'
-          }
-        });
-      }
-      
-      console.error('Error fetching auctions:', error);
-      return new Response(JSON.stringify({ 
-        error: 'Internal server error',
-        message: error.message 
-      }), {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'X-Cache-Status': 'MISS'
-        }
-      });
-    }
+    context.waitUntil(cache.put(request, placeholderResponse.clone()));
+    
+    return placeholderResponse;
   } catch (error) {
     console.error('Error in auctions API:', error);
     return new Response(JSON.stringify({ 
