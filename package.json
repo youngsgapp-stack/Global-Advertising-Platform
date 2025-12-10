@@ -5,12 +5,18 @@
   "scripts": {
     "dev": "vercel dev",
     "build": "echo 'No build step required'",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "watch-folders": "node scripts/update-folder-mtime.js",
+    "watch-folders:js": "node scripts/update-folder-mtime.js js",
+    "watch-folders:docs": "node scripts/update-folder-mtime.js docs"
   },
   "dependencies": {
-    "firebase-admin": "^12.0.0"
+    "firebase-admin": "^12.0.0",
+    "firebase": "^10.7.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "chokidar": "^3.5.3"
+  },
   "engines": {
     "node": ">=18.x"
   }

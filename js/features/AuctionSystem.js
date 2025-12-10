@@ -83,10 +83,26 @@ class AuctionSystem {
             // 로그인하지 않은 상태에서도 읽기는 가능하도록 try-catch로 감싸기
             let auctions = [];
             try {
-                auctions = await firebaseService.queryCollection('auctions', [
-                    { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-                ]);
-                this._lastLoadTime = Date.now(); // 로드 시간 기록
+                // ⚡ 최적화: 먼저 Vercel API를 통해 시도 (CDN 캐시 활용)
+                log.debug(`[AuctionSystem] 📡 Attempting to fetch auctions via API`);
+                try {
+                    const response = await fetch('/api/auctions/list');
+                    if (response.ok) {
+                        const data = await response.json();
+                        auctions = data.auctions || [];
+                        this._lastLoadTime = Date.now();
+                        log.debug(`[AuctionSystem] ✅ Fetched from API (cached): ${auctions.length} auctions`);
+                    } else {
+                        throw new Error(`API returned ${response.status}`);
+                    }
+                } catch (apiError) {
+                    // API 실패 시 기존 방식으로 폴백
+                    log.warn(`[AuctionSystem] API failed, using direct Firestore: ${apiError.message}`);
+                    auctions = await firebaseService.queryCollection('auctions', [
+                        { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
+                    ]);
+                    this._lastLoadTime = Date.now();
+                }
             } catch (error) {
                 // 권한 오류인 경우 빈 배열 반환 (로그인하지 않은 상태에서 읽기 시도)
                 if (error.message && error.message.includes('permissions')) {

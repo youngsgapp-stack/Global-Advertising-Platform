@@ -313,14 +313,29 @@ class TerritoryManager {
                 firestoreData = cachedTerritory;
             } else {
                 try {
-                    log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
-                    firestoreData = await firebaseService.getDocument('territories', territoryId);
-                    // 캐시 타임스탬프 추가
-                    if (firestoreData) {
-                        firestoreData._lastFetched = Date.now();
+                    // ⚡ 최적화: 먼저 Vercel API를 통해 시도 (서버 캐시 활용)
+                    log.debug(`[TerritoryManager] 📡 Attempting to fetch via API: territories/${territoryId}`);
+                    try {
+                        const response = await fetch(`/api/territories/${territoryId}`);
+                        if (response.ok) {
+                            firestoreData = await response.json();
+                            firestoreData._lastFetched = Date.now();
+                            log.debug(`[TerritoryManager] ✅ Fetched from API (cached): ${territoryId}`);
+                        } else {
+                            throw new Error(`API returned ${response.status}`);
+                        }
+                    } catch (apiError) {
+                        // API 실패 시 기존 방식으로 폴백
+                        log.warn(`[TerritoryManager] API failed, using direct Firestore: ${apiError.message}`);
+                        log.info(`[TerritoryManager] 📡 Fetching territory from Firestore: territories/${territoryId}`);
+                        firestoreData = await firebaseService.getDocument('territories', territoryId);
+                        // 캐시 타임스탬프 추가
+                        if (firestoreData) {
+                            firestoreData._lastFetched = Date.now();
+                        }
                     }
                 } catch (error) {
-                    log.error(`[TerritoryManager] Failed to fetch territory from Firestore: ${territoryId}`, error);
+                    log.error(`[TerritoryManager] Failed to fetch territory: ${territoryId}`, error);
                     throw error;
                 }
             }
