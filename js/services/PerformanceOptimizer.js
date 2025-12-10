@@ -317,41 +317,30 @@ class PerformanceOptimizer {
             return; // Performance API 미지원
         }
         
-        // CPU 사용량 추정 (간단한 방식)
-        let lastCheckTime = performance.now();
-        let frameCount = 0;
-        let droppedFrames = 0;
-        
         // ⚠️ 최적화: requestAnimationFrame 제거, setInterval만 사용 (10초마다)
+        // CPU 사용률은 메모리 사용량 기반으로 추정 (정확도는 낮지만 CPU 부하 없음)
         const checkCPU = () => {
             // 페이지가 숨겨져 있으면 모니터링 중지
             if (!this.optimizations.isPageVisible) {
                 return;
             }
             
-            const now = performance.now();
-            const timeSinceLastCheck = now - lastCheckTime;
-            
-            // 간단한 CPU 사용률 추정 (시간 기반)
-            // 이상적으로는 10초에 600프레임 (60fps)이어야 함
-            const expectedFrames = (timeSinceLastCheck / 1000) * 60;
-            const actualFrames = frameCount;
-            
-            if (expectedFrames > 0) {
-                const frameRatio = actualFrames / expectedFrames;
-                // 프레임 비율이 낮으면 CPU 사용률이 높은 것으로 추정
-                this.optimizations.cpuUsage = (1 - frameRatio) * 100;
+            // ⚠️ 간단한 CPU 사용률 추정 (메모리 사용량 기반)
+            // Performance API가 있으면 메모리 사용량으로 추정
+            if (performance.memory) {
+                const memoryUsage = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+                // 메모리 사용률을 CPU 사용률로 근사 (0~100%)
+                this.optimizations.cpuUsage = Math.min(memoryUsage * 100, 100);
                 
-                // CPU 사용률이 80% 이상이면 경고
+                // CPU 사용률이 80% 이상이면 경고 (하지만 실제로는 메모리 사용률)
                 if (this.optimizations.cpuUsage > 80) {
-                    log.warn(`[PerformanceOptimizer] ⚠️ High CPU usage detected: ${this.optimizations.cpuUsage.toFixed(1)}%`);
+                    log.warn(`[PerformanceOptimizer] ⚠️ High resource usage detected: ${this.optimizations.cpuUsage.toFixed(1)}% (memory-based estimate)`);
                     this.triggerPerformanceWarning();
                 }
+            } else {
+                // Performance API가 없으면 기본값 (CPU 모니터링 비활성화)
+                this.optimizations.cpuUsage = 0;
             }
-            
-            frameCount = 0;
-            droppedFrames = 0;
-            lastCheckTime = now;
         };
         
         // ⚠️ 최적화: 10초마다 체크 (기존: 매 프레임)

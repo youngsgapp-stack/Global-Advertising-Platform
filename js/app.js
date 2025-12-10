@@ -92,6 +92,9 @@ class BillionaireApp {
             // 2.4.6. Make monitoringService globally available for FirebaseService
             window.monitoringService = monitoringService;
             
+            // 2.4.7. Make serviceModeManager globally available
+            window.serviceModeManager = serviceModeManager;
+            
             // 2.5. Initialize Services
             await analyticsService.initialize();
             await notificationService.initialize();
