@@ -25,8 +25,8 @@ export async function onRequest(context) {
       });
     }
     
-    // 캐시 설정 (전문가 조언: auction은 10~30초 또는 1분)
-    const cacheTTL = 30; // 30초 캐시
+    // 캐시 설정 (전문가 조언: 응급처방 - TTL 크게 늘리기)
+    const cacheTTL = 300; // 5분 캐시 (응급처방: 1~5분)
     
     // 1. 먼저 캐시에서 찾기 (캐시 우선 조회)
     const cache = caches.default;
@@ -67,19 +67,28 @@ export async function onRequest(context) {
       clearTimeout(timeoutId);
     
       if (!response.ok) {
-        // 429 오류 처리 (전문가 조언: "재시도보다는 캐시/스테일에 의지")
+        // 429 오류 처리 (전문가 조언: "graceful fallback")
         if (response.status === 429) {
-          // 전문가 조언: "429가 뜰 땐 Firestore를 잠시 잊고 캐시/스테일에 의지"
-          return new Response(JSON.stringify({ 
-            error: 'Rate limit exceeded',
-            message: 'Too many requests. Please try again later.' 
-          }), {
-            status: 429,
+          // 전문가 조언: "429 + 캐시 없음이면 빈 배열 반환"
+          // 사용자가 뭔가라도 보게 하기 위한 응급처방
+          const placeholderResponse = {
+            auctions: [],
+            count: 0,
+            cached: false,
+            status: 'temporarily_unavailable',
+            message: 'Auction data is temporarily unavailable. Please try again in a moment.',
+            retryInSeconds: 30
+          };
+          
+          return new Response(JSON.stringify(placeholderResponse), {
+            status: 200, // 200으로 반환하여 UI가 깨지지 않게
             headers: {
               'Content-Type': 'application/json',
               'Access-Control-Allow-Origin': '*',
-              'Retry-After': '60',
-              'X-Cache-Status': 'MISS'
+              'Cache-Control': 'public, max-age=30, s-maxage=60', // 짧은 캐시 (30초)
+              'X-Cache-Status': 'MISS',
+              'X-Rate-Limited': 'true',
+              'X-Placeholder': 'true'
             }
           });
         }

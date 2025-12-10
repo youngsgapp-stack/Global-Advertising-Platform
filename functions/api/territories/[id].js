@@ -40,8 +40,8 @@ export async function onRequest(context) {
       });
     }
     
-    // 캐시 설정 (전문가 조언: 30~120초)
-    const cacheTTL = 60; // 60초 캐시
+    // 캐시 설정 (전문가 조언: 응급처방 - TTL 크게 늘리기)
+    const cacheTTL = 600; // 10분 캐시 (응급처방: 10~60분)
     
     // 1. 먼저 캐시에서 찾기 (캐시 우선 조회)
     const cache = caches.default;
@@ -82,22 +82,31 @@ export async function onRequest(context) {
       clearTimeout(timeoutId);
     
       if (!response.ok) {
-        // 429 오류 처리 (전문가 조언: "재시도보다는 캐시/스테일에 의지")
+        // 429 오류 처리 (전문가 조언: "graceful fallback")
         if (response.status === 429) {
-          // 전문가 조언: "429가 뜰 땐 Firestore를 잠시 잊고 캐시/스테일에 의지"
-          // 캐시에 저장된 데이터가 있으면 (만료 여부와 상관없이) 반환 시도
-          // Note: Cloudflare Cache API는 만료된 캐시를 자동 반환하지 않으므로
-          // 여기서는 429 오류를 반환하고, 향후 KV 도입 시 스테일 캐시 활용
-          return new Response(JSON.stringify({ 
-            error: 'Rate limit exceeded',
-            message: 'Too many requests. Please try again later.' 
-          }), {
-            status: 429,
+          // 전문가 조언: "429 + 캐시 없음이면 placeholder Territory 반환"
+          // 사용자가 뭔가라도 보게 하기 위한 응급처방
+          const placeholderTerritory = {
+            id: id,
+            status: 'temporarily_unavailable',
+            message: 'Data is temporarily unavailable. Please try again in a moment.',
+            retryInSeconds: 30,
+            ownership: 'unknown',
+            sovereignty: 'unknown',
+            // 기본 정보만 포함 (UI가 완전히 깨지지 않도록)
+            country: id.split('_')[0] || 'unknown',
+            adminLevel: 'Region'
+          };
+          
+          return new Response(JSON.stringify(placeholderTerritory), {
+            status: 200, // 200으로 반환하여 UI가 깨지지 않게
             headers: {
               'Content-Type': 'application/json',
               'Access-Control-Allow-Origin': '*',
-              'Retry-After': '60',
-              'X-Cache-Status': 'MISS'
+              'Cache-Control': 'public, max-age=30, s-maxage=60', // 짧은 캐시 (30초)
+              'X-Cache-Status': 'MISS',
+              'X-Rate-Limited': 'true',
+              'X-Placeholder': 'true'
             }
           });
         }
