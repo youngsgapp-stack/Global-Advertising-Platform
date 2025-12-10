@@ -1,160 +1,95 @@
 /**
- * Redis 클라이언트 초기화
- * Upstash Redis REST API 또는 일반 Redis 연결
+ * PostgreSQL 데이터베이스 초기화
+ * Supabase 또는 직접 Postgres 연결
  */
 
-import { createClient } from 'redis';
+import pg from 'pg';
+const { Pool } = pg;
 
-let redisClient = null;
+let pool = null;
 
 /**
- * Redis 클라이언트 초기화
- * Upstash 사용 시: REDIS_URL과 REDIS_TOKEN 사용
- * 일반 Redis 사용 시: REDIS_URL만 사용
+ * DB 연결 풀 초기화
  */
-export async function initRedis() {
-    if (redisClient) {
-        return redisClient;
+export async function initDatabase() {
+    if (pool) {
+        return pool;
     }
     
-    const redisUrl = process.env.REDIS_URL;
-    const redisToken = process.env.REDIS_TOKEN; // Upstash용
+    const connectionString = process.env.DATABASE_URL;
     
-    if (!redisUrl) {
-        throw new Error('REDIS_URL environment variable is required');
+    // 디버깅: 환경 변수 상태 확인
+    console.log('🔍 Checking DATABASE_URL...');
+    console.log('   Type:', typeof connectionString);
+    console.log('   Is undefined:', connectionString === undefined);
+    console.log('   Is null:', connectionString === null);
+    console.log('   Length:', connectionString ? connectionString.length : 'N/A');
+    
+    if (!connectionString) {
+        console.error('❌ DATABASE_URL environment variable is missing');
+        console.error('   Please set DATABASE_URL in Railway Variables');
+        console.error('   All env vars:', Object.keys(process.env).filter(k => k.includes('DATABASE') || k.includes('POSTGRES')));
+        throw new Error('DATABASE_URL environment variable is required');
     }
     
-    // Upstash REST API 사용 여부 확인
-    if (redisUrl.startsWith('https://') && redisToken) {
-        // Upstash REST API 사용
-        console.log('📦 Using Upstash Redis REST API');
-        redisClient = {
-            // REST API 방식이므로 실제 클라이언트 대신 REST 호출 사용
-            // redis 헬퍼 함수에서 직접 처리
-            _type: 'upstash',
-            _url: redisUrl,
-            _token: redisToken,
-        };
-        console.log('✅ Upstash Redis configured');
-        return redisClient;
+    if (typeof connectionString !== 'string') {
+        console.error('❌ DATABASE_URL is not a string:', typeof connectionString);
+        throw new Error('DATABASE_URL must be a string');
     }
     
-    // 일반 Redis 클라이언트 (로컬 또는 클라우드 Redis)
-    console.log('📦 Using standard Redis client');
-    redisClient = createClient({
-        url: redisUrl,
+    // 연결 문자열 앞부분만 표시 (보안)
+    const preview = connectionString.substring(0, 30) + '...';
+    console.log('   Preview:', preview);
+    
+    if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
+        console.error('❌ DATABASE_URL must start with postgresql:// or postgres://');
+        console.error('   Current value (first 50 chars):', connectionString.substring(0, 50));
+        throw new Error('Invalid DATABASE_URL format');
+    }
+    
+    // 연결 문자열 정리 (앞뒤 공백 제거)
+    const cleanConnectionString = connectionString.trim();
+    if (cleanConnectionString !== connectionString) {
+        console.log('⚠️  DATABASE_URL had leading/trailing whitespace, trimmed');
+    }
+    
+    pool = new Pool({
+        connectionString: cleanConnectionString,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        max: 20, // 최대 연결 수
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000, // 연결 타임아웃 증가
     });
     
-    redisClient.on('error', (err) => {
-        console.error('❌ Redis Client Error:', err);
-    });
+    // 연결 테스트
+    try {
+        const client = await pool.connect();
+        const result = await client.query('SELECT NOW()');
+        console.log('📦 Database connected:', result.rows[0].now);
+        client.release();
+    } catch (error) {
+        console.error('❌ Database connection failed:', error);
+        throw error;
+    }
     
-    redisClient.on('connect', () => {
-        console.log('🔗 Redis connecting...');
-    });
-    
-    redisClient.on('ready', () => {
-        console.log('✅ Redis connected');
-    });
-    
-    await redisClient.connect();
-    
-    return redisClient;
+    return pool;
 }
 
 /**
- * Redis 클라이언트 가져오기
+ * DB 풀 가져오기
  */
-export function getRedis() {
-    if (!redisClient) {
-        throw new Error('Redis not initialized. Call initRedis() first.');
+export function getPool() {
+    if (!pool) {
+        throw new Error('Database not initialized. Call initDatabase() first.');
     }
-    return redisClient;
+    return pool;
 }
 
 /**
- * Upstash REST API 호출
+ * 쿼리 실행 헬퍼
  */
-async function upstashRequest(command, ...args) {
-    const client = getRedis();
-    if (client._type !== 'upstash') {
-        throw new Error('Upstash request called but client is not Upstash type');
-    }
-    
-    const response = await fetch(`${client._url}/${command}/${args.join('/')}`, {
-        headers: {
-            'Authorization': `Bearer ${client._token}`,
-        },
-    });
-    
-    if (!response.ok) {
-        throw new Error(`Upstash API error: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.result;
+export async function query(text, params) {
+    const pool = getPool();
+    return await pool.query(text, params);
 }
-
-/**
- * Redis 헬퍼 함수들
- */
-export const redis = {
-    get: async (key) => {
-        const client = getRedis();
-        
-        if (client._type === 'upstash') {
-            // Upstash REST API
-            const value = await upstashRequest('get', key);
-            return value ? JSON.parse(value) : null;
-        }
-        
-        // 일반 Redis
-        const value = await client.get(key);
-        return value ? JSON.parse(value) : null;
-    },
-    
-    set: async (key, value, ttl = null) => {
-        const client = getRedis();
-        const str = JSON.stringify(value);
-        
-        if (client._type === 'upstash') {
-            // Upstash REST API
-            if (ttl) {
-                await upstashRequest('setex', key, ttl, str);
-            } else {
-                await upstashRequest('set', key, str);
-            }
-            return;
-        }
-        
-        // 일반 Redis
-        if (ttl) {
-            await client.setEx(key, ttl, str);
-        } else {
-            await client.set(key, str);
-        }
-    },
-    
-    del: async (key) => {
-        const client = getRedis();
-        
-        if (client._type === 'upstash') {
-            await upstashRequest('del', key);
-            return;
-        }
-        
-        await client.del(key);
-    },
-    
-    exists: async (key) => {
-        const client = getRedis();
-        
-        if (client._type === 'upstash') {
-            const result = await upstashRequest('exists', key);
-            return result > 0;
-        }
-        
-        return await client.exists(key);
-    },
-};
 
