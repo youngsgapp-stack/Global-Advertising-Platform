@@ -42,91 +42,100 @@ export async function onRequest(context) {
     // Firestore REST API - API Key를 쿼리 파라미터로 전달
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/territories/${id}?key=${apiKey}`;
     
-    // 재시도 로직 (최대 3회)
-    let response;
-    let lastError;
-    const maxRetries = 3;
-    const retryDelay = 1000; // 1초
+    // 타임아웃 설정 (10초)
+    const timeout = 10000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        response = await fetch(firestoreUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        // 429 오류가 아니면 재시도 중단
-        if (response.status !== 429) {
-          break;
-        }
-        
-        // 429 오류인 경우 재시도
-        if (attempt < maxRetries - 1) {
-          const retryAfter = response.headers.get('Retry-After') || retryDelay;
-          await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000));
-          continue;
-        }
-      } catch (error) {
-        lastError = error;
-        if (attempt < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
-          continue;
-        }
-        throw error;
-      }
-    }
-    
-    if (!response || !response.ok) {
-      if (response && response.status === 404) {
-        return new Response(JSON.stringify({ error: 'Territory not found' }), {
-          status: 404,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'public, max-age=300, s-maxage=600'
-          }
-        });
-      }
+    try {
+      const response = await fetch(firestoreUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal
+      });
       
-      // 429 오류 처리 (재시도 실패)
-      if (response && response.status === 429) {
+      clearTimeout(timeoutId);
+    
+      if (!response.ok) {
+        if (response.status === 404) {
+          return new Response(JSON.stringify({ error: 'Territory not found' }), {
+            status: 404,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'public, max-age=300, s-maxage=600'
+            }
+          });
+        }
+        
+        // 429 오류 처리
+        if (response.status === 429) {
+          return new Response(JSON.stringify({ 
+            error: 'Rate limit exceeded',
+            message: 'Too many requests. Please try again later.' 
+          }), {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Retry-After': '60',
+              'Cache-Control': 'public, max-age=60, s-maxage=300'
+            }
+          });
+        }
+        
+        const errorText = await response.text();
+        throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
+      }
+    
+      const firestoreData = await response.json();
+      
+      // Firestore REST API 응답을 일반 객체로 변환
+      const territory = convertFirestoreToObject(firestoreData);
+      territory.id = id;
+      
+      return new Response(JSON.stringify(territory), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=300, s-maxage=600' // 캐싱 강화 (5분)
+        }
+      });
+      
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      // 타임아웃 오류 처리
+      if (error.name === 'AbortError') {
         return new Response(JSON.stringify({ 
-          error: 'Rate limit exceeded',
-          message: 'Too many requests. Please try again later.' 
+          error: 'Request timeout',
+          message: 'The request took too long. Please try again later.' 
         }), {
-          status: 429,
+          status: 504,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Retry-After': '60',
-            'Cache-Control': 'public, max-age=60, s-maxage=300'
+            'Access-Control-Allow-Origin': '*'
           }
         });
       }
       
-      const errorText = response ? await response.text() : lastError?.message || 'Unknown error';
-      throw new Error(`Firestore API error: ${response?.status || 'Network'} - ${errorText}`);
+      console.error('Error fetching territory:', error);
+      return new Response(JSON.stringify({ 
+        error: 'Internal server error',
+        message: error.message 
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
-    
-    const firestoreData = await response.json();
-    
-    // Firestore REST API 응답을 일반 객체로 변환
-    const territory = convertFirestoreToObject(firestoreData);
-    territory.id = id;
-    
-    return new Response(JSON.stringify(territory), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=300, s-maxage=600' // 캐싱 강화 (5분)
-      }
-    });
-    
   } catch (error) {
-    console.error('Error fetching territory:', error);
+    console.error('Error in territory API:', error);
     return new Response(JSON.stringify({ 
       error: 'Internal server error',
       message: error.message 
