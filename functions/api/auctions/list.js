@@ -7,15 +7,24 @@ export async function onRequest(context) {
   const { env } = context;
   
   try {
-    // Firebase REST API 사용 (API Key 필요)
+    // Firebase REST API 사용
     const projectId = env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
     const apiKey = env.NEXT_PUBLIC_FIREBASE_API_KEY;
     
     if (!projectId || !apiKey) {
-      throw new Error('Firebase configuration missing');
+      return new Response(JSON.stringify({ 
+        error: 'Configuration error',
+        message: 'Firebase configuration missing' 
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
     
-    // Firestore REST API는 API Key를 쿼리 파라미터로 전달
+    // Firestore REST API - API Key를 쿼리 파라미터로 전달
     // 복잡한 쿼리는 지원하지 않으므로 모든 경매를 가져온 후 필터링
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/auctions?key=${apiKey}`;
     
@@ -27,7 +36,23 @@ export async function onRequest(context) {
     });
     
     if (!response.ok) {
-      throw new Error(`Firestore API error: ${response.status}`);
+      // 429 오류 처리
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ 
+          error: 'Rate limit exceeded',
+          message: 'Too many requests. Please try again later.' 
+        }), {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Retry-After': '60'
+          }
+        });
+      }
+      
+      const errorText = await response.text();
+      throw new Error(`Firestore API error: ${response.status} - ${errorText}`);
     }
     
     const firestoreData = await response.json();
