@@ -1,0 +1,31 @@
+{
+  "name": "worldad-backend",
+  "version": "1.0.0",
+  "description": "WorldAd Backend API Server - Postgres + Redis + WebSocket",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed.js",
+    "migrate-firestore": "node ../scripts/migrate-firestore-to-postgres.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "firebase-admin": "^12.0.0",
+    "pg": "^8.11.3",
+    "redis": "^4.6.10",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ws": "^8.14.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
+
