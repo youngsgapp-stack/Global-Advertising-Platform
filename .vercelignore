@@ -1,0 +1,37 @@
+# Vercel 배포에서 제외할 파일 및 폴더
+
+# 백엔드 서버 (Railway에 별도 배포)
+backend/
+
+# 개발 도구
+scripts/
+tools/
+cpu-saver/
+
+# 문서
+docs/
+*.md
+
+# 백업 파일
+backups/
+
+# 로그 파일
+*.log
+backend/logs/
+
+# 개발 설정
+.cursorignore
+start-server.*
+fix-json-*.js
+
+# Node modules (자동 설치됨)
+node_modules/
+
+# 환경 변수
+.env
+.env.local
+.env.*.local
+
+# Firebase Functions (중복 - api/ 폴더 사용)
+functions/
+
