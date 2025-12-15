@@ -28,7 +28,10 @@ export function initSentry() {
     const environment = process.env.NODE_ENV || 'development';
     
     if (!dsn) {
-        console.warn('[Sentry] SENTRY_DSN not configured, skipping Sentry initialization');
+        // Sentry는 선택사항이므로 조용하게 스킵 (프로덕션에서는 로그 출력 안 함)
+        if (environment !== 'production') {
+            console.log('[Sentry] SENTRY_DSN not configured, skipping Sentry initialization (optional)');
+        }
         return;
     }
     
