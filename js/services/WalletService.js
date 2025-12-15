@@ -153,6 +153,14 @@ class WalletService {
             
         } catch (error) {
             log.error('Failed to load wallet:', error);
+            // 에러 발생 시 기본값 설정 (400pt 스타터 포인트)
+            this.currentBalance = 400;
+            log.warn(`[WalletService] ⚠️ Using default balance: ${this.currentBalance} pt`);
+            
+            // 이벤트 발행하여 UI 업데이트
+            eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, {
+                balance: this.currentBalance
+            });
         }
     }
     

@@ -701,7 +701,14 @@ class PaymentService {
      */
     updateBalanceDisplay() {
         const balance = walletService.getBalance();
-        document.getElementById('modal-current-balance').textContent = `${balance.toLocaleString()} pt`;
+        const balanceElement = document.getElementById('modal-current-balance');
+        if (balanceElement) {
+            if (balance !== null && balance !== undefined) {
+                balanceElement.textContent = `${balance.toLocaleString()} pt`;
+            } else {
+                balanceElement.textContent = '0 pt';
+            }
+        }
     }
     
     /**
