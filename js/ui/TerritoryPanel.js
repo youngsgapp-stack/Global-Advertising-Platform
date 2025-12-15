@@ -10,6 +10,7 @@ import mapController from '../core/MapController.js';
 import { buffSystem } from '../features/BuffSystem.js';
 import { auctionSystem, AUCTION_STATUS, AUCTION_TYPE } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
 import { rateLimiter, RATE_LIMIT_TYPE } from '../services/RateLimiter.js';
@@ -159,7 +160,9 @@ class TerritoryPanel {
             
             log.info(`[TerritoryPanel] 📋 Opening panel for territory: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}`);
             
-            log.info(`[TerritoryPanel] Opening panel for territory: ${territory.id}, name: ${territory.name || territory.properties?.name}, country: ${territory.country}`);
+            // 디버깅: name 객체 구조 확인
+            const nameDebug = territory.name ? (typeof territory.name === 'object' ? JSON.stringify(territory.name) : territory.name) : 'null';
+            log.debug(`[TerritoryPanel] Opening panel for territory: ${territory.id}, name: ${nameDebug}, country: ${territory.country}`);
             this.open(territory);
         });
         
@@ -283,13 +286,8 @@ class TerritoryPanel {
         const protectionRemaining = territoryManager.getProtectionRemaining(territory.id);
         const isProtected = !!protectionRemaining;
         
-        // 이름 추출 (객체일 수 있으므로 처리) - 먼저 정의 필요
-        const territoryName = this.extractName(territory.name) || 
-                              this.extractName(territory.properties?.name) || 
-                              this.extractName(territory.properties?.name_en) || 
-                              'Unknown Territory';
-        
         // 국가 코드 결정 (우선순위: territory.country > properties > fallback)
+        // 이름 추출 전에 countryCode를 먼저 결정해야 extractName에서 사용 가능
         // properties에서 사용 가능한 필드: adm0_a3 (USA), country (United States of America), countryCode (US1), sov_a3 (US1)
         let countryCode = territory.country || 
                         territory.properties?.country || 
@@ -473,13 +471,60 @@ class TerritoryPanel {
             }
         }
         
+        // 이름 추출 (displayName 우선 사용)
+        let territoryName = null;
+        
+        // 1. displayName 우선 사용 (TerritoryManager에서 준비된 표시용 이름)
+        if (territory.displayName) {
+            log.info(`[TerritoryPanel] Using displayName for ${territory.id}:`, territory.displayName);
+            territoryName = this.extractName(territory.displayName, countryCode);
+            log.info(`[TerritoryPanel] Extracted name from displayName: ${territoryName} (countryCode: ${countryCode})`);
+        } else {
+            log.warn(`[TerritoryPanel] ⚠️ No displayName for ${territory.id}, creating it now...`);
+            // displayName이 없으면 지금 생성 (TerritoryManager에서 생성하지 않은 경우)
+            if (territoryManager && typeof territoryManager.createDisplayName === 'function') {
+                territory.displayName = territoryManager.createDisplayName(territory);
+                log.debug(`[TerritoryPanel] Created displayName for ${territory.id}:`, territory.displayName);
+                territoryName = this.extractName(territory.displayName, countryCode);
+                log.debug(`[TerritoryPanel] Extracted name from created displayName:`, territoryName);
+            } else {
+                log.debug(`[TerritoryPanel] Cannot create displayName, using fallback`);
+            }
+        }
+        
+        // 2. displayName이 없으면 기존 방식 사용 (하위 호환성)
+        if (!territoryName) {
+            territoryName = this.extractName(territory.name, countryCode);
+        }
+        if (!territoryName) {
+            territoryName = this.extractName(territory.properties?.name, countryCode);
+        }
+        if (!territoryName) {
+            territoryName = this.extractName(territory.properties?.name_en, countryCode);
+        }
+        if (!territoryName) {
+            // 최후의 수단: territoryId 사용
+            territoryName = territory.id || 'Unknown Territory';
+        }
+        
+        // 디버깅: 이름 추출 실패 시에만 로그
+        if (territoryName === 'Unknown Territory' || !territoryName || territoryName === territory.id) {
+            log.warn(`[TerritoryPanel] ⚠️ Failed to extract proper name for ${territory.id}`, {
+                nameObject: territory.name,
+                propertiesName: territory.properties?.name,
+                propertiesNameEn: territory.properties?.name_en,
+                countryCode,
+                extractedName: territoryName
+            });
+        }
+        
         // Get real country data
         this.countryData = territoryDataService.getCountryStats(countryCode);
         const countryInfo = CONFIG.COUNTRIES[countryCode] || {};
         
         // 인구/면적 데이터 추출 (TerritoryDataService 사용)
         // countryCode 디버깅: 최종 결정된 countryCode 로그
-        if (!countryInfo.name) {
+        if (!countryInfo.name && countryCode !== 'unknown') {
             log.warn(`[TerritoryPanel] Country info not found for code: ${countryCode}, territory: ${territoryName}`);
         }
         
@@ -538,12 +583,9 @@ class TerritoryPanel {
             if (territory.sovereignty === SOVEREIGNTY.CONTESTED && !auction) {
                 setTimeout(async () => {
                     try {
-                        const Timestamp = firebaseService.getTimestamp();
-                        await firebaseService.updateDocument('territories', territory.id, {
-                            sovereignty: SOVEREIGNTY.UNCONQUERED,
-                            currentAuction: null,
-                            updatedAt: Timestamp ? Timestamp.now() : new Date()
-                        });
+                        // TODO: API에 영토 상태 업데이트 엔드포인트가 있으면 사용
+                        // 현재는 로컬 상태만 업데이트
+                        log.info('[TerritoryPanel] Fixing territory state locally (API update endpoint needed)');
                         territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
                         territory.currentAuction = null;
                         await this.render();
@@ -841,12 +883,17 @@ class TerritoryPanel {
                 // 영토 상태 다시 로드
                 const territory = territoryManager.getTerritory(territory.id);
                 if (territory) {
-                    // Firestore에서 최신 데이터 로드
+                    // API에서 최신 데이터 로드
                     try {
-                        const latestData = await firebaseService.getDocument('territories', territory.id);
+                        const latestData = await apiService.getTerritory(territory.id);
                         if (latestData) {
+                            // API 응답을 내부 형식으로 변환
+                            const normalizedData = territoryManager.normalizeTerritoryData 
+                                ? territoryManager.normalizeTerritoryData(latestData)
+                                : latestData;
+                            
                             // 영토 데이터 업데이트
-                            Object.assign(territory, latestData);
+                            Object.assign(territory, normalizedData);
                             territoryManager.territories.set(territory.id, territory);
                             
                             // 패널 다시 렌더링
@@ -1399,7 +1446,8 @@ class TerritoryPanel {
         const t = this.currentTerritory;
         if (!t) return;
         
-        const territoryName = this.extractName(t.name) || t.id;
+        const countryCode = t.country || t.properties?.adm0_a3?.toLowerCase() || 'unknown';
+        const territoryName = this.extractName(t.name, countryCode) || t.id;
         const shareUrl = `${window.location.origin}${window.location.pathname}?territory=${t.id}`;
         const shareText = `🌍 Check out this territory: ${territoryName} on Own a Piece of Earth!`;
         const shareTitle = `Own a Piece of Earth - ${territoryName}`;
@@ -1512,8 +1560,12 @@ class TerritoryPanel {
         
         log.info('[TerritoryPanel] Territory selected:', this.currentTerritory.id);
         
-        const territoryName = this.extractName(this.currentTerritory.name) || 
-                             this.extractName(this.currentTerritory.properties?.name) ||
+        const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 
+                           this.currentTerritory.properties?.country || 
+                           'unknown';
+        const territoryName = this.extractName(this.currentTerritory.name, countryCode) || 
+                             this.extractName(this.currentTerritory.properties?.name, countryCode) ||
                              this.currentTerritory.id;
         
         // 경매가 활성화되어 있는지 확인
@@ -1541,9 +1593,6 @@ class TerritoryPanel {
         }
         
         // 기본 가격 계산
-        const countryCode = this.currentTerritory.country || 
-                           this.currentTerritory.properties?.country || 
-                           'unknown';
         let basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
         log.info('[TerritoryPanel] Base price calculated:', basePrice);
@@ -2032,8 +2081,11 @@ class TerritoryPanel {
         }
         
         // 확인 다이얼로그
-        const territoryName = this.extractName(this.currentTerritory.name) || 
-                             this.extractName(this.currentTerritory.properties?.name) ||
+        const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 
+                           'unknown';
+        const territoryName = this.extractName(this.currentTerritory.name, countryCode) || 
+                             this.extractName(this.currentTerritory.properties?.name, countryCode) ||
                              this.currentTerritory.id;
         const ownerName = this.currentTerritory.rulerName || 'Unknown';
         
@@ -2369,13 +2421,220 @@ class TerritoryPanel {
     /**
      * 이름 추출 (객체일 수 있으므로 문자열로 변환)
      */
-    extractName(name) {
+    /**
+     * 국가별 언어 필드 매핑 (영어 기본, 괄호 안에 현지어 표시)
+     */
+    getCountryLanguageField(countryCode) {
+        if (!countryCode) return null;
+        
+        // 국가별 언어 필드 매핑
+        const countryLangMap = {
+            // 아시아
+            'south-korea': 'ko', 'north-korea': 'ko',
+            'japan': 'ja',
+            'china': 'zh', 'taiwan': 'zh', 'hong-kong': 'zh',
+            'thailand': 'th',
+            'vietnam': 'vi',
+            'indonesia': 'id',
+            'malaysia': 'ms',
+            'philippines': 'tl',
+            'india': 'hi',
+            'myanmar': 'my',
+            'cambodia': 'km',
+            'laos': 'lo',
+            'mongolia': 'mn',
+            'nepal': 'ne',
+            'sri-lanka': 'si',
+            'kazakhstan': 'kk',
+            'uzbekistan': 'uz',
+            'bangladesh': 'bn',
+            'pakistan': 'ur',
+            'afghanistan': 'ps',
+            'iran': 'fa',
+            'iraq': 'ar',
+            'saudi-arabia': 'ar', 'uae': 'ar', 'qatar': 'ar', 'kuwait': 'ar',
+            'bahrain': 'ar', 'oman': 'ar', 'yemen': 'ar', 'jordan': 'ar',
+            'lebanon': 'ar', 'syria': 'ar', 'palestine': 'ar',
+            'israel': 'he',
+            'turkey': 'tr',
+            // 유럽
+            'germany': 'de',
+            'france': 'fr',
+            'spain': 'es',
+            'italy': 'it',
+            'portugal': 'pt',
+            'greece': 'el',
+            'poland': 'pl',
+            'romania': 'ro',
+            'hungary': 'hu',
+            'czech-republic': 'cs',
+            'netherlands': 'nl',
+            'belgium': 'nl', // 또는 'fr'
+            'sweden': 'sv',
+            'norway': 'no',
+            'denmark': 'da',
+            'finland': 'fi',
+            'russia': 'ru',
+            'ukraine': 'uk',
+            'belarus': 'be',
+            'serbia': 'sr',
+            'croatia': 'hr',
+            'slovakia': 'sk',
+            'slovenia': 'sl',
+            'bulgaria': 'bg',
+            'albania': 'sq',
+            'georgia': 'ka',
+            'armenia': 'hy',
+            'azerbaijan': 'az',
+            // 남미
+            'brazil': 'pt',
+            'argentina': 'es',
+            'chile': 'es',
+            'colombia': 'es',
+            'peru': 'es',
+            'venezuela': 'es',
+            'ecuador': 'es',
+            'bolivia': 'es',
+            'paraguay': 'es',
+            'uruguay': 'es',
+            'mexico': 'es',
+            // 아프리카
+            'egypt': 'ar',
+            'morocco': 'ar',
+            'algeria': 'ar',
+            'tunisia': 'ar',
+            'libya': 'ar',
+            'sudan': 'ar',
+            'ethiopia': 'am',
+            'kenya': 'sw',
+            'tanzania': 'sw',
+            'uganda': 'sw',
+            'rwanda': 'rw',
+            'ghana': 'ak',
+            'nigeria': 'yo', // 또는 'ig', 'ha'
+            'senegal': 'wo',
+            'mali': 'fr',
+            'ivory-coast': 'fr',
+            'cameroon': 'fr',
+            // 오세아니아
+            'australia': 'en',
+            'new-zealand': 'en',
+            'fiji': 'fj',
+            'papua-new-guinea': 'en'
+        };
+        
+        return countryLangMap[countryCode] || null;
+    }
+    
+    /**
+     * 지역명 추출 및 포맷팅 (영어(현지어) 형식)
+     */
+    extractName(name, countryCode = null) {
         if (!name) return null;
-        if (typeof name === 'string') return name;
-        if (typeof name === 'object') {
-            return name.en || name.ko || name.local || Object.values(name)[0] || null;
+        
+        let nameObj = null;
+        
+        // 문자열인 경우 JSON 형식인지 확인
+        if (typeof name === 'string') {
+            // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+            if (name.trim().startsWith('{') && name.trim().endsWith('}')) {
+                try {
+                    const parsed = JSON.parse(name);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        nameObj = parsed;
+                    }
+                } catch (e) {
+                    // JSON 파싱 실패 시 일반 문자열로 처리
+                    return name;
+                }
+            } else {
+                // 일반 문자열인 경우 그대로 반환
+                return name;
+            }
+        } else if (typeof name === 'object' && name !== null) {
+            nameObj = name;
+        } else {
+            return String(name);
         }
-        return String(name);
+        
+        // 객체인 경우 영어(현지어) 형식으로 포맷팅
+        if (nameObj) {
+            // 모든 값 가져오기 (null/undefined/빈 문자열 제외)
+            const allValues = Object.values(nameObj).filter(v => {
+                if (v == null) return false;
+                const str = String(v).trim();
+                return str !== '' && str !== 'undefined' && str !== 'null';
+            });
+            
+            if (allValues.length === 0) {
+                log.warn('[TerritoryPanel] extractName - No valid values in nameObj:', nameObj);
+                return null;
+            }
+            
+            // 영어 이름 찾기 (우선순위: en > local > 첫 번째 값)
+            let englishName = nameObj.en;
+            if (!englishName || englishName === '' || englishName === 'undefined' || englishName === 'null') {
+                englishName = nameObj.local;
+            }
+            if (!englishName || englishName === '' || englishName === 'undefined' || englishName === 'null') {
+                // 첫 번째 유효한 값 사용
+                englishName = allValues[0];
+            }
+            
+            // 영어 이름이 없으면 null 반환
+            if (!englishName || englishName === '' || englishName === 'undefined' || englishName === 'null') {
+                log.warn('[TerritoryPanel] extractName - No valid englishName found:', nameObj);
+                return null;
+            }
+            
+            // 국가별 언어 필드 가져오기
+            const localLang = countryCode ? this.getCountryLanguageField(countryCode) : null;
+            let localName = null;
+            
+            // ⚠️ 중요: displayName 객체는 { en, local, ko } 형태이므로 local 필드를 우선 확인
+            // 현지어 찾기 (우선순위: local 필드 > 국가별 언어 필드 > ko)
+            // ⚠️ 중요: nameObj.local이 영어 이름과 같아도 현지어로 인식 (hasLocalMapping이 true인 경우)
+            log.info(`[TerritoryPanel] extractName - Processing nameObj:`, nameObj, `countryCode: ${countryCode}`);
+            log.info(`[TerritoryPanel] extractName - englishName: ${englishName}, nameObj.local: ${nameObj.local}, nameObj.ko: ${nameObj.ko}, hasLocalMapping: ${nameObj.hasLocalMapping}`);
+            
+            // ⚠️ CRITICAL: hasLocalMapping이 true이면 nameObj.local을 무조건 현지어로 사용
+            if (nameObj.hasLocalMapping && nameObj.local && nameObj.local !== '' && nameObj.local !== 'undefined' && nameObj.local !== 'null') {
+                localName = nameObj.local;
+                log.info(`[TerritoryPanel] extractName - ✅ Found local name from .local field (hasLocalMapping=true): ${localName} (countryCode: ${countryCode})`);
+            } else if (nameObj.local && nameObj.local !== '' && nameObj.local !== 'undefined' && nameObj.local !== 'null') {
+                // hasLocalMapping이 false이거나 없어도 local 필드가 있으면 사용
+                localName = nameObj.local;
+                log.info(`[TerritoryPanel] extractName - ✅ Found local name from .local field: ${localName} (countryCode: ${countryCode})`);
+            } else if (localLang && nameObj[localLang] && nameObj[localLang] !== '' && nameObj[localLang] !== 'undefined' && nameObj[localLang] !== 'null') {
+                localName = nameObj[localLang];
+                log.info(`[TerritoryPanel] extractName - ✅ Found local name from .${localLang} field: ${localName} (countryCode: ${countryCode})`);
+            } else if (nameObj.ko && nameObj.ko !== '' && nameObj.ko !== 'undefined' && nameObj.ko !== 'null') {
+                localName = nameObj.ko;
+                log.info(`[TerritoryPanel] extractName - ✅ Found local name from .ko field: ${localName} (countryCode: ${countryCode})`);
+            } else {
+                log.warn(`[TerritoryPanel] extractName - ⚠️ No local name found. nameObj.local: ${nameObj.local}, localLang: ${localLang}, nameObj[localLang]: ${localLang ? nameObj[localLang] : 'N/A'}, hasLocalMapping: ${nameObj.hasLocalMapping}`);
+            }
+            
+            // ⚠️ CRITICAL: hasLocalMapping이 true이면 영어와 같아도 "영어(현지어)" 형식으로 표시
+            if (nameObj.hasLocalMapping && localName && englishName) {
+                const result = `${String(englishName)}(${String(localName)})`;
+                log.info(`[TerritoryPanel] extractName - ✅ Returning formatted name (hasLocalMapping=true): ${result} (englishName: ${englishName}, localName: ${localName})`);
+                return result;
+            }
+            
+            // 영어와 현지어가 다르고 둘 다 있으면 "영어(현지어)" 형식으로 반환
+            if (englishName && localName && englishName !== localName) {
+                const result = `${String(englishName)}(${String(localName)})`;
+                log.info(`[TerritoryPanel] extractName - ✅ Returning formatted name: ${result} (englishName: ${englishName}, localName: ${localName})`);
+                return result;
+            }
+            
+            // 영어만 있으면 영어만 반환
+            log.info(`[TerritoryPanel] extractName - ⚠️ Returning english name only: ${englishName} (no local name found)`);
+            return String(englishName);
+        }
+        
+        return null;
     }
     
     getTerritoryIcon(sovereignty) {
@@ -2504,13 +2763,13 @@ class TerritoryPanel {
      * 보호 기간 연장 경매 옵션 모달 표시
      */
     showProtectionExtensionAuctionModal() {
-        const territoryName = this.extractName(this.currentTerritory.name) || 
-                             this.extractName(this.currentTerritory.properties?.name) ||
-                             this.currentTerritory.id;
-        
         const countryCode = this.currentTerritory.country || 
+                           this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 
                            this.currentTerritory.properties?.country || 
                            'unknown';
+        const territoryName = this.extractName(this.currentTerritory.name, countryCode) || 
+                             this.extractName(this.currentTerritory.properties?.name, countryCode) ||
+                             this.currentTerritory.id;
         const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
         // 보호 기간 옵션 정의 (아이디어 1: 가격 차등화)
@@ -2657,8 +2916,8 @@ class TerritoryPanel {
         
         log.info('[TerritoryPanel] Showing territory auction options modal for:', this.currentTerritory.id);
         
-        const territoryName = this.extractName(this.currentTerritory.name) || this.currentTerritory.id;
         const countryCode = this.currentTerritory.country || this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 'unknown';
+        const territoryName = this.extractName(this.currentTerritory.name, countryCode) || this.currentTerritory.id;
         const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
         // 기간 옵션 정의

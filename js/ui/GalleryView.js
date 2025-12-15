@@ -5,7 +5,7 @@
 
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
-import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 class GalleryView {
     constructor() {
@@ -106,39 +106,58 @@ class GalleryView {
         grid.innerHTML = '<div class="loading">로딩 중...</div>';
         
         try {
-            let query;
+            // 픽셀 데이터가 있는 영토 목록 조회
+            const territoriesWithPixels = await apiService.getTerritoriesWithPixels();
             
-            if (this.currentFilter === 'popular') {
-                // 인기 작품: 좋아요 수 기준
-                query = await firebaseService.queryCollection(
-                    'pixelCanvases',
-                    [
-                        { field: 'likeCount', operator: '>', value: 0 }
-                    ],
-                    { field: 'likeCount', direction: 'desc' },
-                    20
-                );
-            } else if (this.currentFilter === 'recent') {
-                // 최신 작품: 업데이트 시간 기준
-                query = await firebaseService.queryCollection(
-                    'pixelCanvases',
-                    [],
-                    { field: 'lastUpdated', direction: 'desc' },
-                    20
-                );
-            } else {
-                // 크리에이터 작품: 댓글 수 기준
-                query = await firebaseService.queryCollection(
-                    'pixelCanvases',
-                    [
-                        { field: 'commentCount', operator: '>', value: 0 }
-                    ],
-                    { field: 'commentCount', direction: 'desc' },
-                    20
-                );
+            if (!territoriesWithPixels || territoriesWithPixels.length === 0) {
+                this.artworks = [];
+                this.renderArtworks();
+                return;
             }
             
-            this.artworks = query || [];
+            // 영토 상세 정보 조회 (병렬 처리)
+            const artworks = await Promise.all(
+                territoriesWithPixels.slice(0, 100).map(async (territoryId) => {
+                    try {
+                        const territory = await apiService.getTerritory(territoryId);
+                        const pixelData = await apiService.getPixelData(territoryId);
+                        
+                        return {
+                            territoryId,
+                            name: territory?.name || territory?.name_en || territoryId,
+                            pixelCount: pixelData?.pixels?.length || 0,
+                            filledPixels: pixelData?.filledPixels || 0,
+                            lastUpdated: pixelData?.lastUpdated,
+                            likeCount: 0, // TODO: 좋아요 기능 추가 시 API에서 가져오기
+                            commentCount: 0, // TODO: 댓글 기능 추가 시 API에서 가져오기
+                            pixels: pixelData?.pixels || []
+                        };
+                    } catch (error) {
+                        log.warn(`[GalleryView] Failed to load artwork for ${territoryId}:`, error);
+                        return null;
+                    }
+                })
+            );
+            
+            // null 필터링 및 정렬
+            let filtered = artworks.filter(a => a !== null);
+            
+            if (this.currentFilter === 'popular') {
+                // 인기 작품: 픽셀 수 기준 (임시)
+                filtered.sort((a, b) => (b.filledPixels || 0) - (a.filledPixels || 0));
+            } else if (this.currentFilter === 'recent') {
+                // 최신 작품: 업데이트 시간 기준
+                filtered.sort((a, b) => {
+                    const aTime = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+                    const bTime = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
+                    return bTime - aTime;
+                });
+            } else {
+                // 크리에이터 작품: 픽셀 수 기준 (임시)
+                filtered.sort((a, b) => (b.filledPixels || 0) - (a.filledPixels || 0));
+            }
+            
+            this.artworks = filtered.slice(0, 20);
             this.renderArtworks();
             
         } catch (error) {
@@ -162,7 +181,7 @@ class GalleryView {
         // 영토 정보와 함께 렌더링
         const html = await Promise.all(
             this.artworks.map(async (artwork) => {
-                const territory = await firebaseService.getDocument('territories', artwork.territoryId);
+                const territory = await apiService.getTerritory(artwork.territoryId);
                 const territoryName = territory?.name || territory?.territoryName || artwork.territoryId;
                 
                 return `

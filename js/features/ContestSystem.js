@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 // 콘테스트 상태
 export const CONTEST_STATUS = {
@@ -56,12 +57,10 @@ class ContestSystem {
      */
     async loadContests() {
         try {
-            const contests = await firebaseService.queryCollection(
-                'contests',
-                [],
-                { field: 'startDate', direction: 'desc' },
-                10
-            );
+            // TODO: 콘테스트 조회는 API 엔드포인트가 필요
+            // 현재는 빈 배열로 처리 (나중에 `/api/contests` 엔드포인트 추가 가능)
+            log.warn('[ContestSystem] Contests query is not yet supported via API');
+            const contests = []; // await apiService.get('/api/contests');
             
             this.contests = contests || [];
             
@@ -87,8 +86,9 @@ class ContestSystem {
         if (!this.currentContest) return;
         
         try {
-            const territory = await firebaseService.getDocument('territories', territoryId);
-            const pixelCanvas = await firebaseService.getDocument('pixelCanvases', territoryId);
+            const territory = await apiService.getTerritory(territoryId);
+            // TODO: 픽셀 캔버스는 API 엔드포인트가 필요
+            const pixelCanvas = null; // await apiService.get(`/territories/${territoryId}/pixels`);
             
             if (!territory || !pixelCanvas) return;
             
@@ -174,16 +174,8 @@ class ContestSystem {
             }
             
             // 중복 투표 체크
-            const existingVote = await firebaseService.queryCollection(
-                'contest_votes',
-                [
-                    { field: 'contestId', operator: '==', value: contestId },
-                    { field: 'userId', operator: '==', value: currentUser.uid },
-                    { field: 'entryId', operator: '==', value: entryId }
-                ],
-                null,
-                1
-            );
+            // TODO: 콘테스트 투표 조회는 API 엔드포인트가 필요
+            const existingVote = []; // await apiService.get(`/contests/${contestId}/votes`);
             
             if (existingVote && existingVote.length > 0) {
                 throw new Error('Already voted for this entry');

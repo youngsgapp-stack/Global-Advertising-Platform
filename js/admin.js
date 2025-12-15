@@ -5,16 +5,31 @@
 
 import { CONFIG } from './config.js';
 import { territoryDataService } from './services/TerritoryDataService.js';
+import { apiService } from './services/ApiService.js';
+import { firebaseService } from './services/FirebaseService.js';
 
 // Firebase 설정
 const firebaseConfig = CONFIG.FIREBASE;
 
-// 관리자 이메일 목록 (Firebase Auth 사용 시)
+/**
+ * 관리자 이메일 목록 (Firebase Auth 사용 시)
+ * 
+ * 현재 등록된 관리자 계정:
+ * 1. admin@billionairemap.com - 최고 관리자 (모든 권한)
+ * 2. young91@naver.com - 일반 관리자
+ * 3. q886654@naver.com - 일반 관리자 (Firebase Auth 등록 계정)
+ * 4. etgbajy@gmail.com - 일반 관리자 (Firebase Auth 등록 계정)
+ * 
+ * 관리자 추가/삭제 방법:
+ * - 이 배열에 이메일을 추가/제거하면 관리자 권한이 부여/제거됩니다
+ * - 변경 후 페이지를 새로고침해야 적용됩니다
+ * - Firebase Auth에 해당 이메일이 등록되어 있어야 로그인이 가능합니다
+ */
 const ADMIN_EMAILS = [
-    'admin@billionairemap.com',
-    'young91@naver.com',
-    'q886654@naver.com',  // Firebase Auth 등록 계정
-    'etgbajy@gmail.com',  // Firebase Auth 등록 계정
+    'admin@billionairemap.com',  // 최고 관리자
+    'young91@naver.com',         // 일반 관리자
+    'q886654@naver.com',         // 일반 관리자 (Firebase Auth 등록 계정)
+    'etgbajy@gmail.com',         // 일반 관리자 (Firebase Auth 등록 계정)
 ];
 
 // 로컬 관리자 계정 (P키 5번 연타 로그인용)
@@ -43,14 +58,27 @@ class AdminDashboard {
      */
     async init() {
         try {
-            // Firebase 앱 초기화 (중복 초기화 방지)
-            if (!firebase.apps.length) {
-                this.firebase = firebase.initializeApp(firebaseConfig);
-            } else {
-                this.firebase = firebase.app();
+            // ✅ 단일 Firebase 인스턴스 사용: firebaseService.auth 사용
+            // 별도 Firebase 인스턴스 초기화 제거 (조언에 따라 단일 인스턴스로 통일)
+            await firebaseService.initialize();
+            this.auth = firebaseService.auth;
+            this.firebase = firebaseService.app;
+            // ⚠️ 마이그레이션 완료: Firestore 비활성화 (PostgreSQL + Redis 사용)
+            this.db = null; // Firestore 비활성화
+            console.warn('[AdminDashboard] ⚠️ Firestore가 비활성화되었습니다. 백엔드 API를 사용하세요.');
+            console.log('[AdminDashboard] ✅ Using single Firebase instance from firebaseService');
+            
+            // ✅ 전역 firebase 변수 설정 (기존 코드 호환성을 위해)
+            // admin.js에서 firebase.firestore를 직접 사용하는 부분이 있으므로 전역 변수로 설정
+            if (typeof window !== 'undefined' && window.firebaseCompat) {
+                // window.firebaseCompat를 전역 firebase 변수로 사용
+                // admin.js 내에서 firebase 변수를 사용할 수 있도록 설정
+                const firebase = window.firebaseCompat;
+                // this.firebase를 통해 접근 가능하도록 설정
+                if (!this.firebase) {
+                    this.firebase = firebase;
+                }
             }
-            this.db = firebase.firestore();
-            this.auth = firebase.auth();
             
             // 1. 먼저 세션 인증 확인 (P키 5번 로그인)
             const sessionAuth = this.checkSessionAuth();
@@ -88,10 +116,33 @@ class AdminDashboard {
             }
             
             // 2. Firebase Auth 상태 감시 (세션 인증이 없는 경우만)
+            // ✅ 단일 인스턴스 사용: firebaseService.auth.onAuthStateChanged는 이미 설정되어 있음
+            // 하지만 관리자 대시보드 전용 로직을 위해 추가 리스너 설정
             this.isLocalAuth = false;
+            
+            // ✅ Firebase SDK가 로드되지 않은 경우 처리
+            if (!this.auth) {
+                console.warn('[AdminDashboard] ⚠️ Firebase Auth not available. Showing login screen.');
+                this.showLoginScreen();
+                this.setupEventListeners();
+                console.log('Admin Dashboard initialized (offline mode)');
+                return;
+            }
+            
+            // Firebase Auth 상태 감시 설정
             this.auth.onAuthStateChanged((user) => {
                 this.handleAuthChange(user);
             });
+            
+            // 초기 인증 상태 확인 (onAuthStateChanged가 즉시 트리거되지 않을 수 있음)
+            const currentUser = this.auth.currentUser;
+            if (currentUser) {
+                // 이미 로그인된 사용자가 있으면 즉시 처리
+                this.handleAuthChange(currentUser);
+            } else {
+                // 로그인되지 않은 경우 로그인 화면 표시
+                this.showLoginScreen();
+            }
             
             // 이벤트 리스너 설정
             this.setupEventListeners();
@@ -106,18 +157,21 @@ class AdminDashboard {
     
     /**
      * Firestore 접근을 위한 익명 로그인
+     * ⚠️ Firestore 비활성화로 인해 더 이상 사용되지 않음
      */
     async signInAnonymouslyForFirestore() {
         try {
             // 이미 로그인된 경우 스킵
-            if (this.auth.currentUser) {
+            if (this.auth && this.auth.currentUser) {
                 console.log('Already signed in to Firebase');
                 return;
             }
             
-            // 익명 로그인 시도
-            await this.auth.signInAnonymously();
-            console.log('Signed in anonymously for Firestore access');
+            // 익명 로그인 시도 (Firestore 비활성화로 인해 실제로는 사용되지 않음)
+            if (this.auth) {
+                await this.auth.signInAnonymously();
+                console.log('Signed in anonymously for Firestore access');
+            }
         } catch (error) {
             console.warn('Anonymous sign-in failed:', error);
             // 실패해도 계속 진행 (읽기는 가능할 수 있음)
@@ -178,8 +232,35 @@ class AdminDashboard {
             // 관리자 확인
             if (this.isAdmin(user.email)) {
                 this.currentUser = user;
+                // ✅ 단일 Firebase 인스턴스 사용: firebaseService.currentUser는 이미 동기화됨
+                // firebaseService.auth.onAuthStateChanged가 이미 설정되어 있으므로
+                // 별도 동기화 불필요 (단일 인스턴스이므로 자동으로 동기화됨)
+                console.log('[AdminDashboard] ✅ Admin user authenticated:', user.email);
                 this.showDashboard();
-                this.loadDashboardData();
+                
+                // ✅ 토큰이 준비될 시간을 주기 위해 약간의 지연 후 데이터 로드
+                // getIdToken()이 비동기로 실행되므로 약간의 지연이 필요할 수 있음
+                setTimeout(async () => {
+                    try {
+                        // 토큰이 준비되었는지 확인
+                        if (firebaseService.auth && firebaseService.auth.currentUser) {
+                            const token = await firebaseService.auth.currentUser.getIdToken(false);
+                            console.log('[AdminDashboard] ✅ Token ready, loading dashboard data...', {
+                                tokenLength: token.length,
+                                userEmail: user.email
+                            });
+                            await this.loadDashboardData();
+                        } else {
+                            console.warn('[AdminDashboard] ⚠️ User not available after delay, retrying...');
+                            // 재시도
+                            setTimeout(() => this.loadDashboardData(), 500);
+                        }
+                    } catch (error) {
+                        console.error('[AdminDashboard] ❌ Failed to get token for dashboard load:', error);
+                        // 토큰 가져오기 실패해도 데이터 로드 시도 (토큰은 API 호출 시 다시 가져옴)
+                        await this.loadDashboardData();
+                    }
+                }, 300);
             } else {
                 this.showError('Access denied. You are not an administrator.');
                 this.auth.signOut();
@@ -300,6 +381,14 @@ class AdminDashboard {
         
         try {
             errorEl.classList.add('hidden');
+            
+            // ✅ Firebase Auth가 없는 경우 처리
+            if (!this.auth) {
+                errorEl.textContent = 'Firebase SDK가 로드되지 않았습니다. 페이지를 새로고침해주세요.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            
             await this.auth.signInWithEmailAndPassword(email, password);
         } catch (error) {
             errorEl.textContent = this.getErrorMessage(error.code);
@@ -379,31 +468,62 @@ class AdminDashboard {
      */
     async loadStats() {
         try {
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const stats = await apiService.get('/admin/stats');
+            
+            if (stats) {
+                // 요소가 존재하는지 확인한 후에만 업데이트
+                const setStatValue = (id, value) => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.textContent = value;
+                    } else {
+                        console.warn(`[AdminDashboard] Stat element not found: ${id}`);
+                    }
+                };
+                
+                setStatValue('stat-users', stats.users || 0);
+                setStatValue('stat-territories', stats.territories || 0);
+                setStatValue('stat-ruled', stats.ruled || 0);
+                setStatValue('stat-protected', stats.protected || 0);
+                setStatValue('stat-revenue', (stats.revenue || 0).toLocaleString() + ' pt');
+                setStatValue('stat-active', stats.activeAuctions || 0);
+                
+                console.log('[AdminDashboard] ✅ Stats loaded from API:', stats);
+            } else {
+                throw new Error('Stats data is null');
+            }
+            
+            /* 원래 코드 (비활성화됨)
             // 사용자 수
             const usersSnapshot = await this.db.collection('users').get();
             document.getElementById('stat-users').textContent = usersSnapshot.size;
             
-            // 영토 수 (ruled + protected) - 모든 영토를 가져와서 필터링 (더 정확함)
-            const allTerritoriesSnapshot = await this.db.collection('territories').get();
-            let ruledCount = 0;
-            let protectedCount = 0;
-            let totalRevenue = 0;
+            // ⚡ 최적화: 영토 수를 쿼리로 직접 가져오기 (모든 문서 로드 불필요)
+            // ruled와 protected 영토를 각각 쿼리
+            const [ruledSnapshot, protectedSnapshot] = await Promise.all([
+                this.db.collection('territories').where('sovereignty', '==', 'ruled').get(),
+                this.db.collection('territories').where('sovereignty', '==', 'protected').get()
+            ]);
             
-            allTerritoriesSnapshot.forEach(doc => {
-                const data = doc.data();
-                const sovereignty = data.sovereignty;
-                
-                // sovereignty 필드 확인 (대소문자 구분 없이)
-                if (sovereignty === 'ruled' || sovereignty === 'RULED') {
-                    ruledCount++;
-                    totalRevenue += data.price || 0;
-                } else if (sovereignty === 'protected' || sovereignty === 'PROTECTED') {
-                    protectedCount++;
-                    totalRevenue += data.price || 0;
-                }
-            });
-            
+            // ⚡ 최적화: 이미 쿼리 결과에서 개수를 알 수 있음
+            const ruledCount = ruledSnapshot.size;
+            const protectedCount = protectedSnapshot.size;
             const totalTerritories = ruledCount + protectedCount;
+            
+            // ⚡ 최적화: 수익 계산은 샘플링된 데이터로 대략 계산 (정확한 수익은 별도 집계 필요)
+            let totalRevenue = 0;
+            // 샘플로 최대 100개만 확인 (성능 최적화)
+            const sampleDocs = [...ruledSnapshot.docs.slice(0, 50), ...protectedSnapshot.docs.slice(0, 50)];
+            sampleDocs.forEach(doc => {
+                const data = doc.data();
+                totalRevenue += data.purchasedPrice || data.tribute || data.price || 0;
+            });
+            // 샘플링된 평균으로 전체 수익 추정 (대략치)
+            if (sampleDocs.length > 0 && totalTerritories > sampleDocs.length) {
+                const avgRevenue = totalRevenue / sampleDocs.length;
+                totalRevenue = Math.round(avgRevenue * totalTerritories);
+            }
             document.getElementById('stat-territories').textContent = totalTerritories;
             document.getElementById('stat-revenue').textContent = totalRevenue.toLocaleString() + ' pt';
             
@@ -412,18 +532,29 @@ class AdminDashboard {
                 console.log(`[AdminDashboard] Loaded stats: ${ruledCount} ruled, ${protectedCount} protected, total: ${totalTerritories}`);
             }
             
+            /* 원래 코드 (비활성화됨)
             // 활성 옥션
             const auctionsSnapshot = await this.db.collection('auctions')
                 .where('status', '==', 'active').get();
             document.getElementById('stat-active').textContent = auctionsSnapshot.size;
+            */
             
         } catch (error) {
             console.error('Failed to load stats:', error);
-            // 기본값 표시
-            document.getElementById('stat-users').textContent = '0';
-            document.getElementById('stat-territories').textContent = '0';
-            document.getElementById('stat-revenue').textContent = '0 pt';
-            document.getElementById('stat-active').textContent = '0';
+            // 기본값 표시 (요소가 존재하는지 확인)
+            const setStatValue = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                }
+            };
+            
+            setStatValue('stat-users', '0');
+            setStatValue('stat-territories', '0');
+            setStatValue('stat-ruled', '0');
+            setStatValue('stat-protected', '0');
+            setStatValue('stat-revenue', '0 pt');
+            setStatValue('stat-active', '0');
         }
     }
     
@@ -432,26 +563,35 @@ class AdminDashboard {
      */
     async loadRecentActivity() {
         const container = document.getElementById('recent-activity');
+        if (!container) return;
         
         try {
-            const snapshot = await this.db.collection('history')
-                .orderBy('timestamp', 'desc')
-                .limit(10)
-                .get();
+            // ✅ 백엔드 API 사용
+            const activities = await apiService.get('/admin/activity?limit=20');
             
-            if (snapshot.empty) {
+            if (!activities || activities.length === 0) {
                 container.innerHTML = '<div class="empty">최근 활동이 없습니다</div>';
                 return;
             }
             
-            container.innerHTML = snapshot.docs.map(doc => {
-                const data = doc.data();
-                const time = this.formatTime(data.timestamp?.toDate());
+            container.innerHTML = activities.map(activity => {
+                const time = activity.timestamp ? new Date(activity.timestamp).toLocaleString('ko-KR') : '-';
+                const timeAgo = activity.timestamp ? this.getTimeAgo(new Date(activity.timestamp)) : '-';
+                
                 return `
-                    <div class="activity-item">
-                        <span class="activity-icon">${this.getActivityIcon(data.type)}</span>
-                        <span class="activity-text">${data.narrative || data.type}</span>
-                        <span class="activity-time">${time}</span>
+                    <div class="activity-item" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size: 24px; flex-shrink: 0;">${activity.icon || '📌'}</div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: ${activity.color || '#fff'}; margin-bottom: 4px; font-size: 14px;">
+                                ${activity.title || '활동'}
+                            </div>
+                            <div style="color: rgba(255,255,255,0.7); font-size: 13px; margin-bottom: 4px; line-height: 1.4;">
+                                ${activity.description || ''}
+                            </div>
+                            <div style="color: rgba(255,255,255,0.5); font-size: 11px;">
+                                ${timeAgo}
+                            </div>
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -463,12 +603,58 @@ class AdminDashboard {
     }
     
     /**
+     * 시간 경과 표시 (예: "5분 전", "2시간 전")
+     */
+    getTimeAgo(date) {
+        const now = new Date();
+        const diff = now - date;
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        
+        if (days > 0) {
+            return `${days}일 전`;
+        } else if (hours > 0) {
+            return `${hours}시간 전`;
+        } else if (minutes > 0) {
+            return `${minutes}분 전`;
+        } else {
+            return '방금 전';
+        }
+    }
+    
+    /**
      * 상위 사용자 로드
      */
     async loadTopUsers() {
         const container = document.getElementById('top-users');
         
         try {
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const response = await apiService.get('/rankings', { limit: 5 });
+            
+            // 백엔드 API는 { type, rankings } 형태로 반환
+            const rankings = response.rankings || response || [];
+            
+            if (!rankings || rankings.length === 0) {
+                container.innerHTML = '<div class="empty">랭킹 데이터가 없습니다</div>';
+                return;
+            }
+            
+            container.innerHTML = rankings.map((user, index) => {
+                const rank = index + 1;
+                const score = user.territory_count || 0;
+                return `
+                    <div class="activity-item">
+                        <span class="activity-icon">${rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏆'}</span>
+                        <span class="activity-text">${user.nickname || user.email || 'Unknown'} - ${score}개 영토</span>
+                        <span class="activity-time">${rank}위</span>
+                    </div>
+                `;
+            }).join('');
+            
+            /* 원래 Firestore 코드 (비활성화됨)
             const snapshot = await this.db.collection('rankings')
                 .orderBy('hegemonyScore', 'desc')
                 .limit(5)
@@ -491,6 +677,7 @@ class AdminDashboard {
                     </div>
                 `;
             }).join('');
+            */
             
         } catch (error) {
             console.error('Failed to load top users:', error);
@@ -511,6 +698,9 @@ class AdminDashboard {
                 break;
             case 'auctions':
                 await this.loadAuctionsTable();
+                break;
+            case 'analytics':
+                await this.loadAnalytics();
                 break;
             case 'logs':
                 await this.loadAdminLogs();
@@ -539,11 +729,44 @@ class AdminDashboard {
             // 로딩 표시
             tbody.innerHTML = '<tr><td colspan="6" class="loading">사용자 데이터 로딩 중...</td></tr>';
             
-            // Firestore에서 사용자 데이터 가져오기 (권한 문제 해결을 위해 여러 방법 시도)
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const users = await apiService.get('/admin/users?limit=100');
+            
+            // API 응답이 배열인지 확인 (백엔드는 배열을 직접 반환)
+            const userList = Array.isArray(users) ? users : [];
+            
+            if (!userList || userList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">사용자가 없습니다</td></tr>';
+                return;
+            }
+            
+            // 사용자 테이블 렌더링
+            tbody.innerHTML = userList.map(user => {
+                const createdAt = user.createdAt ? new Date(user.createdAt).toLocaleDateString('ko-KR') : '-';
+                const isAdmin = ADMIN_EMAILS.includes((user.email || '').toLowerCase());
+                const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
+                
+                return `
+                    <tr>
+                        <td>${user.nickname || user.email || '-'}${adminBadge}</td>
+                        <td>${user.email || '-'}</td>
+                        <td>${user.territoryCount || 0}</td>
+                        <td>${(user.balance || 0).toLocaleString()} pt</td>
+                        <td>${createdAt}</td>
+                        <td>
+                            <button class="btn btn-sm" onclick="adminDashboard.viewUser('${user.id}')">보기</button>
+                            <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${user.id}')" style="margin-left: 4px;">💰 포인트</button>
+                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${user.id}')" style="margin-left: 4px;">삭제</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            console.log(`[AdminDashboard] ✅ Loaded ${userList.length} users from API`);
+            
+            /* 원래 Firestore 코드 (비활성화됨)
             let snapshot;
             try {
-                // 방법 1: 일반 쿼리
-                console.log('[AdminDashboard] Attempting to load users from Firestore...');
                 snapshot = await this.db.collection('users').limit(100).get();
                 console.log(`[AdminDashboard] ✅ Method 1 succeeded: ${snapshot.size} users loaded`);
             } catch (error1) {
@@ -734,23 +957,14 @@ class AdminDashboard {
             }).join('');
             
             console.log(`[AdminDashboard] Successfully rendered ${snapshot.size} users in table`);
+            */
             
         } catch (error) {
             console.error('[AdminDashboard] Failed to load users:', error);
-            console.error('[AdminDashboard] Error details:', {
-                code: error.code,
-                message: error.message,
-                stack: error.stack
-            });
-            
-            // 상세한 에러 메시지
             let errorMessage = '사용자 로딩 실패';
-            if (error.code === 'permission-denied') {
-                errorMessage = '권한이 없습니다. Firebase Auth로 로그인하거나 Firestore 규칙을 확인하세요.';
-            } else if (error.message) {
+            if (error.message) {
                 errorMessage = `사용자 로딩 실패: ${error.message}`;
             }
-            
             tbody.innerHTML = `<tr><td colspan="6" class="error">${errorMessage}</td></tr>`;
         }
     }
@@ -760,41 +974,53 @@ class AdminDashboard {
      * 점유된 영토(sovereignty == 'ruled' 또는 'protected')만 표시
      */
     async loadTerritoriesTable() {
-        // 영토 관리 버튼 추가
-        // HTML에서 섹션 ID는 'section-territories'임
-        const territoriesSection = document.querySelector('#section-territories');
-        if (territoriesSection) {
-            // 이미 버튼이 추가되었는지 확인
-            const existingButton = territoriesSection.querySelector('button[onclick*="clearPixelArtForUnconqueredTerritories"]');
-            if (!existingButton) {
-                // section-header 안의 기존 버튼 컨테이너 찾기
-                const sectionHeader = territoriesSection.querySelector('.section-header');
-                if (sectionHeader) {
-                    // 기존 버튼 컨테이너 찾기 (검색창과 필터가 있는 div)
-                    const existingButtonContainer = sectionHeader.querySelector('div[style*="display: flex"]');
-                    if (existingButtonContainer) {
-                        // 기존 "모든 영토 초기화" 버튼 옆에 새 버튼 추가
-                        const newButton = document.createElement('button');
-                        newButton.className = 'btn btn-warning';
-                        newButton.setAttribute('onclick', 'adminDashboard.clearPixelArtForUnconqueredTerritories()');
-                        newButton.textContent = '초기화된 영토의 픽셀 아트 삭제';
-                        existingButtonContainer.appendChild(newButton);
-                        console.log('[AdminDashboard] Added "초기화된 영토의 픽셀 아트 삭제" button');
-                    } else {
-                        console.warn('[AdminDashboard] Button container not found in section-header');
-                    }
-                } else {
-                    console.warn('[AdminDashboard] Section header not found');
-                }
-            }
-        } else {
-            console.warn('[AdminDashboard] #section-territories not found, cannot add action buttons');
-        }
-        
         const tbody = document.querySelector('#territories-table tbody');
         
+        if (!tbody) {
+            console.error('[AdminDashboard] Territories table tbody not found');
+            return;
+        }
+        
         try {
-            // 점유된 영토만 필터링 (ruled 또는 protected)
+            // 로딩 표시
+            tbody.innerHTML = '<tr><td colspan="6" class="loading">영토 데이터 로딩 중...</td></tr>';
+            
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const territories = await apiService.get('/admin/territories', { limit: 100 });
+            
+            if (!territories || territories.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">점유된 영토가 없습니다</td></tr>';
+                return;
+            }
+            
+            // 영토 테이블 렌더링
+            tbody.innerHTML = territories.map(territory => {
+                const sovereigntyBadge = territory.sovereignty === 'ruled' 
+                    ? '<span class="badge badge-success">Ruled</span>' 
+                    : '<span class="badge badge-warning">Protected</span>';
+                const price = parseFloat(territory.purchasedPrice || territory.price || 0);
+                
+                return `
+                    <tr>
+                        <td>${territory.name || territory.code} ${sovereigntyBadge}</td>
+                        <td>${territory.country || '-'}</td>
+                        <td>${territory.rulerNickname || territory.rulerEmail || '-'}</td>
+                        <td>${price.toLocaleString()} pt</td>
+                        <td>-</td>
+                        <td>
+                            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                                <button class="btn btn-sm" onclick="adminDashboard.viewTerritory('${territory.id}')">보기</button>
+                                <button class="btn btn-sm" onclick="adminDashboard.editTerritory('${territory.id}')">수정</button>
+                                <button class="btn btn-sm btn-danger" onclick="adminDashboard.showResetTerritoryModal('${territory.id}')" title="오너 삭제 및 초기화">삭제</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            console.log(`[AdminDashboard] ✅ Loaded ${territories.length} territories from API`);
+            
+            /* 원래 Firestore 코드 (비활성화됨)
             const ruledSnapshot = await this.db.collection('territories')
                 .where('sovereignty', '==', 'ruled')
                 .limit(50)
@@ -821,9 +1047,23 @@ class AdminDashboard {
                     if (name === '[object Object]' || name === 'undefined' || name === 'null') {
                         return null;
                     }
+                    // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+                    if (name.trim().startsWith('{') && name.trim().endsWith('}')) {
+                        try {
+                            const parsed = JSON.parse(name);
+                            if (typeof parsed === 'object' && parsed !== null) {
+                                // 언어 우선순위: en > ko > local > 첫 번째 값
+                                return parsed.en || parsed.ko || parsed.local || Object.values(parsed)[0] || name;
+                            }
+                        } catch (e) {
+                            // JSON 파싱 실패 시 원본 문자열 반환
+                            return name;
+                        }
+                    }
                     return name;
                 }
-                if (typeof name === 'object') {
+                if (typeof name === 'object' && name !== null) {
+                    // 언어 우선순위: en > ko > local > 첫 번째 값
                     return name.en || name.ko || name.local || Object.values(name)[0] || null;
                 }
                 return String(name);
@@ -837,6 +1077,34 @@ class AdminDashboard {
                 }
                 return value;
             };
+            
+            // ⚡ 최적화: 모든 옥션을 한 번에 가져와서 메모리에서 필터링 (N+1 쿼리 문제 해결)
+            let allAuctionsMap = new Map(); // territoryId -> auction[]
+            try {
+                const territoryIds = allDocs.map(doc => doc.id);
+                // ended 상태의 옥션만 가져오기 (최근 1000개 제한)
+                const allEndedAuctions = await this.db.collection('auctions')
+                    .where('status', '==', 'ended')
+                    .orderBy('endedAt', 'desc')
+                    .limit(1000)
+                    .get();
+                
+                // territoryId별로 그룹화
+                allEndedAuctions.docs.forEach(auctionDoc => {
+                    const auctionData = auctionDoc.data();
+                    const tid = auctionData.territoryId;
+                    if (tid && territoryIds.includes(tid)) {
+                        if (!allAuctionsMap.has(tid)) {
+                            allAuctionsMap.set(tid, []);
+                        }
+                        allAuctionsMap.get(tid).push({ id: auctionDoc.id, ...auctionData });
+                    }
+                });
+                
+                console.log(`[AdminDashboard] Loaded ${allEndedAuctions.size} ended auctions, ${allAuctionsMap.size} territories have auctions`);
+            } catch (error) {
+                console.warn('[AdminDashboard] Failed to load auctions in batch:', error);
+            }
             
             // Promise.all 결과를 문자열로 합치기
             tbody.innerHTML = (await Promise.all(allDocs.map(async (doc) => {
@@ -878,49 +1146,38 @@ class AdminDashboard {
                 let tribute = data.tribute && data.tribute > 0 ? parseFloat(data.tribute) : null;
                 const storedPrice = data.price && data.price > 0 ? parseFloat(data.price) : null;
                 
-                // 옥션 데이터에서 낙찰가 찾기 (가장 정확한 데이터)
-                // purchasedPrice가 없거나, tribute가 있지만 옥션 데이터를 확인해야 하는 경우
+                // ⚡ 최적화: 메모리에서 옥션 데이터 찾기 (개별 쿼리 제거)
                 if (data.ruler && (!purchasedPrice || (tribute && !purchasedPrice))) {
-                    try {
-                        // territoryId만으로 쿼리 (인덱스 필요 없음)
-                        const auctionSnapshot = await this.db.collection('auctions')
-                            .where('territoryId', '==', doc.id)
-                            .get();
-                        
-                        // 클라이언트 측에서 필터링
-                        const matchingAuctions = auctionSnapshot.docs
-                            .map(doc => ({ id: doc.id, ...doc.data() }))
-                            .filter(auction => 
-                                auction.status === 'ended' && 
-                                (auction.highestBidder === data.ruler || auction.highestBidderName === data.rulerName)
-                            )
-                            .sort((a, b) => {
-                                const aTime = a.endedAt?.toMillis?.() || a.endedAt?.seconds || 0;
-                                const bTime = b.endedAt?.toMillis?.() || b.endedAt?.seconds || 0;
-                                return bTime - aTime;
-                            });
-                        
-                        if (matchingAuctions.length > 0) {
-                            const auctionData = matchingAuctions[0];
-                            // bids 배열에서 최고 입찰가 찾기 (가장 정확)
-                            if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
-                                const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
-                                if (highestBid > 0) {
-                                    purchasedPrice = highestBid;
-                                    console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction bids: ${purchasedPrice}`);
-                                }
-                            } else if (auctionData.currentBid && auctionData.currentBid > 0) {
-                                purchasedPrice = auctionData.currentBid;
-                                console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction currentBid: ${purchasedPrice}`);
+                    const territoryAuctions = allAuctionsMap.get(doc.id) || [];
+                    const matchingAuctions = territoryAuctions
+                        .filter(auction => 
+                            auction.status === 'ended' && 
+                            (auction.highestBidder === data.ruler || auction.highestBidderName === data.rulerName)
+                        )
+                        .sort((a, b) => {
+                            const aTime = a.endedAt?.toMillis?.() || a.endedAt?.seconds || 0;
+                            const bTime = b.endedAt?.toMillis?.() || b.endedAt?.seconds || 0;
+                            return bTime - aTime;
+                        });
+                    
+                    if (matchingAuctions.length > 0) {
+                        const auctionData = matchingAuctions[0];
+                        // bids 배열에서 최고 입찰가 찾기 (가장 정확)
+                        if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
+                            const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
+                            if (highestBid > 0) {
+                                purchasedPrice = highestBid;
+                                console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction bids: ${purchasedPrice}`);
                             }
-                            // 옥션에서 찾은 가격이 있으면 tribute보다 우선 사용
-                            if (purchasedPrice && tribute && purchasedPrice !== tribute) {
-                                console.log(`[AdminDashboard] Overriding tribute ${tribute} with auction price ${purchasedPrice} for ${doc.id}`);
-                                tribute = null; // 옥션 가격이 더 정확하므로 tribute 무시
-                            }
+                        } else if (auctionData.currentBid && auctionData.currentBid > 0) {
+                            purchasedPrice = auctionData.currentBid;
+                            console.log(`[AdminDashboard] Found auction price for ${doc.id} from auction currentBid: ${purchasedPrice}`);
                         }
-                    } catch (error) {
-                        console.warn(`[AdminDashboard] Failed to fetch auction data for ${doc.id}:`, error);
+                        // 옥션에서 찾은 가격이 있으면 tribute보다 우선 사용
+                        if (purchasedPrice && tribute && purchasedPrice !== tribute) {
+                            console.log(`[AdminDashboard] Overriding tribute ${tribute} with auction price ${purchasedPrice} for ${doc.id}`);
+                            tribute = null; // 옥션 가격이 더 정확하므로 tribute 무시
+                        }
                     }
                 }
                 
@@ -1014,6 +1271,7 @@ class AdminDashboard {
                     </tr>
                 `;
             }))).join('');
+            */
             
         } catch (error) {
             console.error('Failed to load territories:', error);
@@ -1027,11 +1285,62 @@ class AdminDashboard {
     async loadAuctionsTable() {
         const tbody = document.querySelector('#auctions-table tbody');
         
+        if (!tbody) {
+            console.error('[AdminDashboard] Auctions table tbody not found');
+            return;
+        }
+        
         try {
+            // 로딩 표시
+            tbody.innerHTML = '<tr><td colspan="8" class="loading">경매 데이터 로딩 중...</td></tr>';
+            
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const auctions = await apiService.get('/admin/auctions', { limit: 100 });
+            
+            if (!auctions || auctions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty">경매가 없습니다</td></tr>';
+                return;
+            }
+            
+            // 경매 테이블 렌더링
+            tbody.innerHTML = auctions.map(auction => {
+                const createdAt = auction.createdAt ? new Date(auction.createdAt).toLocaleDateString('ko-KR') : '-';
+                const endTime = auction.endTime ? new Date(auction.endTime).toLocaleDateString('ko-KR') : '-';
+                const statusBadge = auction.status === 'active' 
+                    ? '<span class="badge badge-success">활성</span>' 
+                    : '<span class="badge badge-secondary">종료</span>';
+                
+                const isActive = auction.status === 'active';
+                
+                return `
+                    <tr>
+                        <td>${auction.territoryName || auction.territoryCode || '-'}</td>
+                        <td>${statusBadge}</td>
+                        <td>${(auction.startingBid || 0).toLocaleString()} pt</td>
+                        <td>${(auction.currentBid || 0).toLocaleString()} pt</td>
+                        <td>${auction.bidderNickname || auction.bidderEmail || '-'}</td>
+                        <td>${endTime}</td>
+                        <td>${createdAt}</td>
+                        <td style="white-space: nowrap; min-width: 250px;">
+                            <button class="btn btn-sm" onclick="adminDashboard.viewAuction('${auction.id}')">보기</button>
+                            ${isActive ? 
+                                `<button class="btn btn-sm btn-secondary" onclick="adminDashboard.editAuctionTime('${auction.id}')" title="종료 시간 수정" style="margin-left: 4px; display: inline-block;">⏰ 시간 수정</button>
+                                <button class="btn btn-sm btn-danger" onclick="adminDashboard.endAuction('${auction.id}')" style="margin-left: 4px; display: inline-block;">종료</button>` 
+                                : ''
+                            }
+                            <button class="btn btn-sm btn-warning" onclick="adminDashboard.deleteAuction('${auction.id}')" title="옥션 삭제" style="margin-left: 4px; display: inline-block;">🗑️ 삭제</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            console.log(`[AdminDashboard] ✅ Loaded ${auctions.length} auctions from API`);
+            
+            /* 원래 Firestore 코드 (비활성화됨)
             const snapshot = await this.db.collection('auctions').orderBy('createdAt', 'desc').limit(100).get();
             
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty">옥션 없음</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="empty">옥션 없음</td></tr>';
                 return;
             }
             
@@ -1191,10 +1500,11 @@ class AdminDashboard {
                     tableWrapper.appendChild(summary);
                 }
             }
+            */
             
         } catch (error) {
             console.error('Failed to load auctions:', error);
-            tbody.innerHTML = '<tr><td colspan="7" class="error">옥션 로딩 실패</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="error">옥션 로딩 실패</td></tr>';
         }
     }
     
@@ -1299,7 +1609,135 @@ class AdminDashboard {
     
     async viewUser(userId) {
         try {
-            // 사용자 정보 가져오기
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const userData = await apiService.get(`/admin/users/${userId}`);
+            
+            if (!userData) {
+                alert('사용자를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 사용자 데이터 처리
+            const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
+            const email = userData.email || userId;
+            const photoURL = userData.avatarUrl || '';
+            const emailVerified = userData.emailVerified ? '예' : '아니오';
+            const banned = userData.banned ? '차단됨' : '활성';
+            const bannedClass = userData.banned ? 'status-banned' : 'status-active';
+            const createdAt = userData.createdAt ? new Date(userData.createdAt).toLocaleString('ko-KR') : '-';
+            const lastLoginAt = userData.lastLoginAt ? new Date(userData.lastLoginAt).toLocaleString('ko-KR') : '-';
+            const bannedAt = userData.bannedAt ? new Date(userData.bannedAt).toLocaleString('ko-KR') : '-';
+            const bannedBy = userData.bannedBy || '-';
+            const balance = userData.balance || 0;
+            const totalCharged = 0; // API에서 제공되지 않음
+            const totalSpent = 0; // API에서 제공되지 않음
+            const territoryCount = userData.territories?.length || 0;
+            const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+            
+            const modalHtml = `
+                <div class="modal-overlay" id="user-modal-overlay" onclick="adminDashboard.closeUserModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h2 style="margin: 0; color: white;">👤 사용자 상세 정보</h2>
+                            <button class="modal-close" onclick="adminDashboard.closeUserModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                        </div>
+                        <div class="modal-body" style="padding: 20px;">
+                            <!-- 사용자 기본 정보 -->
+                            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                    ${photoURL ? `<img src="${photoURL}" alt="${displayName}" style="width: 60px; height: 60px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                                    <div>
+                                        <h3 style="margin: 0; color: #333; font-size: 20px;">${displayName} ${isAdmin ? '<span class="badge badge-warning">관리자</span>' : ''}</h3>
+                                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${email}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 정보 그리드 -->
+                            <div class="info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">사용자 ID</label>
+                                    <span style="color: #333; font-size: 14px; word-break: break-all;">${userId}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">이메일 인증</label>
+                                    <span style="color: #333; font-size: 14px;">${emailVerified}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">상태</label>
+                                    <span class="status ${bannedClass}" style="display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">${banned}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">보유 영토</label>
+                                    <span style="color: #333; font-size: 14px; font-weight: bold;">${territoryCount}개</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">가입일</label>
+                                    <span style="color: #333; font-size: 14px;">${createdAt}</span>
+                                </div>
+                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">마지막 로그인</label>
+                                    <span style="color: #333; font-size: 14px;">${lastLoginAt}</span>
+                                </div>
+                            </div>
+                            
+                            <!-- 지갑 정보 -->
+                            <div style="background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
+                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">💰 지갑 정보</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">현재 잔액</label>
+                                        <span style="color: #2d3436; font-size: 20px; font-weight: bold;">${balance.toLocaleString()} pt</span>
+                                    </div>
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 충전액</label>
+                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalCharged.toLocaleString()} pt</span>
+                                    </div>
+                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 사용액</label>
+                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalSpent.toLocaleString()} pt</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            ${userData.banned ? `
+                            <!-- 차단 정보 -->
+                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">🚫 차단 정보</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div>
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단 일시</label>
+                                        <span style="color: #333; font-size: 14px;">${bannedAt}</span>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단한 관리자</label>
+                                        <span style="color: #333; font-size: 14px;">${bannedBy}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeUserModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">닫기</button>
+                            <button class="btn btn-primary" onclick="adminDashboard.addPoints('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 포인트 지급</button>
+                            ${!userData.banned ? `<button class="btn btn-danger" onclick="adminDashboard.showBanModal('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🚫 차단</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 기존 모달 제거
+            const existingModal = document.getElementById('user-modal-overlay');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 모달 추가
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            this.logAdminAction('VIEW_USER', { userId });
+            
+            /* 원래 Firestore 코드 (비활성화됨) - 중복 제거됨
             const userDoc = await this.db.collection('users').doc(userId).get();
             if (!userDoc.exists) {
                 alert('사용자를 찾을 수 없습니다.');
@@ -1462,6 +1900,7 @@ class AdminDashboard {
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             
             this.logAdminAction('VIEW_USER', { userId });
+            */
             
         } catch (error) {
             console.error('Failed to load user:', error);
@@ -1477,49 +1916,44 @@ class AdminDashboard {
     }
     
     /**
-     * 차단 설명 모달 표시
+     * 사용자 삭제 모달 표시
      */
-    showBanModal(userId) {
-        // 사용자 정보 가져오기
-        this.db.collection('users').doc(userId).get().then(doc => {
-            if (!doc.exists) {
-                alert('사용자를 찾을 수 없습니다.');
-                return;
-            }
-            
-            const userData = doc.data();
-            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
+    async showBanModal(userId) {
+        try {
+            // ✅ 백엔드 API 사용
+            const userData = await apiService.get(`/admin/users/${userId}`);
+            const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
             const email = userData.email || userId;
             
             const modalHtml = `
                 <div class="modal-overlay" id="ban-modal-overlay" onclick="adminDashboard.closeBanModal()">
                     <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
                         <div class="modal-header" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                            <h2 style="margin: 0; color: white;">🚫 사용자 차단</h2>
+                            <h2 style="margin: 0; color: white;">🗑️ 사용자 삭제</h2>
                             <button class="modal-close" onclick="adminDashboard.closeBanModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
                         </div>
                         <div class="modal-body" style="padding: 20px;">
                             <!-- 사용자 정보 -->
                             <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
-                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">차단 대상</h3>
+                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">삭제 대상</h3>
                                 <p style="margin: 0; color: #333; font-size: 14px;"><strong>${displayName}</strong> (${email})</p>
                             </div>
                             
-                            <!-- 차단 기능 설명 -->
+                            <!-- 삭제 기능 설명 -->
                             <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
-                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #856404; font-size: 16px;">⚠️ 차단 기능 안내</h3>
+                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #856404; font-size: 16px;">⚠️ 삭제 기능 안내</h3>
                                 <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8;">
-                                    <li>차단된 사용자는 <strong>로그인 및 모든 서비스 이용이 제한</strong>됩니다.</li>
-                                    <li>차단된 사용자의 <strong>보유 영토는 자동으로 해제</strong>됩니다.</li>
-                                    <li>차단은 <strong>관리자에 의해서만 해제</strong>할 수 있습니다.</li>
-                                    <li>차단 사유는 로그에 기록되며, <strong>되돌릴 수 없습니다</strong>.</li>
+                                    <li>사용자의 <strong>모든 데이터가 삭제</strong>됩니다 (계정, 지갑, 영토 소유권 등).</li>
+                                    <li>보유 중인 <strong>영토는 자동으로 해제</strong>됩니다.</li>
+                                    <li>삭제된 사용자는 <strong>재가입이 가능</strong>합니다.</li>
+                                    <li>삭제 사유는 로그에 기록되며, <strong>되돌릴 수 없습니다</strong>.</li>
                                 </ul>
                             </div>
                             
-                            <!-- 차단 사유 입력 -->
+                            <!-- 삭제 사유 입력 -->
                             <div style="margin-bottom: 20px;">
-                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">차단 사유 (선택사항)</label>
-                                <textarea id="ban-reason-input" placeholder="차단 사유를 입력하세요..." style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">삭제 사유 (선택사항)</label>
+                                <textarea id="ban-reason-input" placeholder="삭제 사유를 입력하세요..." style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
                             </div>
                             
                             <!-- 경고 메시지 -->
@@ -1529,7 +1963,7 @@ class AdminDashboard {
                         </div>
                         <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
                             <button class="btn btn-secondary" onclick="adminDashboard.closeBanModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
-                            <button class="btn btn-danger" onclick="adminDashboard.confirmBanUser('${userId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🚫 차단 확인</button>
+                            <button class="btn btn-danger" onclick="adminDashboard.confirmBanUser('${userId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🗑️ 삭제 확인</button>
                         </div>
                     </div>
                 </div>
@@ -1544,10 +1978,10 @@ class AdminDashboard {
             // 모달 추가
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             
-        }).catch(error => {
-            console.error('Failed to load user for ban:', error);
+        } catch (error) {
+            console.error('Failed to load user for delete:', error);
             alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
-        });
+        }
     }
     
     closeBanModal() {
@@ -1558,27 +1992,33 @@ class AdminDashboard {
     }
     
     /**
-     * 사용자 차단 확인 및 실행
+     * 사용자 삭제 확인 및 실행
      */
     async confirmBanUser(userId) {
         const reasonInput = document.getElementById('ban-reason-input');
         const reason = reasonInput ? reasonInput.value.trim() : '';
         
         try {
-            await this.db.collection('users').doc(userId).update({
-                banned: true,
-                bannedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                bannedBy: this.currentUser?.email || 'admin',
-                banReason: reason || '관리자에 의해 차단됨'
+            // ✅ 백엔드 API 사용 - 사용자 데이터 삭제
+            await apiService.delete(`/admin/users/${userId}`, {
+                reason: reason || '관리자에 의해 삭제됨'
             });
             
-            this.logAdminAction('BAN_USER', { userId, reason });
+            // 로그 기록
+            await this.logAdminAction('DELETE_USER', { userId, reason });
+            
             this.closeBanModal();
-            this.loadUsersTable(); // Refresh
-            alert('✅ 사용자가 차단되었습니다.');
+            
+            // ✅ 즉시 테이블 새로고침 (실시간 반영)
+            await this.loadUsersTable();
+            
+            // 통계 새로고침
+            await this.loadStats();
+            
+            alert('✅ 사용자가 삭제되었습니다.\n\n사용자는 재가입이 가능합니다.');
         } catch (error) {
-            console.error('Failed to ban user:', error);
-            this.handleFirestoreError(error, '사용자 차단');
+            console.error('Failed to delete user:', error);
+            alert(`❌ 사용자 삭제에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
         }
     }
     
@@ -2160,53 +2600,22 @@ class AdminDashboard {
     async resetTerritory(territoryId) {
         try {
             // 영토 정보 확인
-            const doc = await this.db.collection('territories').doc(territoryId).get();
-            if (!doc.exists) {
+            const territory = await apiService.get(`/territories/${territoryId}`);
+            if (!territory) {
                 alert('영토를 찾을 수 없습니다.');
                 this.closeResetTerritoryModal();
                 return;
             }
             
-            const data = doc.data();
-            const previousRuler = data.ruler;
-            const previousRulerName = data.rulerName;
+            const previousRulerName = territory.ruler?.name || territory.rulerName || '없음';
             
             // 확인 대화상자
-            if (!confirm(`정말로 이 영토를 초기화하시겠습니까?\n\n영토 ID: ${territoryId}\n현재 소유자: ${previousRulerName || '없음'}\n\n이 작업은 되돌릴 수 없습니다.`)) {
+            if (!confirm(`정말로 이 영토를 초기화하시겠습니까?\n\n영토 ID: ${territoryId}\n현재 소유자: ${previousRulerName}\n\n이 작업은 되돌릴 수 없습니다.`)) {
                 return;
             }
             
-            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            
-            // 영토 초기화 (픽셀 아트도 함께 초기화)
-            const deleteField = firebase.firestore.FieldValue.delete();
-            await this.db.collection('territories').doc(territoryId).update({
-                ruler: null,
-                rulerName: null,
-                rulerSince: null,
-                sovereignty: 'unconquered',
-                protectionEndsAt: null,
-                currentAuction: null,
-                purchasedByAdmin: false,
-                purchasedPrice: null,
-                tribute: null,
-                pixelCanvas: deleteField,  // 픽셀 아트 데이터 삭제
-                territoryValue: 0,  // 영토 가치 초기화
-                hasPixelArt: false,  // 픽셀 아트 플래그 초기화
-                updatedAt: Timestamp,
-                updatedBy: this.currentUser?.email || 'admin'
-            });
-            
-            // ⚠️ 중요: pixelCanvases 컬렉션에서도 해당 영토의 픽셀 데이터 삭제
-            try {
-                const pixelCanvasDoc = await this.db.collection('pixelCanvases').doc(territoryId).get();
-                if (pixelCanvasDoc.exists) {
-                    await this.db.collection('pixelCanvases').doc(territoryId).delete();
-                    console.log(`[AdminDashboard] Deleted pixelCanvas document for territory ${territoryId}`);
-                }
-            } catch (error) {
-                console.warn(`[AdminDashboard] Failed to delete pixelCanvas document for territory ${territoryId}:`, error);
-            }
+            // ✅ 백엔드 API 사용
+            await apiService.put(`/admin/territories/${territoryId}/reset`);
             
             // ⚠️ 중요: IndexedDB 캐시에서도 해당 영토의 픽셀 데이터 삭제
             try {
@@ -2236,49 +2645,20 @@ class AdminDashboard {
                 console.warn(`[AdminDashboard] Failed to delete IndexedDB cache for territory ${territoryId}:`, error);
             }
             
-            // 관련 옥션 삭제 (해당 영토의 활성 옥션이 있다면)
-            try {
-                const activeAuctions = await this.db.collection('auctions')
-                    .where('territoryId', '==', territoryId)
-                    .where('status', '==', 'active')
-                    .get();
-                
-                const batch = this.db.batch();
-                activeAuctions.docs.forEach(auctionDoc => {
-                    batch.delete(auctionDoc.ref);
-                });
-                await batch.commit();
-                
-                if (activeAuctions.size > 0) {
-                    console.log(`[AdminDashboard] Deleted ${activeAuctions.size} active auction(s) for territory ${territoryId}`);
-                }
-            } catch (error) {
-                console.warn(`[AdminDashboard] Failed to delete auctions for territory ${territoryId}:`, error);
-            }
-            
-            this.logAdminAction('RESET_TERRITORY', { 
-                territoryId, 
-                previousRuler, 
-                previousRulerName 
-            });
-            
             // 모달 닫기
             this.closeResetTerritoryModal();
             
-            // 테이블 새로고침
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
+            // ✅ 즉시 테이블 새로고침 (실시간 반영)
+            await this.loadTerritoriesTable();
             
             // 통계 새로고침
             await this.loadStats();
             
-            alert(`✅ 영토가 초기화되었습니다.\n\n영토 ID: ${territoryId}\n이전 소유자: ${previousRulerName || '없음'}`);
+            alert(`✅ 영토가 초기화되었습니다.\n\n영토 ID: ${territoryId}\n이전 소유자: ${previousRulerName}`);
             
         } catch (error) {
             console.error('Failed to reset territory:', error);
-            this.handleFirestoreError(error, '영토 초기화');
-            alert(`❌ 영토 초기화에 실패했습니다: ${error.message}`);
+            alert(`❌ 영토 초기화에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
         }
     }
     
@@ -3226,14 +3606,8 @@ class AdminDashboard {
         try {
             const reason = skipConfirm ? '만료 시간 초과로 자동 종료됨' : '관리자에 의해 수동 종료됨';
             
-            await this.db.collection('auctions').doc(auctionId).update({
-                status: 'ended',
-                endedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                endedBy: this.currentUser?.email || 'admin',
-                reason: reason
-            });
-            
-            this.logAdminAction('END_AUCTION', { auctionId, reason });
+            // ✅ 백엔드 API 사용
+            await apiService.put(`/admin/auctions/${auctionId}/end`, { reason });
             
             // 자동 종료인 경우 알림 없이 테이블만 새로고침
             if (skipConfirm) {
@@ -3247,7 +3621,7 @@ class AdminDashboard {
         } catch (error) {
             console.error('Failed to end auction:', error);
             if (!skipConfirm) {
-                this.handleFirestoreError(error, '옥션 종료');
+                alert(`❌ 옥션 종료에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
             }
         }
     }
@@ -3928,18 +4302,17 @@ class AdminDashboard {
      */
     async deleteAuction(auctionId) {
         try {
-            // 옥션 데이터 가져오기
-            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
-            if (!auctionDoc.exists) {
+            // ✅ 백엔드 API 사용
+            const auction = await apiService.get(`/auctions/${auctionId}`);
+            if (!auction) {
                 alert('옥션을 찾을 수 없습니다.');
                 return;
             }
             
-            const auctionData = auctionDoc.data();
-            const territoryId = auctionData.territoryId || auctionId;
-            const status = auctionData.status || 'unknown';
-            const highestBidder = auctionData.highestBidderName || auctionData.highestBidder || '없음';
-            const currentBid = auctionData.currentBid || auctionData.startingBid || 0;
+            const territoryId = auction.territoryId || auctionId;
+            const status = auction.status || 'unknown';
+            const highestBidder = auction.bidderNickname || auction.bidderEmail || '없음';
+            const currentBid = auction.currentBid || auction.startingBid || 0;
             
             // 삭제 확인 모달 표시
             const modalHtml = `
@@ -4012,55 +4385,22 @@ class AdminDashboard {
      */
     async confirmDeleteAuction(auctionId) {
         try {
-            // 옥션 데이터 가져오기
-            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
-            if (!auctionDoc.exists) {
-                alert('옥션을 찾을 수 없습니다.');
-                this.closeDeleteAuctionModal();
-                return;
-            }
-            
-            const auctionData = auctionDoc.data();
-            const territoryId = auctionData.territoryId;
-            const status = auctionData.status;
-            
-            // 진행 중인 옥션을 삭제하는 경우 영토 상태 복구
-            if (status === 'active' && territoryId) {
-                try {
-                    const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
-                    if (territoryDoc.exists) {
-                        const territoryData = territoryDoc.data();
-                        // 옥션이 있던 영토의 currentAuction을 null로 설정
-                        await this.db.collection('territories').doc(territoryId).update({
-                            currentAuction: null,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        console.log(`[AdminDashboard] Cleared currentAuction for territory ${territoryId}`);
-                    }
-                } catch (territoryError) {
-                    console.warn(`[AdminDashboard] Failed to update territory ${territoryId}:`, territoryError);
-                    // 영토 업데이트 실패해도 옥션 삭제는 계속 진행
-                }
-            }
-            
-            // 옥션 삭제
-            await this.db.collection('auctions').doc(auctionId).delete();
-            
-            this.logAdminAction('DELETE_AUCTION', { 
-                auctionId, 
-                territoryId, 
-                status,
-                highestBidder: auctionData.highestBidder,
-                currentBid: auctionData.currentBid
-            });
+            // ✅ 백엔드 API 사용
+            await apiService.delete(`/admin/auctions/${auctionId}`);
             
             this.closeDeleteAuctionModal();
-            this.loadAuctionsTable(); // Refresh
+            
+            // ✅ 즉시 테이블 새로고침 (실시간 반영)
+            await this.loadAuctionsTable();
+            
+            // 통계 새로고침
+            await this.loadStats();
+            
             alert('✅ 옥션이 삭제되었습니다.');
             
         } catch (error) {
             console.error('Failed to delete auction:', error);
-            this.handleFirestoreError(error, '옥션 삭제');
+            alert(`❌ 옥션 삭제에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
         }
     }
     
@@ -4161,19 +4501,208 @@ class AdminDashboard {
      */
     async logAdminAction(action, details = {}) {
         try {
-            await this.db.collection('admin_logs').add({
+            // ✅ 백엔드 API 사용
+            await apiService.post('/admin/logs', {
                 action,
-                details,
-                adminEmail: this.currentUser.email,
-                adminUid: this.currentUser.uid,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                userAgent: navigator.userAgent,
-                ip: 'client-side' // 서버에서 기록하는 것이 더 좋음
+                details
             });
             console.log('Admin action logged:', action);
         } catch (error) {
             console.error('Failed to log admin action:', error);
         }
+    }
+    
+    /**
+     * 분석 데이터 로드 및 차트 렌더링
+     */
+    async loadAnalytics() {
+        try {
+            // ✅ 백엔드 API 사용
+            const analytics = await apiService.get('/admin/analytics?period=30d');
+            
+            // 사용자 성장 차트
+            this.renderUserGrowthChart(analytics.userGrowth || []);
+            
+            // 수익 추이 차트
+            this.renderRevenueChart(analytics.revenue || []);
+            
+            // 영토 분포 차트
+            this.renderTerritoryDistributionChart(analytics.territoryDistribution || []);
+            
+            // 옥션 통계 표시
+            this.renderAuctionStats(analytics.auctionStats || []);
+            
+        } catch (error) {
+            console.error('Failed to load analytics:', error);
+            const container = document.querySelector('#section-analytics .analytics-grid');
+            if (container) {
+                container.innerHTML = '<div class="error">분석 데이터를 불러올 수 없습니다.</div>';
+            }
+        }
+    }
+    
+    /**
+     * 사용자 성장 차트 렌더링
+     */
+    renderUserGrowthChart(data) {
+        const card = document.querySelector('#section-analytics .analytics-card:nth-child(3) .chart-placeholder');
+        if (!card) return;
+        
+        card.innerHTML = '<canvas id="user-growth-chart"></canvas>';
+        const ctx = document.getElementById('user-growth-chart').getContext('2d');
+        
+        // 기존 차트가 있으면 제거
+        if (this.userGrowthChart) {
+            this.userGrowthChart.destroy();
+        }
+        
+        this.userGrowthChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.map(d => new Date(d.date).toLocaleDateString('ko-KR')),
+                datasets: [{
+                    label: '신규 가입자',
+                    data: data.map(d => parseInt(d.count, 10)),
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '사용자 성장 추이'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * 수익 추이 차트 렌더링
+     */
+    renderRevenueChart(data) {
+        const card = document.querySelector('#section-analytics .analytics-card:nth-child(1) .chart-placeholder');
+        if (!card) return;
+        
+        card.innerHTML = '<canvas id="revenue-chart"></canvas>';
+        const ctx = document.getElementById('revenue-chart').getContext('2d');
+        
+        if (this.revenueChart) {
+            this.revenueChart.destroy();
+        }
+        
+        this.revenueChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => new Date(d.date).toLocaleDateString('ko-KR')),
+                datasets: [{
+                    label: '수익 (pt)',
+                    data: data.map(d => parseFloat(d.total || 0)),
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgb(54, 162, 235)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '수익 추이'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * 영토 분포 차트 렌더링
+     */
+    renderTerritoryDistributionChart(data) {
+        const card = document.querySelector('#section-analytics .analytics-card:nth-child(2) .chart-placeholder');
+        if (!card) return;
+        
+        card.innerHTML = '<canvas id="territory-distribution-chart"></canvas>';
+        const ctx = document.getElementById('territory-distribution-chart').getContext('2d');
+        
+        if (this.territoryDistributionChart) {
+            this.territoryDistributionChart.destroy();
+        }
+        
+        this.territoryDistributionChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.country || 'Unknown'),
+                datasets: [{
+                    label: '영토 수',
+                    data: data.map(d => parseInt(d.count, 10)),
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.5)',
+                        'rgba(54, 162, 235, 0.5)',
+                        'rgba(255, 206, 86, 0.5)',
+                        'rgba(75, 192, 192, 0.5)',
+                        'rgba(153, 102, 255, 0.5)',
+                        'rgba(255, 159, 64, 0.5)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '영토 분포'
+                    },
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * 옥션 통계 표시
+     */
+    renderAuctionStats(data) {
+        const container = document.querySelector('#section-analytics .analytics-card:nth-child(4) .chart-placeholder');
+        if (!container) return;
+        
+        if (data.length === 0) {
+            container.innerHTML = '<p>옥션 통계 데이터가 없습니다.</p>';
+            return;
+        }
+        
+        const statsHtml = data.map(stat => {
+            const avgBid = parseFloat(stat.avg_bid || 0).toLocaleString('ko-KR');
+            const totalValue = parseFloat(stat.total_value || 0).toLocaleString('ko-KR');
+            return `
+                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                    <strong>${stat.status}</strong>
+                    <ul style="margin: 5px 0 0 0; padding-left: 20px; font-size: 14px;">
+                        <li>개수: ${parseInt(stat.count, 10)}개</li>
+                        <li>평균 입찰가: ${avgBid} pt</li>
+                        <li>총 거래액: ${totalValue} pt</li>
+                    </ul>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = `<div style="padding: 10px;">${statsHtml}</div>`;
     }
     
     /**
@@ -4184,12 +4713,10 @@ class AdminDashboard {
         if (!container) return;
         
         try {
-            const snapshot = await this.db.collection('admin_logs')
-                .orderBy('timestamp', 'desc')
-                .limit(50)
-                .get();
+            // ✅ 백엔드 API 사용
+            const logs = await apiService.get('/admin/logs?limit=50');
             
-            if (snapshot.empty) {
+            if (!logs || logs.length === 0) {
                 container.innerHTML = '<div class="empty">관리자 로그가 없습니다</div>';
                 return;
             }
@@ -4205,15 +4732,15 @@ class AdminDashboard {
                         </tr>
                     </thead>
                     <tbody>
-                        ${snapshot.docs.map(doc => {
-                            const data = doc.data();
-                            const time = data.timestamp?.toDate()?.toLocaleString('ko-KR') || '-';
+                        ${logs.map(log => {
+                            const time = log.timestamp ? new Date(log.timestamp).toLocaleString('ko-KR') : '-';
+                            const details = typeof log.details === 'string' ? log.details : JSON.stringify(log.details || {});
                             return `
                                 <tr>
                                     <td>${time}</td>
-                                    <td>${data.adminEmail || '알 수 없음'}</td>
-                                    <td><span class="log-action">${data.action}</span></td>
-                                    <td><code>${JSON.stringify(data.details)}</code></td>
+                                    <td>${log.adminEmail || '알 수 없음'}</td>
+                                    <td><span class="log-action">${log.action}</span></td>
+                                    <td><code style="font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">${details}</code></td>
                                 </tr>
                             `;
                         }).join('')}
@@ -4340,60 +4867,172 @@ class AdminDashboard {
         if (!adminListContainer) return;
         
         try {
-            // 실제 사용자 목록에서 관리자 확인
-            const actualUsers = new Set();
+            // ✅ 백엔드 API에서 실제 사용자 정보 확인
+            let actualUsers = new Set();
             try {
-                // users 컬렉션에서 사용자 이메일 수집
-                const usersSnapshot = await this.db.collection('users').limit(100).get();
-                usersSnapshot.docs.forEach(doc => {
-                    const data = doc.data();
-                    if (data.email) {
-                        actualUsers.add(data.email.toLowerCase());
-                    }
-                });
-                
-                // territories에서도 사용자 이메일 수집
-                const territoriesSnapshot = await this.db.collection('territories')
-                    .where('sovereignty', 'in', ['ruled', 'protected'])
-                    .limit(100)
-                    .get();
-                
-                territoriesSnapshot.docs.forEach(doc => {
-                    const data = doc.data();
-                    if (data.rulerName && data.rulerName.includes('@')) {
-                        actualUsers.add(data.rulerName.toLowerCase());
-                    }
-                });
+                const users = await apiService.get('/admin/users?limit=100');
+                if (Array.isArray(users)) {
+                    users.forEach(user => {
+                        if (user.email) {
+                            actualUsers.add(user.email.toLowerCase());
+                        }
+                    });
+                }
             } catch (error) {
                 console.warn('[AdminDashboard] Failed to load actual users for admin list:', error);
             }
             
-            // 관리자 목록 표시 (실제 사용자인지 확인)
-            const adminList = ADMIN_EMAILS.map(email => {
+            // 관리자 목록 표시
+            const adminList = ADMIN_EMAILS.map((email, index) => {
                 const isSuperAdmin = email === 'admin@billionairemap.com';
                 const isActualUser = actualUsers.has(email.toLowerCase());
                 const userStatus = isActualUser 
-                    ? '<span style="color: #28a745; font-size: 11px; margin-left: 5px;">(등록된 사용자)</span>'
-                    : '<span style="color: #6c757d; font-size: 11px; margin-left: 5px;">(미등록)</span>';
+                    ? '<span style="color: #28a745; font-size: 11px; margin-left: 8px; font-weight: 500;">✓ 등록됨</span>'
+                    : '<span style="color: #dc3545; font-size: 11px; margin-left: 8px; font-weight: 500;">✗ 미등록</span>';
+                
+                // 현재 로그인한 관리자인지 확인
+                const isCurrentUser = this.currentUser && this.currentUser.email && 
+                                     this.currentUser.email.toLowerCase() === email.toLowerCase();
+                const currentUserBadge = isCurrentUser 
+                    ? '<span style="color: #0066cc; font-size: 11px; margin-left: 8px; font-weight: 600;">(현재 로그인)</span>'
+                    : '';
                 
                 return `
-                    <div class="admin-item" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; margin-bottom: 8px; background: #f8f9fa; border-radius: 6px;">
-                        <div>
-                            <span>${email}</span>
-                            ${userStatus}
+                    <div class="admin-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 10px; background: ${isCurrentUser ? '#e6f3ff' : '#ffffff'}; border: 1px solid ${isCurrentUser ? '#0066cc' : '#dee2e6'}; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                                <span style="color: #212529; font-weight: 500; font-size: 14px;">${email}</span>
+                                ${currentUserBadge}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                ${userStatus}
+                                <span class="badge ${isSuperAdmin ? 'badge-primary' : 'badge-secondary'}" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: ${isSuperAdmin ? '#0066cc' : '#6c757d'}; color: white;">
+                                    ${isSuperAdmin ? '👑 최고 관리자' : '👤 관리자'}
+                                </span>
+                            </div>
                         </div>
-                        <span class="badge ${isSuperAdmin ? 'badge-primary' : 'badge-secondary'}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px;">
-                            ${isSuperAdmin ? '최고 관리자' : '관리자'}
-                        </span>
+                        ${!isSuperAdmin ? `
+                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.showRemoveAdminModal('${email}')" style="padding: 6px 12px; font-size: 12px; margin-left: 10px;" title="관리자 삭제">
+                                삭제
+                            </button>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
+            
+            // 관리자 수 업데이트
+            const adminCountEl = document.getElementById('admin-count');
+            if (adminCountEl) {
+                adminCountEl.textContent = ADMIN_EMAILS.length;
+            }
             
             adminListContainer.innerHTML = adminList || '<div class="empty">관리자 없음</div>';
         } catch (error) {
             console.error('Failed to load admin list:', error);
             adminListContainer.innerHTML = '<div class="error">관리자 목록 로딩 실패</div>';
         }
+    }
+    
+    /**
+     * 관리자 삭제 모달 표시
+     */
+    showRemoveAdminModal(email) {
+        if (!email) {
+            alert('삭제할 관리자 이메일이 필요합니다.');
+            return;
+        }
+        
+        const isSuperAdmin = email === 'admin@billionairemap.com';
+        if (isSuperAdmin) {
+            alert('최고 관리자는 삭제할 수 없습니다.');
+            return;
+        }
+        
+        const isCurrentUser = this.currentUser && this.currentUser.email && 
+                             this.currentUser.email.toLowerCase() === email.toLowerCase();
+        if (isCurrentUser) {
+            alert('현재 로그인한 관리자는 삭제할 수 없습니다.');
+            return;
+        }
+        
+        const modalHtml = `
+            <div class="modal-overlay" id="remove-admin-modal-overlay" onclick="adminDashboard.closeRemoveAdminModal()">
+                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 500px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                        <h2 style="margin: 0; color: white;">➖ 관리자 삭제</h2>
+                        <button class="modal-close" onclick="adminDashboard.closeRemoveAdminModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
+                    </div>
+                    <div class="modal-body" style="padding: 20px;">
+                        <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #dc3545;">
+                            <h3 style="margin-top: 0; margin-bottom: 10px; color: #c82333; font-size: 16px;">삭제 대상</h3>
+                            <p style="margin: 0; color: #333; font-size: 14px;"><strong>${email}</strong></p>
+                        </div>
+                        
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                            <h3 style="margin-top: 0; margin-bottom: 10px; color: #856404; font-size: 16px;">⚠️ 주의사항</h3>
+                            <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8; font-size: 13px;">
+                                <li>관리자 삭제는 <strong>코드 수정</strong>이 필요합니다</li>
+                                <li><code>js/admin.js</code> 파일의 <code>ADMIN_EMAILS</code> 배열에서 해당 이메일을 제거해야 합니다</li>
+                                <li>삭제 후 <strong>페이지를 새로고침</strong>해야 적용됩니다</li>
+                                <li>삭제된 관리자는 더 이상 관리자 대시보드에 접근할 수 없습니다</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="background: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #721c24; font-size: 14px; font-weight: bold;">⚠️ 이 작업은 되돌릴 수 없습니다. 신중하게 결정하세요.</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                        <button class="btn btn-secondary" onclick="adminDashboard.closeRemoveAdminModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
+                        <button class="btn btn-danger" onclick="adminDashboard.confirmRemoveAdmin('${email}')" style="padding: 10px 30px; background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🗑️ 삭제 확인</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 기존 모달 제거
+        const existingModal = document.getElementById('remove-admin-modal-overlay');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 모달 추가
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    
+    closeRemoveAdminModal() {
+        const modal = document.getElementById('remove-admin-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+    
+    /**
+     * 관리자 삭제 확인
+     */
+    confirmRemoveAdmin(email) {
+        if (!email) {
+            alert('삭제할 관리자 이메일이 필요합니다.');
+            return;
+        }
+        
+        const isSuperAdmin = email === 'admin@billionairemap.com';
+        if (isSuperAdmin) {
+            alert('최고 관리자는 삭제할 수 없습니다.');
+            this.closeRemoveAdminModal();
+            return;
+        }
+        
+        // 코드 수정 안내
+        alert(`✅ 관리자 삭제 안내:\n\n삭제할 이메일: ${email}\n\n⚠️ 실제 적용을 위해서는:\n1. js/admin.js 파일을 열어주세요\n2. ADMIN_EMAILS 배열에서 "${email}" 항목을 찾아 제거하세요\n3. 페이지를 새로고침하세요\n\n현재는 임시로 표시만 제거됩니다.`);
+        
+        // 로그 기록
+        this.logAdminAction('REMOVE_ADMIN', { email });
+        
+        this.closeRemoveAdminModal();
+        
+        // 목록 새로고침
+        this.loadAdminList();
     }
     
     /**
@@ -4423,12 +5062,13 @@ class AdminDashboard {
                             <input type="password" id="new-admin-password" placeholder="비밀번호 (P키 로그인용)" style="width: 100%; padding: 12px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 14px;">
                             <small style="color: #6c757d; display: block; margin-top: 5px;">P키 5번 연타 로그인용 비밀번호 (선택사항)</small>
                         </div>
-                        <div style="background: #fff3cd; padding: 12px; border-radius: 6px; border-left: 4px solid #ffc107; margin-bottom: 15px;">
-                            <strong style="color: #856404;">⚠️ 주의사항</strong>
-                            <ul style="margin: 8px 0 0 20px; color: #856404; font-size: 13px;">
-                                <li>이메일은 Firebase Auth에 등록되어 있어야 합니다</li>
-                                <li>관리자 ID와 비밀번호는 P키 5번 연타 로그인에 사용됩니다</li>
-                                <li>추가 후 페이지를 새로고침해야 적용됩니다</li>
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin-bottom: 15px;">
+                            <h3 style="margin-top: 0; margin-bottom: 10px; color: #856404; font-size: 16px;">⚠️ 주의사항</h3>
+                            <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8; font-size: 13px;">
+                                <li>이메일은 <strong>Firebase Auth에 등록</strong>되어 있어야 합니다</li>
+                                <li>관리자 ID와 비밀번호는 <strong>P키 5번 연타 로그인</strong>에 사용됩니다</li>
+                                <li>추가 후 <strong>코드 수정</strong>이 필요하며, <strong>페이지 새로고침</strong> 후 적용됩니다</li>
+                                <li><code>js/admin.js</code> 파일의 <code>ADMIN_EMAILS</code> 배열에 이메일을 추가해야 합니다</li>
                             </ul>
                         </div>
                     </div>
@@ -4505,7 +5145,26 @@ class AdminDashboard {
         
         try {
             // 관리자 목록에 추가 (실제로는 코드 수정이 필요하지만, 사용자에게 안내)
-            alert(`✅ 관리자 추가 정보:\n\n이메일: ${email}\n관리자 ID: ${adminId}${password ? '\n비밀번호: ' + password : ''}\n\n⚠️ 실제 적용을 위해서는:\n1. js/admin.js 파일의 ADMIN_EMAILS 배열에 "${email}" 추가\n2. LOCAL_ADMIN_CREDENTIALS 객체에 "${adminId}": "${password || '비밀번호를_설정하세요'}" 추가\n3. 페이지 새로고침\n\n현재는 임시로 세션에 저장됩니다.`);
+            const codeExample = `// js/admin.js 파일 수정 필요:
+
+// 1. ADMIN_EMAILS 배열에 추가 (약 15번째 줄):
+const ADMIN_EMAILS = [
+    'admin@billionairemap.com',
+    'young91@naver.com',
+    'q886654@naver.com',
+    'etgbajy@gmail.com',
+    '${email}',  // ← 여기에 추가
+];
+
+// 2. LOCAL_ADMIN_CREDENTIALS 객체에 추가 (약 22번째 줄, P키 로그인용):
+const LOCAL_ADMIN_CREDENTIALS = {
+    'admin': 'billionaire2024!',
+    'young91': 'admin1234!',
+    'q886654': 'znznektm1@',
+    '${adminId}': '${password || '비밀번호를_설정하세요'}',  // ← 여기에 추가
+};`;
+            
+            alert(`✅ 관리자 추가 정보:\n\n이메일: ${email}\n관리자 ID: ${adminId}${password ? '\n비밀번호: ' + password : ''}\n\n⚠️ 실제 적용을 위해서는:\n1. js/admin.js 파일을 열어주세요\n2. ADMIN_EMAILS 배열에 "${email}" 추가\n3. LOCAL_ADMIN_CREDENTIALS 객체에 "${adminId}": "${password || '비밀번호를_설정하세요'}" 추가\n4. 페이지 새로고침\n\n코드 예시:\n\n${codeExample}`);
             
             // 임시로 세션에 저장 (실제 코드 수정 전까지 사용)
             const tempAdmins = JSON.parse(sessionStorage.getItem('tempAdmins') || '[]');

@@ -45,19 +45,57 @@ class WebSocketService {
             // Firebase 토큰 가져오기
             const user = firebaseService.getCurrentUser();
             if (!user) {
-                log.warn('[WebSocketService] User not authenticated, cannot connect');
+                // 로그인하지 않은 사용자는 조용히 실패 (재연결 시도 안 함)
+                log.debug('[WebSocketService] User not authenticated, skipping WebSocket connection');
                 this.isConnecting = false;
+                this.reconnectAttempts = 0; // 재연결 시도 초기화
                 return;
             }
             
-            const token = await user.getIdToken();
+            // 관리자 사용자 모드: 가상 사용자인 경우 실제 Firebase Auth 사용자의 토큰 사용
+            let token;
+            if (user.isAdmin || user.adminMode || (user.uid && user.uid.startsWith('admin_'))) {
+                const realAuthUser = firebaseService.getRealAuthUser();
+                if (realAuthUser && typeof realAuthUser.getIdToken === 'function') {
+                    log.debug('[WebSocketService] Using real Firebase Auth token for admin user mode');
+                    try {
+                        token = await realAuthUser.getIdToken();
+                        log.debug('[WebSocketService] Successfully obtained token for admin user mode');
+                    } catch (tokenError) {
+                        log.debug('[WebSocketService] Failed to get token from real auth user:', tokenError.message);
+                        this.isConnecting = false;
+                        this.reconnectAttempts = 0; // 재연결 시도 초기화
+                        return;
+                    }
+                } else {
+                    log.debug('[WebSocketService] Admin user mode requires real Firebase Auth user');
+                    this.isConnecting = false;
+                    this.reconnectAttempts = 0; // 재연결 시도 초기화
+                    return;
+                }
+            } else if (typeof user.getIdToken === 'function') {
+                try {
+                    token = await user.getIdToken();
+                } catch (tokenError) {
+                    log.debug('[WebSocketService] Failed to get token from user:', tokenError.message);
+                    this.isConnecting = false;
+                    this.reconnectAttempts = 0; // 재연결 시도 초기화
+                    return;
+                }
+            } else {
+                log.debug('[WebSocketService] User object does not have getIdToken method');
+                this.isConnecting = false;
+                this.reconnectAttempts = 0; // 재연결 시도 초기화
+                return;
+            }
+            
             const wsUrl = `${this.getWebSocketUrl()}?token=${token}`;
             
-            log.info('[WebSocketService] 🔌 Connecting to WebSocket...');
+            log.debug('[WebSocketService] 🔌 Connecting to WebSocket...');
             this.ws = new WebSocket(wsUrl);
             
             this.ws.onopen = () => {
-                log.info('[WebSocketService] ✅ Connected');
+                log.debug('[WebSocketService] ✅ Connected');
                 this.isConnected = true;
                 this.isConnecting = false;
                 this.reconnectAttempts = 0;
@@ -80,12 +118,11 @@ class WebSocketService {
             };
             
             this.ws.onerror = (error) => {
-                log.error('[WebSocketService] ❌ Error:', error);
+                log.debug('[WebSocketService] ❌ Connection error (will retry if token is valid)');
                 this.isConnecting = false;
             };
             
             this.ws.onclose = (event) => {
-                log.warn('[WebSocketService] 🔌 Disconnected', event.code, event.reason);
                 this.isConnected = false;
                 this.isConnecting = false;
                 this.stopHeartbeat();
@@ -93,16 +130,33 @@ class WebSocketService {
                 // 연결 종료 이벤트 발행
                 eventBus.emit(EVENTS.WEBSOCKET_DISCONNECTED);
                 
-                // 재연결 시도
-                if (event.code !== 1000) { // 정상 종료가 아닌 경우
+                // 토큰 오류(1008)인 경우 재연결 시도 안 함
+                if (event.code === 1008) {
+                    // Invalid token 오류 - 로그인하지 않았거나 토큰이 유효하지 않음
+                    log.debug('[WebSocketService] 🔌 Disconnected: Invalid token (user may not be logged in)');
+                    this.reconnectAttempts = 0; // 재연결 시도 초기화
+                    return;
+                }
+                
+                // 정상 종료(1000)가 아닌 경우에만 재연결 시도
+                if (event.code !== 1000) {
+                    log.debug(`[WebSocketService] 🔌 Disconnected (code: ${event.code}), will retry...`);
                     this.scheduleReconnect();
+                } else {
+                    log.debug('[WebSocketService] 🔌 Disconnected: Normal closure');
+                    this.reconnectAttempts = 0;
                 }
             };
             
         } catch (error) {
-            log.error('[WebSocketService] Connection failed:', error);
+            log.debug('[WebSocketService] Connection failed:', error.message);
             this.isConnecting = false;
-            this.scheduleReconnect();
+            // 토큰 관련 오류가 아닌 경우에만 재연결 시도
+            if (!error.message?.includes('token') && !error.message?.includes('auth')) {
+                this.scheduleReconnect();
+            } else {
+                this.reconnectAttempts = 0;
+            }
         }
     }
     
@@ -110,17 +164,32 @@ class WebSocketService {
      * 재연결 예약
      */
     scheduleReconnect() {
+        // 로그인하지 않은 사용자는 재연결 시도 안 함
+        const user = firebaseService.getCurrentUser();
+        if (!user) {
+            log.debug('[WebSocketService] User not authenticated, skipping reconnect');
+            this.reconnectAttempts = 0;
+            return;
+        }
+        
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            log.error('[WebSocketService] Max reconnect attempts reached');
+            log.debug('[WebSocketService] Max reconnect attempts reached');
             return;
         }
         
         this.reconnectAttempts++;
         const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
         
-        log.info(`[WebSocketService] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+        log.debug(`[WebSocketService] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
         
         setTimeout(() => {
+            // 재연결 전에 다시 사용자 확인
+            const currentUser = firebaseService.getCurrentUser();
+            if (!currentUser) {
+                log.debug('[WebSocketService] User logged out during reconnect, cancelling');
+                this.reconnectAttempts = 0;
+                return;
+            }
             this.connect();
         }, delay);
     }

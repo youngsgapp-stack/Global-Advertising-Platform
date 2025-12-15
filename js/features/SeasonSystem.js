@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 // 시즌 타입
 export const SEASON_TYPE = {
@@ -54,14 +55,10 @@ class SeasonSystem {
             const now = new Date();
             
             // 현재 활성 시즌 찾기
-            const seasons = await firebaseService.queryCollection(
-                'seasons',
-                [
-                    { field: 'status', operator: '==', value: 'active' }
-                ],
-                { field: 'startDate', direction: 'desc' },
-                1
-            );
+            // TODO: 시즌 API 엔드포인트가 있으면 사용
+            // 현재는 빈 배열로 처리 (나중에 `/api/seasons` 엔드포인트 추가 가능)
+            log.warn('[SeasonSystem] Seasons query is not yet supported via API');
+            const seasons = []; // await apiService.get('/seasons');
             
             if (seasons && seasons.length > 0) {
                 this.currentSeason = seasons[0];
@@ -112,14 +109,11 @@ class SeasonSystem {
     async checkOwnershipLimit(userId) {
         try {
             // 사용자가 소유한 영토 수 확인
-            const ownedTerritories = await firebaseService.queryCollection(
-                'territories',
-                [
-                    { field: 'ruler', operator: '==', value: userId }
-                ],
-                null,
-                this.MAX_TERRITORIES_PER_USER + 1 // 제한 + 1개까지 조회
-            );
+            // TODO: 필터링이 필요한 경우 API 엔드포인트 수정 필요
+            const allTerritories = await apiService.getTerritories({
+                limit: 1000
+            });
+            const ownedTerritories = allTerritories?.filter(t => t.ruler === userId) || [];
             
             const territoryCount = ownedTerritories?.length || 0;
             
@@ -154,14 +148,8 @@ class SeasonSystem {
         if (!targetSeasonId) return [];
         
         try {
-            const rankings = await firebaseService.queryCollection(
-                'season_rankings',
-                [
-                    { field: 'seasonId', operator: '==', value: targetSeasonId }
-                ],
-                { field: 'seasonScore', direction: 'desc' },
-                100
-            );
+            // TODO: 랭킹 API 엔드포인트가 있으면 사용
+            const rankings = []; // await apiService.get('/rankings');
             
             return rankings || [];
         } catch (error) {

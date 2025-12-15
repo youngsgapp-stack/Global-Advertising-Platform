@@ -7,6 +7,7 @@ import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { contestSystem, CONTEST_STATUS } from '../features/ContestSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 class ContestPanel {
     constructor() {
@@ -114,18 +115,12 @@ class ContestPanel {
             }
             
             // 참여 작품 목록 로드
-            const entries = await firebaseService.queryCollection(
-                'contest_entries',
-                [
-                    { field: 'contestId', operator: '==', value: currentContest.id }
-                ],
-                { field: 'voteCount', direction: 'desc' },
-                20
-            );
+            // TODO: 콘테스트 엔트리 조회는 API 엔드포인트가 필요
+            const entries = []; // await apiService.get(`/contests/${contestId}/entries`);
             
             const entriesHtml = await Promise.all(
                 (entries || []).map(async (entry, index) => {
-                    const territory = await firebaseService.getDocument('territories', entry.territoryId);
+                    const territory = await apiService.getTerritory(entry.territoryId);
                     const territoryName = territory?.name || territory?.territoryName || entry.territoryId;
                     
                     return `

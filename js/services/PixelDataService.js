@@ -10,6 +10,7 @@
 
 import { CONFIG, log } from '../config.js';
 import { firebaseService } from './FirebaseService.js';
+import { apiService } from './ApiService.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { localCacheService } from './LocalCacheService.js';
 import { rateLimiter, RATE_LIMIT_TYPE } from './RateLimiter.js';
@@ -142,10 +143,13 @@ class PixelDataService {
                 const { territoryManager } = await import('../core/TerritoryManager.js');
                 territory = territoryManager.getTerritory(territoryId);
                 
-                // TerritoryManager에 없으면 Firestore에서 확인
+                // TerritoryManager에 없으면 API에서 확인
                 if (!territory) {
-                    const { firebaseService } = await import('./FirebaseService.js');
-                    territory = await firebaseService.getDocument('territories', territoryId);
+                    try {
+                        territory = await apiService.getTerritory(territoryId);
+                    } catch (error) {
+                        log.debug(`[PixelDataService] Could not load territory from API:`, error);
+                    }
                 }
             } catch (error) {
                 log.debug(`[PixelDataService] Could not check territory ownership for ${territoryId}, proceeding with load`);
@@ -185,11 +189,22 @@ class PixelDataService {
             return localCached;
         }
         
-        // 3. Firebase에서 로드 (느림, 하지만 최신 데이터)
+        // 3. API에서 로드
         try {
-            const data = await firebaseService.getDocument('pixelCanvases', territoryId);
+            const { apiService } = await import('./ApiService.js');
+            const apiData = await apiService.getPixelData(territoryId);
             
-            if (data) {
+            if (apiData && apiData.pixels && apiData.pixels.length > 0) {
+                // API 데이터를 기존 형식으로 변환
+                const data = {
+                    territoryId: apiData.territoryId,
+                    pixels: apiData.pixels,
+                    width: apiData.width || 64,
+                    height: apiData.height || 64,
+                    filledPixels: apiData.filledPixels || apiData.pixels.length,
+                    lastUpdated: apiData.lastUpdated
+                };
+                
                 // 메모리 캐시에 저장
                 this.memoryCache.set(territoryId, {
                     data,
@@ -199,7 +214,7 @@ class PixelDataService {
                 // 로컬 캐시에도 저장 (다음 로드 시 빠르게)
                 await localCacheService.saveToCache(territoryId, data);
                 
-                log.info(`[PixelDataService] Loaded pixel data from Firebase for ${territoryId} (${data.filledPixels || 0} pixels)`);
+                log.info(`[PixelDataService] Loaded pixel data from API for ${territoryId} (${data.filledPixels || 0} pixels)`);
                 return data;
             }
             
@@ -211,7 +226,7 @@ class PixelDataService {
                 lastUpdated: null
             };
             
-            // 빈 데이터도 캐시에 저장 (불필요한 Firebase 호출 방지)
+            // 빈 데이터도 캐시에 저장 (불필요한 API 호출 방지)
             this.memoryCache.set(territoryId, {
                 data: emptyData,
                 timestamp: Date.now()
@@ -380,8 +395,20 @@ class PixelDataService {
                 };
             }
             
-            // 1. 무조건 Firebase에 저장
-            await firebaseService.setDocument('pixelCanvases', territoryId, dataToSave);
+            // 1. API를 통해 저장 (주요 저장소)
+            try {
+                const { apiService } = await import('./ApiService.js');
+                await apiService.savePixelData(territoryId, {
+                    pixels: dataToSave.pixels,
+                    width: dataToSave.width || 64,
+                    height: dataToSave.height || 64
+                });
+                log.info(`[PixelDataService] Saved pixel data to API for ${territoryId}`);
+            } catch (apiError) {
+                log.error(`[PixelDataService] Failed to save to API, falling back to Firestore:`, apiError);
+                // API 실패 시 Firestore fallback (하위 호환성)
+                await firebaseService.setDocument('pixelCanvases', territoryId, dataToSave);
+            }
             
             // 2. 메모리 캐시 업데이트
             this.memoryCache.set(territoryId, {
@@ -482,25 +509,13 @@ class PixelDataService {
         try {
             log.info(`[PixelDataService] Deleting pixel data for territory ${territoryId} (ownership changed)`);
             
-            // 1. Firestore pixelCanvases 문서 삭제
+            // ✅ 백엔드 API 사용
             try {
-                await firebaseService.deleteDocument('pixelCanvases', territoryId);
-                log.info(`[PixelDataService] Deleted pixelCanvases document for ${territoryId}`);
+                await apiService.deletePixelData(territoryId);
+                log.info(`[PixelDataService] ✅ Deleted pixel data via API for ${territoryId}`);
             } catch (error) {
-                // 문서가 없으면 정상 (이미 삭제되었거나 없었던 경우)
-                log.debug(`[PixelDataService] pixelCanvases document not found or already deleted for ${territoryId}`);
-            }
-            
-            // 2. territories 컬렉션의 pixelCanvas 필드 삭제
-            try {
-                await firebaseService.updateDocument('territories', territoryId, {
-                    pixelCanvas: null,
-                    territoryValue: 0,
-                    hasPixelArt: false
-                });
-                log.info(`[PixelDataService] Cleared pixelCanvas metadata for territory ${territoryId}`);
-            } catch (error) {
-                log.warn(`[PixelDataService] Failed to clear pixelCanvas metadata for ${territoryId}:`, error);
+                log.warn(`[PixelDataService] Failed to delete pixel data via API for ${territoryId}:`, error);
+                // API 실패 시에도 로컬 캐시는 정리
             }
             
             // 3. IndexedDB 캐시 삭제

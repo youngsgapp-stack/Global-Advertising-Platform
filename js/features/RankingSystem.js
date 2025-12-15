@@ -7,6 +7,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { territoryManager } from '../core/TerritoryManager.js';
 
 // 랭킹 타입 (광고/아트 플랫폼 언어로 재브랜딩)
@@ -66,13 +67,23 @@ class RankingSystem {
      */
     async loadRankings() {
         try {
-            const rankingsData = await firebaseService.queryCollection('rankings', [], 
-                { field: 'hegemonyScore', direction: 'desc' },
-                100
-            );
+            // TODO: API에 랭킹 엔드포인트가 있으면 사용
+            // 현재는 랭킹 데이터가 API에 없으므로 빈 배열로 처리
+            // 백엔드에 `/api/rankings` 엔드포인트 추가 필요
+            log.warn('[RankingSystem] loadRankings is not yet supported via API, using empty array');
+            const rankingsData = [];
             
             for (const ranking of rankingsData) {
-                this.rankings.set(ranking.userId, ranking);
+                // API 응답 형식 변환
+                const rankingData = {
+                    userId: ranking.userId,
+                    nickname: ranking.nickname,
+                    territoryCount: ranking.territoryCount || 0,
+                    totalValue: ranking.totalValue || 0,
+                    hegemonyScore: ranking.hegemonyScore || ranking.territoryCount * 100,
+                    rank: ranking.rank
+                };
+                this.rankings.set(ranking.userId, rankingData);
             }
             
             this.globalCoverageBoard = rankingsData.slice(0, 10);
@@ -406,50 +417,34 @@ class RankingSystem {
         try {
             log.debug('[RankingSystem] Fetching most viewed territories...');
             
-            // 방법 1: viewCount가 있는 영토만 조회 (인덱스 필요)
+            // API를 사용하여 모든 영토를 가져와서 클라이언트에서 필터링/정렬
             let territories = [];
             try {
-                territories = await firebaseService.queryCollection(
-                    'territories',
-                    [{ field: 'viewCount', op: '>', value: 0 }],
-                    { field: 'viewCount', direction: 'desc' },
-                    limit
-                );
-                log.debug('[RankingSystem] Found territories with viewCount:', territories.length);
-            } catch (queryError) {
-                // 인덱스가 없거나 쿼리 실패 시, 모든 영토를 가져와서 클라이언트에서 정렬
-                log.warn('[RankingSystem] Query with viewCount failed, trying alternative method:', queryError);
+                // 모든 영토 가져오기
+                const allTerritories = await apiService.getTerritories({
+                    limit: 10000 // 모든 영토 조회
+                });
                 
-                try {
-                    // 모든 영토 가져오기 (소유된 것만)
-                    const allTerritories = await firebaseService.queryCollection(
-                        'territories',
-                        [{ field: 'ruler', op: '!=', value: null }],
-                        null,
-                        100 // 더 많이 가져와서 필터링
-                    );
-                    
-                    // viewCount가 있는 것만 필터링하고 정렬
-                    territories = allTerritories
-                        .filter(t => (t.viewCount || 0) > 0)
-                        .sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))
-                        .slice(0, limit);
-                    
-                    log.debug('[RankingSystem] Found territories via alternative method:', territories.length);
-                } catch (altError) {
-                    log.error('[RankingSystem] Alternative method also failed:', altError);
-                    // TerritoryManager에서 메모리 캐시 사용
-                    const cachedTerritories = territoryManager.getAllTerritories();
-                    territories = Array.from(cachedTerritories.values())
-                        .filter(t => (t.viewCount || 0) > 0)
-                        .sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))
-                        .slice(0, limit)
-                        .map(t => ({
-                            id: t.id,
-                            ...t
-                        }));
-                    log.debug('[RankingSystem] Using cached territories:', territories.length);
-                }
+                // viewCount가 있는 것만 필터링하고 정렬
+                territories = allTerritories
+                    .filter(t => (t.viewCount || 0) > 0)
+                    .sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))
+                    .slice(0, limit);
+                
+                log.debug('[RankingSystem] Found territories via alternative method:', territories.length);
+            } catch (altError) {
+                log.error('[RankingSystem] Alternative method also failed:', altError);
+                // TerritoryManager에서 메모리 캐시 사용
+                const cachedTerritories = territoryManager.getAllTerritories();
+                territories = Array.from(cachedTerritories.values())
+                    .filter(t => (t.viewCount || 0) > 0)
+                    .sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))
+                    .slice(0, limit)
+                    .map(t => ({
+                        id: t.id,
+                        ...t
+                    }));
+                log.debug('[RankingSystem] Using cached territories:', territories.length);
             }
             
             if (territories.length === 0) {

@@ -750,8 +750,15 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: var(--spacing-sm);
-    background: rgba(255, 255, 255, 0.02);
+    background: #ffffff; /* 명확한 배경색 */
+    border: 1px solid #dee2e6;
     border-radius: var(--radius-md);
+    color: #212529; /* 명확한 텍스트 색상 */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.admin-item span {
+    color: #212529; /* 텍스트 색상 명확히 설정 */
 }
 
 .admin-item .badge {

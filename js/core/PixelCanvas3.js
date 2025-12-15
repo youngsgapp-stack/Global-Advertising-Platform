@@ -9,6 +9,7 @@ import { eventBus, EVENTS } from './EventBus.js';
 import { pixelDataService } from '../services/PixelDataService.js';
 import { territoryManager } from './TerritoryManager.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { localCacheService } from '../services/LocalCacheService.js';
 import mapController from './MapController.js';
 
@@ -1202,7 +1203,7 @@ class PixelCanvas3 {
             if (territory) {
                 // Firestore에서 최신 소유권 확인 (캐시 불일치 방지)
                 try {
-                    const latestTerritory = await firebaseService.getDocument('territories', this.territoryId);
+                    const latestTerritory = await apiService.getTerritory(this.territoryId);
                     if (latestTerritory) {
                         // 소유권이 변경되었는지 확인
                         if (latestTerritory.ruler && latestTerritory.ruler !== currentUser.uid) {

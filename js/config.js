@@ -120,7 +120,10 @@ export const CONFIG = {
     },
     
     // API 설정
-    API_BASE_URL: process.env.API_BASE_URL || 'https://global-advertising-platform-production.up.railway.app/api', // Railway 백엔드 API URL
+    // API_BASE_URL: 로컬 개발 시 localhost 사용, 프로덕션 배포 시 Railway URL 사용
+    API_BASE_URL: typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+        ? 'http://localhost:3000/api' 
+        : 'https://global-advertising-platform-production.up.railway.app/api', // Railway 백엔드 API URL
     
     // 전 세계 국가 설정 (200+ 국가)
     COUNTRIES: {

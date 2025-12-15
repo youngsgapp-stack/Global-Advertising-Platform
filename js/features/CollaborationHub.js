@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { territoryManager } from '../core/TerritoryManager.js';
 
 // 협업 상태
@@ -79,9 +80,13 @@ class CollaborationHub {
      */
     async loadActiveCollaborations() {
         try {
-            const collabs = await firebaseService.queryCollection('collaborations', [
-                { field: 'status', op: 'in', value: [COLLAB_STATUS.OPEN, COLLAB_STATUS.ACTIVE] }
-            ]);
+            // TODO: 협업 API 엔드포인트가 있으면 사용
+            // const collabs = await apiService.get('/collaborations', {
+            //     filters: [
+            //         { field: 'status', op: 'in', value: [COLLAB_STATUS.OPEN, COLLAB_STATUS.ACTIVE] }
+            //     ]
+            // });
+            const collabs = [];
             
             for (const collab of collabs) {
                 this.activeCollabs.set(collab.territoryId, collab);
@@ -146,13 +151,18 @@ class CollaborationHub {
             createdAt: Date.now()
         };
         
-        // Firestore 저장
-        await firebaseService.setDocument('collaborations', collab.id, collab);
+        // ⚠️ TODO: 백엔드에 협업 API 구현 필요
+        // 현재는 로컬 캐시만 사용 (백엔드 API 구현 후 마이그레이션 필요)
+        // await apiService.post('/collaborations', collab);
         
-        // 영토에 협업 ID 연결
-        await firebaseService.setDocument('territories', territoryId, {
-            activeCollaboration: collab.id
-        });
+        // 영토에 협업 ID 연결 (백엔드 API 사용)
+        try {
+            await apiService.updateTerritory(territoryId, {
+                activeCollaboration: collab.id
+            });
+        } catch (error) {
+            log.warn(`[CollaborationHub] Failed to update territory with collaboration:`, error);
+        }
         
         // 로컬 캐시 업데이트
         this.activeCollabs.set(territoryId, collab);
@@ -204,8 +214,9 @@ class CollaborationHub {
         collab.stats.totalContributors++;
         collab.status = COLLAB_STATUS.ACTIVE;
         
-        // Firestore 업데이트
-        await firebaseService.setDocument('collaborations', collab.id, collab);
+        // ⚠️ TODO: 백엔드에 협업 API 구현 필요
+        // 현재는 로컬 캐시만 사용 (백엔드 API 구현 후 마이그레이션 필요)
+        // await apiService.put(`/collaborations/${collab.id}`, collab);
         
         // 이벤트 발행
         eventBus.emit(EVENTS.COLLAB_JOIN, {
@@ -242,8 +253,9 @@ class CollaborationHub {
         collab.collaborators = collab.collaborators.filter(c => c.userId !== user.uid);
         collab.stats.totalContributors--;
         
-        // Firestore 업데이트
-        await firebaseService.setDocument('collaborations', collab.id, collab);
+        // ⚠️ TODO: 백엔드에 협업 API 구현 필요
+        // 현재는 로컬 캐시만 사용 (백엔드 API 구현 후 마이그레이션 필요)
+        // await apiService.put(`/collaborations/${collab.id}`, collab);
         
         // 이벤트 발행
         eventBus.emit(EVENTS.COLLAB_LEAVE, {
@@ -270,13 +282,18 @@ class CollaborationHub {
         // 보상 분배
         await this.distributeRewards(collab);
         
-        // Firestore 업데이트
-        await firebaseService.setDocument('collaborations', collab.id, collab);
+        // ⚠️ TODO: 백엔드에 협업 API 구현 필요
+        // 현재는 로컬 캐시만 사용 (백엔드 API 구현 후 마이그레이션 필요)
+        // await apiService.put(`/collaborations/${collab.id}`, collab);
         
-        // 영토에서 협업 제거
-        await firebaseService.setDocument('territories', territoryId, {
-            activeCollaboration: null
-        });
+        // 영토에서 협업 제거 (백엔드 API 사용)
+        try {
+            await apiService.updateTerritory(territoryId, {
+                activeCollaboration: null
+            });
+        } catch (error) {
+            log.warn(`[CollaborationHub] Failed to remove collaboration from territory:`, error);
+        }
         
         // 로컬 캐시 제거
         this.activeCollabs.delete(territoryId);
@@ -337,11 +354,9 @@ class CollaborationHub {
             grantedAt: Date.now()
         };
         
-        // 사용자 보상에 추가
+        // API를 통해 보상 부여 (백엔드 API 엔드포인트 필요)
         try {
-            const userRewards = await firebaseService.getDocument('userRewards', userId) || { rewards: [] };
-            userRewards.rewards.push(reward);
-            await firebaseService.setDocument('userRewards', userId, userRewards);
+            await apiService.post(`/api/users/${userId}/rewards`, { reward });
         } catch (error) {
             log.warn('Failed to grant reward:', error);
         }
@@ -399,9 +414,7 @@ class CollaborationHub {
             };
             
             try {
-                const userRewards = await firebaseService.getDocument('userRewards', collaborator.userId) || { rewards: [] };
-                userRewards.rewards.push(reward);
-                await firebaseService.setDocument('userRewards', collaborator.userId, userRewards);
+                await apiService.post(`/api/users/${collaborator.userId}/rewards`, { reward });
             } catch (error) {
                 log.warn(`Failed to grant reward to ${collaborator.userId}:`, error);
             }
@@ -467,7 +480,7 @@ class CollaborationHub {
      */
     async getUserRewards(userId) {
         try {
-            const data = await firebaseService.getDocument('userRewards', userId);
+            const data = await apiService.get(`/api/users/${userId}/rewards`);
             return data?.rewards || [];
         } catch (error) {
             log.warn('Failed to get user rewards:', error);

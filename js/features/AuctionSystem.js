@@ -73,6 +73,14 @@ class AuctionSystem {
      * 활성 옥션 로드
      */
     async loadActiveAuctions() {
+        // 로그인하지 않은 경우 조용히 스킵 (공개 데이터가 아니므로)
+        const currentUser = firebaseService.getCurrentUser();
+        if (!currentUser) {
+            log.debug('[AuctionSystem] User not authenticated, skipping auction load');
+            this.activeAuctions.clear();
+            return [];
+        }
+        
         // ⚡ 캐시 확인: 5분 이내면 캐시된 데이터 사용 (가이드 권장)
         const now = Date.now();
         if (this._lastLoadTime && (now - this._lastLoadTime) < this.CACHE_TTL) {
@@ -91,6 +99,12 @@ class AuctionSystem {
                     // ⚡ 캐시 업데이트: 로드 시간 기록
                     this._lastLoadTime = now;
                 } catch (error) {
+                    // 인증 오류는 조용히 처리 (로그인 전에는 정상)
+                    if (error.message === 'User not authenticated') {
+                        log.debug('[AuctionSystem] User not authenticated, skipping auction load');
+                        this.activeAuctions.clear();
+                        return [];
+                    }
                     log.error('Failed to load auctions from API:', error);
                     this.activeAuctions.clear();
                     return [];
@@ -327,28 +341,27 @@ class AuctionSystem {
                     }
                 }
                 
-                // Firestore 업데이트 (로그인한 사용자만 가능)
+                // ✅ 백엔드 API 업데이트 (로그인한 사용자만 가능)
                 if (needsUpdate) {
                     // 로그인 상태 확인
                     if (firebaseService.isAuthenticated()) {
                         try {
-                            await firebaseService.updateDocument('auctions', auction.id, {
+                            const { apiService } = await import('../services/ApiService.js');
+                            await apiService.updateAuction(auction.id, {
                                 currentBid: auction.currentBid,
                                 startingBid: auction.startingBid,
-                                highestBidder: auction.highestBidder || null,
-                                highestBidderName: auction.highestBidderName || null,
-                                updatedAt: firebaseService.getTimestamp()
+                                minBid: auction.startingBid
                             });
-                            log.info(`[AuctionSystem] ✅ Successfully updated auction ${auction.id}: startingBid=${auction.startingBid}, currentBid=${auction.currentBid}`);
+                            log.info(`[AuctionSystem] ✅ Successfully updated auction ${auction.id} via API: startingBid=${auction.startingBid}, currentBid=${auction.currentBid}`);
                         } catch (error) {
-                            log.warn(`[AuctionSystem] Failed to update auction ${auction.id} (auth required):`, error.message);
+                            log.warn(`[AuctionSystem] Failed to update auction ${auction.id} via API (auth required):`, error.message);
                         }
                     } else {
                         log.debug(`[AuctionSystem] Skipping auction update for ${auction.id} (user not authenticated)`);
                     }
                 }
                 
-                // 영토 상태 확인 및 수정
+                // ✅ 영토 상태 확인 및 수정 (백엔드 API 사용)
                 // 경매가 있는데 영토 상태가 CONTESTED가 아니면 수정 (미점유 영토인 경우만)
                 if (territory && !territory.ruler) {
                     if (territory.sovereignty !== SOVEREIGNTY.CONTESTED) {
@@ -356,12 +369,16 @@ class AuctionSystem {
                         territory.sovereignty = SOVEREIGNTY.CONTESTED;
                         territory.currentAuction = auction.id;
                         
-                        const Timestamp = firebaseService.getTimestamp();
-                        await firebaseService.updateDocument('territories', auction.territoryId, {
-                            sovereignty: SOVEREIGNTY.CONTESTED,
-                            currentAuction: auction.id,
-                            updatedAt: Timestamp ? Timestamp.now() : new Date()
-                        });
+                        try {
+                            const { apiService } = await import('../services/ApiService.js');
+                            await apiService.updateTerritory(auction.territoryId, {
+                                sovereignty: 'contested',
+                                status: 'contested'
+                            });
+                            log.info(`[AuctionSystem] ✅ Updated territory ${auction.territoryId} status to contested via API`);
+                        } catch (error) {
+                            log.warn(`[AuctionSystem] Failed to update territory ${auction.territoryId} status via API:`, error.message);
+                        }
                     }
                 }
                 
@@ -456,16 +473,26 @@ class AuctionSystem {
             throw new Error('Auction already in progress');
         }
         
-        // Firestore에서도 활성 옥션 확인 (중복 생성 방지)
+        // API에서도 활성 옥션 확인 (중복 생성 방지)
         try {
-            const existingAuctions = await firebaseService.queryCollection('auctions', [
-                { field: 'territoryId', op: '==', value: territoryId },
-                { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE }
-            ]);
+            const { apiService } = await import('../services/ApiService.js');
+            const existingAuctions = await apiService.getActiveAuctions({ 
+                territoryId: territoryId,
+                status: AUCTION_STATUS.ACTIVE 
+            });
             
-            if (existingAuctions && existingAuctions.length > 0) {
-                log.warn(`[AuctionSystem] ⚠️ Active auction already exists for ${territoryId} in Firestore (${existingAuctions.length} found), preventing duplicate creation`);
-                throw new Error(`Auction already exists for this territory (${existingAuctions.length} active auction(s) found)`);
+            // API 응답이 배열이 아니면 배열로 변환
+            const auctions = Array.isArray(existingAuctions) ? existingAuctions : (existingAuctions?.auctions || []);
+            
+            // territoryId 필터링 (API가 필터링하지 않는 경우)
+            const filteredAuctions = auctions.filter(auction => 
+                (auction.territory_id === territoryId || auction.territoryId === territoryId) &&
+                auction.status === AUCTION_STATUS.ACTIVE
+            );
+            
+            if (filteredAuctions && filteredAuctions.length > 0) {
+                log.warn(`[AuctionSystem] ⚠️ Active auction already exists for ${territoryId} in API (${filteredAuctions.length} found), preventing duplicate creation`);
+                throw new Error(`Auction already exists for this territory (${filteredAuctions.length} active auction(s) found)`);
             }
         } catch (error) {
             // 권한 오류나 다른 오류인 경우, 에러 메시지에 따라 처리
@@ -476,29 +503,23 @@ class AuctionSystem {
             log.debug(`[AuctionSystem] Could not check for existing auctions (may require auth):`, error.message);
         }
         
-        // Firestore Timestamp 가져오기
-        const Timestamp = firebaseService.getTimestamp();
-        if (!Timestamp) {
-            throw new Error('Firestore Timestamp not available');
-        }
-        
-        // 경매 종료 시간 결정
+        // 경매 종료 시간 결정 (ISO 문자열로 변환)
         let auctionEndTime;
         const protectionRemaining = territoryManager.getProtectionRemaining(territoryId);
         
         if (protectionRemaining && protectionRemaining.totalMs > 0) {
             // 보호 기간 중인 영토: 보호 기간 종료 시점에 경매 종료
             const endDate = new Date(Date.now() + protectionRemaining.totalMs);
-            auctionEndTime = Timestamp.fromDate(endDate);
+            auctionEndTime = endDate.toISOString();
         } else if (territory.sovereignty === SOVEREIGNTY.RULED || 
                    territory.sovereignty === SOVEREIGNTY.PROTECTED) {
             // 이미 소유된 영토: 7일 경매
             const endDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-            auctionEndTime = Timestamp.fromDate(endDate);
+            auctionEndTime = endDate.toISOString();
         } else {
             // 미점유 영토: 24시간 경매
             const endDate = options.endTime ? new Date(options.endTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
-            auctionEndTime = Timestamp.fromDate(endDate);
+            auctionEndTime = endDate.toISOString();
         }
         
         // 시작 입찰가 결정 (영토 실제 가격 계산)
@@ -526,9 +547,34 @@ class AuctionSystem {
         // 영토 이름 추출 (TerritoryPanel의 extractName 로직과 동일하게 처리)
         const extractName = (name) => {
             if (!name) return null;
-            if (typeof name === 'string' && name.trim() !== '') return name.trim();
-            if (typeof name === 'object') {
-                // 객체인 경우: en, ko, local 순서로 확인
+            
+            // 문자열인 경우 JSON 형식인지 확인
+            if (typeof name === 'string') {
+                const trimmed = name.trim();
+                if (trimmed === '') return null;
+                
+                // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+                if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                    try {
+                        const parsed = JSON.parse(trimmed);
+                        if (typeof parsed === 'object' && parsed !== null) {
+                            // 언어 우선순위: en > ko > local > 첫 번째 값
+                            const nameStr = parsed.en || parsed.ko || parsed.local || Object.values(parsed)[0];
+                            if (nameStr && typeof nameStr === 'string' && nameStr.trim() !== '') {
+                                return nameStr.trim();
+                            }
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패 시 원본 문자열 반환
+                        return trimmed;
+                    }
+                }
+                return trimmed;
+            }
+            
+            // 객체인 경우
+            if (typeof name === 'object' && name !== null) {
+                // 언어 우선순위: en > ko > local > 첫 번째 값
                 const nameStr = name.en || name.ko || name.local;
                 if (nameStr && typeof nameStr === 'string' && nameStr.trim() !== '') {
                     return nameStr.trim();
@@ -537,6 +583,7 @@ class AuctionSystem {
                 const found = Object.values(name).find(v => v && typeof v === 'string' && v.trim() !== '');
                 if (found) return found.trim();
             }
+            
             return null;
         };
         
@@ -625,7 +672,7 @@ class AuctionSystem {
             
             bids: [],
             
-            startTime: Timestamp.now(),
+            startTime: new Date(),
             endTime: auctionEndTime,
             
             // 보호 기간 옵션 (소유권 획득 경매용)
@@ -637,92 +684,60 @@ class AuctionSystem {
             currentOwnerName: currentOwnerName, // null이 아닌 문자열 또는 null
             
             createdBy: user.uid,
-            createdAt: Timestamp.now()
+            createdAt: new Date()
         };
         
-        // Firestore 저장 전에 auction 객체 검증 및 정리
-        // territoryName이 절대 undefined가 되지 않도록 보장
-        if (!auction.territoryName || 
-            auction.territoryName === undefined || 
-            typeof auction.territoryName !== 'string') {
-            log.error(`[AuctionSystem] CRITICAL: auction.territoryName is invalid before Firestore save! Setting to territoryId.`);
-            auction.territoryName = String(territoryId);
-        }
+        // ✅ 백엔드 API 사용
+        const { apiService } = await import('../services/ApiService.js');
         
-        // auctionForFirestore 생성 (territoryName은 이미 검증됨)
-        const auctionForFirestore = { ...auction };
+        // API에 전송할 데이터 준비
+        const auctionApiData = {
+            territoryId: finalTerritoryId,
+            startingBid: startingBid,
+            minBid: minIncrement,
+            endTime: auctionEndTime, // 이미 ISO 문자열
+            protectionDays: protectionDays,
+            type: options.type || 'standard'
+        };
         
-        // territoryName 최종 검증 및 정리
-        auctionForFirestore.territoryName = String(auctionForFirestore.territoryName || territoryId).trim();
-        if (auctionForFirestore.territoryName === '' || 
-            auctionForFirestore.territoryName === 'undefined' || 
-            auctionForFirestore.territoryName === 'null') {
-            log.error(`[AuctionSystem] CRITICAL: territoryName is invalid after copy! Setting to territoryId.`);
-            auctionForFirestore.territoryName = String(territoryId);
-        }
+        log.debug(`[AuctionSystem] Creating auction via API for territory: "${finalTerritoryId}"`);
         
-        // undefined 필드 제거 (territoryName은 제외)
-        Object.keys(auctionForFirestore).forEach(key => {
-            if (auctionForFirestore[key] === undefined) {
-                if (key === 'territoryName') {
-                    // territoryName이 undefined면 절대 안 됨 - 강제로 설정
-                    log.error(`[AuctionSystem] CRITICAL: territoryName is undefined! Setting to territoryId.`);
-                    auctionForFirestore.territoryName = String(territoryId);
-                } else {
-                    delete auctionForFirestore[key];
-                    log.warn(`[AuctionSystem] Removed undefined field: ${key} from auction ${auction.id}`);
-                }
+        try {
+            const result = await apiService.createAuction(auctionApiData);
+            
+            // API 응답에서 경매 정보 추출
+            const createdAuction = result.auction || result;
+            
+            // 로컬 auction 객체 업데이트 (API 응답과 병합)
+            auction.id = createdAuction.id;
+            auction.territoryId = createdAuction.territoryId || finalTerritoryId;
+            auction.status = createdAuction.status || AUCTION_STATUS.ACTIVE;
+            auction.startTime = createdAuction.startTime || new Date();
+            auction.endTime = createdAuction.endTime || auctionEndTime;
+            auction.startingBid = createdAuction.startingBid || startingBid;
+            auction.currentBid = createdAuction.currentBid || startingBid;
+            
+            // 로컬 캐시 업데이트
+            this.activeAuctions.set(auction.id, auction);
+            
+            // 영토 상태 업데이트 (로컬 캐시)
+            if (!protectionRemaining && territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
+                territory.sovereignty = SOVEREIGNTY.CONTESTED;
             }
-        });
-        
-        // 최종 검증: territoryName이 여전히 없으면 territoryId 사용 (절대 발생하면 안 됨)
-        if (!auctionForFirestore.territoryName || 
-            auctionForFirestore.territoryName === undefined || 
-            typeof auctionForFirestore.territoryName !== 'string' ||
-            auctionForFirestore.territoryName.trim() === '') {
-            log.error(`[AuctionSystem] CRITICAL: Final validation failed for territoryName! Setting to territoryId.`);
-            auctionForFirestore.territoryName = String(territoryId);
+            territory.currentAuction = auction.id;
+            
+            // 이벤트 발행
+            eventBus.emit(EVENTS.AUCTION_START, { auction });
+            
+            const endDate = new Date(auction.endTime);
+            const daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+            log.info(`[AuctionSystem] ✅ Auction created via API for territory ${territoryId}, ends in ${daysRemaining} days`);
+            
+            return auction;
+        } catch (error) {
+            log.error(`[AuctionSystem] ❌ Failed to create auction via API:`, error);
+            throw new Error(`Failed to create auction: ${error.message || error.error || 'Unknown error'}`);
         }
-        
-        // 최종 디버깅 로그
-        log.debug(`[AuctionSystem] Saving auction ${auction.id} with territoryName: "${auctionForFirestore.territoryName}" (type: ${typeof auctionForFirestore.territoryName})`);
-        
-        // Firestore 저장
-        await firebaseService.setDocument('auctions', auction.id, auctionForFirestore);
-        
-        // 영토 상태 업데이트
-        // 미점유 영토에서 경매 시작 시에만 CONTESTED로 변경
-        // 이미 소유된 영토는 sovereignty 유지 (RULED 또는 PROTECTED)
-        let newSovereignty = territory.sovereignty;
-        
-        if (!protectionRemaining && territory.sovereignty === SOVEREIGNTY.UNCONQUERED) {
-            // 미점유 영토에서 경매 시작: CONTESTED로 변경
-            newSovereignty = SOVEREIGNTY.CONTESTED;
-        }
-        // 보호 기간 중이거나 이미 소유된 영토: sovereignty 유지
-        
-        // Firestore에 저장할 때는 배열 필드 제외 (중첩 배열 오류 방지)
-        const territoryUpdate = {
-            sovereignty: newSovereignty,
-            currentAuction: auction.id,
-            updatedAt: Timestamp.now()
-        };
-        
-        await firebaseService.updateDocument('territories', territoryId, territoryUpdate);
-        
-        // 로컬 캐시 업데이트
-        territory.sovereignty = newSovereignty;
-        territory.currentAuction = auction.id;
-        
-        // 로컬 캐시 업데이트
-        this.activeAuctions.set(auction.id, auction);
-        
-        // 이벤트 발행
-        eventBus.emit(EVENTS.AUCTION_START, { auction });
-        
-        const daysRemaining = Math.ceil((auctionEndTime - new Date()) / (24 * 60 * 60 * 1000));
-        log.info(`Auction created for territory ${territoryId}, ends in ${daysRemaining} days`);
-        return auction;
     }
     
     /**
@@ -785,16 +800,26 @@ class AuctionSystem {
         const periodSuffix = protectionDays === null ? 'lifetime' : `${protectionDays}days`;
         const auctionId = `protection_${finalTerritoryId.replace(/::/g, '_')}_${periodSuffix}_${Date.now()}`;
         
-        // 이미 같은 보호 기간 경매가 있는지 확인
+        // 이미 같은 보호 기간 경매가 있는지 확인 (API 사용)
         try {
-            const existingAuctions = await firebaseService.queryCollection('auctions', [
-                { field: 'territoryId', op: '==', value: territoryId },
-                { field: 'status', op: '==', value: AUCTION_STATUS.ACTIVE },
-                { field: 'type', op: '==', value: AUCTION_TYPE.PROTECTION_EXTENSION },
-                { field: 'protectionDays', op: '==', value: protectionDays }
-            ]);
+            const { apiService } = await import('../services/ApiService.js');
+            const existingAuctions = await apiService.getActiveAuctions({ 
+                territoryId: territoryId,
+                status: AUCTION_STATUS.ACTIVE 
+            });
             
-            if (existingAuctions && existingAuctions.length > 0) {
+            // API 응답이 배열이 아니면 배열로 변환
+            const auctions = Array.isArray(existingAuctions) ? existingAuctions : (existingAuctions?.auctions || []);
+            
+            // territoryId, type, protectionDays 필터링
+            const filteredAuctions = auctions.filter(auction => 
+                (auction.territory_id === territoryId || auction.territoryId === territoryId) &&
+                auction.status === AUCTION_STATUS.ACTIVE &&
+                (auction.type === AUCTION_TYPE.PROTECTION_EXTENSION || auction.auction_type === AUCTION_TYPE.PROTECTION_EXTENSION) &&
+                (auction.protectionDays === protectionDays || auction.protection_days === protectionDays)
+            );
+            
+            if (filteredAuctions && filteredAuctions.length > 0) {
                 throw new Error(`Protection extension auction for ${protectionDays === null ? 'lifetime' : protectionDays + ' days'} already exists`);
             }
         } catch (error) {
@@ -844,12 +869,29 @@ class AuctionSystem {
             createdAt: Timestamp ? Timestamp.now() : now
         };
         
-        // Firestore 저장
+        // ✅ 백엔드 API 사용
         try {
-            await firebaseService.setDocument('auctions', auctionId, auction);
-            log.info(`[AuctionSystem] Protection extension auction created: ${auctionId} for ${protectionDays === null ? 'lifetime' : protectionDays + ' days'}`);
+            const { apiService } = await import('../services/ApiService.js');
+            const auctionApiData = {
+                territoryId: finalTerritoryId,
+                startingBid: startingBid,
+                minBid: minIncrement,
+                endTime: auctionEndTime,
+                protectionDays: protectionDays,
+                type: 'protection_extension'
+            };
+            
+            const result = await apiService.createAuction(auctionApiData);
+            const createdAuction = result.auction || result;
+            
+            // 로컬 auction 객체 업데이트
+            auction.id = createdAuction.id;
+            auction.territoryId = createdAuction.territoryId || finalTerritoryId;
+            auction.status = createdAuction.status || AUCTION_STATUS.ACTIVE;
+            
+            log.info(`[AuctionSystem] ✅ Protection extension auction created via API: ${auction.id} for ${protectionDays === null ? 'lifetime' : protectionDays + ' days'}`);
         } catch (error) {
-            log.error(`[AuctionSystem] Failed to create protection extension auction:`, error);
+            log.error(`[AuctionSystem] Failed to create protection extension auction via API:`, error);
             throw error;
         }
         
@@ -1041,12 +1083,13 @@ class AuctionSystem {
             log.error(`[AuctionSystem] Failed to save bid to Firestore:`, error);
             
             // Transaction 실패 시 로컬 변경사항 롤백
-            // ⚠️ 할당량 초과가 아닌 경우에만 Firestore에서 다시 로드
+            // ⚠️ 할당량 초과가 아닌 경우에만 API에서 다시 로드
             try {
-                const latestAuction = await firebaseService.getDocument('auctions', auctionId);
+                const { apiService } = await import('../services/ApiService.js');
+                const latestAuction = await apiService.getAuction(auctionId);
                 if (latestAuction) {
                     this.activeAuctions.set(auctionId, latestAuction);
-                    log.info(`[AuctionSystem] Rolled back local cache, reloaded from Firestore`);
+                    log.info(`[AuctionSystem] Rolled back local cache, reloaded from API`);
                 }
             } catch (reloadError) {
                 log.error(`[AuctionSystem] Failed to reload auction after transaction failure:`, reloadError);
@@ -1162,7 +1205,8 @@ class AuctionSystem {
         if (!auction) {
             log.warn(`[AuctionSystem] Auction ${auctionId} not in activeAuctions, loading from Firestore...`);
             try {
-                const auctionData = await firebaseService.getDocument('auctions', auctionId);
+                const { apiService } = await import('../services/ApiService.js');
+                const auctionData = await apiService.getAuction(auctionId);
                 if (auctionData) {
                     auction = auctionData;
                     auction.id = auctionId;
@@ -1366,45 +1410,46 @@ class AuctionSystem {
             
             auction.status = AUCTION_STATUS.ENDED;
             
-            // Firestore 업데이트 (fallback)
-            await firebaseService.updateDocument('auctions', auction.id, {
-                status: AUCTION_STATUS.ENDED,
-                endedAt: Timestamp ? Timestamp.now() : new Date(),
-                updatedAt: Timestamp ? Timestamp.now() : new Date()
-            });
-            
-            // 낙찰자가 있으면 영토 정복 이벤트 발행 (fallback)
-            if (auction.highestBidder) {
-                eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
-                    territoryId: auction.territoryId,
-                    userId: auction.highestBidder,
-                    userName: auction.highestBidderName,
-                    tribute: auction.currentBid,
-                    isAdmin: isAdmin
+            // ✅ 백엔드 API 업데이트 (fallback)
+            try {
+                const { apiService } = await import('../services/ApiService.js');
+                await apiService.updateAuction(auction.id, {
+                    status: AUCTION_STATUS.ENDED
                 });
-            } else {
-                // 낙찰자 없으면 영토 상태 복구 (fallback)
-                const territory = territoryManager.getTerritory(auction.territoryId);
-                if (territory) {
-                    if (auction.currentOwnerId) {
-                        territory.sovereignty = SOVEREIGNTY.RULED;
-                        territory.ruler = auction.currentOwnerId;
-                        territory.rulerName = auction.currentOwnerName;
-                    } else {
-                        territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
-                        territory.ruler = null;
-                        territory.rulerName = null;
-                    }
-                    territory.currentAuction = null;
-                    
-                    await firebaseService.updateDocument('territories', auction.territoryId, {
-                        sovereignty: territory.sovereignty,
-                        ruler: territory.ruler || null,
-                        rulerName: territory.rulerName || null,
-                        currentAuction: null,
-                        updatedAt: Timestamp ? Timestamp.now() : new Date()
+                
+                // 낙찰자가 있으면 영토 정복 이벤트 발행 (fallback)
+                if (auction.highestBidder) {
+                    eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
+                        territoryId: auction.territoryId,
+                        userId: auction.highestBidder,
+                        userName: auction.highestBidderName,
+                        tribute: auction.currentBid,
+                        isAdmin: isAdmin
                     });
+                } else {
+                    // 낙찰자 없으면 영토 상태 복구 (fallback)
+                    const territory = territoryManager.getTerritory(auction.territoryId);
+                    if (territory) {
+                        if (auction.currentOwnerId) {
+                            territory.sovereignty = SOVEREIGNTY.RULED;
+                            territory.ruler = auction.currentOwnerId;
+                            territory.rulerName = auction.currentOwnerName;
+                        } else {
+                            territory.sovereignty = SOVEREIGNTY.UNCONQUERED;
+                            territory.ruler = null;
+                            territory.rulerName = null;
+                        }
+                        territory.currentAuction = null;
+                        
+                        await apiService.updateTerritory(auction.territoryId, {
+                            sovereignty: territory.sovereignty === SOVEREIGNTY.RULED ? 'ruled' : 'unconquered',
+                            status: territory.sovereignty === SOVEREIGNTY.RULED ? 'ruled' : 'unconquered',
+                            currentAuction: null
+                        });
+                    }
                 }
+            } catch (fallbackError) {
+                log.error(`[AuctionSystem] Fallback update also failed:`, fallbackError);
             }
             
             throw transactionError; // 상위로 에러 전달
@@ -1504,7 +1549,7 @@ class AuctionSystem {
             }
         }
         
-        // 메모리 캐시에 없으면 Firestore에서 조회 시도
+        // 메모리 캐시에 없으면 API에서 조회 시도
         // (비동기이므로 여기서는 null 반환, 호출자가 필요시 별도 조회)
         return null;
     }
@@ -1521,9 +1566,15 @@ class AuctionSystem {
      */
     async getUserBidHistory(userId) {
         try {
-            return await firebaseService.queryCollection('auctions', [
-                { field: 'bids', op: 'array-contains-any', value: [{ userId }] }
-            ]);
+            // TODO: API에 사용자 입찰 히스토리 엔드포인트가 있으면 사용
+            // 현재는 활성 경매만 조회 (나중에 `/api/users/me/bids` 같은 엔드포인트 추가 가능)
+            const { apiService } = await import('../services/ApiService.js');
+            const auctions = await apiService.getActiveAuctions();
+            // bids 배열에서 userId가 포함된 경매 필터링
+            const userBids = auctions.filter(auction => 
+                auction.bids && auction.bids.some(bid => bid.userId === userId || bid.user_id === userId)
+            );
+            return userBids;
         } catch (error) {
             log.error('Failed to get bid history:', error);
             return [];

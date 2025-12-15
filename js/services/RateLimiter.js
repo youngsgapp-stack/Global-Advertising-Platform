@@ -71,7 +71,7 @@ class RateLimiter {
             const { firebaseService } = await import('./FirebaseService.js');
             
             // wallet 생성 시점 확인 (가장 정확)
-            const wallet = await firebaseService.getDocument('wallets', userId);
+            const wallet = await apiService.getWallet();
             if (wallet && wallet.createdAt) {
                 const createdAt = wallet.createdAt.toMillis ? wallet.createdAt.toMillis() : new Date(wallet.createdAt).getTime();
                 const oneHourAgo = Date.now() - 60 * 60 * 1000;
@@ -79,7 +79,7 @@ class RateLimiter {
             }
             
             // users 컬렉션 확인
-            const user = await firebaseService.getDocument('users', userId);
+            const user = await apiService.getCurrentUser();
             if (user && user.createdAt) {
                 const createdAt = user.createdAt.toMillis ? user.createdAt.toMillis() : new Date(user.createdAt).getTime();
                 const oneHourAgo = Date.now() - 60 * 60 * 1000;

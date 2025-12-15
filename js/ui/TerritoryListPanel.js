@@ -777,10 +777,33 @@ class TerritoryListPanel {
      */
     extractName(name) {
         if (!name) return null;
-        if (typeof name === 'string') return name;
-        if (typeof name === 'object') {
-            return name.en || name.local || name.ko || Object.values(name)[0];
+        
+        // 문자열인 경우 JSON 형식인지 확인
+        if (typeof name === 'string') {
+            // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+            if (name.trim().startsWith('{') && name.trim().endsWith('}')) {
+                try {
+                    const parsed = JSON.parse(name);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        // 언어 우선순위: 현재 언어 > en > ko > local > 첫 번째 값
+                        const lang = this.lang || 'en';
+                        return parsed[lang] || parsed.en || parsed.ko || parsed.local || Object.values(parsed)[0] || name;
+                    }
+                } catch (e) {
+                    // JSON 파싱 실패 시 원본 문자열 반환
+                    return name;
+                }
+            }
+            return name;
         }
+        
+        // 객체인 경우
+        if (typeof name === 'object' && name !== null) {
+            // 언어 우선순위: 현재 언어 > en > ko > local > 첫 번째 값
+            const lang = this.lang || 'en';
+            return name[lang] || name.en || name.ko || name.local || Object.values(name)[0] || null;
+        }
+        
         return String(name);
     }
     

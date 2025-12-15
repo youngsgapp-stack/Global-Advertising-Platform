@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 // 이벤트 타입
 export const HISTORY_EVENT_TYPE = {
@@ -305,7 +306,8 @@ class HistoryLogger {
      */
     async saveEventToFirestore(territoryId, event) {
         try {
-            const historyDoc = await firebaseService.getDocument('territoryHistories', territoryId);
+            // TODO: 히스토리 API 엔드포인트가 있으면 사용
+            const historyDoc = null; // await apiService.get(`/territories/${territoryId}/history`);
             const events = historyDoc?.events || [];
             
             events.push(event);
@@ -313,11 +315,17 @@ class HistoryLogger {
             // 최대 500개 이벤트 유지
             const trimmedEvents = events.slice(-500);
             
-            await firebaseService.setDocument('territoryHistories', territoryId, {
-                territoryId,
-                events: trimmedEvents,
-                lastUpdated: Date.now()
-            });
+            // API를 통해 히스토리 저장 (백엔드 API 엔드포인트 필요)
+            try {
+                await apiService.post(`/api/territories/${territoryId}/history`, {
+                    territoryId,
+                    events: trimmedEvents,
+                    lastUpdated: Date.now()
+                });
+            } catch (apiError) {
+                // API가 아직 구현되지 않은 경우 로컬에만 저장
+                log.debug(`[HistoryLogger] History API not available, storing locally only`);
+            }
         } catch (error) {
             // 권한 오류나 기타 오류는 조용히 처리 (로그인하지 않은 사용자 등)
             if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
@@ -338,20 +346,16 @@ class HistoryLogger {
             return events.slice(-limit).reverse();
         }
         
-        // Firestore에서 로드
+        // API에서 로드 (백엔드 API 엔드포인트 필요)
         try {
-            const data = await firebaseService.getDocument('territoryHistories', territoryId);
+            const data = await apiService.get(`/api/territories/${territoryId}/history`);
             if (data?.events) {
                 this.territoryHistories.set(territoryId, data.events);
                 return data.events.slice(-limit).reverse();
             }
         } catch (error) {
-            // 권한 오류는 조용히 처리 (로그인하지 않은 사용자 등)
-            if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
-                log.debug(`[HistoryLogger] Permission denied for territoryHistories/${territoryId} (user not logged in)`);
-            } else {
-                log.warn('Failed to load territory timeline:', error);
-            }
+            // API가 아직 구현되지 않은 경우 로컬 캐시만 사용
+            log.debug(`[HistoryLogger] History API not available, using local cache only`);
         }
         
         return [];

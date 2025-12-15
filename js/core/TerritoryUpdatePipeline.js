@@ -16,6 +16,7 @@
 import { CONFIG, log } from '../config.js';
 import { pixelDataService } from '../services/PixelDataService.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 import { territoryManager } from './TerritoryManager.js';
 import { TerritoryViewState } from './TerritoryViewState.js';
 
@@ -164,16 +165,16 @@ class TerritoryUpdatePipeline {
             return territory;
         }
         
-        // 2. Firestore에서 로드 시도
+        // 2. API에서 로드 시도
         try {
-            const firestoreData = await firebaseService.getDocument('territories', territoryId);
-            if (firestoreData) {
-                territory = firestoreData;
+            const apiData = await apiService.getTerritory(territoryId);
+            if (apiData) {
+                territory = apiData;
                 territoryManager.territories.set(territoryId, territory);
                 return territory;
             }
         } catch (error) {
-            log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not in Firestore (normal for new territories)`);
+            log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not in API (normal for new territories):`, error.message);
         }
         
         // 3. 맵의 GeoJSON 소스에서 feature 찾아서 territory 객체 생성
@@ -826,29 +827,47 @@ class TerritoryUpdatePipeline {
      */
     async getOwnedTerritories() {
         try {
-            // ruled와 protected를 각각 조회하여 합치기 (or 쿼리 대신)
-            const ruledTerritories = await firebaseService.queryCollection('territories', [
-                { field: 'sovereignty', op: '==', value: 'ruled' }
-            ]);
+            // 로그인하지 않은 경우 빈 배열 반환
+            const currentUser = firebaseService.getCurrentUser();
+            if (!currentUser) {
+                log.debug('[TerritoryUpdatePipeline] User not authenticated, returning empty owned territories');
+                return [];
+            }
             
-            const protectedTerritories = await firebaseService.queryCollection('territories', [
-                { field: 'sovereignty', op: '==', value: 'protected' }
-            ]);
+            // API에서 ruled와 protected 영토 조회
+            const ruledTerritories = await apiService.getTerritories({
+                status: 'ruled',
+                limit: 1000
+            });
+            
+            const protectedTerritories = await apiService.getTerritories({
+                status: 'protected',
+                limit: 1000
+            });
             
             // 중복 제거를 위해 Set 사용
             const territoryIds = new Set();
             
-            ruledTerritories.forEach(doc => {
-                territoryIds.add(doc.id);
-            });
+            if (Array.isArray(ruledTerritories)) {
+                ruledTerritories.forEach(territory => {
+                    territoryIds.add(territory.id || territory.territoryId);
+                });
+            }
             
-            protectedTerritories.forEach(doc => {
-                territoryIds.add(doc.id);
-            });
+            if (Array.isArray(protectedTerritories)) {
+                protectedTerritories.forEach(territory => {
+                    territoryIds.add(territory.id || territory.territoryId);
+                });
+            }
             
             return Array.from(territoryIds);
         } catch (error) {
-            log.warn('[TerritoryUpdatePipeline] Failed to get owned territories from Firestore, checking map and cache:', error);
+            // 인증 오류는 조용히 처리 (로그인 전에는 정상)
+            if (error.message === 'User not authenticated') {
+                log.debug('[TerritoryUpdatePipeline] User not authenticated, checking map and cache');
+            } else {
+                log.warn('[TerritoryUpdatePipeline] Failed to get owned territories from Firestore, checking map and cache:', error);
+            }
             
             const ownedTerritories = new Set();
             
@@ -897,21 +916,23 @@ class TerritoryUpdatePipeline {
      */
     async getTerritoriesWithPixelArt() {
         try {
-            // pixelCanvases 컬렉션에서 모든 문서 가져오기
-            const pixelCanvases = await firebaseService.queryCollection('pixelCanvases');
+            // 로그인하지 않은 경우 빈 배열 반환
+            const currentUser = firebaseService.getCurrentUser();
+            if (!currentUser) {
+                log.debug('[TerritoryUpdatePipeline] User not authenticated, returning empty pixel art territories');
+                return [];
+            }
             
-            // 픽셀 데이터가 있는 영토 ID만 필터링
-            const territoryIdsWithPixels = pixelCanvases
-                .filter(doc => doc.pixels && doc.pixels.length > 0)
-                .map(doc => doc.territoryId || doc.id);
+            // API에서 픽셀 데이터가 있는 영토 ID 목록 가져오기
+            const territoryIdsWithPixels = await apiService.getTerritoriesWithPixels();
             
             // 규칙 A: 소유권 상태 확인 - 소유자가 있는 영토만 필터링
             const ownedTerritoryIds = [];
             for (const territoryId of territoryIdsWithPixels) {
                 try {
-                    const territory = await firebaseService.getDocument('territories', territoryId);
+                    const territory = await apiService.getTerritory(territoryId);
                     // 소유자가 있고, unconquered가 아닌 경우만 포함
-                    if (territory && territory.ruler && territory.sovereignty !== 'unconquered') {
+                    if (territory && (territory.ruler || territory.ruler_id || territory.rulerName) && territory.status !== 'unconquered' && territory.sovereignty !== 'unconquered') {
                         ownedTerritoryIds.push(territoryId);
                     }
                 } catch (error) {
@@ -924,7 +945,12 @@ class TerritoryUpdatePipeline {
             return ownedTerritoryIds;
             
         } catch (error) {
-            log.warn('[TerritoryUpdatePipeline] Failed to get territories with pixel art from Firestore, checking IndexedDB cache:', error);
+            // 인증 오류는 조용히 처리 (로그인 전에는 정상)
+            if (error.message === 'User not authenticated') {
+                log.debug('[TerritoryUpdatePipeline] User not authenticated, checking IndexedDB cache');
+            } else {
+                log.warn('[TerritoryUpdatePipeline] Failed to get territories with pixel art from Firestore, checking IndexedDB cache:', error);
+            }
             
             const territoriesWithPixelArt = [];
             
@@ -956,9 +982,9 @@ class TerritoryUpdatePipeline {
                         const territoryId = cached.territoryId;
                         // 규칙 A: 소유권 상태 확인
                         try {
-                            const territory = await firebaseService.getDocument('territories', territoryId);
+                            const territory = await apiService.getTerritory(territoryId);
                             // 소유자가 있고, unconquered가 아닌 경우만 포함
-                            if (territory && territory.ruler && territory.sovereignty !== 'unconquered') {
+                            if (territory && (territory.ruler || territory.ruler_id || territory.rulerName) && territory.status !== 'unconquered' && territory.sovereignty !== 'unconquered') {
                                 territoriesWithPixelArt.push(territoryId);
                             }
                         } catch (error) {

@@ -5,6 +5,7 @@
 
 import { CONFIG, log } from '../config.js';
 import { firebaseService } from './FirebaseService.js';
+import { apiService } from './ApiService.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { rateLimiter, RATE_LIMIT_TYPE } from './RateLimiter.js';
 
@@ -133,10 +134,24 @@ class TerritoryOwnershipService {
         
         try {
             // 1. 영토 현재 상태 확인 (원자적 읽기)
-            const territory = await firebaseService.getDocument('territories', territoryId);
+            // API를 사용하여 영토 조회
+            let territory = await apiService.getTerritory(territoryId);
             
             if (!territory) {
                 throw new Error('Territory not found');
+            }
+            
+            // API 응답을 내부 형식으로 변환
+            const { territoryManager } = await import('../core/TerritoryManager.js');
+            if (territoryManager && territoryManager.normalizeTerritoryData) {
+                territory = territoryManager.normalizeTerritoryData(territory);
+            } else {
+                // 기본 변환
+                territory = {
+                    ...territory,
+                    ruler: territory.ruler_id || territory.ruler,
+                    rulerName: territory.ruler_name || territory.rulerName,
+                };
             }
             
             // 2. 소유권 변경 가능 여부 확인
@@ -179,7 +194,10 @@ class TerritoryOwnershipService {
             };
             
             // 영토 업데이트 (원자적)
-            await firebaseService.updateDocument('territories', territoryId, {
+            // TODO: API에 영토 업데이트 엔드포인트가 있으면 사용
+            // 현재는 백엔드에서 경매 완료 시 자동으로 소유권이 변경되므로 여기서는 로컬 처리
+            log.info('[TerritoryOwnershipService] Territory ownership update should be handled by backend API');
+            // await apiService.put(`/territories/${territoryId}`, {
                 ruler: userId,
                 rulerName: userName,
                 rulerSince: nowTimestamp,
@@ -244,7 +262,8 @@ class TerritoryOwnershipService {
      */
     async getOwnership(territoryId) {
         try {
-            const territory = await firebaseService.getDocument('territories', territoryId);
+            // API를 사용하여 영토 조회
+            const territory = await apiService.getTerritory(territoryId);
             if (!territory) return null;
             
             return {
@@ -268,7 +287,10 @@ class TerritoryOwnershipService {
      */
     async getOwnershipHistory(territoryId) {
         try {
-            const logs = await firebaseService.queryCollection('territoryOwnershipLogs', [
+            // TODO: API에 소유권 로그 조회 엔드포인트가 있으면 사용
+            // 현재는 API가 소유권 로그를 지원하지 않으므로 빈 배열 반환
+            log.warn('[TerritoryOwnershipService] Ownership logs query is not yet supported via API');
+            const logs = []; // await apiService.get(`/territories/${territoryId}/ownership-logs`);
                 { field: 'territoryId', op: '==', value: territoryId }
             ], { field: 'timestamp', direction: 'desc' }, 100);
             

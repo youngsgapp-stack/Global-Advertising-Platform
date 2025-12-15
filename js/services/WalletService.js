@@ -161,12 +161,9 @@ class WalletService {
      */
     async loadTransactions(userId) {
         try {
-            this.transactions = await firebaseService.queryCollection(
-                `wallets/${userId}/transactions`,
-                [],
-                { field: 'createdAt', direction: 'desc' },
-                50 // 최근 50건
-            );
+            const { apiService } = await import('./ApiService.js');
+            const transactions = await apiService.getWalletTransactions({ limit: 50 });
+            this.transactions = transactions || [];
         } catch (error) {
             log.warn('Failed to load transactions:', error);
             this.transactions = [];
@@ -236,15 +233,16 @@ class WalletService {
         try {
             const userId = user.uid;
             
-            // 지갑 업데이트
-            const wallet = await firebaseService.getDocument('wallets', userId);
+            // 지갑 업데이트 (API 사용)
+            const wallet = await apiService.getWallet();
             const newBalance = (wallet?.balance || 0) + amount;
             
-            // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
-            await firebaseService.updateDocument('wallets', userId, {
-                balance: newBalance,
-                totalCharged: (wallet?.totalCharged || 0) + amount,
-                updatedAt: new Date()
+            // API를 통해 지갑 업데이트
+            await apiService.updateWallet(newBalance, {
+                type: transactionType,
+                amount: amount,
+                description: description || 'Deposit',
+                referenceId: referenceId
             });
             
             // 거래 내역 저장
@@ -308,19 +306,20 @@ class WalletService {
         try {
             const userId = user.uid;
             
-            // 지갑 업데이트
-            const wallet = await firebaseService.getDocument('wallets', userId);
+            // 지갑 업데이트 (API 사용)
+            const wallet = await apiService.getWallet();
             const newBalance = (wallet?.balance || 0) - amount;
             
             if (newBalance < 0) {
                 throw new Error('Insufficient balance');
             }
             
-            // updateDocument를 사용하여 기존 필드 유지하면서 업데이트
-            await firebaseService.updateDocument('wallets', userId, {
-                balance: newBalance,
-                totalSpent: (wallet?.totalSpent || 0) + amount,
-                updatedAt: new Date()
+            // API를 통해 지갑 업데이트
+            await apiService.updateWallet(newBalance, {
+                type: transactionType,
+                amount: -amount,
+                description: description || 'Withdrawal',
+                referenceId: referenceId
             });
             
             // 거래 내역 저장
@@ -366,7 +365,10 @@ class WalletService {
      */
     async getWalletByUserId(userId) {
         try {
-            return await firebaseService.getDocument('wallets', userId);
+            // TODO: API에 관리자용 사용자 지갑 조회 엔드포인트가 있으면 사용
+            // 현재는 현재 사용자 지갑만 조회 가능
+            log.warn('[WalletService] getWalletByUserId is not yet supported via API');
+            return null;
         } catch (error) {
             log.error('Failed to get wallet:', error);
             return null;
@@ -385,7 +387,8 @@ class WalletService {
         // TODO: 관리자 권한 체크
         
         try {
-            const wallet = await firebaseService.getDocument('wallets', userId);
+            // TODO: API에 관리자용 지갑 조회/업데이트 엔드포인트가 있으면 사용
+            const wallet = await apiService.getWallet(); // 현재 사용자만 가능
             const currentBalance = wallet?.balance || 0;
             const newBalance = currentBalance + amount;
             

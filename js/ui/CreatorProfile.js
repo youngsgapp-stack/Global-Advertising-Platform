@@ -6,6 +6,7 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { apiService } from '../services/ApiService.js';
 
 class CreatorProfile {
     constructor() {
@@ -124,7 +125,7 @@ class CreatorProfile {
     async loadProfile() {
         try {
             // 사용자 정보 로드
-            const user = await firebaseService.getDocument('users', this.currentUserId);
+            const user = await apiService.getCurrentUser();
             const userName = user?.displayName || user?.email || 'Unknown';
             
             // 통계 로드
@@ -154,14 +155,11 @@ class CreatorProfile {
      */
     async loadStats() {
         // 사용자의 작품 목록
-        const artworks = await firebaseService.queryCollection(
-            'pixelCanvases',
-            [
-                { field: 'ownerId', operator: '==', value: this.currentUserId }
-            ],
-            { field: 'lastUpdated', direction: 'desc' },
-            100
-        );
+        // TODO: 작품 API 엔드포인트가 있으면 사용
+        // 현재는 영토 목록으로 대체
+        const artworks = await apiService.getTerritories({
+            limit: 100
+        });
         
         const artworkCount = artworks?.length || 0;
         const totalLikes = artworks?.reduce((sum, a) => sum + (a.likeCount || 0), 0) || 0;
@@ -205,14 +203,39 @@ class CreatorProfile {
         if (!content) return;
         
         try {
-            const artworks = await firebaseService.queryCollection(
-                'pixelCanvases',
-                [
-                    { field: 'ownerId', operator: '==', value: this.currentUserId }
-                ],
-                { field: 'lastUpdated', direction: 'desc' },
-                20
-            );
+            // 픽셀 데이터가 있는 영토 목록 조회 후, 소유자 필터링
+            const territoriesWithPixels = await apiService.getTerritoriesWithPixels();
+            const artworks = [];
+            
+            for (const territoryId of territoriesWithPixels.slice(0, 50)) {
+                try {
+                    const pixelData = await apiService.getPixelData(territoryId);
+                    const territory = await apiService.getTerritory(territoryId);
+                    
+                    // 소유자 확인 (pixelData의 ownerId와 currentUserId 비교)
+                    // TODO: API에서 ownerId를 Firebase UID로 반환하도록 확인 필요
+                    if (pixelData && pixelData.ownerId) {
+                        // 현재는 모든 픽셀 데이터를 표시 (ownerId 매칭은 백엔드에서 처리 필요)
+                        artworks.push({
+                            territoryId,
+                            id: territoryId,
+                            ownerId: pixelData.ownerId,
+                            lastUpdated: pixelData.lastUpdated,
+                            filledPixels: pixelData.filledPixels || 0,
+                            pixels: pixelData.pixels || []
+                        });
+                    }
+                } catch (error) {
+                    log.warn(`[CreatorProfile] Failed to load artwork for ${territoryId}:`, error);
+                }
+            }
+            
+            // 최신순 정렬
+            artworks.sort((a, b) => {
+                const aTime = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+                const bTime = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
+                return bTime - aTime;
+            });
             
             if (!artworks || artworks.length === 0) {
                 content.innerHTML = '<div class="empty">작품이 없습니다.</div>';
@@ -222,7 +245,7 @@ class CreatorProfile {
             // 영토 정보와 함께 렌더링
             const html = await Promise.all(
                 artworks.map(async (artwork) => {
-                    const territory = await firebaseService.getDocument('territories', artwork.territoryId);
+                    const territory = await apiService.getTerritory(artwork.territoryId || artwork.id);
                     const territoryName = territory?.name || territory?.territoryName || artwork.territoryId;
                     
                     return `
@@ -275,7 +298,7 @@ class CreatorProfile {
             const stats = await this.loadStats();
             
             // 랭킹 정보도 로드
-            const ranking = await firebaseService.getDocument('rankings', this.currentUserId);
+            const ranking = await apiService.getUserRanking(this.currentUserId);
             
             content.innerHTML = `
                 <div class="creator-stats-grid">
@@ -312,7 +335,7 @@ class CreatorProfile {
         if (!content) return;
         
         try {
-            const ranking = await firebaseService.getDocument('rankings', this.currentUserId);
+            const ranking = await apiService.getUserRanking(this.currentUserId);
             
             if (!ranking) {
                 content.innerHTML = '<div class="empty">랭킹 정보가 없습니다.</div>';

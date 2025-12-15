@@ -583,6 +583,9 @@ class BillionaireApp {
             if (user) {
                 try {
                     await webSocketService.connect();
+                    
+                    // WebSocket 이벤트 핸들러 설정
+                    this.setupWebSocketHandlers();
                 } catch (error) {
                     log.error('[BillionaireApp] Failed to connect WebSocket:', error);
                 }
@@ -1015,6 +1018,65 @@ class BillionaireApp {
         
         modal.addEventListener('click', (e) => {
             if (e.target === modal) modal.remove();
+        });
+    }
+    
+    /**
+     * WebSocket 이벤트 핸들러 설정
+     */
+    setupWebSocketHandlers() {
+        // 입찰 업데이트 이벤트
+        webSocketService.on('bidUpdate', async (data) => {
+            log.info('[BillionaireApp] 📨 WebSocket bidUpdate received:', data);
+            
+            // EventBus로 발행하여 기존 시스템과 통합
+            eventBus.emit(EVENTS.AUCTION_BID, {
+                auctionId: data.auctionId,
+                territoryId: data.territoryId,
+                amount: data.amount,
+                bidderId: data.bidderId,
+                bidderNickname: data.bidderNickname,
+                timestamp: data.timestamp
+            });
+            
+            // 경매 업데이트 이벤트도 발행 (UI 새로고침용)
+            eventBus.emit(EVENTS.AUCTION_UPDATE, {
+                auction: {
+                    id: data.auctionId,
+                    territoryId: data.territoryId,
+                    currentBid: data.amount,
+                    currentBidderId: data.bidderId,
+                    currentBidderNickname: data.bidderNickname
+                }
+            });
+        });
+        
+        // 영토 업데이트 이벤트
+        webSocketService.on('territoryUpdate', async (data) => {
+            log.info('[BillionaireApp] 📨 WebSocket territoryUpdate received:', data);
+            
+            // EventBus로 발행하여 기존 시스템과 통합
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                territory: data
+            });
+            
+            // 영토 정복 이벤트 (필요한 경우)
+            if (data.status === 'occupied' && data.previousStatus !== 'occupied') {
+                eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
+                    territoryId: data.territoryId || data.id,
+                    userId: data.rulerId,
+                    userName: data.rulerNickname
+                });
+            }
+        });
+        
+        // 연결 상태 이벤트
+        eventBus.on(EVENTS.WEBSOCKET_CONNECTED, () => {
+            log.info('[BillionaireApp] ✅ WebSocket connected, real-time updates enabled');
+        });
+        
+        eventBus.on(EVENTS.WEBSOCKET_DISCONNECTED, () => {
+            log.warn('[BillionaireApp] ⚠️ WebSocket disconnected, real-time updates disabled');
         });
     }
     

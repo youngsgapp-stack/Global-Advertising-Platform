@@ -173,7 +173,9 @@ class FirebaseService {
             }
             
             this.auth = firebase.auth();
-            this.db = firebase.firestore();
+            // ⚠️ 마이그레이션 완료: Firestore 비활성화 (PostgreSQL + Redis 사용)
+            // this.db = firebase.firestore();
+            this.db = null; // Firestore 비활성화
             
             // Firestore 헬퍼 저장 (compat 버전은 직접 사용)
             this._firestore = {
@@ -875,6 +877,14 @@ class FirebaseService {
     }
     
     /**
+     * 실제 Firebase Auth 사용자 가져오기
+     * ✅ 단일 인스턴스 사용: 항상 this.auth.currentUser 반환
+     */
+    getRealAuthUser() {
+        return this.auth?.currentUser || null;
+    }
+    
+    /**
      * 인증 여부 확인
      */
     isAuthenticated() {
@@ -888,6 +898,11 @@ class FirebaseService {
      * ⚠️ 응급 조치: 캐시 및 디바운스 적용
      */
     async getDocument(collectionName, docId, options = {}) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화, API 사용 권장
+        log.warn(`[FirebaseService] getDocument()는 더 이상 사용되지 않습니다. API를 사용하세요. Collection: ${collectionName}/${docId}`);
+        return null;
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             log.warn(`[FirebaseService] getDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
             return null;
@@ -952,12 +967,19 @@ class FirebaseService {
         
         // 디바운스 없이 즉시 실행
         return await this._getDocumentInternal(collectionName, docId, cacheKey, ttl);
+        */
     }
     
     /**
      * 문서 가져오기 내부 구현
+     * ⚠️ 마이그레이션 완료: 비활성화됨
      */
     async _getDocumentInternal(collectionName, docId, cacheKey, ttl) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화
+        log.warn(`[FirebaseService] _getDocumentInternal()는 더 이상 사용되지 않습니다. API를 사용하세요.`);
+        return null;
+        
+        /* 원래 코드 (비활성화됨)
         try {
             // ⚠️ Step 5-3: 모니터링: Firestore 읽기 기록 (컨텍스트 포함)
             const monitoring = getMonitoringService();
@@ -1011,12 +1033,28 @@ class FirebaseService {
             log.error(`Failed to get document ${collectionName}/${docId}:`, error);
             throw error;
         }
+        */
+    }
+    
+    /**
+     * 컬렉션 쿼리 내부 구현
+     * ⚠️ 마이그레이션 완료: 비활성화됨
+     */
+    async _queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화
+        log.warn(`[FirebaseService] _queryCollectionInternal()는 더 이상 사용되지 않습니다. API를 사용하세요.`);
+        return [];
     }
     
     /**
      * 문서 저장/업데이트
      */
     async setDocument(collectionName, docId, data, merge = true) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화, API 사용 권장
+        log.warn(`[FirebaseService] setDocument()는 더 이상 사용되지 않습니다. API를 사용하세요. Collection: ${collectionName}/${docId}`);
+        return false;
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             log.warn(`[FirebaseService] setDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
             // false 반환하여 호출자가 처리할 수 있도록
@@ -1056,6 +1094,7 @@ class FirebaseService {
             log.error(`Failed to save document ${collectionName}/${docId}:`, error);
             throw error;
         }
+        */
     }
     
     /**
@@ -1093,6 +1132,11 @@ class FirebaseService {
      * 문서가 없으면 생성 (안전한 업데이트)
      */
     async updateDocument(collectionName, docId, data) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화, API 사용 권장
+        log.warn(`[FirebaseService] updateDocument()는 더 이상 사용되지 않습니다. API를 사용하세요. Collection: ${collectionName}/${docId}`);
+        return false;
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             log.warn(`[FirebaseService] updateDocument called but Firebase not initialized. Collection: ${collectionName}/${docId}`);
             // 조용히 실패 (앱이 계속 작동하도록)
@@ -1131,6 +1175,7 @@ class FirebaseService {
             log.error(`Failed to update document ${collectionName}/${docId}:`, error);
             throw error;
         }
+        */
     }
     
     /**
@@ -1138,6 +1183,11 @@ class FirebaseService {
      * ⚠️ 응급 조치: 캐시 및 디바운스 적용
      */
     async queryCollection(collectionName, conditions = [], orderByField = null, limitCount = null, options = {}) {
+        // ⚠️ 마이그레이션 완료: Firestore 비활성화, API 사용 권장
+        log.warn(`[FirebaseService] queryCollection()는 더 이상 사용되지 않습니다. API를 사용하세요. Collection: ${collectionName}`);
+        return [];
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             log.warn(`[FirebaseService] queryCollection called but Firebase not initialized. Collection: ${collectionName}`);
             return [];
@@ -1207,11 +1257,14 @@ class FirebaseService {
         
         // 디바운스 없이 즉시 실행
         return await this._queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl);
+        */
     }
     
     /**
-     * 컬렉션 쿼리 내부 구현
+     * 컬렉션 쿼리 내부 구현 (중복 - 비활성화됨)
+     * ⚠️ 마이그레이션 완료: 비활성화됨
      */
+    /* 원래 코드 (비활성화됨)
     async _queryCollectionInternal(collectionName, conditions, orderByField, limitCount, cacheKey, ttl) {
         try {
             // compat 버전: 직접 체이닝 방식 사용
@@ -1289,6 +1342,7 @@ class FirebaseService {
             throw error;
         }
     }
+    */
     
     /**
      * 캐시 무효화
@@ -1327,6 +1381,11 @@ class FirebaseService {
      * ⚠️ Step 5-1: 상황 한정 리스너 (탭 포커스 확인)
      */
     subscribeToDocument(collectionName, docId, callback, options = {}) {
+        // ⚠️ 마이그레이션 완료: Firestore 실시간 리스너 비활성화, WebSocket 사용
+        log.warn(`[FirebaseService] subscribeToDocument()는 더 이상 사용되지 않습니다. WebSocket을 사용하세요. Collection: ${collectionName}/${docId}`);
+        return () => {}; // 빈 unsubscribe 함수 반환
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             throw new Error('Firebase not initialized');
         }
@@ -1395,6 +1454,7 @@ class FirebaseService {
         }
         
         return wrappedUnsubscribe;
+        */
     }
     
     /**
@@ -1402,6 +1462,11 @@ class FirebaseService {
      * ⚠️ 응급 조치: 리스너 추적 시스템 추가
      */
     subscribeToCollection(collectionName, callback, conditions = []) {
+        // ⚠️ 마이그레이션 완료: Firestore 실시간 리스너 비활성화, WebSocket 사용
+        log.warn(`[FirebaseService] subscribeToCollection()는 더 이상 사용되지 않습니다. WebSocket을 사용하세요. Collection: ${collectionName}`);
+        return () => {}; // 빈 unsubscribe 함수 반환
+        
+        /* 원래 코드 (비활성화됨)
         if (!this.initialized) {
             throw new Error('Firebase not initialized');
         }
@@ -1448,6 +1513,7 @@ class FirebaseService {
             }
             unsubscribe();
         };
+        */
     }
     
     /**
@@ -1651,44 +1717,16 @@ class FirebaseService {
         }
         
         try {
-            // compat 버전: 직접 사용
-            const userRef = this.db.collection('users').doc(user.uid);
-            const userDoc = await userRef.get();
+            // ✅ 백엔드 API 사용: /api/users/me 엔드포인트가 사용자를 자동으로 생성/업데이트
+            const { apiService } = await import('./ApiService.js');
             
-            const now = this._firestore.Timestamp.now();
+            // API 호출 (사용자가 없으면 자동 생성, 있으면 조회)
+            await apiService.getCurrentUser();
             
-            const userData = {
-                uid: user.uid,
-                email: user.email || null,
-                displayName: user.displayName || user.email?.split('@')[0] || 'User',
-                photoURL: user.photoURL || null,
-                emailVerified: user.emailVerified || false,
-                createdAt: userDoc.exists ? (userDoc.data().createdAt || now) : now,
-                updatedAt: now,
-                lastLoginAt: now,
-                territoryCount: userDoc.exists ? (userDoc.data().territoryCount || 0) : 0,
-                banned: userDoc.exists ? (userDoc.data().banned || false) : false
-            };
-            
-            if (userDoc.exists) {
-                // 기존 문서 업데이트 (createdAt은 유지)
-                await userRef.update({
-                    email: userData.email,
-                    displayName: userData.displayName,
-                    photoURL: userData.photoURL,
-                    emailVerified: userData.emailVerified,
-                    updatedAt: userData.updatedAt,
-                    lastLoginAt: userData.lastLoginAt
-                });
-                log.info(`[FirebaseService] ✅ Updated user document: ${user.email}`);
-            } else {
-                // 새 문서 생성
-                await userRef.set(userData);
-                log.info(`[FirebaseService] ✅ Created user document: ${user.email}`);
-            }
+            log.info(`[FirebaseService] ✅ User document ensured via API: ${user.email}`);
         } catch (error) {
-            log.error('[FirebaseService] Failed to ensure user document:', error);
-            throw error;
+            log.error('[FirebaseService] Failed to ensure user document via API:', error);
+            // 에러를 throw하지 않고 로그만 남김 (사용자 인증은 계속 진행)
         }
     }
 }
