@@ -112,7 +112,7 @@ export function setupWebSocket(wss) {
  */
 export function broadcastBidUpdate(data) {
     const message = JSON.stringify({
-        type: 'bidUpdate',
+        type: 'bid:created',
         data: {
             auctionId: data.auctionId,
             territoryId: data.territoryId,
@@ -138,11 +138,37 @@ export function broadcastBidUpdate(data) {
 }
 
 /**
+ * 경매 업데이트 브로드캐스트
+ */
+export function broadcastAuctionUpdate(auctionId, data) {
+    const message = JSON.stringify({
+        type: 'auction:updated',
+        data: {
+            auctionId,
+            ...data,
+            timestamp: new Date().toISOString(),
+        }
+    });
+    
+    let sentCount = 0;
+    for (const [userId, userConnections] of connections.entries()) {
+        for (const ws of userConnections) {
+            if (ws.readyState === 1) {
+                ws.send(message);
+                sentCount++;
+            }
+        }
+    }
+    
+    console.log(`📢 Broadcasted auction update to ${sentCount} connections`);
+}
+
+/**
  * 영토 업데이트 브로드캐스트
  */
 export function broadcastTerritoryUpdate(territoryId, data) {
     const message = JSON.stringify({
-        type: 'territoryUpdate',
+        type: 'territory:updated',
         data: {
             territoryId,
             ...data,
@@ -161,5 +187,31 @@ export function broadcastTerritoryUpdate(territoryId, data) {
     }
     
     console.log(`📢 Broadcasted territory update to ${sentCount} connections`);
+}
+
+/**
+ * 픽셀 업데이트 브로드캐스트
+ */
+export function broadcastPixelUpdate(territoryId, data) {
+    const message = JSON.stringify({
+        type: 'pixel:updated',
+        data: {
+            territoryId,
+            ...data,
+            timestamp: new Date().toISOString(),
+        }
+    });
+    
+    let sentCount = 0;
+    for (const [userId, userConnections] of connections.entries()) {
+        for (const ws of userConnections) {
+            if (ws.readyState === 1) {
+                ws.send(message);
+                sentCount++;
+            }
+        }
+    }
+    
+    console.log(`📢 Broadcasted pixel update to ${sentCount} connections`);
 }
 

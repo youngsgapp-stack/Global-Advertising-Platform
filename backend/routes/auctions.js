@@ -5,7 +5,8 @@
 import express from 'express';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
-import { broadcastBidUpdate } from '../websocket/index.js';
+import { CACHE_TTL, invalidateAuctionCache } from '../redis/cache-utils.js';
+import { broadcastBidUpdate, broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
 
 const router = express.Router();
 
@@ -45,13 +46,304 @@ router.get('/:id', async (req, res) => {
         
         const auction = result.rows[0];
         
-        // Redis에 캐시 (30초)
-        await redis.set(cacheKey, auction, 30);
+        // Redis에 캐시
+        await redis.set(cacheKey, auction, CACHE_TTL.AUCTION);
         
         res.json(auction);
     } catch (error) {
         console.error('[Auctions] Error:', error);
         res.status(500).json({ error: 'Failed to fetch auction' });
+    }
+});
+
+/**
+ * POST /api/auctions
+ * 경매 생성
+ */
+router.post('/', async (req, res) => {
+    const client = await getPool().connect();
+    
+    try {
+        const {
+            territoryId,
+            startingBid,
+            minBid,
+            endTime,
+            protectionDays,
+            type = 'standard'
+        } = req.body;
+        const firebaseUid = req.user.uid;
+        
+        if (!territoryId) {
+            return res.status(400).json({ error: 'Territory ID is required' });
+        }
+        
+        if (!startingBid || startingBid <= 0) {
+            return res.status(400).json({ error: 'Valid starting bid is required' });
+        }
+        
+        // 트랜잭션 시작
+        await client.query('BEGIN');
+        
+        // 1. 영토 정보 조회
+        const territoryResult = await client.query(
+            `SELECT * FROM territories WHERE id = $1 FOR UPDATE`,
+            [territoryId]
+        );
+        
+        if (territoryResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        
+        const territory = territoryResult.rows[0];
+        
+        // 2. 이미 활성 경매가 있는지 확인
+        const existingAuctionResult = await client.query(
+            `SELECT id FROM auctions 
+             WHERE territory_id = $1 AND status = 'active'`,
+            [territoryId]
+        );
+        
+        if (existingAuctionResult.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Active auction already exists for this territory' });
+        }
+        
+        // 3. 사용자 정보 조회
+        let userId;
+        const userResult = await client.query(
+            `SELECT id FROM users WHERE firebase_uid = $1`,
+            [firebaseUid]
+        );
+        
+        if (userResult.rows.length === 0) {
+            // 사용자가 없으면 생성
+            const newUserResult = await client.query(
+                `INSERT INTO users (firebase_uid, email) 
+                 VALUES ($1, $2) 
+                 RETURNING id`,
+                [firebaseUid, req.user.email]
+            );
+            userId = newUserResult.rows[0].id;
+        } else {
+            userId = userResult.rows[0].id;
+        }
+        
+        // 4. 경매 종료 시간 결정
+        let auctionEndTime = endTime;
+        if (!auctionEndTime) {
+            // 기본값: 24시간 후
+            const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            auctionEndTime = endDate.toISOString();
+        }
+        
+        // 5. 경매 생성
+        const auctionResult = await client.query(
+            `INSERT INTO auctions (
+                territory_id, 
+                status, 
+                start_time, 
+                end_time, 
+                min_bid, 
+                current_bid,
+                country,
+                created_at,
+                updated_at
+            )
+            VALUES ($1, 'active', NOW(), $2, $3, $4, $5, NOW(), NOW())
+            RETURNING *`,
+            [
+                territoryId,
+                auctionEndTime,
+                minBid || startingBid,
+                startingBid,
+                territory.country
+            ]
+        );
+        
+        const auction = auctionResult.rows[0];
+        
+        // 6. 영토 상태 업데이트 (미점유 영토인 경우 CONTESTED로 변경)
+        if (!territory.ruler_id && territory.status === 'unconquered') {
+            await client.query(
+                `UPDATE territories 
+                 SET status = 'contested',
+                     current_auction_id = $1,
+                     updated_at = NOW()
+                 WHERE id = $2`,
+                [auction.id, territoryId]
+            );
+        } else {
+            // 이미 소유된 영토는 current_auction_id만 업데이트
+            await client.query(
+                `UPDATE territories 
+                 SET current_auction_id = $1,
+                     updated_at = NOW()
+                 WHERE id = $2`,
+                [auction.id, territoryId]
+            );
+        }
+        
+        await client.query('COMMIT');
+        
+        // Redis 캐시 무효화
+        await invalidateAuctionCache(auction.id, territoryId);
+        
+        // WebSocket 브로드캐스트
+        broadcastAuctionUpdate(auction.id, {
+            id: auction.id,
+            territoryId: auction.territory_id,
+            status: auction.status,
+            startingBid: parseFloat(auction.min_bid || auction.current_bid || 0),
+            currentBid: parseFloat(auction.current_bid || 0),
+            endTime: auction.end_time,
+            createdAt: auction.created_at
+        });
+        
+        broadcastTerritoryUpdate(territoryId, {
+            id: territoryId,
+            currentAuctionId: auction.id,
+            status: territory.ruler_id ? territory.status : 'contested',
+            updatedAt: new Date().toISOString()
+        });
+        
+        res.json({
+            success: true,
+            auction: {
+                id: auction.id,
+                territoryId: auction.territory_id,
+                status: auction.status,
+                startingBid: parseFloat(auction.min_bid || auction.current_bid || 0),
+                currentBid: parseFloat(auction.current_bid || 0),
+                endTime: auction.end_time,
+                createdAt: auction.created_at
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Auctions] Create error:', error);
+        res.status(500).json({ error: 'Failed to create auction' });
+    } finally {
+        client.release();
+    }
+});
+
+/**
+ * PUT /api/auctions/:id
+ * 경매 업데이트
+ */
+router.put('/:id', async (req, res) => {
+    const client = await getPool().connect();
+    
+    try {
+        const { id: auctionId } = req.params;
+        const {
+            currentBid,
+            startingBid,
+            minBid,
+            currentBidderId,
+            status
+        } = req.body;
+        
+        await client.query('BEGIN');
+        
+        // 경매 정보 조회
+        const auctionResult = await client.query(
+            `SELECT * FROM auctions WHERE id = $1 FOR UPDATE`,
+            [auctionId]
+        );
+        
+        if (auctionResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Auction not found' });
+        }
+        
+        const auction = auctionResult.rows[0];
+        
+        // 업데이트할 필드 구성
+        const updates = [];
+        const params = [];
+        let paramIndex = 1;
+        
+        if (currentBid !== undefined) {
+            updates.push(`current_bid = $${paramIndex}`);
+            params.push(currentBid);
+            paramIndex++;
+        }
+        
+        if (startingBid !== undefined || minBid !== undefined) {
+            updates.push(`min_bid = $${paramIndex}`);
+            params.push(startingBid || minBid);
+            paramIndex++;
+        }
+        
+        if (currentBidderId !== undefined) {
+            updates.push(`current_bidder_id = $${paramIndex}`);
+            params.push(currentBidderId);
+            paramIndex++;
+        }
+        
+        if (status !== undefined) {
+            updates.push(`status = $${paramIndex}`);
+            params.push(status);
+            paramIndex++;
+        }
+        
+        if (updates.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        updates.push(`updated_at = NOW()`);
+        params.push(auctionId);
+        
+        // 경매 업데이트
+        const updateResult = await client.query(
+            `UPDATE auctions 
+             SET ${updates.join(', ')}
+             WHERE id = $${paramIndex}
+             RETURNING *`,
+            params
+        );
+        
+        await client.query('COMMIT');
+        
+        const updatedAuction = updateResult.rows[0];
+        
+        // Redis 캐시 무효화
+        await invalidateAuctionCache(auctionId, auction.territory_id);
+        
+        // WebSocket 브로드캐스트
+        broadcastAuctionUpdate(auctionId, {
+            id: updatedAuction.id,
+            currentBid: parseFloat(updatedAuction.current_bid || 0),
+            startingBid: parseFloat(updatedAuction.min_bid || 0),
+            currentBidderId: updatedAuction.current_bidder_id,
+            status: updatedAuction.status,
+            updatedAt: updatedAuction.updated_at
+        });
+        
+        res.json({
+            success: true,
+            auction: {
+                id: updatedAuction.id,
+                territoryId: updatedAuction.territory_id,
+                status: updatedAuction.status,
+                startingBid: parseFloat(updatedAuction.min_bid || 0),
+                currentBid: parseFloat(updatedAuction.current_bid || 0),
+                currentBidderId: updatedAuction.current_bidder_id,
+                updatedAt: updatedAuction.updated_at
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Auctions] Update error:', error);
+        res.status(500).json({ error: 'Failed to update auction' });
+    } finally {
+        client.release();
     }
 });
 
@@ -149,21 +441,21 @@ router.post('/:id/bids', async (req, res) => {
         );
         
         // 6. 영토 정보 업데이트 (캐시 무효화를 위해)
-        await client.query(
+        const territoryUpdateResult = await client.query(
             `UPDATE territories 
              SET updated_at = NOW()
-             WHERE id = $1`,
+             WHERE id = $1
+             RETURNING *`,
             [auction.territory_id]
         );
         
         // 트랜잭션 커밋
         await client.query('COMMIT');
         
-        // Redis 캐시 삭제
-        await redis.del(`auction:${auctionId}`);
-        await redis.del(`territory:${auction.territory_id}`);
+        // Redis 캐시 무효화
+        await invalidateAuctionCache(auctionId, auction.territory_id);
         
-        // WebSocket으로 브로드캐스트
+        // WebSocket으로 입찰 업데이트 브로드캐스트
         broadcastBidUpdate({
             auctionId,
             territoryId: auction.territory_id,
@@ -171,6 +463,56 @@ router.post('/:id/bids', async (req, res) => {
             bidderId: userId,
             bidderNickname: req.user.name || req.user.email,
         });
+        
+        // 경매 업데이트 브로드캐스트
+        const userInfoResult = await query(
+            `SELECT nickname, email FROM users WHERE id = $1`,
+            [userId]
+        );
+        broadcastAuctionUpdate(auctionId, {
+            currentBid: amount,
+            currentBidderId: userId,
+            currentBidderNickname: userInfoResult.rows[0]?.nickname || req.user.email,
+            updatedAt: new Date().toISOString()
+        });
+        
+        // 영토 업데이트도 브로드캐스트 (입찰로 인한 영토 상태 변경 반영)
+        if (territoryUpdateResult.rows.length > 0) {
+            const territory = territoryUpdateResult.rows[0];
+            
+            // 사용자 정보 조회
+            const userInfoResult = await query(
+                `SELECT nickname, email FROM users WHERE id = $1`,
+                [userId]
+            );
+            
+            // 입찰 업데이트 브로드캐스트
+            broadcastBidUpdate({
+                auctionId: auctionId,
+                territoryId: auction.territory_id,
+                amount: amount,
+                bidderId: userId,
+                bidderNickname: userInfoResult.rows[0]?.nickname || req.user.email
+            });
+            
+            // 경매 업데이트 브로드캐스트
+            broadcastAuctionUpdate(auctionId, {
+                currentBid: amount,
+                currentBidderId: userId,
+                currentBidderNickname: userInfoResult.rows[0]?.nickname || req.user.email,
+                updatedAt: new Date().toISOString()
+            });
+            
+            // 영토 업데이트 브로드캐스트
+            broadcastTerritoryUpdate(auction.territory_id, {
+                id: territory.id,
+                status: territory.status,
+                rulerId: territory.ruler_id,
+                rulerNickname: userInfoResult.rows[0]?.nickname || req.user.email,
+                updatedAt: territory.updated_at,
+                currentAuctionId: auctionId
+            });
+        }
         
         res.json({
             success: true,

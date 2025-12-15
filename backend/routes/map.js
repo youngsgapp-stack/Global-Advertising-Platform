@@ -6,6 +6,7 @@
 import express from 'express';
 import { query } from '../db/init.js';
 import { redis } from '../redis/init.js';
+import { CACHE_TTL } from '../redis/cache-utils.js';
 
 const router = express.Router();
 
@@ -65,8 +66,8 @@ router.get('/snapshot', async (req, res) => {
             }))
         };
         
-        // Redis에 캐시 (5분)
-        await redis.set(cacheKey, snapshot, 300);
+        // Redis에 캐시
+        await redis.set(cacheKey, snapshot, CACHE_TTL.MAP_SNAPSHOT);
         
         res.json(snapshot);
     } catch (error) {

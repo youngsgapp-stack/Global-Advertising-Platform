@@ -175,6 +175,40 @@ const redisObject = {
             return false;
         }
     },
+    
+    keys: async (pattern) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'upstash') {
+                // Upstash REST API는 keys를 지원하지 않음
+                console.warn(`[Redis] KEYS command not supported in Upstash REST API for pattern: ${pattern}`);
+                return [];
+            }
+            
+            return await client.keys(pattern);
+        } catch (error) {
+            console.error('[Redis] keys error:', error);
+            return [];
+        }
+    },
+    
+    scan: async (cursor, options = {}) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'upstash') {
+                // Upstash REST API는 SCAN을 지원하지 않음
+                console.warn('[Redis] SCAN command not supported in Upstash REST API');
+                return { cursor: '0', keys: [] };
+            }
+            
+            return await client.scan(cursor, options);
+        } catch (error) {
+            console.error('[Redis] scan error:', error);
+            return { cursor: '0', keys: [] };
+        }
+    },
 };
 
 // 명시적으로 export

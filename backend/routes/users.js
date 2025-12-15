@@ -5,6 +5,7 @@
 import express from 'express';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
+import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
 
 const router = express.Router();
 
@@ -103,13 +104,148 @@ router.get('/me/wallet', async (req, res) => {
             updatedAt: wallet.updated_at,
         };
         
-        // Redis에 캐시 (10초)
-        await redis.set(cacheKey, walletData, 10);
+        // Redis에 캐시
+        await redis.set(cacheKey, walletData, CACHE_TTL.USER_WALLET);
         
         res.json(walletData);
     } catch (error) {
         console.error('[Users] Wallet error:', error);
         res.status(500).json({ error: 'Failed to fetch wallet' });
+    }
+});
+
+/**
+ * PUT /api/users/me/wallet
+ * 현재 사용자 지갑 업데이트 (잔액 변경, 거래 내역 추가)
+ */
+router.put('/me/wallet', async (req, res) => {
+    try {
+        const firebaseUid = req.user.uid;
+        const { balance, transaction } = req.body;
+        
+        // 사용자 ID 조회
+        const userResult = await query(
+            `SELECT id FROM users WHERE firebase_uid = $1`,
+            [firebaseUid]
+        );
+        
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const userId = userResult.rows[0].id;
+        
+        // 트랜잭션으로 지갑 업데이트 및 거래 내역 추가
+        const pool = getPool();
+        const client = await pool.connect();
+        
+        try {
+            await client.query('BEGIN');
+            
+            // 지갑 업데이트
+            let walletResult;
+            if (balance !== undefined) {
+                walletResult = await client.query(
+                    `UPDATE wallets 
+                     SET balance = $1, updated_at = NOW()
+                     WHERE user_id = $2
+                     RETURNING *`,
+                    [balance, userId]
+                );
+            } else {
+                // balance가 없으면 현재 잔액 조회
+                walletResult = await client.query(
+                    `SELECT * FROM wallets WHERE user_id = $1`,
+                    [userId]
+                );
+            }
+            
+            // 거래 내역 추가 (있는 경우)
+            if (transaction) {
+                await client.query(
+                    `INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, description, reference_id)
+                     VALUES ((SELECT id FROM wallets WHERE user_id = $1), $1, $2, $3, $4, $5)`,
+                    [
+                        userId,
+                        transaction.type || 'adjustment',
+                        transaction.amount || 0,
+                        transaction.description || '',
+                        transaction.referenceId || null
+                    ]
+                );
+            }
+            
+            await client.query('COMMIT');
+            
+            const wallet = walletResult.rows[0];
+            const walletData = {
+                balance: parseFloat(wallet.balance || 0),
+                updatedAt: wallet.updated_at,
+            };
+            
+            // Redis 캐시 무효화
+            await invalidateUserCache(userId);
+            
+            res.json(walletData);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        console.error('[Users] Wallet update error:', error);
+        res.status(500).json({ error: 'Failed to update wallet' });
+    }
+});
+
+/**
+ * GET /api/users/me/wallet/transactions
+ * 현재 사용자 지갑 거래 내역 조회
+ */
+router.get('/me/wallet/transactions', async (req, res) => {
+    try {
+        const firebaseUid = req.user.uid;
+        const { limit = 50, offset = 0 } = req.query;
+        
+        // 사용자 ID 조회
+        const userResult = await query(
+            `SELECT id FROM users WHERE firebase_uid = $1`,
+            [firebaseUid]
+        );
+        
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const userId = userResult.rows[0].id;
+        
+        // 거래 내역 조회
+        const result = await query(
+            `SELECT 
+                wt.*,
+                w.id as wallet_id
+             FROM wallet_transactions wt
+             JOIN wallets w ON wt.wallet_id = w.id
+             WHERE w.user_id = $1
+             ORDER BY wt.created_at DESC
+             LIMIT $2 OFFSET $3`,
+            [userId, parseInt(limit, 10), parseInt(offset, 10)]
+        );
+        
+        const transactions = result.rows.map(tx => ({
+            id: tx.id,
+            type: tx.type,
+            amount: parseFloat(tx.amount || 0),
+            description: tx.description,
+            referenceId: tx.reference_id,
+            createdAt: tx.created_at
+        }));
+        
+        res.json(transactions);
+    } catch (error) {
+        console.error('[Users] Transactions error:', error);
+        res.status(500).json({ error: 'Failed to fetch transactions' });
     }
 });
 

@@ -6,6 +6,7 @@
 import express from 'express';
 import { query } from '../db/init.js';
 import { redis } from '../redis/init.js';
+import { CACHE_TTL } from '../redis/cache-utils.js';
 
 const router = express.Router();
 
@@ -88,8 +89,8 @@ router.get('/', async (req, res) => {
             filters: { country, season },
         };
         
-        // Redis에 캐시 (30초)
-        await redis.set(cacheKey, response, 30);
+        // Redis에 캐시
+        await redis.set(cacheKey, response, CACHE_TTL.AUCTION);
         
         res.json(response);
     } catch (error) {
