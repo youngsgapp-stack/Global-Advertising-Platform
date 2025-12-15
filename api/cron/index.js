@@ -57,6 +57,7 @@ export default async function handler(req, res) {
         const results = {};
         
         // 모든 작업 실행 또는 특정 작업만 실행
+        // 참고: 경매 종료는 별도 API(/api/auctions/end)로 분리됨 (Hobby 플랜 cron 제한 때문)
         if (jobType === 'all' || jobType === 'calculate-rankings') {
             results.rankings = await calculateRankings(db);
         }
@@ -65,9 +66,10 @@ export default async function handler(req, res) {
             results.expired = await checkExpiredTerritories(db);
         }
         
-        if (jobType === 'all' || jobType === 'end-auctions') {
-            results.auctions = await endAuctions(db);
-        }
+        // 경매 종료는 별도 API로 분리 (1분마다 실행 필요)
+        // if (jobType === 'all' || jobType === 'end-auctions') {
+        //     results.auctions = await endAuctions(db);
+        // }
         
         if (jobType === 'all' || jobType === 'season-transition') {
             results.season = await seasonTransition(db);
