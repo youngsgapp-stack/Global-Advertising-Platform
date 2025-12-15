@@ -26,11 +26,13 @@ router.get('/me', async (req, res) => {
         let user;
         if (result.rows.length === 0) {
             // 사용자 없으면 생성
+            const nickname = req.user.name || req.user.email || 'User';
+            const email = req.user.email || '';
             const insertResult = await query(
                 `INSERT INTO users (firebase_uid, email, nickname)
                  VALUES ($1, $2, $3)
                  RETURNING *`,
-                [firebaseUid, req.user.email, req.user.name || req.user.email]
+                [firebaseUid, email, nickname]
             );
             user = insertResult.rows[0];
         } else {
@@ -59,17 +61,27 @@ router.get('/me/wallet', async (req, res) => {
     try {
         const firebaseUid = req.user.uid;
         
-        // 사용자 ID 조회
-        const userResult = await query(
+        // 사용자 ID 조회 (없으면 생성)
+        let userResult = await query(
             `SELECT id FROM users WHERE firebase_uid = $1`,
             [firebaseUid]
         );
         
+        let userId;
         if (userResult.rows.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
+            // 사용자가 없으면 먼저 생성
+            const nickname = req.user.name || req.user.email || 'User';
+            const email = req.user.email || '';
+            const insertResult = await query(
+                `INSERT INTO users (firebase_uid, email, nickname)
+                 VALUES ($1, $2, $3)
+                 RETURNING id`,
+                [firebaseUid, email, nickname]
+            );
+            userId = insertResult.rows[0].id;
+        } else {
+            userId = userResult.rows[0].id;
         }
-        
-        const userId = userResult.rows[0].id;
         
         // Redis에서 먼저 조회 (10초 캐시)
         const cacheKey = `wallet:${userId}`;
