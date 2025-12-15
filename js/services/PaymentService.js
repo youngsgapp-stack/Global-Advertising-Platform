@@ -1030,13 +1030,14 @@ class PaymentService {
                             description: description
                         });
                         
-                        // 서버 API로 Order 생성
-                        const response = await fetch('/api/paypal/create-order', {
+                        // 서버 API로 Order 생성 (통합 API 사용)
+                        const response = await fetch('/api/paypal', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
+                                action: 'create-order',
                                 amount: formattedAmount,
                                 currency: 'USD',
                                 description: description
@@ -1144,13 +1145,14 @@ class PaymentService {
                             throw new Error('User not authenticated');
                         }
                         
-                        // 서버 API로 Capture 요청
-                        const captureResponse = await fetch('/api/paypal/capture-order', {
+                        // 서버 API로 Capture 요청 (통합 API 사용)
+                        const captureResponse = await fetch('/api/paypal', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
+                                action: 'capture-order',
                                 orderID: data.orderID,
                                 userId: user.uid,
                                 amount: amount,
