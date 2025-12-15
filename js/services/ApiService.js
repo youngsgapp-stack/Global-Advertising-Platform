@@ -1,6 +1,5 @@
 /**
- * ApiService - 백엔드 REST API 클라이언트
- * Firestore 대신 새로운 백엔드 API를 사용
+ * ApiService - 백엔??REST API ?�라?�언?? * Firestore ?�???�로??백엔??API�??�용
  */
 
 import { CONFIG, log } from '../config.js';
@@ -14,33 +13,41 @@ class ApiService {
     }
     
     /**
-     * 초기화
-     */
+     * 초기??     */
     async initialize() {
         if (this.initialized) {
             return true;
         }
         
-        // 환경에 따라 API URL 설정
+        // ?�경???�라 API URL ?�정
         if (CONFIG.API_BASE_URL) {
+            // config.js?�서 ?��? ?�정??URL ?�용
             this.baseUrl = CONFIG.API_BASE_URL;
         } else if (typeof window !== 'undefined') {
-            // 프로덕션 환경 자동 감지
+            // ?�로?�션 ?�경 ?�동 감�?
             const hostname = window.location.hostname;
-            if (hostname.includes('netlify') || hostname.includes('vercel') || hostname.includes('railway')) {
-                // 프로덕션 백엔드 URL 설정
+            const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+            
+            if (isLocalhost) {
+                // 로컬 개발 ?�경
+                this.baseUrl = 'http://localhost:3000/api';
+            } else {
+                // ?�로?�션 ?�경 (localhost가 ?�닌 모든 경우)
                 this.baseUrl = 'https://global-advertising-platform-production.up.railway.app/api';
             }
+        } else {
+            // 기본�?(?�버 ?�이???�더�???
+            this.baseUrl = 'http://localhost:3000/api';
         }
         
         this.initialized = true;
-        log.info(`[ApiService] ✅ Initialized with base URL: ${this.baseUrl}`);
+        log.info(`[ApiService] ??Initialized with base URL: ${this.baseUrl}`);
+        log.info(`[ApiService] ?�� Environment: ${typeof window !== 'undefined' ? window.location.hostname : 'server-side'}`);
         return true;
     }
     
     /**
-     * Firebase ID 토큰 가져오기
-     */
+     * Firebase ID ?�큰 가?�오�?     */
     async getAuthToken() {
         const user = firebaseService.getCurrentUser();
         if (!user) {
@@ -50,7 +57,7 @@ class ApiService {
     }
     
     /**
-     * API 요청 헬퍼
+     * API ?�청 ?�퍼
      */
     async request(endpoint, options = {}) {
         await this.initialize();
@@ -74,7 +81,7 @@ class ApiService {
             },
         };
         
-        // 타임아웃 설정 (기본 30초)
+        // ?�?�아???�정 (기본 30�?
         const timeout = options.timeout || 30000;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -98,14 +105,14 @@ class ApiService {
         } catch (error) {
             clearTimeout(timeoutId);
             
-            // 네트워크 에러 처리
+            // ?�트?�크 ?�러 처리
             if (error.name === 'AbortError') {
                 const timeoutError = new Error('Request timeout - server may be offline');
                 log.error(`[ApiService] Request timeout: ${endpoint}`, { url, timeout });
                 throw timeoutError;
             }
             
-            // 연결 거부 에러 처리
+            // ?�결 거�? ?�러 처리
             if (error.message?.includes('Failed to fetch') || 
                 error.message?.includes('NetworkError') ||
                 error.message?.includes('ERR_CONNECTION_REFUSED') ||
@@ -121,14 +128,14 @@ class ApiService {
     }
     
     /**
-     * GET 요청
+     * GET ?�청
      */
     async get(endpoint) {
         return await this.request(endpoint, { method: 'GET' });
     }
     
     /**
-     * POST 요청
+     * POST ?�청
      */
     async post(endpoint, data) {
         return await this.request(endpoint, {
@@ -138,7 +145,7 @@ class ApiService {
     }
     
     /**
-     * PUT 요청
+     * PUT ?�청
      */
     async put(endpoint, data) {
         return await this.request(endpoint, {
@@ -148,36 +155,36 @@ class ApiService {
     }
     
     /**
-     * DELETE 요청
+     * DELETE ?�청
      */
     async delete(endpoint) {
         return await this.request(endpoint, { method: 'DELETE' });
     }
     
     // ============================================
-    // 맵 API
+    // �?API
     // ============================================
     
     /**
-     * 맵 스냅샷 조회
+     * �??�냅??조회
      */
     async getMapSnapshot() {
         return await this.get('/map/snapshot');
     }
     
     // ============================================
-    // 영토 API
+    // ?�토 API
     // ============================================
     
     /**
-     * 영토 상세 조회
+     * ?�토 ?�세 조회
      */
     async getTerritory(id) {
         return await this.get(`/territories/${id}`);
     }
     
     /**
-     * 영토의 활성 경매 조회
+     * ?�토???�성 경매 조회
      */
     async getTerritoryActiveAuction(territoryId) {
         return await this.get(`/territories/${territoryId}/auctions/active`);
@@ -188,19 +195,19 @@ class ApiService {
     // ============================================
     
     /**
-     * 경매 상세 조회
+     * 경매 ?�세 조회
      */
     async getAuction(id) {
         return await this.get(`/auctions/${id}`);
     }
     
     /**
-     * 입찰 생성
+     * ?�찰 ?�성
      */
     async placeBid(auctionId, amount) {
         const result = await this.post(`/auctions/${auctionId}/bids`, { amount });
         
-        // 응답 형식 변환 (호환성)
+        // ?�답 ?�식 변??(?�환??
         if (result.bid) {
             return {
                 ...result.bid,
@@ -212,7 +219,7 @@ class ApiService {
     }
     
     /**
-     * 활성 경매 목록 조회
+     * ?�성 경매 목록 조회
      */
     async getActiveAuctions(options = {}) {
         const { country, season, limit } = options;
@@ -224,24 +231,24 @@ class ApiService {
     }
     
     // ============================================
-    // 사용자 API
+    // ?�용??API
     // ============================================
     
     /**
-     * 현재 사용자 정보 조회
+     * ?�재 ?�용???�보 조회
      */
     async getCurrentUser() {
         return await this.get('/users/me');
     }
     
     /**
-     * 현재 사용자 지갑 조회
+     * ?�재 ?�용??지�?조회
      */
     async getWallet() {
         return await this.get('/users/me/wallet');
     }
 }
 
-// 싱글톤 인스턴스
+// ?��????�스?�스
 export const apiService = new ApiService();
 
