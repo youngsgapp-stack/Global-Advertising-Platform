@@ -140,3 +140,19 @@ CREATE TRIGGER update_auctions_updated_at BEFORE UPDATE ON auctions
 CREATE TRIGGER update_wallets_updated_at BEFORE UPDATE ON wallets
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- 관리자 로그 테이블
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  action VARCHAR(100) NOT NULL,
+  details JSONB,
+  admin_email VARCHAR(255),
+  admin_uid VARCHAR(255),
+  user_agent TEXT,
+  ip_address VARCHAR(45),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_admin_logs_action ON admin_logs(action);
+CREATE INDEX idx_admin_logs_admin_email ON admin_logs(admin_email);
+CREATE INDEX idx_admin_logs_created_at ON admin_logs(created_at DESC);
+
