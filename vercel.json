@@ -1,7 +1,24 @@
 {
   "buildCommand": "",
   "outputDirectory": ".",
-  "crons": [],
+  "crons": [
+    {
+      "path": "/api/cron?job=calculate-rankings",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron?job=check-expired",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron?job=end-auctions",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron?job=season-transition",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/data/(.*)",

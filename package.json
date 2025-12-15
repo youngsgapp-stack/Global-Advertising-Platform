@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vercel dev",
     "build": "echo 'No build step required'",
+    "predeploy": "node scripts/update-all-folders-mtime.js",
     "deploy": "vercel --prod",
+    "update-folders": "node scripts/update-all-folders-mtime.js",
     "watch-folders": "node scripts/update-folder-mtime.js",
     "watch-folders:js": "node scripts/update-folder-mtime.js js",
     "watch-folders:docs": "node scripts/update-folder-mtime.js docs"
