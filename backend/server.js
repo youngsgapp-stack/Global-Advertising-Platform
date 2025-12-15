@@ -129,19 +129,40 @@ import { initSentry } from './utils/sentry.js';
 const app = express();
 // Railway는 자동으로 PORT를 할당하므로, 정수로 파싱
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const CORS_ORIGIN = process.env.CORS_ORIGIN?.split(',') || [
-    'http://localhost:8000',
-    'http://localhost:8888',
-    'http://127.0.0.1:8000',
-    'http://127.0.0.1:8888',
-    'https://www.worldadvertisingmap.com',
-    'https://worldadvertisingmap.com'
-];
+const CORS_ORIGIN = process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : [
+        'http://localhost:8000',
+        'http://localhost:8888',
+        'http://127.0.0.1:8000',
+        'http://127.0.0.1:8888',
+        'https://www.worldadvertisingmap.com',
+        'https://worldadvertisingmap.com'
+    ];
 
 // 미들웨어
 app.use(cors({
-    origin: CORS_ORIGIN,
-    credentials: true
+    origin: function (origin, callback) {
+        // origin이 없는 경우 (같은 도메인 요청, Postman 등) 허용
+        if (!origin) {
+            return callback(null, true);
+        }
+        
+        // CORS_ORIGIN 배열에 포함되어 있는지 확인
+        if (CORS_ORIGIN.includes(origin)) {
+            callback(null, true);
+        } else {
+            // 디버깅을 위한 로그
+            console.log(`[CORS] Blocked origin: ${origin}`);
+            console.log(`[CORS] Allowed origins:`, CORS_ORIGIN);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400 // 24시간
 }));
 app.use(express.json());
 
@@ -208,6 +229,11 @@ setupWebSocket(wss);
 async function startServer() {
     try {
         console.log('[Server] Starting server initialization...');
+        
+        // CORS 설정 로그
+        console.log('[Server] 🌍 CORS Configuration:');
+        console.log('  Allowed origins:', CORS_ORIGIN);
+        console.log('  Environment CORS_ORIGIN:', process.env.CORS_ORIGIN || 'Not set (using defaults)');
         
         // Sentry 초기화 (먼저 초기화하여 에러 추적 가능)
         initSentry();
