@@ -3,7 +3,10 @@
   "version": "2.0.0",
   "description": "World Map Advertising Platform with PayPal Payment Integration",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "concurrently --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "vercel dev",
+    "dev:backend": "cd backend && npm start",
+    "dev:backend:watch": "cd backend && npm run dev",
     "build": "echo 'No build step required'",
     "predeploy": "node scripts/update-all-folders-mtime.js",
     "deploy": "vercel --prod",
@@ -13,14 +16,14 @@
     "watch-folders:docs": "node scripts/update-folder-mtime.js docs"
   },
   "dependencies": {
-    "firebase-admin": "^12.0.0",
-    "firebase": "^10.7.1"
+    "firebase": "^10.7.1",
+    "firebase-admin": "^12.0.0"
   },
   "devDependencies": {
-    "chokidar": "^3.5.3"
+    "chokidar": "^3.5.3",
+    "concurrently": "^9.2.1"
   },
   "engines": {
     "node": ">=18.x"
   }
 }
-
