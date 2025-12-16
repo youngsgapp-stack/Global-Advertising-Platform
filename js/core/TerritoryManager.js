@@ -701,10 +701,21 @@ class TerritoryManager {
      * API 응답 데이터를 내부 형식으로 정규화
      */
     normalizeTerritoryData(apiTerritory) {
+        // 백엔드 API는 DB row를 직접 반환하므로 필드명이 snake_case
+        // ruler_firebase_uid를 우선 사용 (Firebase UID)
+        const rulerFirebaseUid = apiTerritory.ruler_firebase_uid;
+        const rulerId = apiTerritory.ruler_id;
+        const rulerName = apiTerritory.ruler_name || apiTerritory.ruler_nickname;
+        const sovereignty = apiTerritory.sovereignty || apiTerritory.status;
+        
         return {
             ...apiTerritory,
-            ruler: apiTerritory.ruler_id || apiTerritory.ruler,
-            rulerName: apiTerritory.ruler_name || apiTerritory.ruler_nickname,
+            ruler: rulerFirebaseUid || rulerId || apiTerritory.ruler, // Firebase UID 우선
+            rulerName: rulerName,
+            sovereignty: sovereignty,
+            // 호환성을 위해 기존 필드도 유지
+            ruler_id: rulerId,
+            ruler_firebase_uid: rulerFirebaseUid
         };
     }
     
