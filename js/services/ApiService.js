@@ -247,6 +247,16 @@ class ApiService {
     async getWallet() {
         return await this.get('/users/me/wallet');
     }
+    
+    /**
+     * 지갑 업데이트 (잔액 변경, 거래 내역 추가)
+     */
+    async updateWallet(balance, transaction = null) {
+        return await this.put('/users/me/wallet', {
+            balance: balance,
+            transaction: transaction
+        });
+    }
 }
 
 // ?��????�스?�스

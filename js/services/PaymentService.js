@@ -1214,10 +1214,58 @@ class PaymentService {
                         log.info('[PayPal] Step 2/3: Capture successful via server API', step2SuccessLog);
                         
                         // ============================================
-                        // 단계 3: UI 업데이트 및 완료 처리
+                        // 단계 3: 백엔드 API로 포인트 충전 (PostgreSQL 동기화)
                         // ============================================
                         const step3Log = {
-                            step: '3/3',
+                            step: '3/4',
+                            stage: '백엔드 API로 포인트 충전',
+                            orderID: captureResult.orderID,
+                            amount: amount,
+                            points: points,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
+                            console.log('🔵 [PayPal] ============================================');
+                            console.log('🔵 [PayPal] 단계 3/4: 백엔드 API로 포인트 충전 시작');
+                            console.log('🔵 [PayPal]', step3Log);
+                            console.log('🔵 [PayPal] ============================================');
+                        }
+                        log.info('[PayPal] Step 3/4: Adding points via backend API', step3Log);
+                        
+                        // 백엔드 API를 통해 PostgreSQL에 포인트 추가
+                        try {
+                            const { apiService } = await import('./ApiService.js');
+                            const currentWallet = await apiService.getWallet();
+                            const currentBalance = currentWallet?.balance || 0;
+                            const newBalance = currentBalance + points;
+                            
+                            await apiService.updateWallet(newBalance, {
+                                type: 'charge',
+                                amount: points,
+                                description: `PayPal charge: $${amount}`,
+                                referenceId: data.orderID
+                            });
+                            
+                            log.info('[PayPal] Step 3/4: Points added via backend API', {
+                                points: points,
+                                newBalance: newBalance
+                            });
+                        } catch (backendError) {
+                            log.error('[PayPal] Failed to add points via backend API:', backendError);
+                            // 백엔드 API 실패해도 계속 진행 (Firestore에는 이미 추가됨)
+                            // 사용자에게 경고 메시지 표시
+                            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                                type: 'warning',
+                                message: '포인트가 추가되었지만 일시적인 동기화 문제가 있을 수 있습니다. 잠시 후 새로고침해주세요.'
+                            });
+                        }
+                        
+                        // ============================================
+                        // 단계 4: UI 업데이트 및 완료 처리
+                        // ============================================
+                        const step4Log = {
+                            step: '4/4',
                             stage: 'UI 업데이트 및 완료',
                             orderID: captureResult.orderID,
                             amount: amount,
@@ -1227,13 +1275,13 @@ class PaymentService {
                         
                         if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
                             console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] 단계 3/3: UI 업데이트 시작');
-                            console.log('🔵 [PayPal]', step3Log);
+                            console.log('🔵 [PayPal] 단계 4/4: UI 업데이트 시작');
+                            console.log('🔵 [PayPal]', step4Log);
                             console.log('🔵 [PayPal] ============================================');
                         }
-                        log.info('[PayPal] Step 3/3: Updating UI', step3Log);
+                        log.info('[PayPal] Step 4/4: Updating UI', step4Log);
                         
-                        // 서버에서 이미 포인트 충전을 완료했으므로, 지갑 새로고침만 필요
+                        // 지갑 새로고침
                         await walletService.refreshBalance();
                         
                         // 성공 화면 표시
