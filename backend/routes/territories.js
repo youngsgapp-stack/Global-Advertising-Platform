@@ -705,6 +705,27 @@ router.post('/:id/purchase', async (req, res) => {
             
             const updatedTerritory = updateResult.rows[0];
             
+            // 사용자 정보 조회 (ruler_firebase_uid 포함)
+            let rulerFirebaseUid = null;
+            let rulerNickname = null;
+            if (updatedTerritory.ruler_id) {
+                const rulerResult = await query(
+                    `SELECT firebase_uid, nickname FROM users WHERE id = $1`,
+                    [updatedTerritory.ruler_id]
+                );
+                if (rulerResult.rows.length > 0) {
+                    rulerFirebaseUid = rulerResult.rows[0].firebase_uid;
+                    rulerNickname = rulerResult.rows[0].nickname;
+                }
+            }
+            
+            // 응답 형식을 GET 엔드포인트와 동일하게 맞춤
+            const responseTerritory = {
+                ...updatedTerritory,
+                ruler_firebase_uid: rulerFirebaseUid,
+                ruler_nickname: rulerNickname || updatedTerritory.ruler_name
+            };
+            
             // Redis 캐시 무효화
             await invalidateTerritoryCache(territoryId);
             
@@ -714,7 +735,8 @@ router.post('/:id/purchase', async (req, res) => {
                 status: updatedTerritory.status,
                 sovereignty: updatedTerritory.sovereignty,
                 rulerId: updatedTerritory.ruler_id,
-                rulerName: updatedTerritory.ruler_name,
+                rulerFirebaseUid: rulerFirebaseUid,
+                rulerName: rulerNickname || updatedTerritory.ruler_name,
                 previousRulerId: previousRulerId,
                 protectionEndsAt: updatedTerritory.protection_ends_at,
                 purchasedPrice: updatedTerritory.base_price,
@@ -724,7 +746,7 @@ router.post('/:id/purchase', async (req, res) => {
             
             res.json({
                 success: true,
-                territory: updatedTerritory,
+                territory: responseTerritory,
                 newBalance: newBalance,
                 message: 'Territory purchased successfully'
             });
