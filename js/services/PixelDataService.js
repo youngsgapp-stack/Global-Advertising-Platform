@@ -395,7 +395,7 @@ class PixelDataService {
                 };
             }
             
-            // 1. API를 통해 저장 (주요 저장소)
+            // 1. API를 통해 저장 (PostgreSQL이 유일 SoT - 전문가 조언 반영)
             try {
                 const { apiService } = await import('./ApiService.js');
                 await apiService.savePixelData(territoryId, {
@@ -403,11 +403,24 @@ class PixelDataService {
                     width: dataToSave.width || 64,
                     height: dataToSave.height || 64
                 });
-                log.info(`[PixelDataService] Saved pixel data to API for ${territoryId}`);
+                log.info(`[PixelDataService] ✅ Saved pixel data to API for ${territoryId}`);
             } catch (apiError) {
-                log.error(`[PixelDataService] Failed to save to API, falling back to Firestore:`, apiError);
-                // API 실패 시 Firestore fallback (하위 호환성)
-                await firebaseService.setDocument('pixelCanvases', territoryId, dataToSave);
+                // ⚠️ 전문가 조언: Firestore fallback 제거 (장애 은폐 방지)
+                // API 실패 시 재시도 가능한 형태로 에러 처리
+                log.error(`[PixelDataService] ❌ Failed to save to API for ${territoryId}:`, apiError);
+                
+                // 오프라인 복구 큐에 추가 (네트워크 복구 시 자동 재시도)
+                this.setupOfflineRecovery(territoryId, dataToSave);
+                
+                // 사용자에게 재시도 가능한 에러 알림
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'error',
+                    message: `픽셀 저장 실패: ${apiError.message || '네트워크 오류'}. 재시도 중...`,
+                    duration: 5000
+                });
+                
+                // 에러를 다시 throw하여 호출자가 처리할 수 있도록 함
+                throw new Error(`Failed to save pixel data: ${apiError.message}`);
             }
             
             // 2. 메모리 캐시 업데이트
@@ -429,28 +442,11 @@ class PixelDataService {
             this.pendingSaves.delete(territoryId);
             this.saveTimeouts.delete(territoryId);
             
-            log.info(`[PixelDataService] Saved pixel data to Firebase for ${territoryId} (${pixelData.filledPixels || 0} pixels)`);
+            log.info(`[PixelDataService] ✅ Saved pixel data for ${territoryId} (${dataToSave.filledPixels || 0} pixels)`);
             
-            // 영토의 lastActivityAt 업데이트 (활동 기반 유지권 시스템)
-            try {
-                // firebaseService의 getTimestamp() 사용 (올바른 Timestamp 객체 반환)
-                const Timestamp = firebaseService.getTimestamp();
-                if (Timestamp) {
-                    await firebaseService.updateDocument('territories', territoryId, {
-                        lastActivityAt: Timestamp.now()
-                    });
-                    log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId}`);
-                } else {
-                    // Timestamp를 사용할 수 없으면 Date 사용
-                    await firebaseService.updateDocument('territories', territoryId, {
-                        lastActivityAt: new Date()
-                    });
-                    log.debug(`[PixelDataService] Updated lastActivityAt for territory ${territoryId} (using Date)`);
-                }
-            } catch (error) {
-                log.warn(`[PixelDataService] Failed to update lastActivityAt for territory ${territoryId}:`, error);
-                // 영토 업데이트 실패해도 픽셀 저장은 성공한 것으로 처리
-            }
+            // ⚠️ 전문가 조언 반영: Postgres를 유일 SoT로 확정
+            // 영토의 lastActivityAt 업데이트는 백엔드 API에서 처리 (픽셀 저장 시 자동 업데이트)
+            // Firestore 직접 호출 제거 (장애 은폐 방지)
             
             // 이벤트 발행
             eventBus.emit(EVENTS.PIXEL_DATA_SAVED, {

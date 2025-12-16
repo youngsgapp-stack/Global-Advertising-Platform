@@ -1364,11 +1364,12 @@ class TerritoryManager {
                 updatedAt: nowTimestamp
             };
             
-            // ⚠️ 백엔드 API를 통한 영토 업데이트 (Firestore 대신)
-            log.info(`[TerritoryManager] 📤 [백엔드 API 호출] Updating territory via API: ${normalizedTerritoryId}`);
+            // ⚠️ 전문가 조언 반영: API 호출 시 Canonical ID 사용 (원본 territoryId)
+            // normalizedTerritoryId는 Display용이므로 API에는 사용하지 않음
+            log.info(`[TerritoryManager] 📤 [백엔드 API 호출] Updating territory via API: ${territoryId} (Canonical ID)`);
             log.info(`[TerritoryManager] 📤 업데이트할 데이터:`, {
-                territoryId: normalizedTerritoryId,
-                originalTerritoryId: territoryId,
+                territoryId: territoryId, // Canonical ID 사용
+                displayId: normalizedTerritoryId, // Display ID (참고용)
                 ruler: userId,
                 rulerName: userName,
                 sovereignty: territory.sovereignty,
@@ -1379,7 +1380,7 @@ class TerritoryManager {
             });
             
             try {
-                // 백엔드 API를 통한 영토 업데이트
+                // 백엔드 API를 통한 영토 업데이트 (Canonical ID 사용)
                 const updatePayload = {
                     rulerFirebaseUid: userId,  // Firebase UID 전달
                     rulerName: userName,
@@ -1389,9 +1390,10 @@ class TerritoryManager {
                     purchasedByAdmin: isAdmin || false
                 };
                 
-                const updatedTerritory = await apiService.updateTerritory(normalizedTerritoryId, updatePayload);
+                // ⚠️ 중요: 원본 territoryId 사용 (Canonical ID)
+                const updatedTerritory = await apiService.updateTerritory(territoryId, updatePayload);
                 
-                log.info(`[TerritoryManager] ✅✅✅ [백엔드 API 성공] Territory ${normalizedTerritoryId} conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated via API.`);
+                log.info(`[TerritoryManager] ✅✅✅ [백엔드 API 성공] Territory ${territoryId} (Canonical) conquered by ${userName}${isAdmin ? ' (Admin)' : ''}. Successfully updated via API.`);
                 
                 // API에서 반환된 데이터로 territory 객체 업데이트
                 if (updatedTerritory) {
@@ -1402,14 +1404,18 @@ class TerritoryManager {
                     territory.protectionEndsAt = normalized.protection_ends_at || normalized.protectionEndsAt || protectionEndsAt;
                     territory.updatedAt = new Date();
                     
-                    // ⚠️ 중요: territories Map에 업데이트된 territory 저장
-                    this.territories.set(normalizedTerritoryId, territory);
-                    log.info(`[TerritoryManager] ✅ Territory ${normalizedTerritoryId} updated in territories Map: ruler=${territory.ruler}, sovereignty=${territory.sovereignty}`);
+                    // ⚠️ 중요: territories Map에 업데이트된 territory 저장 (Canonical ID로 저장)
+                    this.territories.set(territoryId, territory);
+                    // Display ID로도 저장 (하위 호환성)
+                    if (normalizedTerritoryId !== territoryId) {
+                        this.territories.set(normalizedTerritoryId, territory);
+                    }
+                    log.info(`[TerritoryManager] ✅ Territory ${territoryId} (Canonical) updated in territories Map: ruler=${territory.ruler}, sovereignty=${territory.sovereignty}`);
                 }
             } catch (apiError) {
                 // API 오류 시 사용자에게 명확한 에러 메시지
                 if (apiError.message && (apiError.message.includes('already owned') || apiError.message.includes('ownership'))) {
-                    log.error(`[TerritoryManager] ❌ Territory ${normalizedTerritoryId} purchase failed: already owned`);
+                    log.error(`[TerritoryManager] ❌ Territory ${territoryId} (Canonical) purchase failed: already owned`);
                     throw apiError;
                 }
                 
@@ -1436,10 +1442,11 @@ class TerritoryManager {
                 }
             }
             
-            // 영토 업데이트 이벤트 발행 (territoryId도 포함)
+            // 영토 업데이트 이벤트 발행 (Canonical ID 사용)
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
                 territory,
-                territoryId: normalizedTerritoryId,
+                territoryId: territoryId, // Canonical ID
+                displayId: normalizedTerritoryId, // Display ID (참고용)
                 forceRefresh: true // 강제 새로고침
             });
             

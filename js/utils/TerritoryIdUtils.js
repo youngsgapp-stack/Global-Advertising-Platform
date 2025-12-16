@@ -250,3 +250,68 @@ export function matchTerritoryIds(id1, id2) {
     return id1.toLowerCase() === id2.toLowerCase();
 }
 
+/**
+ * 전문가 조언 반영: ID 계약 확정
+ * 
+ * Canonical ID: DB PK, 권한 체크, 결제/포인트, 픽셀 저장, 모든 참조키에 사용
+ * Display ID: UI/표시/검색/그룹핑용 (예: "USA::texas")
+ * 
+ * 현재 시스템: Canonical = "texas", Display = "USA::texas"
+ */
+
+/**
+ * Display ID에서 Canonical ID 추출
+ * @param {string} territoryId - Display ID (예: "USA::texas") 또는 Canonical ID (예: "texas")
+ * @returns {string} Canonical ID (예: "texas")
+ */
+export function getCanonicalId(territoryId) {
+    if (!territoryId || typeof territoryId !== 'string') {
+        return territoryId;
+    }
+    
+    // Display ID 형식인지 확인 (COUNTRY::ADMIN 형식)
+    const parsed = parseTerritoryId(territoryId);
+    if (parsed) {
+        // Display ID인 경우 adminCode를 Canonical ID로 사용
+        return parsed.adminCode.toLowerCase();
+    }
+    
+    // 이미 Canonical ID인 경우 그대로 반환
+    return territoryId.toLowerCase();
+}
+
+/**
+ * Canonical ID와 국가 코드로 Display ID 생성
+ * @param {string} canonicalId - Canonical ID (예: "texas")
+ * @param {string} countryCode - 국가 코드 (예: "USA" 또는 "usa")
+ * @returns {string} Display ID (예: "USA::texas")
+ */
+export function createDisplayId(canonicalId, countryCode) {
+    if (!canonicalId || !countryCode) {
+        return canonicalId;
+    }
+    
+    const normalizedCountryCode = String(countryCode).toUpperCase().trim();
+    const normalizedCanonicalId = String(canonicalId).toLowerCase().trim();
+    
+    return `${normalizedCountryCode}::${normalizedCanonicalId}`;
+}
+
+/**
+ * ID가 Display ID 형식인지 확인
+ * @param {string} territoryId - 확인할 ID
+ * @returns {boolean} Display ID 형식인지 여부
+ */
+export function isDisplayId(territoryId) {
+    return isValidTerritoryId(territoryId);
+}
+
+/**
+ * ID가 Canonical ID 형식인지 확인
+ * @param {string} territoryId - 확인할 ID
+ * @returns {boolean} Canonical ID 형식인지 여부 (Display ID가 아니면 Canonical로 간주)
+ */
+export function isCanonicalId(territoryId) {
+    return !isDisplayId(territoryId);
+}
+

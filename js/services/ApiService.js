@@ -198,6 +198,13 @@ class ApiService {
     }
     
     /**
+     * 영토 구매 (전문가 조언: 원자성 보장 - 포인트 차감과 소유권 부여를 하나의 트랜잭션으로)
+     */
+    async purchaseTerritory(territoryId, data) {
+        return await this.post(`/territories/${territoryId}/purchase`, data);
+    }
+    
+    /**
      * 픽셀 데이터 저장
      */
     async savePixelData(territoryId, pixelData) {

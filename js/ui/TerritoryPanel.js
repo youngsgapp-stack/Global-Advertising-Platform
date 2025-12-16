@@ -1964,37 +1964,37 @@ class TerritoryPanel {
                 return;
             }
             
-            // ⚠️ 사용자 피드백: 잔액 차감 시작
-            log.info(`[TerritoryPanel] 💰 Processing purchase: ${price} pt for ${territoryName} (${protectionDays || 'lifetime'} days)`);
+            // ⚠️ 전문가 조언 반영: 원자성 보장 - 백엔드 구매 엔드포인트 사용
+            log.info(`[TerritoryPanel] 💰 Processing purchase via API: ${price} pt for ${territoryName} (${protectionDays || 'lifetime'} days)`);
             
-            // 잔액 차감
-            await walletService.deductPoints(price, `Territory purchase: ${territoryName}`, 'purchase', {
-                territoryId: this.currentTerritory.id,
+            // 백엔드 구매 엔드포인트 호출 (포인트 차감과 소유권 부여를 하나의 트랜잭션으로 처리)
+            const { apiService } = await import('../services/ApiService.js');
+            const purchaseResult = await apiService.purchaseTerritory(this.currentTerritory.id, {
+                price: price,
                 protectionDays: protectionDays,
-                territoryName: territoryName
+                purchasedByAdmin: false
             });
             
-            // ⚠️ 사용자 피드백: 구매 처리 중
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'info',
-                message: '✅ 포인트 차감 완료. 영토 구매 처리 중...'
-            });
+            // 구매 성공 - 백엔드에서 이미 포인트 차감과 소유권 부여 완료
+            log.info(`[TerritoryPanel] ✅ Purchase successful via API:`, purchaseResult);
             
-            // 결제 시작 이벤트 (PaymentService에서 처리)
-            // protectionDays를 이벤트에 포함하여 TerritoryManager에서 사용할 수 있도록 함
-            eventBus.emit(EVENTS.PAYMENT_START, {
-                type: 'conquest',
+            // 지갑 잔액 업데이트 (백엔드에서 반환된 잔액으로 동기화)
+            if (purchaseResult.newBalance !== undefined) {
+                walletService.currentBalance = purchaseResult.newBalance;
+                eventBus.emit('wallet:balance_updated', { balance: purchaseResult.newBalance });
+            }
+            
+            // 영토 업데이트 이벤트 발행 (TerritoryManager가 자동으로 업데이트)
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                territory: purchaseResult.territory,
                 territoryId: this.currentTerritory.id,
-                territoryName: territoryName,
-                amount: price,
-                protectionDays: protectionDays, // null이면 평생
-                cancelAuction: !!activeAuction
+                forceRefresh: true
             });
             
             // ⚠️ 사용자 피드백: 성공
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: `🎉 ${territoryName} 구매 완료!`
+                message: `🎉 ${territoryName} 구매 완료! (잔액: ${purchaseResult.newBalance?.toLocaleString() || 'N/A'} pt)`
             });
             
         } catch (error) {
@@ -2026,18 +2026,11 @@ class TerritoryPanel {
                 message: errorMessage
             });
             
-            // 포인트 환불 시도 (구매 실패 시)
-            if (error.message?.includes('already owned') || error.message?.includes('Ownership changed')) {
-                try {
-                    const { walletService } = await import('../services/WalletService.js');
-                    await walletService.addPoints(price, `Refund: Purchase failed for ${territoryName}`, 'bid_refund', {
-                        territoryId: this.currentTerritory.id,
-                        reason: 'purchase_failed'
-                    });
-                    log.info(`[TerritoryPanel] ✅ Refunded ${price} pt due to purchase failure`);
-                } catch (refundError) {
-                    log.error('[TerritoryPanel] Failed to refund points:', refundError);
-                }
+            // ⚠️ 전문가 조언 반영: 백엔드에서 원자적으로 처리하므로 환불 불필요
+            // 구매 실패 시 백엔드에서 자동 롤백되므로 포인트는 차감되지 않음
+            // 단, 네트워크 오류 등으로 트랜잭션이 불명확한 경우에만 수동 확인 필요
+            if (error.message?.includes('timeout') || error.message?.includes('network')) {
+                log.warn(`[TerritoryPanel] ⚠️ Network error during purchase - transaction status unclear. Please check your balance.`);
             }
         }
     }
