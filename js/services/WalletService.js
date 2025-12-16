@@ -250,6 +250,7 @@ class WalletService {
             const userId = user.uid;
             
             // 지갑 업데이트 (API 사용)
+            const { apiService } = await import('./ApiService.js');
             const wallet = await apiService.getWallet();
             const newBalance = (wallet?.balance || 0) + amount;
             
@@ -258,7 +259,7 @@ class WalletService {
                 type: transactionType,
                 amount: amount,
                 description: description || 'Deposit',
-                referenceId: referenceId
+                referenceId: metadata.referenceId || null
             });
             
             // 거래 내역 저장
@@ -323,6 +324,7 @@ class WalletService {
             const userId = user.uid;
             
             // 지갑 업데이트 (API 사용)
+            const { apiService } = await import('./ApiService.js');
             const wallet = await apiService.getWallet();
             const newBalance = (wallet?.balance || 0) - amount;
             
@@ -335,7 +337,7 @@ class WalletService {
                 type: transactionType,
                 amount: -amount,
                 description: description || 'Withdrawal',
-                referenceId: referenceId
+                referenceId: metadata.referenceId || null
             });
             
             // 거래 내역 저장
