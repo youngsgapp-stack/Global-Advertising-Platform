@@ -317,7 +317,7 @@ class HistoryLogger {
             
             // API를 통해 히스토리 저장 (백엔드 API 엔드포인트 필요)
             try {
-                await apiService.post(`/api/territories/${territoryId}/history`, {
+                await apiService.post(`/territories/${territoryId}/history`, {
                     territoryId,
                     events: trimmedEvents,
                     lastUpdated: Date.now()
@@ -348,7 +348,7 @@ class HistoryLogger {
         
         // API에서 로드 (백엔드 API 엔드포인트 필요)
         try {
-            const data = await apiService.get(`/api/territories/${territoryId}/history`);
+            const data = await apiService.get(`/territories/${territoryId}/history`);
             if (data?.events) {
                 this.territoryHistories.set(territoryId, data.events);
                 return data.events.slice(-limit).reverse();

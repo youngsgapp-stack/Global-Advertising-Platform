@@ -450,6 +450,13 @@ class TerritoryPanel {
                 }
             }
             
+        }
+        
+        // 이름 추출 (displayName 우선 사용) - 먼저 선언
+        let territoryName = null;
+        
+        // countryCode 결정 (territoryName 사용 전에 완료)
+        if (territory.country && !countryCode) {
             // 여전히 없으면 territoryId에서 국가 코드 추출 시도
             if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
                 // territoryId 형식: "singapore-0", "usa-1" 등
@@ -458,7 +465,7 @@ class TerritoryPanel {
                     const possibleCountryCode = territoryIdParts[0];
                     if (CONFIG.COUNTRIES[possibleCountryCode]) {
                         countryCode = possibleCountryCode;
-                        log.debug(`[TerritoryPanel] Using country code from territoryId: ${countryCode} for ${territoryName}`);
+                        log.debug(`[TerritoryPanel] Using country code from territoryId: ${countryCode} for ${territory.id}`);
                     }
                 }
             }
@@ -467,12 +474,9 @@ class TerritoryPanel {
             // ⚠️ mapController.currentCountry를 사용하면 모든 territory의 country가 덮어써질 수 있음
             if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
                 countryCode = 'unknown';
-                log.warn(`[TerritoryPanel] Invalid country code: ${territory.country}, territory: ${territoryName}, properties: ${JSON.stringify(territory.properties)}`);
+                log.warn(`[TerritoryPanel] Invalid country code: ${territory.country}, territory: ${territory.id}, properties: ${JSON.stringify(territory.properties)}`);
             }
         }
-        
-        // 이름 추출 (displayName 우선 사용)
-        let territoryName = null;
         
         // 1. displayName 우선 사용 (TerritoryManager에서 준비된 표시용 이름)
         if (territory.displayName) {

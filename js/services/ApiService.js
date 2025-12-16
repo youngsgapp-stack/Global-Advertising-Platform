@@ -190,6 +190,27 @@ class ApiService {
         return await this.get(`/territories/${territoryId}/auctions/active`);
     }
     
+    /**
+     * 영토 업데이트 (소유권 변경, 상태 변경 등)
+     */
+    async updateTerritory(territoryId, data) {
+        return await this.put(`/territories/${territoryId}`, data);
+    }
+    
+    /**
+     * 픽셀 데이터 저장
+     */
+    async savePixelData(territoryId, pixelData) {
+        return await this.post(`/territories/${territoryId}/pixels`, pixelData);
+    }
+    
+    /**
+     * 픽셀 데이터 조회
+     */
+    async getPixelData(territoryId) {
+        return await this.get(`/territories/${territoryId}/pixels`);
+    }
+    
     // ============================================
     // 경매 API
     // ============================================
