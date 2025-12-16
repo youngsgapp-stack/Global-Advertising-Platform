@@ -158,6 +158,7 @@ router.get('/:id', async (req, res) => {
                 t.*,
                 u.nickname as ruler_nickname,
                 u.email as ruler_email,
+                u.firebase_uid as ruler_firebase_uid,
                 a.id as auction_id,
                 a.status as auction_status,
                 a.current_bid as auction_current_bid,
