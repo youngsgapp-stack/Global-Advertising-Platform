@@ -107,7 +107,7 @@ function validateTerritoryIdParam(territoryId, options = {}) {
     };
 }
 
-module.exports = {
+export {
     getCanonicalId,
     validateAndConvertTerritoryId,
     validateTerritoryIdParam
