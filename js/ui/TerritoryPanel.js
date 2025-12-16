@@ -97,10 +97,29 @@ class TerritoryPanel {
             // 이벤트의 territory 객체를 우선 사용 (단일 진실 원칙)
             let territory = null;
             
+            // TerritoryManager에서 최신 데이터 확인 (fallback용)
+            const territoryManagerData = territoryManager.getTerritory(territoryId);
+            
             // 이벤트 데이터에 territory 객체가 있으면 사용 (TerritoryManager가 완전히 하이드레이트한 객체)
             if (data.territory && data.territory.id) {
                 territory = data.territory;
                 log.info(`[TerritoryPanel] ✅ Using fully hydrated territory from event: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
+                
+                // 소유주 정보가 없으면 API에서 최신 데이터 가져오기
+                if (!territory.ruler || territory.ruler.trim() === '') {
+                    log.warn(`[TerritoryPanel] ⚠️ Territory from event has no ruler, fetching from API`);
+                    try {
+                        const apiTerritory = await apiService.getTerritory(territoryId);
+                        if (apiTerritory && apiTerritory.ruler_firebase_uid) {
+                            territory.ruler = apiTerritory.ruler_firebase_uid;
+                            territory.rulerName = apiTerritory.ruler_name || apiTerritory.ruler_nickname;
+                            territory.sovereignty = apiTerritory.sovereignty || apiTerritory.status || territory.sovereignty;
+                            log.info(`[TerritoryPanel] ✅ Updated territory from API: ruler=${territory.ruler}, rulerName=${territory.rulerName}`);
+                        }
+                    } catch (apiError) {
+                        log.warn(`[TerritoryPanel] ⚠️ Failed to fetch ruler from API:`, apiError);
+                    }
+                }
                 
                 // 이벤트 데이터의 추가 정보로 보완 (geometry, properties 등)
                 if (data.geometry) territory.geometry = data.geometry;
@@ -126,17 +145,17 @@ class TerritoryPanel {
                             id: apiTerritory.id || territoryId,
                             ruler: rulerFirebaseUid || rulerId || null, // Firebase UID 우선 사용
                             rulerName: rulerName || null,
-                            sovereignty: apiTerritory.sovereignty || apiTerritory.status || territoryManagerData?.sovereignty || 'unconquered',
-                            country: data.country || apiTerritory.country || territoryManagerData?.country,
-                            properties: data.properties || apiTerritory.properties || territoryManagerData?.properties || {},
-                            geometry: data.geometry || apiTerritory.geometry || apiTerritory.polygon || territoryManagerData?.geometry,
-                            sourceId: data.sourceId || apiTerritory.sourceId || territoryManagerData?.sourceId,
-                            featureId: data.featureId || apiTerritory.featureId || territoryManagerData?.featureId,
-                            protectionEndsAt: apiTerritory.protectionEndsAt || (apiTerritory.protection_ends_at ? new Date(apiTerritory.protection_ends_at) : null) || territoryManagerData?.protectionEndsAt,
-                            purchasedPrice: apiTerritory.purchasedPrice || apiTerritory.purchased_price || territoryManagerData?.purchasedPrice,
-                            viewCount: apiTerritory.viewCount || apiTerritory.view_count || territoryManagerData?.viewCount,
-                            name: apiTerritory.name || apiTerritory.name_en || data.properties?.name || data.properties?.name_en || territoryManagerData?.name || territoryId,
-                            displayName: territoryManagerData?.displayName || apiTerritory.displayName // TerritoryManager의 displayName 우선
+                            sovereignty: apiTerritory.sovereignty || apiTerritory.status || (territoryManagerData?.sovereignty) || 'unconquered',
+                            country: data.country || apiTerritory.country || (territoryManagerData?.country),
+                            properties: data.properties || apiTerritory.properties || (territoryManagerData?.properties) || {},
+                            geometry: data.geometry || apiTerritory.geometry || apiTerritory.polygon || (territoryManagerData?.geometry),
+                            sourceId: data.sourceId || apiTerritory.sourceId || (territoryManagerData?.sourceId),
+                            featureId: data.featureId || apiTerritory.featureId || (territoryManagerData?.featureId),
+                            protectionEndsAt: apiTerritory.protectionEndsAt || (apiTerritory.protection_ends_at ? new Date(apiTerritory.protection_ends_at) : null) || (territoryManagerData?.protectionEndsAt),
+                            purchasedPrice: apiTerritory.purchasedPrice || apiTerritory.purchased_price || (territoryManagerData?.purchasedPrice),
+                            viewCount: apiTerritory.viewCount || apiTerritory.view_count || (territoryManagerData?.viewCount),
+                            name: apiTerritory.name || apiTerritory.name_en || data.properties?.name || data.properties?.name_en || (territoryManagerData?.name) || territoryId,
+                            displayName: (territoryManagerData?.displayName) || apiTerritory.displayName // TerritoryManager의 displayName 우선
                         };
                         log.info(`[TerritoryPanel] ✅ Fetched territory from API: ruler=${territory.ruler}, rulerName=${territory.rulerName}, sovereignty=${territory.sovereignty}`);
                     }

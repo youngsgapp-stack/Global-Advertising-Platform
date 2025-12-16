@@ -796,9 +796,9 @@ class TerritoryManager {
                     if (apiData) {
                         const convertedData = {
                             ...apiData,
-                            ruler: apiData.ruler_id || apiData.ruler?.id,
-                            rulerName: apiData.ruler_name || apiData.ruler?.name,
-                            sovereignty: apiData.status || apiData.sovereignty,
+                            ruler: apiData.ruler_firebase_uid || apiData.ruler_id || apiData.ruler?.firebase_uid || apiData.ruler?.id, // Firebase UID 우선
+                            rulerName: apiData.ruler_name || apiData.ruler_nickname || apiData.ruler?.name,
+                            sovereignty: apiData.sovereignty || apiData.status,
                             price: apiData.base_price,
                         };
                         
@@ -819,15 +819,42 @@ class TerritoryManager {
                 }
             };
             
-            // 백그라운드에서 API 데이터 가져오기 (await 하지 않음)
-            fetchApiData().then(firestoreData => {
-                if (firestoreData) {
-                    // API 데이터가 오면 나중에 업데이트
-                    this.mergeApiData(territory, firestoreData, territoryId);
+            // ⚠️ 중요: 소유주 정보가 없으면 API 응답을 기다림 (최대 2초)
+            const hasRuler = territory.ruler && territory.ruler.trim() !== '';
+            if (!hasRuler) {
+                log.info(`[TerritoryManager] Territory ${territoryId} has no ruler, waiting for API response...`);
+                try {
+                    firestoreData = await Promise.race([
+                        fetchApiData(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+                    ]);
+                    if (firestoreData) {
+                        this.mergeApiData(territory, firestoreData, territoryId);
+                        log.info(`[TerritoryManager] ✅ Updated territory ${territoryId} with API data: ruler=${territory.ruler}`);
+                    }
+                } catch (timeoutError) {
+                    log.warn(`[TerritoryManager] ⚠️ API fetch timeout for ${territoryId}, proceeding with local data`);
+                    // 타임아웃 시 백그라운드로 계속 시도
+                    fetchApiData().then(firestoreData => {
+                        if (firestoreData) {
+                            this.mergeApiData(territory, firestoreData, territoryId);
+                            // 업데이트 후 이벤트 재발행
+                            eventBus.emit(EVENTS.TERRITORY_UPDATE, { territoryId, territory });
+                        }
+                    }).catch(err => {
+                        log.debug(`[TerritoryManager] Background API fetch failed for ${territoryId}:`, err.message);
+                    });
                 }
-            }).catch(err => {
-                log.debug(`[TerritoryManager] Background API fetch failed for ${territoryId}:`, err.message);
-            });
+            } else {
+                // 소유주가 있으면 백그라운드에서 업데이트만 수행
+                fetchApiData().then(firestoreData => {
+                    if (firestoreData) {
+                        this.mergeApiData(territory, firestoreData, territoryId);
+                    }
+                }).catch(err => {
+                    log.debug(`[TerritoryManager] Background API fetch failed for ${territoryId}:`, err.message);
+                });
+            }
             
             // 즉시 로컬 데이터로 진행 (API 응답을 기다리지 않음)
             firestoreData = null;
@@ -1121,8 +1148,8 @@ class TerritoryManager {
         }
         
         // API 데이터 병합
-        if (apiData.ruler) {
-            territory.ruler = apiData.ruler_id || apiData.ruler?.id || apiData.ruler;
+        if (apiData.ruler || apiData.ruler_firebase_uid || apiData.ruler_id) {
+            territory.ruler = apiData.ruler_firebase_uid || apiData.ruler || apiData.ruler_id || apiData.ruler?.firebase_uid || apiData.ruler?.id;
         }
         if (apiData.ruler_name || apiData.rulerName) {
             territory.rulerName = apiData.ruler_name || apiData.rulerName;
