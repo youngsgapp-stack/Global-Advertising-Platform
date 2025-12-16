@@ -1398,9 +1398,13 @@ class TerritoryManager {
                     const normalized = this.normalizeTerritoryData(updatedTerritory);
                     territory.ruler = normalized.ruler || userId;
                     territory.rulerName = normalized.ruler_name || normalized.rulerName || userName;
-                    territory.sovereignty = normalized.status || normalized.sovereignty || territory.sovereignty;
+                    territory.sovereignty = normalized.sovereignty || normalized.status || territory.sovereignty;
                     territory.protectionEndsAt = normalized.protection_ends_at || normalized.protectionEndsAt || protectionEndsAt;
                     territory.updatedAt = new Date();
+                    
+                    // ⚠️ 중요: territories Map에 업데이트된 territory 저장
+                    this.territories.set(normalizedTerritoryId, territory);
+                    log.info(`[TerritoryManager] ✅ Territory ${normalizedTerritoryId} updated in territories Map: ruler=${territory.ruler}, sovereignty=${territory.sovereignty}`);
                 }
             } catch (apiError) {
                 // API 오류 시 사용자에게 명확한 에러 메시지
@@ -1432,8 +1436,12 @@ class TerritoryManager {
                 }
             }
             
-            // 영토 업데이트 이벤트 발행
-            eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+            // 영토 업데이트 이벤트 발행 (territoryId도 포함)
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+                territory,
+                territoryId: normalizedTerritoryId,
+                forceRefresh: true // 강제 새로고침
+            });
             
             // 영토 정복 이벤트 발행 (소유권 변경 완료)
             // ⚠️ 주의: 이 이벤트는 다른 모듈에서 구독할 수 있지만, 

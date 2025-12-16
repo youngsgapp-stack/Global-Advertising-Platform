@@ -244,8 +244,16 @@ class TerritoryPanel {
         });
         
         eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
-            if (this.currentTerritory && this.currentTerritory.id === data.territory.id) {
-                this.updateContent(data.territory);
+            const territoryId = data.territoryId || (data.territory && data.territory.id);
+            if (this.currentTerritory && territoryId && this.currentTerritory.id === territoryId) {
+                // TerritoryManager에서 최신 데이터 가져오기
+                const latestTerritory = territoryManager.getTerritory(territoryId);
+                if (latestTerritory) {
+                    log.info(`[TerritoryPanel] 🔄 Updating panel for territory ${territoryId}: ruler=${latestTerritory.ruler}, sovereignty=${latestTerritory.sovereignty}`);
+                    this.updateContent(latestTerritory);
+                } else if (data.territory) {
+                    this.updateContent(data.territory);
+                }
             }
         });
     }
