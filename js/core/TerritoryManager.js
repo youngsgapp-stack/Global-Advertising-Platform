@@ -1585,7 +1585,7 @@ class TerritoryManager {
         try {
             // API를 통해 조회수 증가 (백엔드에서 atomic increment 처리)
             try {
-                await apiService.post(`/api/territories/${territoryId}/view`, {});
+                await apiService.post(`/territories/${territoryId}/view`, {});
                 
                 // 로컬 캐시 업데이트
                 const localTerritory = this.territories.get(territoryId);

@@ -111,39 +111,70 @@ class TerritoryPanel {
                 if (data.featureId) territory.featureId = data.featureId;
                 if (data.country) territory.country = data.country;
             } else {
-                // 이벤트에 territory 객체가 없으면 TerritoryManager에서 가져오기 (fallback)
-                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECTED event missing territory object, fetching from TerritoryManager`);
-                territory = territoryManager.getTerritory(territoryId);
-                if (territory) {
-                    // territory.id가 없으면 설정
-                    if (!territory.id) {
-                        territory.id = territoryId;
+                // 이벤트에 territory 객체가 없으면 API에서 최신 데이터 가져오기
+                log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECTED event missing territory object, fetching from API`);
+                try {
+                    // API에서 최신 영토 데이터 가져오기
+                    const apiTerritory = await apiService.getTerritory(territoryId);
+                    if (apiTerritory) {
+                        // 백엔드 API는 DB row를 직접 반환하므로 필드명이 snake_case
+                        const rulerId = apiTerritory.ruler_id;
+                        const rulerFirebaseUid = apiTerritory.ruler_firebase_uid; // 백엔드에서 firebase_uid 반환
+                        const rulerName = apiTerritory.ruler_name || apiTerritory.ruler_nickname;
+                        
+                        territory = {
+                            id: apiTerritory.id || territoryId,
+                            ruler: rulerFirebaseUid || rulerId || null, // Firebase UID 우선 사용
+                            rulerName: rulerName || null,
+                            sovereignty: apiTerritory.sovereignty || apiTerritory.status || territoryManagerData?.sovereignty || 'unconquered',
+                            country: data.country || apiTerritory.country || territoryManagerData?.country,
+                            properties: data.properties || apiTerritory.properties || territoryManagerData?.properties || {},
+                            geometry: data.geometry || apiTerritory.geometry || apiTerritory.polygon || territoryManagerData?.geometry,
+                            sourceId: data.sourceId || apiTerritory.sourceId || territoryManagerData?.sourceId,
+                            featureId: data.featureId || apiTerritory.featureId || territoryManagerData?.featureId,
+                            protectionEndsAt: apiTerritory.protectionEndsAt || (apiTerritory.protection_ends_at ? new Date(apiTerritory.protection_ends_at) : null) || territoryManagerData?.protectionEndsAt,
+                            purchasedPrice: apiTerritory.purchasedPrice || apiTerritory.purchased_price || territoryManagerData?.purchasedPrice,
+                            viewCount: apiTerritory.viewCount || apiTerritory.view_count || territoryManagerData?.viewCount,
+                            name: apiTerritory.name || apiTerritory.name_en || data.properties?.name || data.properties?.name_en || territoryManagerData?.name || territoryId,
+                            displayName: territoryManagerData?.displayName || apiTerritory.displayName // TerritoryManager의 displayName 우선
+                        };
+                        log.info(`[TerritoryPanel] ✅ Fetched territory from API: ruler=${territory.ruler}, rulerName=${territory.rulerName}, sovereignty=${territory.sovereignty}`);
                     }
-                    // 이벤트 데이터의 정확한 country와 properties로 업데이트
-                    if (data.country) {
-                        territory.country = data.country;
+                } catch (apiError) {
+                    log.warn(`[TerritoryPanel] ⚠️ Failed to fetch from API, falling back to TerritoryManager:`, apiError);
+                    // API 실패 시 TerritoryManager에서 가져오기 (fallback)
+                    territory = territoryManager.getTerritory(territoryId);
+                    if (territory) {
+                        // territory.id가 없으면 설정
+                        if (!territory.id) {
+                            territory.id = territoryId;
+                        }
+                        // 이벤트 데이터의 정확한 country와 properties로 업데이트
+                        if (data.country) {
+                            territory.country = data.country;
+                        }
+                        if (data.properties) {
+                            territory.properties = { ...territory.properties, ...data.properties };
+                        }
+                        if (data.sourceId) territory.sourceId = data.sourceId;
+                        if (data.featureId) territory.featureId = data.featureId;
+                        if (data.geometry) territory.geometry = data.geometry;
+                    } else {
+                        // TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성 (최후의 수단)
+                        log.error(`[TerritoryPanel] ❌ Territory ${territoryId} not found, creating from event data`);
+                        territory = {
+                            id: territoryId,
+                            name: data.properties?.name || data.properties?.name_en || territoryId,
+                            country: data.country,
+                            properties: data.properties,
+                            geometry: data.geometry,
+                            sourceId: data.sourceId,
+                            featureId: data.featureId,
+                            sovereignty: 'unconquered', // 기본값
+                            ruler: null,
+                            rulerName: null
+                        };
                     }
-                    if (data.properties) {
-                        territory.properties = { ...territory.properties, ...data.properties };
-                    }
-                    if (data.sourceId) territory.sourceId = data.sourceId;
-                    if (data.featureId) territory.featureId = data.featureId;
-                    if (data.geometry) territory.geometry = data.geometry;
-                } else {
-                    // TerritoryManager에 없으면 이벤트 데이터로 territory 객체 생성 (최후의 수단)
-                    log.error(`[TerritoryPanel] ❌ Territory ${territoryId} not found in TerritoryManager, creating from event data`);
-                    territory = {
-                        id: territoryId,
-                        name: data.properties?.name || data.properties?.name_en || territoryId,
-                        country: data.country,
-                        properties: data.properties,
-                        geometry: data.geometry,
-                        sourceId: data.sourceId,
-                        featureId: data.featureId,
-                        sovereignty: 'unconquered', // 기본값
-                        ruler: null,
-                        rulerName: null
-                    };
                 }
             }
             
