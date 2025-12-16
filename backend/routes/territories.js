@@ -302,6 +302,10 @@ router.put('/:id', async (req, res) => {
             updates.push(`status = $${paramIndex}`);
             params.push(mappedStatus);
             paramIndex++;
+            // sovereignty 필드도 함께 저장 (호환성)
+            updates.push(`sovereignty = $${paramIndex}`);
+            params.push(sovereignty);
+            paramIndex++;
         }
         
         if (protectionUntil !== undefined) {
@@ -374,23 +378,34 @@ router.put('/:id', async (req, res) => {
         
         // 사용자 정보 조회 (ruler 정보)
         let rulerNickname = null;
+        let updatedRulerFirebaseUid = null;
         if (updatedTerritory.ruler_id) {
             const rulerResult = await query(
-                `SELECT nickname, email FROM users WHERE id = $1`,
+                `SELECT nickname, email, firebase_uid FROM users WHERE id = $1`,
                 [updatedTerritory.ruler_id]
             );
             if (rulerResult.rows.length > 0) {
                 rulerNickname = rulerResult.rows[0].nickname || rulerResult.rows[0].email;
+                updatedRulerFirebaseUid = rulerResult.rows[0].firebase_uid;
             }
         }
+        
+        // 응답에 firebase_uid 포함
+        const responseTerritory = {
+            ...updatedTerritory,
+            ruler_firebase_uid: updatedRulerFirebaseUid,
+            ruler_name: rulerNickname || updatedTerritory.ruler_name,
+            sovereignty: updatedTerritory.sovereignty || updatedTerritory.status
+        };
         
         // WebSocket으로 영토 업데이트 브로드캐스트
         broadcastTerritoryUpdate(territoryId, {
             id: updatedTerritory.id,
             status: updatedTerritory.status,
-            sovereignty: updatedTerritory.status, // 호환성
+            sovereignty: updatedTerritory.sovereignty || updatedTerritory.status, // sovereignty 필드 우선
             previousStatus: previousStatus,
             rulerId: updatedTerritory.ruler_id,
+            rulerFirebaseUid: updatedRulerFirebaseUid,
             rulerName: rulerNickname || updatedTerritory.ruler_name,
             previousRulerId: previousRulerId,
             protectionEndsAt: updatedTerritory.protection_ends_at,
@@ -400,7 +415,7 @@ router.put('/:id', async (req, res) => {
             updatedAt: updatedTerritory.updated_at
         });
         
-        res.json(updatedTerritory);
+        res.json(responseTerritory);
         
     } catch (error) {
         await client.query('ROLLBACK');
