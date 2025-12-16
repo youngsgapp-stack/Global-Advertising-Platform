@@ -1984,12 +1984,44 @@ class TerritoryPanel {
                 eventBus.emit('wallet:balance_updated', { balance: purchaseResult.newBalance });
             }
             
-            // 영토 업데이트 이벤트 발행 (TerritoryManager가 자동으로 업데이트)
-            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
-                territory: purchaseResult.territory,
-                territoryId: this.currentTerritory.id,
-                forceRefresh: true
-            });
+            // ⚠️ 중요: 구매 후 영토 데이터를 API에서 다시 조회하여 최신 상태로 업데이트
+            try {
+                const { territoryManager } = await import('../core/TerritoryManager.js');
+                const { apiService } = await import('../services/ApiService.js');
+                
+                // API에서 최신 영토 데이터 조회
+                const freshTerritory = await apiService.getTerritory(this.currentTerritory.id);
+                
+                // TerritoryManager 형식으로 정규화
+                const normalizedTerritory = territoryManager.normalizeTerritoryData(freshTerritory);
+                
+                // TerritoryManager에 저장
+                territoryManager.territories.set(this.currentTerritory.id, normalizedTerritory);
+                
+                log.info(`[TerritoryPanel] ✅ Territory updated in TerritoryManager:`, {
+                    id: normalizedTerritory.id,
+                    ruler: normalizedTerritory.ruler,
+                    sovereignty: normalizedTerritory.sovereignty
+                });
+                
+                // 영토 업데이트 이벤트 발행 (정규화된 territory 사용)
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territory: normalizedTerritory,
+                    territoryId: this.currentTerritory.id,
+                    forceRefresh: true
+                });
+                
+                // TerritoryPanel도 즉시 새로고침
+                await this.render();
+            } catch (refreshError) {
+                log.error(`[TerritoryPanel] Failed to refresh territory after purchase:`, refreshError);
+                // 에러가 나도 구매는 성공했으므로 이벤트는 발행
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territory: purchaseResult.territory,
+                    territoryId: this.currentTerritory.id,
+                    forceRefresh: true
+                });
+            }
             
             // ⚠️ 사용자 피드백: 성공
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
