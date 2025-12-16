@@ -853,10 +853,18 @@ class PaymentService {
             return;
         }
         
+        // 재귀 호출 방지를 위한 플래그 설정
+        this.isRenderingPayPal = true;
+        
         // PayPal SDK 로드 확인
         if (typeof paypal === 'undefined') {
             log.warn('PayPal SDK not loaded yet, waiting...');
             // PayPal SDK 로드 대기 후 재시도 (최대 5회)
+            // 재귀 호출 방지를 위해 플래그 설정
+            if (this.isRenderingPayPal) {
+                return; // 이미 렌더링 중이면 중복 호출 방지
+            }
+            
             let retryCount = 0;
             const maxRetries = 5;
             const checkPayPal = setInterval(() => {
@@ -864,9 +872,14 @@ class PaymentService {
                 if (typeof paypal !== 'undefined') {
                     this.paypalLoaded = true;
                     clearInterval(checkPayPal);
-                    this.renderPayPalButton();
+                    // 재귀 호출 대신 직접 렌더링 로직 실행
+                    this.isRenderingPayPal = false; // 플래그 해제 후 재시도
+                    setTimeout(() => {
+                        this.renderPayPalButton();
+                    }, 100);
                 } else if (retryCount >= maxRetries) {
                     clearInterval(checkPayPal);
+                    this.isRenderingPayPal = false; // 플래그 해제
                     log.error('PayPal SDK failed to load after retries');
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'error',
@@ -883,6 +896,7 @@ class PaymentService {
         
         // paypal.Buttons가 사용 가능한지 확인
         if (typeof paypal.Buttons !== 'function') {
+            this.isRenderingPayPal = false; // 플래그 해제
             log.error('paypal.Buttons is not available');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
@@ -894,17 +908,20 @@ class PaymentService {
         // 컨테이너가 DOM에 존재하는지 확인
         const container = document.getElementById('paypal-button-container');
         if (!container) {
+            this.isRenderingPayPal = false; // 플래그 해제
             log.warn('PayPal button container not found in DOM');
             return;
         }
         
         // 모달이 닫혀있으면 버튼 렌더링 안 함
         if (this.modalContainer && this.modalContainer.classList.contains('hidden')) {
+            this.isRenderingPayPal = false; // 플래그 해제
             return;
         }
         
         // 선택된 패키지 또는 커스텀 금액이 없으면 버튼 렌더링 안 함
         if (!this.selectedPackage && !this.customAmount) {
+            this.isRenderingPayPal = false; // 플래그 해제
             if (container) {
                 container.innerHTML = '';
             }
@@ -936,6 +953,7 @@ class PaymentService {
         // 컨테이너가 여전히 DOM에 존재하는지 재확인
         const currentContainer = document.getElementById('paypal-button-container');
         if (!currentContainer || !currentContainer.isConnected) {
+            this.isRenderingPayPal = false; // 플래그 해제
             log.warn('PayPal button container removed from DOM before rendering');
             return;
         }
@@ -1440,6 +1458,15 @@ class PaymentService {
                     </div>
                 `;
             }
+        } finally {
+            // 모든 경로에서 플래그가 해제되었는지 확인 (안전장치)
+            // setTimeout으로 약간의 지연 후 플래그 해제 (렌더링 완료 대기)
+            setTimeout(() => {
+                if (this.isRenderingPayPal) {
+                    log.warn('PayPal rendering flag was not cleared, clearing now');
+                    this.isRenderingPayPal = false;
+                }
+            }, 5000); // 5초 후 안전장치로 플래그 해제
         }
     }
     

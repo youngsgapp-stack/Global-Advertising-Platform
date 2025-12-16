@@ -149,6 +149,14 @@ class WalletService {
                 balance: this.currentBalance
             });
             
+            // 새로고침 시 UI 업데이트를 보장하기 위해 약간의 지연 후 다시 이벤트 발행
+            setTimeout(() => {
+                log.info(`[WalletService] 🔄 Re-emitting BALANCE_UPDATED event after delay: balance=${this.currentBalance}`);
+                eventBus.emit(WALLET_EVENTS.BALANCE_UPDATED, {
+                    balance: this.currentBalance
+                });
+            }, 500);
+            
             log.info(`[WalletService] ✅ Wallet fully loaded: ${this.currentBalance} pt`);
             
         } catch (error) {

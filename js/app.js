@@ -625,6 +625,41 @@ class BillionaireApp {
             }
         });
         
+        // 새로고침 시 지갑 잔액 초기 업데이트 (페이지 로드 후)
+        // 여러 시점에서 확인하여 누락 방지
+        const updateBalanceOnLoad = () => {
+            const user = firebaseService.getCurrentUser();
+            if (user) {
+                const balance = walletService.getBalance();
+                if (balance !== null && balance !== undefined) {
+                    log.info(`[BillionaireApp] 💰 Initial wallet balance update on page load: ${balance} pt`);
+                    this.updateWalletUI(balance);
+                    return true; // 업데이트 성공
+                }
+            }
+            return false; // 아직 로딩 중
+        };
+        
+        // DOMContentLoaded 시도
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(updateBalanceOnLoad, 500);
+            });
+        } else {
+            // 이미 로드된 경우 즉시 시도
+            setTimeout(updateBalanceOnLoad, 500);
+        }
+        
+        // window.load 이벤트에서도 시도
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (!updateBalanceOnLoad()) {
+                    // 실패 시 1초 후 재시도
+                    setTimeout(updateBalanceOnLoad, 1000);
+                }
+            }, 1000);
+        });
+        
         // Payment success - handle territory conquest
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
             log.info(`[BillionaireApp] 💰 PAYMENT_SUCCESS event received:`, data);
