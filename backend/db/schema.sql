@@ -156,3 +156,36 @@ CREATE INDEX idx_admin_logs_action ON admin_logs(action);
 CREATE INDEX idx_admin_logs_admin_email ON admin_logs(admin_email);
 CREATE INDEX idx_admin_logs_created_at ON admin_logs(created_at DESC);
 
+-- 영토 History 테이블 (감사로그 - 전문가 조언 반영)
+-- append-only 불변 로그로 모든 영토 관련 이벤트 기록
+CREATE TABLE IF NOT EXISTS territory_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  territory_id VARCHAR(255) REFERENCES territories(id) NOT NULL,
+  user_id UUID REFERENCES users(id),
+  event_type VARCHAR(50) NOT NULL, -- 'purchase', 'ownership_change', 'pixel_save', 'protection_expired', etc.
+  metadata JSONB, -- 이벤트 상세 정보 (가격, 이전 소유자, 보호 기간 등)
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_territory_history_territory_id ON territory_history(territory_id);
+CREATE INDEX idx_territory_history_user_id ON territory_history(user_id);
+CREATE INDEX idx_territory_history_event_type ON territory_history(event_type);
+CREATE INDEX idx_territory_history_created_at ON territory_history(created_at DESC);
+
+-- 거래 내역 테이블 (wallet_transactions와 별도로 구매/입찰 거래 기록)
+CREATE TABLE IF NOT EXISTS transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) NOT NULL,
+  type VARCHAR(50) NOT NULL, -- 'purchase', 'bid', 'bid_refund', 'charge', 'reward', 'admin'
+  amount DECIMAL(10, 2) NOT NULL,
+  balance_after DECIMAL(10, 2) NOT NULL,
+  description TEXT,
+  reference_id VARCHAR(255), -- 관련 ID (territory_id, auction_id 등)
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX idx_transactions_type ON transactions(type);
+CREATE INDEX idx_transactions_reference_id ON transactions(reference_id);
+CREATE INDEX idx_transactions_created_at ON transactions(created_at DESC);
+

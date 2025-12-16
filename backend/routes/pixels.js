@@ -8,6 +8,7 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidatePixelCache } from '../redis/cache-utils.js';
 import { broadcastPixelUpdate } from '../websocket/index.js';
+import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 
 // 상위 레벨 라우터 (독립 라우트) - /api/pixels/* 경로용
 const topLevelRouter = express.Router();
@@ -89,7 +90,23 @@ const router = express.Router({ mergeParams: true }); // territories 라우터�
  */
 router.get('/', async (req, res) => {
     try {
-        const { territoryId } = req.params;
+        const { territoryId: territoryIdParam } = req.params;
+        
+        // ID 검증 및 Canonical ID 변환
+        const idValidation = validateTerritoryIdParam(territoryIdParam, {
+            strict: false,
+            autoConvert: true,
+            logWarning: true
+        });
+        
+        if (!idValidation || !idValidation.canonicalId) {
+            return res.status(400).json({ 
+                error: idValidation?.error || 'Invalid territory ID format',
+                received: territoryIdParam
+            });
+        }
+        
+        const territoryId = idValidation.canonicalId;
         
         // Redis에서 먼저 조회
         // pixel_data:${territoryId} 키에서 실제 픽셀 데이터 조회
@@ -136,9 +153,25 @@ router.get('/', async (req, res) => {
  */
 router.post('/', async (req, res) => {
     try {
-        const { territoryId } = req.params;
+        const { territoryId: territoryIdParam } = req.params;
         const { pixels, width, height } = req.body;
         const firebaseUid = req.user.uid;
+        
+        // ID 검증 및 Canonical ID 변환
+        const idValidation = validateTerritoryIdParam(territoryIdParam, {
+            strict: false,
+            autoConvert: true,
+            logWarning: true
+        });
+        
+        if (!idValidation || !idValidation.canonicalId) {
+            return res.status(400).json({ 
+                error: idValidation?.error || 'Invalid territory ID format',
+                received: territoryIdParam
+            });
+        }
+        
+        const territoryId = idValidation.canonicalId;
         
         // 사용자 ID 조회
         const userResult = await query(
@@ -209,8 +242,24 @@ router.post('/', async (req, res) => {
  */
 router.delete('/', async (req, res) => {
     try {
-        const { territoryId } = req.params;
+        const { territoryId: territoryIdParam } = req.params;
         const firebaseUid = req.user.uid;
+        
+        // ID 검증 및 Canonical ID 변환
+        const idValidation = validateTerritoryIdParam(territoryIdParam, {
+            strict: false,
+            autoConvert: true,
+            logWarning: true
+        });
+        
+        if (!idValidation || !idValidation.canonicalId) {
+            return res.status(400).json({ 
+                error: idValidation?.error || 'Invalid territory ID format',
+                received: territoryIdParam
+            });
+        }
+        
+        const territoryId = idValidation.canonicalId;
         
         // 사용자 ID 조회
         const userResult = await query(
