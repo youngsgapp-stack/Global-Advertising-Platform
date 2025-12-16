@@ -209,6 +209,41 @@ const redisObject = {
             return { cursor: '0', keys: [] };
         }
     },
+    
+    incr: async (key) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'upstash') {
+                // Upstash REST API
+                const result = await upstashRequest('incr', key);
+                return parseInt(result) || 0;
+            }
+            
+            // 일반 Redis
+            return await client.incr(key);
+        } catch (error) {
+            console.error('[Redis] incr error:', error);
+            return 0;
+        }
+    },
+    
+    expire: async (key, seconds) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'upstash') {
+                // Upstash REST API
+                await upstashRequest('expire', key, seconds);
+                return;
+            }
+            
+            // 일반 Redis
+            await client.expire(key, seconds);
+        } catch (error) {
+            console.error('[Redis] expire error:', error);
+        }
+    },
 };
 
 // 명시적으로 export
