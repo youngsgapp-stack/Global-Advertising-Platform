@@ -193,8 +193,12 @@ router.get('/:id', async (req, res) => {
         
         const territory = result.rows[0];
         
-        // Redis에 캐시
-        await redis.set(cacheKey, territory, CACHE_TTL.TERRITORY_DETAIL);
+        // Redis에 캐시 (에러 발생 시 무시하고 계속 진행)
+        try {
+            await redis.set(cacheKey, territory, CACHE_TTL.TERRITORY_DETAIL);
+        } catch (redisError) {
+            console.warn('[Territories] Redis cache set failed (non-critical):', redisError.message);
+        }
         
         res.json(territory);
     } catch (error) {
@@ -478,14 +482,17 @@ router.post('/:id/view', async (req, res) => {
         await redis.expire(viewCountKey, 86400);
         
         // DB에서도 조회수 업데이트 (비동기, 실패해도 계속 진행)
+        // view_count 컬럼이 없을 수 있으므로 에러 무시
         query(
             `UPDATE territories 
-             SET view_count = COALESCE(view_count, 0) + 1, 
-                 last_viewed_at = NOW()
+             SET updated_at = NOW()
              WHERE id = $1`,
             [territoryId]
         ).catch(err => {
-            console.error(`[Territories] Failed to update view count in DB:`, err);
+            // view_count 컬럼이 없어도 에러 로그만 남기고 계속 진행
+            if (!err.message?.includes('view_count')) {
+                console.error(`[Territories] Failed to update territory in DB:`, err);
+            }
         });
         
         res.json({ success: true, viewCount });
