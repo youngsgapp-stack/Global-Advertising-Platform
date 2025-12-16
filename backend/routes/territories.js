@@ -554,19 +554,22 @@ router.post('/:id/purchase', async (req, res) => {
             
             // 지갑 조회 및 잠금 (wallets 테이블 사용)
             const walletResult = await client.query(
-                `SELECT balance FROM wallets WHERE user_id = $1 FOR UPDATE`,
+                `SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE`,
                 [userId]
             );
             
             let currentBalance = 0;
+            let walletId = null;
             if (walletResult.rows.length === 0) {
                 // 지갑이 없으면 생성
-                await client.query(
-                    `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)`,
+                const insertResult = await client.query(
+                    `INSERT INTO wallets (user_id, balance) VALUES ($1, 0) RETURNING id`,
                     [userId]
                 );
+                walletId = insertResult.rows[0].id;
             } else {
                 currentBalance = parseFloat(walletResult.rows[0].balance || 0);
+                walletId = walletResult.rows[0].id;
             }
             
             // 2. 영토 정보 조회 및 잠금
@@ -621,12 +624,14 @@ router.post('/:id/purchase', async (req, res) => {
                 [newBalance, userId]
             );
             
-            // 거래 내역 기록
-            await client.query(
-                `INSERT INTO transactions (user_id, type, amount, balance_after, description, reference_id, created_at)
-                 VALUES ($1, 'purchase', $2, $3, $4, $5, NOW())`,
-                [userId, -purchasePrice, newBalance, `Territory purchase: ${territoryId}`, territoryId]
-            );
+            // 거래 내역 기록 (wallet_transactions 테이블 사용 - 기존 테이블 활용)
+            if (walletId) {
+                await client.query(
+                    `INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, description, reference_id)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [walletId, userId, 'purchase', -purchasePrice, `Territory purchase: ${territoryId}`, territoryId]
+                );
+            }
             
             // 보호 기간 계산
             let protectionEndsAt = null;
