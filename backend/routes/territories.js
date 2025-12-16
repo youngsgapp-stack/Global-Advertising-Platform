@@ -411,6 +411,39 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/territories/:id/view
+ * 영토 조회수 증가
+ */
+router.post('/:id/view', async (req, res) => {
+    try {
+        const { id: territoryId } = req.params;
+        
+        // Redis에서 조회수 증가 (atomic increment)
+        const viewCountKey = `territory:${territoryId}:views`;
+        const viewCount = await redis.incr(viewCountKey);
+        
+        // Redis TTL 설정 (1일)
+        await redis.expire(viewCountKey, 86400);
+        
+        // DB에서도 조회수 업데이트 (비동기, 실패해도 계속 진행)
+        query(
+            `UPDATE territories 
+             SET view_count = COALESCE(view_count, 0) + 1, 
+                 last_viewed_at = NOW()
+             WHERE id = $1`,
+            [territoryId]
+        ).catch(err => {
+            console.error(`[Territories] Failed to update view count in DB:`, err);
+        });
+        
+        res.json({ success: true, viewCount });
+    } catch (error) {
+        console.error('[Territories] View count error:', error);
+        res.status(500).json({ error: 'Failed to increment view count' });
+    }
+});
+
 // 픽셀 데이터 라우터 import 및 마운트
 import { pixelsRouter } from './pixels.js';
 router.use('/:territoryId/pixels', pixelsRouter);
