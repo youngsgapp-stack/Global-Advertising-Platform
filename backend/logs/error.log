@@ -1,0 +1,29 @@
+2025-12-11 18:37:24 [error]: ❌ Failed to start server: password authentication failed for user "postgres"
+error: password authentication failed for user "postgres"
+    at C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async initDatabase (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/db/init.js:153:24)
+    at async startServer (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/server.js:172:9) {"length":78,"name":"error","severity":"FATAL","code":"28P01"}
+2025-12-11 18:37:30 [error]: ❌ Failed to start server: password authentication failed for user "postgres"
+error: password authentication failed for user "postgres"
+    at C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async initDatabase (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/db/init.js:153:24)
+    at async startServer (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/server.js:172:9) {"length":78,"name":"error","severity":"FATAL","code":"28P01"}
+2025-12-11 18:37:47 [error]: ❌ Failed to start server: password authentication failed for user "postgres"
+error: password authentication failed for user "postgres"
+    at C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async initDatabase (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/db/init.js:153:24)
+    at async startServer (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/server.js:172:9) {"length":78,"name":"error","severity":"FATAL","code":"28P01"}
+2025-12-11 18:52:31 [error]: ❌ Failed to start server: password authentication failed for user "postgres"
+error: password authentication failed for user "postgres"
+    at C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async initDatabase (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/db/init.js:153:24)
+    at async startServer (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/server.js:172:9) {"length":78,"name":"error","severity":"FATAL","code":"28P01"}
+2025-12-11 18:57:55 [error]: ❌ Failed to start server: REDIS_URL environment variable is required
+Error: REDIS_URL environment variable is required
+    at initRedis (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/redis/init.js:24:15)
+    at startServer (file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/server.js:176:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
