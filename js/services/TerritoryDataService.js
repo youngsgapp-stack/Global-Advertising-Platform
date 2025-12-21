@@ -1115,6 +1115,11 @@ class TerritoryDataService {
      * 국가 통계 가져오기
      */
     getCountryStats(countryCode) {
+        // countryCode가 null이거나 undefined인 경우 null 반환
+        if (!countryCode) {
+            return null;
+        }
+        
         // ISO 3166-1 alpha-3 코드 변환
         const codeMap = {
             'usa': 'USA', 'south-korea': 'KOR', 'japan': 'JPN',
@@ -1131,8 +1136,8 @@ class TerritoryDataService {
             'peru': 'PER', 'nigeria': 'NGA', 'kenya': 'KEN'
         };
         
-        const iso3 = codeMap[countryCode] || countryCode.toUpperCase();
-        return this.countryStats.get(iso3) || null;
+        const iso3 = codeMap[countryCode] || (typeof countryCode === 'string' ? countryCode.toUpperCase() : null);
+        return iso3 ? (this.countryStats.get(iso3) || null) : null;
     }
     
     /**

@@ -142,12 +142,14 @@ class PixelMapRenderer3 {
         });
         
         // 영토 업데이트 시 파이프라인을 통한 갱신 (조건 없이 항상 실행)
+        // ⚠️ 이벤트 payload의 territory를 신뢰하지 않고 id만 사용
         eventBus.on(EVENTS.TERRITORY_UPDATE, async (data) => {
-            const territoryId = data.territory?.id || data.territoryId;
+            const territoryId = data.territoryId || (data.territory && data.territory.id);
             if (territoryId) {
                 // forceRefresh 플래그 전달
                 await this.updatePipeline.refreshTerritory(territoryId, {
-                    forceRefresh: data.forceRefresh || false
+                    forceRefresh: data.forceRefresh || false,
+                    revision: data.revision // revision 전달
                 });
             }
         });

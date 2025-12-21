@@ -1,5 +1,5 @@
-/**
- * ApiService - 백엔??REST API ?�라?�언?? * Firestore ?�???�로??백엔??API�??�용
+﻿/**
+ * ApiService - 諛깆뿏??REST API ?占쎈씪?占쎌뼵?? * Firestore ?占???占쎈줈??諛깆뿏??API占??占쎌슜
  */
 
 import { CONFIG, log } from '../config.js';
@@ -10,67 +10,120 @@ class ApiService {
     constructor() {
         this.baseUrl = CONFIG.API_BASE_URL || 'http://localhost:3000/api';
         this.initialized = false;
+        
+        // ⚠️ 공개 엔드포인트 목록 (인증 없이 접근 가능)
+        // 나머지는 무조건 인증 필요
+        this.PUBLIC_ENDPOINTS = [
+            '/territories',           // 영토 목록 조회 (공개)
+            '/territories/:id',       // 영토 상세 조회 (공개)
+            '/auctions',              // 경매 목록 조회 (공개)
+            '/auctions/:id',          // 경매 상세 조회 (공개)
+            '/health',                // 헬스 체크
+            '/map/snapshot'           // 맵 스냅샷 (공개)
+        ];
+        
+        // ⚠️ 인증 필수 엔드포인트 (절대 optional auth가 섞이면 안 됨)
+        this.AUTH_REQUIRED_ENDPOINTS = [
+            '/territories/:id/purchase',  // 구매
+            '/territories/:id/pixels',    // 픽셀 저장/조회
+            '/auctions/:id/bids',         // 입찰
+            '/users/me',                  // 사용자 정보
+            '/users/me/wallet',           // 지갑 정보
+            '/admin'                      // 관리자 엔드포인트 (모든 /admin/* 포함)
+        ];
     }
     
     /**
-     * 초기??     */
+     * 珥덇린??     */
     async initialize() {
         if (this.initialized) {
             return true;
         }
         
-        // ?�경???�라 API URL ?�정
+        // ?占쎄꼍???占쎈씪 API URL ?占쎌젙
         if (CONFIG.API_BASE_URL) {
-            // config.js?�서 ?��? ?�정??URL ?�용
+            // config.js?占쎌꽌 ?占쏙옙? ?占쎌젙??URL ?占쎌슜
             this.baseUrl = CONFIG.API_BASE_URL;
         } else if (typeof window !== 'undefined') {
-            // ?�로?�션 ?�경 ?�동 감�?
+            // ?占쎈줈?占쎌뀡 ?占쎄꼍 ?占쎈룞 媛먲옙?
             const hostname = window.location.hostname;
             const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
             
             if (isLocalhost) {
-                // 로컬 개발 ?�경
+                // 濡쒖뺄 媛쒕컻 ?占쎄꼍
                 this.baseUrl = 'http://localhost:3000/api';
             } else {
-                // ?�로?�션 ?�경 (localhost가 ?�닌 모든 경우)
+                // ?占쎈줈?占쎌뀡 ?占쎄꼍 (localhost媛 ?占쎈땶 紐⑤뱺 寃쎌슦)
                 this.baseUrl = 'https://global-advertising-platform-production.up.railway.app/api';
             }
         } else {
-            // 기본�?(?�버 ?�이???�더�???
+            // 湲곕낯占?(?占쎈쾭 ?占쎌씠???占쎈뜑占???
             this.baseUrl = 'http://localhost:3000/api';
         }
         
         this.initialized = true;
         log.info(`[ApiService] ??Initialized with base URL: ${this.baseUrl}`);
-        log.info(`[ApiService] ?�� Environment: ${typeof window !== 'undefined' ? window.location.hostname : 'server-side'}`);
+        log.info(`[ApiService] ?占쏙옙 Environment: ${typeof window !== 'undefined' ? window.location.hostname : 'server-side'}`);
         return true;
     }
     
     /**
-     * Firebase ID ?�큰 가?�오�?     */
+     * Firebase ID ?占쏀겙 媛?占쎌삤占?     */
     async getAuthToken() {
-        const user = firebaseService.getCurrentUser();
+        // getRealAuthUser()瑜??ъ슜?섏뿬 ?ㅼ젣 Firebase ?ъ슜??媛앹껜 媛?몄삤湲?       
+        const user = firebaseService.getRealAuthUser();
         if (!user) {
             throw new Error('User not authenticated');
+        }
+        // Firebase ?ъ슜??媛앹껜?몄? ?뺤씤
+        if (typeof user.getIdToken !== 'function') {
+            log.error('[ApiService] getAuthToken - user is not a valid Firebase user object:', user);
+            throw new Error('Invalid user object - getIdToken is not a function');
         }
         return await user.getIdToken();
     }
     
     /**
-     * API ?�청 ?�퍼
+     * API ?占쎌껌 ?占쏀띁
      */
     async request(endpoint, options = {}) {
         await this.initialize();
         
         const url = `${this.baseUrl}${endpoint}`;
-        const token = await this.getAuthToken();
+        
+        // ⚠️ 엔드포인트 등급 확인: 공개 vs 인증 필수
+        const isPublicEndpoint = this.isPublicEndpoint(endpoint);
+        const isAuthRequired = this.isAuthRequiredEndpoint(endpoint);
+        
+        // 선택적 인증: 공개 엔드포인트는 인증 없이도 접근 가능
+        let token = null;
+        if (isAuthRequired) {
+            // 인증 필수 엔드포인트는 반드시 토큰 필요
+            token = await this.getAuthToken();
+        } else {
+            // 공개 엔드포인트는 선택적 인증
+            try {
+                token = await this.getAuthToken();
+            } catch (error) {
+                // 사용자가 로그인하지 않은 경우 (공개 엔드포인트는 허용)
+                if (error.message === 'User not authenticated' || error.message.includes('not authenticated')) {
+                    log.debug(`[ApiService] No authentication token for ${endpoint} (public endpoint)`);
+                } else {
+                    throw error;
+                }
+            }
+        }
         
         const defaultOptions = {
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
             },
         };
+        
+        // 토큰이 있으면 Authorization 헤더 추가
+        if (token) {
+            defaultOptions.headers['Authorization'] = `Bearer ${token}`;
+        }
         
         const finalOptions = {
             ...defaultOptions,
@@ -81,7 +134,7 @@ class ApiService {
             },
         };
         
-        // ?�?�아???�정 (기본 30�?
+        // ?占?占쎌븘???占쎌젙 (湲곕낯 30占?
         const timeout = options.timeout || 30000;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -105,17 +158,18 @@ class ApiService {
         } catch (error) {
             clearTimeout(timeoutId);
             
-            // ?�트?�크 ?�러 처리
+            // ?占쏀듃?占쏀겕 ?占쎈윭 泥섎━
             if (error.name === 'AbortError') {
                 const timeoutError = new Error('Request timeout - server may be offline');
                 log.error(`[ApiService] Request timeout: ${endpoint}`, { url, timeout });
                 throw timeoutError;
             }
             
-            // ?�결 거�? ?�러 처리
+            // ?占쎄껐 嫄곤옙? ?占쎈윭 泥섎━
             if (error.message?.includes('Failed to fetch') || 
                 error.message?.includes('NetworkError') ||
                 error.message?.includes('ERR_CONNECTION_REFUSED') ||
+                error.message?.includes('ERR_CONNECTION_RESET') ||
                 error.message?.includes('ERR_NETWORK_CHANGED')) {
                 const connectionError = new Error('Connection refused - server may be offline');
                 log.error(`[ApiService] Connection error: ${endpoint}`, { url, error: error.message });
@@ -128,14 +182,14 @@ class ApiService {
     }
     
     /**
-     * GET ?�청
+     * GET ?占쎌껌
      */
     async get(endpoint) {
         return await this.request(endpoint, { method: 'GET' });
     }
     
     /**
-     * POST ?�청
+     * POST ?占쎌껌
      */
     async post(endpoint, data) {
         return await this.request(endpoint, {
@@ -145,7 +199,7 @@ class ApiService {
     }
     
     /**
-     * PUT ?�청
+     * PUT ?占쎌껌
      */
     async put(endpoint, data) {
         return await this.request(endpoint, {
@@ -155,87 +209,129 @@ class ApiService {
     }
     
     /**
-     * DELETE ?�청
+     * DELETE ?占쎌껌
      */
     async delete(endpoint) {
         return await this.request(endpoint, { method: 'DELETE' });
     }
     
     // ============================================
-    // �?API
+    // 占?API
     // ============================================
     
     /**
-     * �??�냅??조회
+     * 占??占쎈깄??議고쉶
      */
     async getMapSnapshot() {
         return await this.get('/map/snapshot');
     }
     
     // ============================================
-    // ?�토 API
+    // ?占쏀넗 API
     // ============================================
     
     /**
-     * ?�토 ?�세 조회
+     * ?占쏀넗 ?占쎌꽭 議고쉶
      */
-    async getTerritory(id) {
-        return await this.get(`/territories/${id}`);
+
+    /**
+     * 영토 목록 조회
+     */
+    async getTerritories(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        const endpoint = queryString ? `/territories?${queryString}` : '/territories';
+        return await this.get(endpoint);
     }
     
     /**
-     * ?�토???�성 경매 조회
+     * 영토 상세 조회
+     * @param {string} id - Territory ID
+     * @param {object} options - 옵션
+     * @param {boolean} options.skipCache - 캐시 우회 (reconcile 시 사용)
+     */
+    async getTerritory(id, options = {}) {
+        const { skipCache = false } = options;
+        let endpoint = `/territories/${id}`;
+        
+        // 캐시 우회 옵션이 있으면 쿼리 파라미터 추가
+        if (skipCache) {
+            endpoint += '?skipCache=true';
+        }
+        
+        // 또는 헤더로 전달 (더 명확함)
+        const headers = skipCache ? { 'X-Skip-Cache': 'true' } : {};
+        
+        return await this.request(endpoint, { 
+            method: 'GET',
+            headers
+        });
+    }
+    
+    /**
+     * ?占쏀넗???占쎌꽦 寃쎈ℓ 議고쉶
      */
     async getTerritoryActiveAuction(territoryId) {
         return await this.get(`/territories/${territoryId}/auctions/active`);
     }
     
     /**
-     * 영토 업데이트 (소유권 변경, 상태 변경 등)
+     * ?곹넗 ?낅뜲?댄듃 (?뚯쑀沅?蹂寃? ?곹깭 蹂寃???
      */
     async updateTerritory(territoryId, data) {
         return await this.put(`/territories/${territoryId}`, data);
     }
     
     /**
-     * 영토 구매 (전문가 조언: 원자성 보장 - 포인트 차감과 소유권 부여를 하나의 트랜잭션으로)
+     * ?곹넗 援щℓ (?꾨Ц媛 議곗뼵: ?먯옄??蹂댁옣 - ?ъ씤??李④컧怨??뚯쑀沅?遺?щ? ?섎굹???몃옖??뀡?쇰줈)
      */
     async purchaseTerritory(territoryId, data) {
-        return await this.post(`/territories/${territoryId}/purchase`, data);
+        log.info(`[ApiService] ?썟 purchaseTerritory called:`, { territoryId, data });
+        try {
+            const result = await this.post(`/territories/${territoryId}/purchase`, data);
+            log.info(`[ApiService] ??purchaseTerritory success:`, result);
+            return result;
+        } catch (error) {
+            log.error(`[ApiService] ??purchaseTerritory failed:`, {
+                territoryId,
+                data,
+                error: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
     }
     
     /**
-     * 픽셀 데이터 저장
-     */
+     * ?쎌? ?곗씠?????     */
     async savePixelData(territoryId, pixelData) {
         return await this.post(`/territories/${territoryId}/pixels`, pixelData);
     }
     
     /**
-     * 픽셀 데이터 조회
+     * ?쎌? ?곗씠??議고쉶
      */
     async getPixelData(territoryId) {
         return await this.get(`/territories/${territoryId}/pixels`);
     }
     
     // ============================================
-    // 경매 API
+    // 寃쎈ℓ API
     // ============================================
     
     /**
-     * 경매 ?�세 조회
+     * 寃쎈ℓ ?占쎌꽭 議고쉶
      */
     async getAuction(id) {
         return await this.get(`/auctions/${id}`);
     }
     
     /**
-     * ?�찰 ?�성
+     * ?占쎌같 ?占쎌꽦
      */
     async placeBid(auctionId, amount) {
         const result = await this.post(`/auctions/${auctionId}/bids`, { amount });
         
-        // ?�답 ?�식 변??(?�환??
+        // ?占쎈떟 ?占쎌떇 蹂??(?占쏀솚??
         if (result.bid) {
             return {
                 ...result.bid,
@@ -247,7 +343,7 @@ class ApiService {
     }
     
     /**
-     * ?�성 경매 목록 조회
+     * ?占쎌꽦 寃쎈ℓ 紐⑸줉 議고쉶
      */
     async getActiveAuctions(options = {}) {
         const { country, season, limit } = options;
@@ -259,25 +355,25 @@ class ApiService {
     }
     
     // ============================================
-    // ?�용??API
+    // ?占쎌슜??API
     // ============================================
     
     /**
-     * ?�재 ?�용???�보 조회
+     * ?占쎌옱 ?占쎌슜???占쎈낫 議고쉶
      */
     async getCurrentUser() {
         return await this.get('/users/me');
     }
     
     /**
-     * ?�재 ?�용??지�?조회
+     * ?占쎌옱 ?占쎌슜??吏占?議고쉶
      */
     async getWallet() {
         return await this.get('/users/me/wallet');
     }
     
     /**
-     * 지갑 업데이트 (잔액 변경, 거래 내역 추가)
+     * 吏媛??낅뜲?댄듃 (?붿븸 蹂寃? 嫄곕옒 ?댁뿭 異붽?)
      */
     async updateWallet(balance, transaction = null) {
         return await this.put('/users/me/wallet', {
@@ -285,8 +381,75 @@ class ApiService {
             transaction: transaction
         });
     }
+    
+    /**
+     * 엔드포인트가 공개 엔드포인트인지 확인
+     * 
+     * @param {string} endpoint - 엔드포인트 경로
+     * @returns {boolean}
+     */
+    isPublicEndpoint(endpoint) {
+        // PUBLIC_ENDPOINTS가 정의되어 있지 않으면 false
+        if (!this.PUBLIC_ENDPOINTS || !Array.isArray(this.PUBLIC_ENDPOINTS)) {
+            return false;
+        }
+        
+        // 정확한 매칭 또는 prefix 매칭
+        return this.PUBLIC_ENDPOINTS.some(pattern => {
+            // 정확한 매칭
+            if (endpoint === pattern) {
+                return true;
+            }
+            // prefix 매칭 (예: '/territories'는 '/territories/123'과 매칭)
+            if (endpoint.startsWith(pattern + '/')) {
+                return true;
+            }
+            // 패턴 매칭 (간단한 구현) - :id 같은 파라미터 처리
+            try {
+                const regexPattern = '^' + pattern.replace(/:[^/]+/g, '[^/]+') + '$';
+                const regex = new RegExp(regexPattern);
+                return regex.test(endpoint);
+            } catch (e) {
+                return false;
+            }
+        });
+    }
+    
+    /**
+     * 엔드포인트가 인증 필수인지 확인
+     * 
+     * @param {string} endpoint - 엔드포인트 경로
+     * @returns {boolean}
+     */
+    isAuthRequiredEndpoint(endpoint) {
+        // AUTH_REQUIRED_ENDPOINTS가 정의되어 있지 않으면 기본 규칙 사용
+        if (!this.AUTH_REQUIRED_ENDPOINTS || !Array.isArray(this.AUTH_REQUIRED_ENDPOINTS)) {
+            // 기본적으로 /users/me, /purchase, /pixels 등은 인증 필요
+            return endpoint.includes('/users/me') || 
+                   endpoint.includes('/purchase') || 
+                   endpoint.includes('/pixels') ||
+                   endpoint.includes('/bids') ||
+                   endpoint.includes('/admin');
+        }
+        
+        // prefix 매칭 (예: '/users/me'는 '/users/me/wallet'과 매칭)
+        return this.AUTH_REQUIRED_ENDPOINTS.some(pattern => {
+            if (endpoint.startsWith(pattern)) {
+                return true;
+            }
+            // 패턴 매칭 (간단한 구현)
+            try {
+                const regexPattern = '^' + pattern.replace(/:[^/]+/g, '[^/]+') + '$';
+                const regex = new RegExp(regexPattern);
+                return regex.test(endpoint);
+            } catch (e) {
+                return false;
+            }
+        });
+    }
 }
 
-// ?��????�스?�스
+// ?占쏙옙????占쎌뒪?占쎌뒪
 export const apiService = new ApiService();
+
 

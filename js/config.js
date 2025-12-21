@@ -419,11 +419,13 @@ const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^localho
 export const IS_DEV = isLocalNetwork || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 // 로깅 헬퍼
+const ENABLE_DEBUG_LOGS = false; // 디버깅 로그 활성화 여부 (필요시 true로 변경)
+
 export const log = {
-    info: (...args) => (IS_DEV || true) && console.log('[v2]', ...args), // 임시로 항상 로그 출력
+    info: (...args) => ENABLE_DEBUG_LOGS && console.log('[v2]', ...args),
     warn: (...args) => console.warn('[v2]', ...args),
     error: (...args) => console.error('[v2]', ...args),
-    debug: (...args) => (IS_DEV || true) && console.debug('[v2]', ...args) // 임시로 항상 로그 출력
+    debug: (...args) => ENABLE_DEBUG_LOGS && console.debug('[v2]', ...args)
 };
 
 export default CONFIG;

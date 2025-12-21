@@ -22,12 +22,15 @@ export const PROTECTION_PERIOD = 7 * 24 * 60 * 60 * 1000; // 7일
 
 class TerritoryManager {
     constructor() {
-        this.territories = new Map();
+        this.territories = new Map(); // territoryId -> { territory, fetchedAt, revision }
         this.currentTerritory = null;
         this.unsubscribers = [];
         this.processingTerritoryId = null; // 무한 루프 방지
         this.processingConquest = new Set(); // 구매 처리 중인 territoryId 추적
         this.isoToSlugMap = null; // ISO 코드 -> 슬러그 매핑 캐시
+        
+        // ⚠️ 캐시 TTL 설정 (기본 5분)
+        this.CACHE_TTL_MS = 5 * 60 * 1000; // 5분
         this.protectionCheckInterval = null; // 보호 기간 체크 인터벌
         this._lastFetched = new Map(); // ⚡ 캐시: territoryId -> 마지막 fetch 시간 (가이드 권장)
         this.CACHE_TTL = 30 * 1000; // ⚡ 30초 캐시 (가이드 권장)
@@ -134,11 +137,34 @@ class TerritoryManager {
             // 현지어 이름 매핑 테이블 로드
             await this.loadLocalNames();
             
+            // ⚠️ 전문가 조언 반영: 이벤트 리스너를 먼저 설정하여 로그인 이벤트를 놓치지 않도록
+            // 타이밍 이슈 해결: setupEventListeners()를 먼저 호출하여 AUTH_STATE_CHANGED 이벤트를 구독
+            this.setupEventListeners();
+            
             // Firestore에서 영토 데이터 로드
             await this.loadTerritoriesFromFirestore();
             
-            // 이벤트 리스너 설정
-            this.setupEventListeners();
+            // ⚠️ 타이밍 이슈 해결: initialize() 시점에 이미 로그인되어 있을 수 있으므로
+            // 잠시 후 한 번 더 확인 (onAuthStateChanged가 아직 호출되지 않았을 수 있음)
+            setTimeout(async () => {
+                const realAuthUser = firebaseService.getRealAuthUser ? firebaseService.getRealAuthUser() : null;
+                const currentUser = firebaseService.getCurrentUser();
+                const user = realAuthUser || currentUser;
+                
+                log.info('[TerritoryManager] 🔄 Retry check after 2s delay...');
+                log.info('[TerritoryManager] 🔄 getRealAuthUser():', realAuthUser ? `${realAuthUser.email}` : 'null');
+                log.info('[TerritoryManager] 🔄 getCurrentUser():', currentUser ? `${currentUser.email}` : 'null');
+                log.info('[TerritoryManager] 🔄 territories.size:', this.territories.size);
+                
+                if (user && this.territories.size === 0) {
+                    log.info('[TerritoryManager] 🔄 Retrying loadTerritoriesFromFirestore() after delay (user was already logged in)');
+                    await this.loadTerritoriesFromFirestore();
+                } else if (!user) {
+                    log.info('[TerritoryManager] ⚠️ Still no user after delay, waiting for AUTH_STATE_CHANGED event');
+                } else {
+                    log.info('[TerritoryManager] ✅ Territories already loaded, skipping retry');
+                }
+            }, 2000); // 2초 후 재시도
             
             // ⚠️ CRITICAL: 주기적으로 보호 기간 체크 (서버 cron 실패 시 대비)
             this.startProtectionPeriodCheck();
@@ -275,7 +301,7 @@ class TerritoryManager {
                     const territoryCount = Object.keys(this.localNames[country]).length;
                     log.info(`[TerritoryManager] ✅ ${country}: ${territoryCount} territories`);
                 } else {
-                    log.warn(`[TerritoryManager] ⚠️ ${country} not found in local-names.json`);
+                    log.debug(`[TerritoryManager] ${country} not found in local-names.json`);
                 }
             }
         } catch (error) {
@@ -341,7 +367,7 @@ class TerritoryManager {
         if (countryCode && normalizedTerritoryId && this.localNames) {
             localName = this.getLocalName(countryCode, normalizedTerritoryId);
         } else if (countryCode && normalizedTerritoryId && !this.localNames) {
-            log.warn(`[TerritoryManager] ⚠️ this.localNames is not loaded yet for ${normalizedTerritoryId} in ${countryCode}`);
+            log.debug(`[TerritoryManager] this.localNames is not loaded yet for ${normalizedTerritoryId} in ${countryCode}`);
         }
         
         // 디버깅: 상세 로그 (항상 출력)
@@ -358,39 +384,17 @@ class TerritoryManager {
             }
             
             if (!localName) {
-                log.warn(`[TerritoryManager] ⚠️ localName is null for ${normalizedTerritoryId} in ${countryCode}. Checking local-names.json...`);
-                // local-names.json에 해당 국가가 있는지 확인
+                // 디버그 레벨로 변경하여 로그 감소 (에러만 유지)
                 if (!this.localNames) {
                     log.error(`[TerritoryManager] ❌ this.localNames is null or undefined! local-names.json may not be loaded yet.`);
                 } else if (Object.keys(this.localNames).length === 0) {
                     log.error(`[TerritoryManager] ❌ this.localNames is empty object! local-names.json may have failed to load.`);
-                } else if (this.localNames[countryCode]) {
-                    const countryKeys = Object.keys(this.localNames[countryCode]);
-                    log.info(`[TerritoryManager] Available territories in ${countryCode}: ${countryKeys.slice(0, 10).join(', ')}${countryKeys.length > 10 ? '...' : ''} (total: ${countryKeys.length})`);
-                    // 유사한 키 찾기
-                    const similarKeys = countryKeys.filter(key => 
-                        key.includes(normalizedTerritoryId) || normalizedTerritoryId.includes(key)
-                    );
-                    if (similarKeys.length > 0) {
-                        log.warn(`[TerritoryManager] ⚠️ Similar keys found: ${similarKeys.join(', ')}`);
-                    } else {
-                        log.warn(`[TerritoryManager] ⚠️ Territory ${normalizedTerritoryId} not found in ${countryCode}. Available keys: ${countryKeys.slice(0, 5).join(', ')}...`);
-                    }
                 } else {
-                    // 국가 코드가 다른 형식일 수 있으므로 모든 키 확인
-                    const allCountryCodes = Object.keys(this.localNames);
-                    log.warn(`[TerritoryManager] ⚠️ Country ${countryCode} not found in local-names.json. Available countries: ${allCountryCodes.slice(0, 10).join(', ')}${allCountryCodes.length > 10 ? '...' : ''} (total: ${allCountryCodes.length})`);
-                    // 유사한 국가 코드 찾기
-                    const similarCountries = allCountryCodes.filter(code => 
-                        code.includes(countryCode) || countryCode.includes(code)
-                    );
-                    if (similarCountries.length > 0) {
-                        log.warn(`[TerritoryManager] ⚠️ Similar country codes found: ${similarCountries.join(', ')}`);
-                    }
+                    log.debug(`[TerritoryManager] localName is null for ${normalizedTerritoryId} in ${countryCode}`);
                 }
             }
         } else {
-            log.warn(`[TerritoryManager] ⚠️ Cannot get localName: countryCode=${countryCode}, normalizedTerritoryId=${normalizedTerritoryId}`);
+            log.debug(`[TerritoryManager] Cannot get localName: countryCode=${countryCode}, normalizedTerritoryId=${normalizedTerritoryId}`);
         }
         
         // name 객체에서도 시도 (기존 데이터 호환성)
@@ -429,7 +433,7 @@ class TerritoryManager {
                 territoryId: territory.id
             });
         } else {
-            log.warn(`[TerritoryManager] ⚠️ Cannot create displayName: countryCode=${countryCode}, normalizedTerritoryId=${normalizedTerritoryId}, originalTerritoryId=${originalTerritoryId}, territory.country=${territory.country}, territory.id=${territory.id}, territory.code=${territory.code}`);
+            log.debug(`[TerritoryManager] Cannot create displayName: countryCode=${countryCode}, normalizedTerritoryId=${normalizedTerritoryId}`);
         }
         
         return displayName;
@@ -508,15 +512,8 @@ class TerritoryManager {
             } else if (Object.keys(this.localNames).length === 0) {
                 log.error(`[TerritoryManager] getLocalName: ❌ this.localNames is empty object! local-names.json may have failed to load.`);
             } else {
-                const availableCountries = Object.keys(this.localNames).slice(0, 10);
-                log.warn(`[TerritoryManager] getLocalName: ⚠️ No country mapping found for "${normalizedCountryCode}" (original: "${countryCode}"). Available countries: ${availableCountries.join(', ')}${Object.keys(this.localNames).length > 10 ? '...' : ''}`);
-                // 유사한 국가 코드 찾기
-                const similarCountries = Object.keys(this.localNames).filter(code => 
-                    code.includes(normalizedCountryCode) || normalizedCountryCode.includes(code)
-                );
-                if (similarCountries.length > 0) {
-                    log.warn(`[TerritoryManager] getLocalName: ⚠️ Similar country codes found: ${similarCountries.join(', ')}`);
-                }
+                // 디버그 레벨로 변경하여 로그 감소
+                log.debug(`[TerritoryManager] getLocalName: No country mapping found for "${normalizedCountryCode}"`);
             }
             return null;
         }
@@ -661,30 +658,103 @@ class TerritoryManager {
         eventBus.on(EVENTS.TERRITORY_CONQUERED, (data) => {
             this.handleTerritoryConquered(data);
         });
+        
+        // ⚠️ 전문가 조언 반영: 로그인 후 territories 로드
+        // 타이밍 이슈 해결: initialize() 시점에 로그인하지 않았을 수 있으므로
+        // 로그인 이벤트를 구독하여 로그인 후 territories를 로드
+        eventBus.on(EVENTS.AUTH_STATE_CHANGED, async (data) => {
+            if (data.user) {
+                log.info('[TerritoryManager] 🔐 User logged in, loading territories...');
+                // 이미 로드되었는지 확인 (중복 로드 방지)
+                if (this.territories.size === 0) {
+                    await this.loadTerritoriesFromFirestore();
+                } else {
+                    // 이미 로드되었으면 ownership overlay만 업데이트
+                    await this.loadOwnershipOverlay();
+                }
+            }
+        });
+        
+        // AUTH_LOGIN 이벤트도 구독 (이중 안전장치)
+        eventBus.on(EVENTS.AUTH_LOGIN, async (data) => {
+            if (data.user) {
+                log.info('[TerritoryManager] 🔐 AUTH_LOGIN event received, loading territories...');
+                // 이미 로드되었는지 확인 (중복 로드 방지)
+                if (this.territories.size === 0) {
+                    await this.loadTerritoriesFromFirestore();
+                } else {
+                    // 이미 로드되었으면 ownership overlay만 업데이트
+                    await this.loadOwnershipOverlay();
+                }
+            }
+        });
     }
     
     /**
      * API에서 영토 데이터 로드 (Firestore 대신)
      */
+    /**
+     * ⚠️ 전문가 조언 반영: 초기 로드 전략 개선
+     * - Firestore는 지형/메타데이터 용으로만 사용 (소유권 정보 제외)
+     * - 소유권(ownership/ruler)은 백엔드 DB/API에서만 로드
+     * - 초기 로드 시 ownership overlay를 별도로 받아서 merge
+     */
     async loadTerritoriesFromFirestore() {
         try {
-            // 로그인하지 않은 경우 조용히 스킵 (공개 데이터가 아니므로)
+            // ⚠️ 로그인 상태 확인 (getRealAuthUser 우선 사용 - 타이밍 이슈 해결)
+            // getRealAuthUser()는 this.auth.currentUser를 직접 반환하므로 더 신뢰할 수 있음
+            const realAuthUser = firebaseService.getRealAuthUser ? firebaseService.getRealAuthUser() : null;
             const currentUser = firebaseService.getCurrentUser();
-            if (!currentUser) {
-                log.debug('[TerritoryManager] User not authenticated, skipping territory load');
+            const user = realAuthUser || currentUser; // realAuthUser를 우선 사용
+            
+            // ⚠️ 디버깅: 로그인 상태 상세 확인
+            log.info('[TerritoryManager] 🔍 Checking authentication status...');
+            log.info('[TerritoryManager] 🔍 getRealAuthUser():', realAuthUser ? `${realAuthUser.email} (${realAuthUser.uid})` : 'null');
+            log.info('[TerritoryManager] 🔍 getCurrentUser():', currentUser ? `${currentUser.email} (${currentUser.uid})` : 'null');
+            
+            // ⚠️ 직접 auth.currentUser 확인 (디버깅용)
+            if (firebaseService.auth && firebaseService.auth.currentUser) {
+                log.info('[TerritoryManager] 🔍 firebaseService.auth.currentUser:', `${firebaseService.auth.currentUser.email} (${firebaseService.auth.currentUser.uid})`);
+            } else {
+                log.info('[TerritoryManager] 🔍 firebaseService.auth.currentUser: null or auth not available');
+            }
+            
+            if (!user) {
+                // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
+                log.info('[TerritoryManager] ⚠️ User not authenticated, skipping territory load');
+                log.info('[TerritoryManager] ⚠️ Will retry when user logs in (AUTH_STATE_CHANGED or AUTH_LOGIN event)');
                 return;
             }
             
-            // API 호출로 변경
+            log.info('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
+            log.info('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
+            
+            // ⚠️ 전문가 조언 반영: 초기 로드
+            // 백엔드 GET /api/territories 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
+            // 따라서 초기 로드 시 이미 소유권 정보가 포함되어 있을 수 있음
             const territories = await apiService.getTerritories();
             
-            for (const territory of territories) {
-                // API 응답 형식 변환 (필요시)
-                const normalizedTerritory = this.normalizeTerritoryData(territory);
-                this.territories.set(normalizedTerritory.id, normalizedTerritory);
+            // TerritoryAdapter를 사용하여 표준 모델로 변환 (변환 로직 중앙화)
+            const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+            const standardTerritories = territoryAdapter.toStandardModels(territories);
+            
+            // ⚠️ 전문가 조언: 소유권 정보는 명시적으로 overlay하여 일관성 보장
+            // loadOwnershipOverlay()에서 추가로 확인 및 업데이트
+            
+            for (const territory of standardTerritories) {
+                // ⚠️ 캐시 메타데이터 추가 (fetchedAt, revision)
+                this.territories.set(territory.id, {
+                    territory,
+                    fetchedAt: new Date(),
+                    revision: Date.now()
+                });
             }
             
-            log.info(`Loaded ${territories.length} territories from API`);
+            log.info(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
+            
+            // ⚠️ 전문가 조언 반영: 초기 로드 후 ownership overlay 자동 주입
+            // 새로고침 후에도 바로 owner/비owner가 맞게 표시되도록
+            await this.loadOwnershipOverlay();
             
         } catch (error) {
             // 인증 오류는 조용히 처리 (로그인 전에는 정상)
@@ -692,17 +762,109 @@ class TerritoryManager {
                 log.debug('[TerritoryManager] User not authenticated, skipping territory load');
                 return;
             }
-            log.warn('Failed to load territories from API:', error);
+            log.warn('[TerritoryManager] Failed to load territories from API:', error);
             // API 로드 실패 시 로컬 기본값 사용
         }
     }
     
     /**
+     * ⚠️ 전문가 조언 반영: 초기 로드 후 ownership overlay 주입
+     * 새로고침 후에도 바로 owner/비owner가 맞게 표시되도록 소유권 정보를 overlay
+     * 
+     * 이 메서드는 이미 로드된 territories 메타데이터에 소유권 정보를 주입합니다.
+     * 백엔드 GET /api/territories 엔드포인트에서 이미 ruler_firebase_uid를 포함하므로,
+     * 초기 로드 시 이미 소유권 정보가 포함되어 있을 수 있지만,
+     * 명시적으로 overlay하여 일관성을 보장합니다.
+     */
+    async loadOwnershipOverlay() {
+        try {
+            const currentUser = firebaseService.getCurrentUser();
+            if (!currentUser) {
+                // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
+                log.info('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
+                return;
+            }
+            
+            log.info('[TerritoryManager] 🔄 Loading ownership overlay...');
+            
+            // ⚠️ 전문가 조언: 전체 territory를 한 개씩 GET 하지 말고, 한 번에 가져오는 형태
+            // 기존 getTerritories() 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
+            const territories = await apiService.getTerritories();
+            
+            if (!territories || !Array.isArray(territories)) {
+                log.warn('[TerritoryManager] ⚠️ Invalid territories response for ownership overlay');
+                return;
+            }
+            
+            // TerritoryAdapter를 사용하여 표준 모델로 변환
+            const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+            let updatedCount = 0;
+            
+            for (const apiTerritory of territories) {
+                const standardTerritory = territoryAdapter.toStandardModel(apiTerritory);
+                const territoryId = standardTerritory.id;
+                
+                // 기존 territory 가져오기
+                const existing = this.territories.get(territoryId);
+                if (existing && existing.territory) {
+                    // 소유권 정보 overlay (merge)
+                    const existingTerritory = existing.territory;
+                    
+                    // ⚠️ 전문가 조언: ruler_firebase_uid를 우선 사용
+                    if (standardTerritory.ruler) {
+                        existingTerritory.ruler = standardTerritory.ruler;
+                        existingTerritory.rulerId = standardTerritory.rulerId;
+                        existingTerritory.rulerName = standardTerritory.rulerName;
+                        existingTerritory.sovereignty = standardTerritory.sovereignty;
+                        existingTerritory.status = standardTerritory.status;
+                        
+                        updatedCount++;
+                    } else if (existingTerritory.ruler) {
+                        // 기존에 소유권이 있었는데 새로 가져온 데이터에 없으면 유지 (이미 로드된 것이 최신일 수 있음)
+                        log.debug(`[TerritoryManager] Territory ${territoryId} has existing ruler but API returned null, keeping existing`);
+                    }
+                } else {
+                    // 기존 territory가 없으면 새로 추가 (초기 로드에서 누락된 경우)
+                    this.territories.set(territoryId, {
+                        territory: standardTerritory,
+                        fetchedAt: new Date(),
+                        revision: Date.now()
+                    });
+                    updatedCount++;
+                }
+            }
+            
+            log.info(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
+            
+            // ⚠️ 이벤트 발행: 소유권 정보가 업데이트되었음을 알림
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                territoryId: null, // 전체 업데이트
+                forceRefresh: true,
+                revision: Date.now()
+            });
+            
+        } catch (error) {
+            // 인증 오류는 조용히 처리
+            if (error.message === 'User not authenticated') {
+                log.debug('[TerritoryManager] User not authenticated, skipping ownership overlay');
+                return;
+            }
+            log.warn('[TerritoryManager] Failed to load ownership overlay:', error);
+            // 실패해도 계속 진행 (기존 데이터 사용)
+        }
+    }
+    
+    /**
      * API 응답 데이터를 내부 형식으로 정규화
+     * 
+     * ⚠️ DEPRECATED: TerritoryAdapter를 사용하세요
+     * 하위 호환성을 위해 유지하지만, 새로운 코드는 TerritoryAdapter를 사용해야 합니다.
+     * 
+     * @deprecated Use territoryAdapter.toStandardModel() instead
      */
     normalizeTerritoryData(apiTerritory) {
-        // 백엔드 API는 DB row를 직접 반환하므로 필드명이 snake_case
-        // ruler_firebase_uid를 우선 사용 (Firebase UID)
+        // Fallback: 기존 로직 (하위 호환성)
+        // 새로운 코드는 TerritoryAdapter를 직접 import하여 사용해야 함
         const rulerFirebaseUid = apiTerritory.ruler_firebase_uid;
         const rulerId = apiTerritory.ruler_id;
         const rulerName = apiTerritory.ruler_name || apiTerritory.ruler_nickname;
@@ -710,10 +872,9 @@ class TerritoryManager {
         
         return {
             ...apiTerritory,
-            ruler: rulerFirebaseUid || rulerId || apiTerritory.ruler, // Firebase UID 우선
+            ruler: rulerFirebaseUid || rulerId || apiTerritory.ruler,
             rulerName: rulerName,
             sovereignty: sovereignty,
-            // 호환성을 위해 기존 필드도 유지
             ruler_id: rulerId,
             ruler_firebase_uid: rulerFirebaseUid
         };
@@ -798,19 +959,32 @@ class TerritoryManager {
                     return null; // 캐시된 데이터 사용, Firestore 읽기 완전히 스킵
                 }
                 
-                // 새 백엔드 API에서 읽기
+                // ⚠️ 전문가 조언 반영: 소유권 정보는 백엔드 DB/API에서만 로드
+                // 새 백엔드 API에서 읽기 (소유권 정보 포함)
                 try {
                     log.info(`[TerritoryManager] 📡 Fetching territory from API (background): territories/${territoryId}`);
                     const apiData = await apiService.getTerritory(territoryId);
                     
-                    // API 응답을 Firestore 형식으로 변환 (호환성 유지)
+                    // ⚠️ 전문가 조언 반영: TerritoryAdapter를 사용하여 표준 모델로 변환
+                    // ruler_firebase_uid를 확실히 가져오기 위해 adapter 사용
                     if (apiData) {
+                        const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+                        const standardTerritory = territoryAdapter.toStandardModel(apiData);
+                        
+                        // ⚠️ 전문가 조언: ruler_firebase_uid가 null이면 조인 실패 또는 저장 실패
+                        if (!standardTerritory.ruler && apiData.ruler_id) {
+                            log.warn(`[TerritoryManager] ⚠️ Territory ${territoryId} has ruler_id but no ruler_firebase_uid (JOIN may have failed)`);
+                        }
+                        
+                        // 표준 모델을 기존 형식으로 변환 (호환성 유지)
                         const convertedData = {
                             ...apiData,
-                            ruler: apiData.ruler_firebase_uid || apiData.ruler_id || apiData.ruler?.firebase_uid || apiData.ruler?.id, // Firebase UID 우선
-                            rulerName: apiData.ruler_name || apiData.ruler_nickname || apiData.ruler?.name,
-                            sovereignty: apiData.sovereignty || apiData.status,
-                            price: apiData.base_price,
+                            ruler: standardTerritory.ruler, // ruler_firebase_uid
+                            rulerId: standardTerritory.rulerId,
+                            rulerName: standardTerritory.rulerName,
+                            sovereignty: standardTerritory.sovereignty,
+                            status: standardTerritory.status,
+                            price: standardTerritory.basePrice,
                         };
                         
                         // ⚡ 캐시 업데이트: fetch 시간 기록
@@ -989,7 +1163,7 @@ class TerritoryManager {
         
         // 여전히 유효하지 않으면 로그 남기고 null로 설정
         if (!finalCountry || !CONFIG.COUNTRIES[finalCountry]) {
-            log.warn(`[TerritoryManager] Invalid country code: ${country}, properties.adm0_a3: ${properties?.adm0_a3}, properties.country: ${properties?.country}`);
+            log.debug(`[TerritoryManager] Invalid country code: ${country}, properties.adm0_a3: ${properties?.adm0_a3}, properties.country: ${properties?.country}`);
             finalCountry = null; // TerritoryPanel에서 다시 시도하도록
         }
         
@@ -1185,8 +1359,11 @@ class TerritoryManager {
         // territories Map 업데이트
         this.territories.set(territoryId, territory);
         
-        // UI 업데이트 이벤트 발행
-        eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+        // ⚠️ 이벤트는 id만 전달 (구독자는 스토어에서 읽기)
+        eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+            territoryId: territory.id,
+            revision: Date.now()
+        });
         
         log.debug(`[TerritoryManager] mergeApiData - Merged API data for ${territoryId}, displayName updated`);
     }
@@ -1442,12 +1619,11 @@ class TerritoryManager {
                 }
             }
             
-            // 영토 업데이트 이벤트 발행 (Canonical ID 사용)
+            // ⚠️ 이벤트는 id만 전달 (구독자는 스토어에서 읽기)
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
-                territory,
                 territoryId: territoryId, // Canonical ID
-                displayId: normalizedTerritoryId, // Display ID (참고용)
-                forceRefresh: true // 강제 새로고침
+                forceRefresh: true, // 강제 새로고침
+                revision: Date.now() // revision 추가
             });
             
             // 영토 정복 이벤트 발행 (소유권 변경 완료)
@@ -1541,8 +1717,11 @@ class TerritoryManager {
                 territory.sovereignty = SOVEREIGNTY.RULED;
                 this.territories.set(territoryId, territory);
                 
-                // 이벤트 발행
-                eventBus.emit(EVENTS.TERRITORY_UPDATE, { territory });
+                // ⚠️ 이벤트는 id만 전달 (구독자는 스토어에서 읽기)
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
+                    territoryId: territory.id,
+                    revision: Date.now()
+                });
                 
                 log.info(`[TerritoryManager] ✅ Auto-fixed expired protection for ${territoryId}`);
             }
