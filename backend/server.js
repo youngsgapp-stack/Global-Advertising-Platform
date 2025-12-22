@@ -110,6 +110,7 @@ import { auctionsListRouter } from './routes/auctions-list.js';
 import { usersRouter } from './routes/users.js';
 import { pixelsRouter, pixelsTopLevelRouter } from './routes/pixels.js';
 import { adminRouter } from './routes/admin.js';
+import cronRouter from './routes/cron.js';
 
 // 미들웨어
 import { authenticateToken, optionalAuthenticateToken } from './middleware/auth.js';
@@ -191,6 +192,7 @@ app.get('/api/health', (req, res) => {
 
 // 라우터 (인증 필요 없는 것들)
 app.use('/api/auth', authRouter);
+app.use('/api/cron', cronRouter); // Cron Job (Vercel에서 호출)
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);
