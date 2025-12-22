@@ -34,6 +34,11 @@ export default async function handler(req, res) {
         const jobType = req.query.job || req.body.job || 'all';
         const backendUrl = `${BACKEND_API_URL}/api/cron?job=${jobType}`;
         
+        // ⚠️ 로그 추가: Vercel Cron Job 실행 확인용
+        console.log(`[Cron] ⚡ Vercel Cron Job triggered: job=${jobType}, time=${new Date().toISOString()}`);
+        console.log(`[Cron] 🔄 Redirecting to backend API: ${backendUrl}`);
+        
+        const startTime = Date.now();
         const response = await fetch(backendUrl, {
             method: 'POST',
             headers: {
@@ -43,13 +48,25 @@ export default async function handler(req, res) {
             body: JSON.stringify(req.body || {})
         });
         
+        const duration = Date.now() - startTime;
+        
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Backend API error' }));
+            console.error(`[Cron] ❌ Backend API error (${response.status}):`, errorData);
             return res.status(response.status).json(errorData);
         }
         
         const result = await response.json();
-        return res.status(200).json(result);
+        console.log(`[Cron] ✅ Backend API success: duration=${duration}ms, result=`, result);
+        
+        return res.status(200).json({
+            success: true,
+            jobType,
+            backendUrl,
+            duration: `${duration}ms`,
+            timestamp: new Date().toISOString(),
+            result
+        });
         
         /* 원래 코드 (Firestore 사용 - 비활성화됨)
         initializeAdmin();

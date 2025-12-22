@@ -4,8 +4,8 @@
  */
 
 const CACHE_NAME = 'own-piece-v2';
-const STATIC_CACHE_VERSION = '1.0.5'; // 버전 업데이트로 Service Worker 강제 갱신 (JavaScript 캐시 완전 우회)
-const DYNAMIC_CACHE_VERSION = '1.0.5';
+const STATIC_CACHE_VERSION = '1.0.6'; // 버전 업데이트로 Service Worker 강제 갱신 (seed-territories.js 캐시 제거)
+const DYNAMIC_CACHE_VERSION = '1.0.6';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
