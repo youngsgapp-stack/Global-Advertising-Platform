@@ -94,7 +94,9 @@ class SeasonSystem {
                 createdAt: now
             };
             
-            await firebaseService.setDocument('seasons', seasonId, season);
+            // ⚠️ Firestore 직접 호출 제거: Postgres를 유일 SoT로 사용
+            // 시즌 생성은 백엔드 API에서 처리해야 함
+            // await firebaseService.setDocument('seasons', seasonId, season);
             this.currentSeason = season;
             
             log.info(`[SeasonSystem] Created new season: ${seasonId}`);

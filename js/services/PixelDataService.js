@@ -135,29 +135,83 @@ class PixelDataService {
      * 
      * 우선순위: 메모리 캐시 → 로컬 캐시(IndexedDB) → Firebase
      */
-    async loadPixelData(territoryId, territory = null) {
+    async loadPixelData(territoryId, territory = null, options = {}) {
+        const { forceRefresh = false } = options;
+        console.log(`🔍 [PixelDataService] ========== loadPixelData START ==========`);
+        console.log(`🔍 [PixelDataService] territoryId: ${territoryId}`, {
+            territoryProvided: !!territory,
+            territoryRuler: territory?.ruler || 'null',
+            territorySovereignty: territory?.sovereignty || 'null',
+            forceRefresh: forceRefresh
+        });
+        
         // 규칙 C: Territory 상태를 먼저 확인
         // territory가 전달되지 않으면 TerritoryManager에서 가져오기
         if (!territory) {
+            console.log(`🔍 [PixelDataService] Territory not provided, loading from TerritoryManager`);
             try {
                 const { territoryManager } = await import('../core/TerritoryManager.js');
                 territory = territoryManager.getTerritory(territoryId);
                 
                 // TerritoryManager에 없으면 API에서 확인
                 if (!territory) {
+                    console.log(`🔍 [PixelDataService] Territory not in TerritoryManager, loading from API`);
                     try {
-                        territory = await apiService.getTerritory(territoryId);
+                        const apiData = await apiService.getTerritory(territoryId);
+                        if (apiData) {
+                            // ⚠️ 핵심 수정: TerritoryAdapter를 통해 표준 모델로 변환
+                            const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+                            territory = territoryAdapter.toStandardModel(apiData);
+                            console.log(`🔍 [PixelDataService] ✅ Territory loaded from API and converted via adapter:`, {
+                                ruler: territory?.ruler || 'null',
+                                ruler_firebase_uid: territory?.ruler_firebase_uid || 'null',
+                                sovereignty: territory?.sovereignty || 'null'
+                            });
+                        }
                     } catch (error) {
+                        console.log(`🔍 [PixelDataService] ⚠️ Could not load territory from API:`, error);
                         log.debug(`[PixelDataService] Could not load territory from API:`, error);
                     }
+                } else {
+                    console.log(`🔍 [PixelDataService] ✅ Territory loaded from TerritoryManager:`, {
+                        ruler: territory?.ruler || 'null',
+                        ruler_firebase_uid: territory?.ruler_firebase_uid || 'null',
+                        sovereignty: territory?.sovereignty || 'null'
+                    });
                 }
             } catch (error) {
+                console.log(`🔍 [PixelDataService] ⚠️ Could not check territory ownership:`, error);
                 log.debug(`[PixelDataService] Could not check territory ownership for ${territoryId}, proceeding with load`);
             }
         }
         
         // 규칙 A: 소유자가 없으면 픽셀 데이터를 로드하지 않음
-        if (territory && (!territory.ruler || territory.sovereignty === 'unconquered')) {
+        // ⚠️ 핵심 수정: ruler가 문자열 'null'인 경우도 처리
+        // ruler와 ruler_firebase_uid 모두 확인
+        const rulerRaw = territory?.ruler;
+        const rulerFirebaseUidRaw = territory?.ruler_firebase_uid;
+        
+        // 문자열 'null'을 실제 null로 변환
+        const ruler = (typeof rulerRaw === 'string' && rulerRaw.toLowerCase() === 'null') ? null : rulerRaw;
+        const rulerFirebaseUid = (typeof rulerFirebaseUidRaw === 'string' && rulerFirebaseUidRaw.toLowerCase() === 'null') ? null : rulerFirebaseUidRaw;
+        
+        // 둘 중 하나라도 있으면 소유자가 있는 것으로 판단
+        const actualRuler = ruler || rulerFirebaseUid;
+        
+        console.log(`🔍 [PixelDataService] Ownership check:`, {
+            rulerRaw: rulerRaw || 'null',
+            rulerFirebaseUidRaw: rulerFirebaseUidRaw || 'null',
+            ruler: ruler || 'null',
+            rulerFirebaseUid: rulerFirebaseUid || 'null',
+            actualRuler: actualRuler || 'null',
+            sovereignty: territory?.sovereignty || 'null',
+            hasOwner: !!actualRuler,
+            isUnconquered: territory?.sovereignty === 'unconquered',
+            territoryKeys: territory ? Object.keys(territory) : []
+        });
+        
+        if (territory && (!actualRuler || territory.sovereignty === 'unconquered')) {
+            console.log(`🔍 [PixelDataService] ⚠️ Territory ${territoryId} has no owner, returning empty data`);
             log.debug(`[PixelDataService] Territory ${territoryId} has no owner, skipping pixel data load`);
             return {
                 territoryId,
@@ -166,33 +220,80 @@ class PixelDataService {
                 lastUpdated: null
             };
         }
-        // 1. 메모리 캐시 확인 (가장 빠름)
-        if (this.memoryCache.has(territoryId)) {
-            const cached = this.memoryCache.get(territoryId);
-            // 메모리 캐시가 1분 이내면 사용
-            if (Date.now() - cached.timestamp < 60000) {
-                log.debug(`[PixelDataService] Using memory cache for ${territoryId}`);
-                return cached.data;
-            }
-        }
         
-        // 2. 로컬 캐시(IndexedDB) 확인 (빠름)
-        await this.initializeLocalCache();
-        const localCached = await localCacheService.loadFromCache(territoryId);
-        if (localCached) {
-            log.debug(`[PixelDataService] Using local cache for ${territoryId}`);
-            // 메모리 캐시에도 저장
-            this.memoryCache.set(territoryId, {
-                data: localCached,
-                timestamp: Date.now()
-            });
-            return localCached;
+        console.log(`🔍 [PixelDataService] ✅ Territory ${territoryId} has owner (${actualRuler}), proceeding with pixel data load`);
+        
+        // ⚠️ 핵심 수정: forceRefresh가 true이면 캐시를 무시하고 API에서 직접 가져오기
+        if (!forceRefresh) {
+            // 1. 메모리 캐시 확인 (가장 빠름)
+            console.log(`🔍 [PixelDataService] Step 1: Checking memory cache`);
+            if (this.memoryCache.has(territoryId)) {
+                const cached = this.memoryCache.get(territoryId);
+                const age = Date.now() - cached.timestamp;
+                console.log(`🔍 [PixelDataService] Memory cache found:`, {
+                    age: age,
+                    ageSeconds: Math.floor(age / 1000),
+                    isFresh: age < 60000,
+                    pixelsCount: cached.data?.pixels?.length || 0
+                });
+                // 메모리 캐시가 1분 이내면 사용
+                if (age < 60000) {
+                    console.log(`🔍 [PixelDataService] ✅ Using memory cache for ${territoryId}`);
+                    log.debug(`[PixelDataService] Using memory cache for ${territoryId}`);
+                    return cached.data;
+                } else {
+                    console.log(`🔍 [PixelDataService] ⚠️ Memory cache expired, continuing to next step`);
+                }
+            } else {
+                console.log(`🔍 [PixelDataService] No memory cache found`);
+            }
+            
+            // 2. 로컬 캐시(IndexedDB) 확인 (빠름)
+            console.log(`🔍 [PixelDataService] Step 2: Checking local cache (IndexedDB)`);
+            await this.initializeLocalCache();
+            const localCached = await localCacheService.loadFromCache(territoryId);
+            if (localCached) {
+                console.log(`🔍 [PixelDataService] ✅ Local cache found:`, {
+                    pixelsCount: localCached.pixels?.length || 0,
+                    filledPixels: localCached.filledPixels || 0
+                });
+                log.debug(`[PixelDataService] Using local cache for ${territoryId}`);
+                // 메모리 캐시에도 저장
+                this.memoryCache.set(territoryId, {
+                    data: localCached,
+                    timestamp: Date.now()
+                });
+                return localCached;
+            } else {
+                console.log(`🔍 [PixelDataService] No local cache found`);
+            }
+        } else {
+            console.log(`🔍 [PixelDataService] ⚠️ forceRefresh=true, skipping all caches and loading from API directly`);
         }
         
         // 3. API에서 로드
+        console.log(`🔍 [PixelDataService] Step 3: Loading from API`);
         try {
             const { apiService } = await import('./ApiService.js');
+            console.log(`🔍 [PixelDataService] Calling apiService.getPixelData(${territoryId})`);
             const apiData = await apiService.getPixelData(territoryId);
+            console.log(`🔍 [PixelDataService] API response received:`, {
+                hasApiData: !!apiData,
+                hasPixels: !!(apiData && apiData.pixels),
+                pixelsLength: apiData?.pixels?.length || 0,
+                apiDataKeys: apiData ? Object.keys(apiData) : [],
+                fullApiData: apiData // 전체 응답 데이터 확인
+            });
+            
+            // ⚠️ 핵심 디버깅: API 응답의 전체 구조 출력
+            if (apiData) {
+                console.log(`🔍 [PixelDataService] Full API response structure:`, JSON.stringify(apiData, null, 2));
+                console.log(`🔍 [PixelDataService] API response pixels type:`, typeof apiData.pixels, Array.isArray(apiData.pixels));
+                if (apiData.pixels) {
+                    console.log(`🔍 [PixelDataService] API response pixels length:`, apiData.pixels.length);
+                    console.log(`🔍 [PixelDataService] API response pixels sample (first 3):`, apiData.pixels.slice(0, 3));
+                }
+            }
             
             if (apiData && apiData.pixels && apiData.pixels.length > 0) {
                 // API 데이터를 기존 형식으로 변환
@@ -205,6 +306,14 @@ class PixelDataService {
                     lastUpdated: apiData.lastUpdated
                 };
                 
+                console.log(`🔍 [PixelDataService] ✅ Pixel data converted:`, {
+                    territoryId: data.territoryId,
+                    pixelsCount: data.pixels.length,
+                    filledPixels: data.filledPixels,
+                    width: data.width,
+                    height: data.height
+                });
+                
                 // 메모리 캐시에 저장
                 this.memoryCache.set(territoryId, {
                     data,
@@ -214,11 +323,13 @@ class PixelDataService {
                 // 로컬 캐시에도 저장 (다음 로드 시 빠르게)
                 await localCacheService.saveToCache(territoryId, data);
                 
+                console.log(`🔍 [PixelDataService] ✅ Pixel data cached (memory + IndexedDB)`);
                 log.info(`[PixelDataService] Loaded pixel data from API for ${territoryId} (${data.filledPixels || 0} pixels)`);
                 return data;
             }
             
             // 데이터가 없으면 빈 데이터 반환 (정상적인 경우)
+            console.log(`🔍 [PixelDataService] ⚠️ API returned no pixel data, returning empty data`);
             const emptyData = {
                 territoryId,
                 pixels: [],
@@ -232,18 +343,24 @@ class PixelDataService {
                 timestamp: Date.now()
             });
             
+            console.log(`🔍 [PixelDataService] Returning empty data (no pixels from API)`);
             return emptyData;
             
         } catch (error) {
             // 오프라인 에러나 존재하지 않는 문서는 빈 데이터 반환
+            console.log(`🔍 [PixelDataService] ❌ API call failed:`, error);
             log.debug(`[PixelDataService] Failed to load from Firebase for ${territoryId}, returning empty data`);
-            return {
+            const errorData = {
                 territoryId,
                 pixels: [],
                 filledPixels: 0,
                 lastUpdated: null
             };
+            console.log(`🔍 [PixelDataService] ========== loadPixelData END (ERROR) ==========`);
+            return errorData;
         }
+        
+        console.log(`🔍 [PixelDataService] ========== loadPixelData END ==========`);
     }
     
     /**
@@ -398,11 +515,21 @@ class PixelDataService {
             // 1. API를 통해 저장 (PostgreSQL이 유일 SoT - 전문가 조언 반영)
             try {
                 const { apiService } = await import('./ApiService.js');
-                await apiService.savePixelData(territoryId, {
+                const savePayload = {
                     pixels: dataToSave.pixels,
                     width: dataToSave.width || 64,
                     height: dataToSave.height || 64
+                };
+                console.log(`🔍 [PixelDataService] Saving pixel data to API:`, {
+                    territoryId,
+                    pixelsCount: savePayload.pixels?.length || 0,
+                    width: savePayload.width,
+                    height: savePayload.height,
+                    pixelsType: Array.isArray(savePayload.pixels) ? 'array' : typeof savePayload.pixels,
+                    pixelsSample: savePayload.pixels?.slice(0, 3) // 처음 3개만 샘플로
                 });
+                await apiService.savePixelData(territoryId, savePayload);
+                console.log(`🔍 [PixelDataService] ✅ Pixel data saved to API successfully`);
                 log.info(`[PixelDataService] ✅ Saved pixel data to API for ${territoryId}`);
             } catch (apiError) {
                 // ⚠️ 전문가 조언: Firestore fallback 제거 (장애 은폐 방지)
@@ -423,13 +550,12 @@ class PixelDataService {
                 throw new Error(`Failed to save pixel data: ${apiError.message}`);
             }
             
-            // 2. 메모리 캐시 업데이트
-            this.memoryCache.set(territoryId, {
-                data: dataToSave,
-                timestamp: Date.now()
-            });
+            // ⚠️ 핵심 수정: 저장 후 메모리 캐시를 무효화하여 다음 로드 시 API에서 최신 데이터 가져오기
+            // 저장된 데이터로 메모리 캐시를 업데이트하지 않고, clearMemoryCache만 호출
+            // 이유: Redis에 저장된 데이터와 동기화를 보장하기 위해 API에서 다시 가져오도록 함
+            this.clearMemoryCache(territoryId);
             
-            // 3. 로컬 캐시(IndexedDB) 업데이트
+            // 2. 로컬 캐시(IndexedDB) 업데이트 (오프라인 복구용)
             await this.initializeLocalCache();
             await localCacheService.saveToCache(territoryId, dataToSave);
             
@@ -542,15 +668,14 @@ class PixelDataService {
     
     /**
      * 영토 메타데이터 업데이트
+     * ⚠️ Firestore 직접 호출 제거: Postgres를 유일 SoT로 사용
+     * 메타데이터는 백엔드 API에서 처리
      */
     async updateTerritoryMetadata(territoryId, metadata) {
         try {
-            await firebaseService.setDocument('territories', territoryId, {
-                pixelCanvas: metadata.pixelCanvas,
-                territoryValue: metadata.territoryValue
-            }, true); // merge: true
-            
-            log.debug(`[PixelDataService] Updated territory metadata for ${territoryId}`);
+            // Firestore 직접 호출 제거 (Postgres를 유일 SoT로 사용)
+            // 메타데이터 업데이트는 백엔드 API에서 처리됨
+            log.debug(`[PixelDataService] Metadata update skipped (handled by backend API) for ${territoryId}`);
             
         } catch (error) {
             log.error(`[PixelDataService] Failed to update territory metadata for ${territoryId}:`, error);

@@ -164,10 +164,12 @@ class RankingSystem {
                 
                 this.rankings.set(userId, ranking);
                 
-                // Firestore 저장 (비동기)
-                firebaseService.setDocument('rankings', userId, ranking).catch(err => {
-                    log.warn('Failed to save ranking:', err);
-                });
+                // ⚠️ 핵심 수정: Firestore 대신 API 사용 (또는 제거)
+                // 랭킹은 백엔드에서 자동으로 계산되므로 클라이언트에서 저장할 필요 없음
+                // 필요시 백엔드 API를 통해 랭킹 업데이트
+                // firebaseService.setDocument('rankings', userId, ranking).catch(err => {
+                //     log.warn('Failed to save ranking:', err);
+                // });
             }
             
             // Global Coverage 보드 업데이트

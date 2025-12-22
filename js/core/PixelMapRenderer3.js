@@ -136,8 +136,28 @@ class PixelMapRenderer3 {
     setupEvents() {
         // 픽셀 저장 시 파이프라인을 통한 갱신
         eventBus.on(EVENTS.PIXEL_CANVAS_SAVED, async (data) => {
-            if (data.territory?.id) {
-                await this.updatePipeline.refreshTerritory(data.territory.id);
+            const territoryId = data.territoryId || data.territory?.id;
+            if (territoryId) {
+                console.log(`[PixelMapRenderer3] 🔄 Pixel saved, refreshing territory ${territoryId}`);
+                // forceRefresh 플래그로 강제 새로고침
+                await this.updatePipeline.refreshTerritory(territoryId, { forceRefresh: true });
+            }
+        });
+        
+        // PIXEL_DATA_SAVED 이벤트도 처리 (PixelDataService에서 발행)
+        eventBus.on(EVENTS.PIXEL_DATA_SAVED, async (data) => {
+            // ⚠️ 핵심 수정: data가 없거나 undefined인 경우 처리
+            if (!data) {
+                console.warn('[PixelMapRenderer3] PIXEL_DATA_SAVED event received without data');
+                return;
+            }
+            const territoryId = data.territoryId;
+            if (territoryId) {
+                console.log(`[PixelMapRenderer3] 🔄 Pixel data saved, refreshing territory ${territoryId}`);
+                // forceRefresh 플래그로 강제 새로고침
+                await this.updatePipeline.refreshTerritory(territoryId, { forceRefresh: true });
+            } else {
+                console.warn('[PixelMapRenderer3] PIXEL_DATA_SAVED event received without territoryId');
             }
         });
         
@@ -418,33 +438,67 @@ class PixelMapRenderer3 {
     async loadAndDisplayPixelArt(territory) {
         if (!this.map || !territory) return;
         
+        console.log(`🔍 [PixelMapRenderer3] ========== loadAndDisplayPixelArt START ==========`);
+        console.log(`🔍 [PixelMapRenderer3] territory:`, {
+            id: territory?.id,
+            sourceId: territory?.sourceId || 'null',
+            featureId: territory?.featureId || 'null',
+            hasGeometry: !!territory?.geometry
+        });
+        
         try {
             // processedTerritories에서 제거하여 재처리 보장
             // 모바일에서 편집 후 저장했을 때 맵에 즉시 반영되도록 하는 핵심 로직
             this.processedTerritories.delete(territory.id);
+            console.log(`🔍 [PixelMapRenderer3] Removed from processedTerritories`);
             
             // 픽셀 데이터 로드 (캐시 무효화 후 최신 데이터)
+            console.log(`🔍 [PixelMapRenderer3] Loading pixel data for ${territory.id}`);
             const pixelData = await pixelDataService.loadPixelData(territory.id);
+            console.log(`🔍 [PixelMapRenderer3] Pixel data loaded:`, {
+                hasPixelData: !!pixelData,
+                hasPixels: !!(pixelData && pixelData.pixels),
+                pixelsLength: pixelData?.pixels?.length || 0,
+                filledPixels: pixelData?.filledPixels || 0
+            });
+            
             if (!pixelData || !pixelData.pixels || pixelData.pixels.length === 0) {
+                console.log(`🔍 [PixelMapRenderer3] ⚠️ No pixel data to display, returning early`);
                 return; // 픽셀 데이터가 없으면 종료
             }
             
             // 영토 경계 가져오기
+            console.log(`🔍 [PixelMapRenderer3] Getting territory bounds`);
             let bounds = pixelData.bounds;
             if (!bounds) {
                 // bounds가 없으면 영토 geometry에서 계산
                 const geometry = territory.geometry || await this.getTerritoryGeometry(territory);
-                if (!geometry) return;
+                if (!geometry) {
+                    console.log(`🔍 [PixelMapRenderer3] ⚠️ No geometry available, returning`);
+                    return;
+                }
                 bounds = this.calculateBounds(geometry);
+                console.log(`🔍 [PixelMapRenderer3] ✅ Bounds calculated from geometry:`, bounds);
+            } else {
+                console.log(`🔍 [PixelMapRenderer3] ✅ Using bounds from pixelData:`, bounds);
             }
             
             // 픽셀 데이터를 Canvas로 렌더링
+            console.log(`🔍 [PixelMapRenderer3] Rendering pixels to image`);
             const imageDataUrl = await this.renderPixelsToImage(pixelData, bounds);
+            console.log(`🔍 [PixelMapRenderer3] Image rendered:`, {
+                hasImageDataUrl: !!imageDataUrl,
+                imageDataUrlLength: imageDataUrl?.length || 0
+            });
+            
             if (imageDataUrl) {
+                console.log(`🔍 [PixelMapRenderer3] Updating pixel overlay`);
                 await this.updatePixelOverlay(territory, imageDataUrl, bounds);
+                console.log(`🔍 [PixelMapRenderer3] ✅ Pixel overlay updated`);
                 
                 // 모바일에서도 즉시 반영되도록 맵 강제 새로고침
                 if (this.map) {
+                    console.log(`🔍 [PixelMapRenderer3] Triggering map repaint`);
                     this.map.triggerRepaint();
                     // 약간의 지연 후 다시 새로고침하여 확실하게 반영
                     setTimeout(() => {
@@ -456,7 +510,13 @@ class PixelMapRenderer3 {
                 
             // feature state 업데이트 - 픽셀 아트 존재 표시 (기존 fill 색상 투명하게)
             // 핵심: sourceId/featureId가 없으면 재검색
+            console.log(`🔍 [PixelMapRenderer3] Checking sourceId/featureId:`, {
+                sourceId: territory.sourceId || 'null',
+                featureId: territory.featureId || 'null'
+            });
+            
             if (territory.sourceId && territory.featureId) {
+                console.log(`🔍 [PixelMapRenderer3] Setting feature state`);
                 // TerritoryViewState를 사용하여 정확한 feature state 생성 (Firestore 단일 원천)
                 const viewState = new TerritoryViewState(territory.id, territory, pixelData);
                 const featureState = viewState.toFeatureState();
@@ -470,12 +530,21 @@ class PixelMapRenderer3 {
                     // fill-opacity가 즉시 반영되도록 맵 강제 새로고침
                     this.map.triggerRepaint();
                     
+                    console.log(`🔍 [PixelMapRenderer3] ✅ Feature state set:`, {
+                        hasPixelArt: featureState.hasPixelArt,
+                        fillRatio: featureState.pixelFillRatio?.toFixed(2) || 'null',
+                        sourceId: territory.sourceId,
+                        featureId: territory.featureId
+                    });
+                    
                     if (featureState.hasPixelArt) {
                         console.log(`[PixelMapRenderer3] ✅ Updated feature state for ${territory.id}: hasPixelArt=${featureState.hasPixelArt}, fillRatio=${featureState.pixelFillRatio.toFixed(2)}, sourceId=${territory.sourceId}, featureId=${territory.featureId}`);
                     }
                 } catch (error) {
+                    console.log(`🔍 [PixelMapRenderer3] ❌ Failed to set feature state:`, error);
                     log.error(`[PixelMapRenderer3] Failed to set feature state for ${territory.id}:`, error);
                     // 재시도: 매핑 재확립
+                    console.log(`🔍 [PixelMapRenderer3] Retrying: re-establishing mapping`);
                     await this.updatePipeline.refreshTerritory(territory.id);
                     territory = territoryManager.getTerritory(territory.id);
                     if (territory && territory.sourceId && territory.featureId) {
@@ -486,14 +555,19 @@ class PixelMapRenderer3 {
                             featureState
                         );
                         this.map.triggerRepaint();
+                        console.log(`🔍 [PixelMapRenderer3] ✅ Retry successful`);
+                    } else {
+                        console.log(`🔍 [PixelMapRenderer3] ⚠️ Retry failed: still no sourceId/featureId`);
                     }
                 }
             } else {
                 // sourceId/featureId가 없으면 재검색 (World View가 아직 로드되지 않았을 수 있음)
+                console.log(`🔍 [PixelMapRenderer3] ⚠️ Missing sourceId/featureId, re-establishing mapping...`);
                 log.debug(`[PixelMapRenderer3] Missing sourceId/featureId for ${territory.id}, re-establishing mapping...`);
                 await this.updatePipeline.refreshTerritory(territory.id);
                 territory = territoryManager.getTerritory(territory.id);
                 if (territory && territory.sourceId && territory.featureId) {
+                    console.log(`🔍 [PixelMapRenderer3] ✅ Mapping re-established, setting feature state`);
                     const viewState = new TerritoryViewState(territory.id, territory, pixelData);
                     const featureState = viewState.toFeatureState();
                     this.map.setFeatureState(
@@ -501,14 +575,19 @@ class PixelMapRenderer3 {
                         featureState
                     );
                     this.map.triggerRepaint();
+                    console.log(`🔍 [PixelMapRenderer3] ✅ Feature state set after re-mapping`);
                 } else {
                     // World View가 아직 로드되지 않았을 수 있으므로 조용히 실패
+                    console.log(`🔍 [PixelMapRenderer3] ⚠️ Mapping still not available (World View may not be loaded)`);
                     log.debug(`[PixelMapRenderer3] Territory ${territory?.id || 'unknown'} mapping not available yet (World View may not be loaded)`);
                 }
             }
             }
             
+            console.log(`🔍 [PixelMapRenderer3] ========== loadAndDisplayPixelArt END ==========`);
+            
         } catch (error) {
+            console.log(`🔍 [PixelMapRenderer3] ❌ ERROR in loadAndDisplayPixelArt:`, error);
             log.error('[PixelMapRenderer3] Failed to load and display pixel art:', error);
         }
     }

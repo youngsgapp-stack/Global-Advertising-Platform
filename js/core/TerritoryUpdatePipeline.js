@@ -45,6 +45,9 @@ class TerritoryUpdatePipeline {
      * @param {Object} context - 추가 컨텍스트 (선택사항)
      */
     async refreshTerritory(territoryId, context = {}) {
+        console.log(`🔍 [TerritoryUpdatePipeline] ========== refreshTerritory START ==========`);
+        console.log(`🔍 [TerritoryUpdatePipeline] territoryId: ${territoryId}`, context);
+        
         if (!territoryId) {
             log.warn('[TerritoryUpdatePipeline] refreshTerritory: territoryId is missing');
             return;
@@ -52,9 +55,11 @@ class TerritoryUpdatePipeline {
         
         // forceRefresh 플래그가 있으면 중복 처리 방지 스킵
         const forceRefresh = context.forceRefresh || false;
+        console.log(`🔍 [TerritoryUpdatePipeline] forceRefresh: ${forceRefresh}`);
         
         // 중복 처리 방지 (forceRefresh가 아닌 경우에만)
         if (!forceRefresh && this.processingTerritories.has(territoryId)) {
+            console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ Territory ${territoryId} is already being processed, skipping`);
             log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} is already being processed, skipping`);
             return;
         }
@@ -62,13 +67,31 @@ class TerritoryUpdatePipeline {
         this.processingTerritories.add(territoryId);
         
         try {
+            // ⚠️ 핵심 수정: forceRefresh가 true이면 캐시를 먼저 무효화
+            if (forceRefresh) {
+                console.log(`🔍 [TerritoryUpdatePipeline] 🔄 Force refresh requested for ${territoryId}, invalidating caches`);
+                log.info(`[TerritoryUpdatePipeline] 🔄 Force refresh requested for ${territoryId}, invalidating caches`);
+                pixelDataService.clearMemoryCache(territoryId);
+                const { localCacheService } = await import('../services/LocalCacheService.js');
+                await localCacheService.clearCache(territoryId).catch(err => {
+                    log.warn(`[TerritoryUpdatePipeline] Failed to clear IndexedDB cache:`, err);
+                });
+            }
+            
             // 1. 영토 데이터 로드
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 1: Loading territory data for ${territoryId}`);
             const territory = await this.loadTerritory(territoryId);
             if (!territory) {
-                // 영토를 찾지 못한 경우 조용히 종료 (맵이 아직 로드되지 않았을 수 있음)
+                console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ Territory ${territoryId} not found (may not be loaded yet)`);
                 log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not found (may not be loaded yet)`);
                 return;
             }
+            console.log(`🔍 [TerritoryUpdatePipeline] ✅ Territory loaded:`, {
+                id: territory.id,
+                ruler: territory.ruler || 'null',
+                ruler_firebase_uid: territory.ruler_firebase_uid || 'null',
+                sovereignty: territory.sovereignty
+            });
             
             // ⚠️ CRITICAL: Territory 업데이트 시 관련 캐시 무효화
             // 소유권이 변경되었거나 sovereignty가 변경된 경우 캐시 무효화
@@ -77,12 +100,20 @@ class TerritoryUpdatePipeline {
                 const ownershipChanged = previousTerritory.ruler !== territory.ruler;
                 const sovereigntyChanged = previousTerritory.sovereignty !== territory.sovereignty;
                 
-                if (ownershipChanged || sovereigntyChanged) {
+                console.log(`🔍 [TerritoryUpdatePipeline] Territory state check:`, {
+                    ownershipChanged,
+                    sovereigntyChanged,
+                    previousRuler: previousTerritory.ruler || 'null',
+                    currentRuler: territory.ruler || 'null'
+                });
+                
+                if (ownershipChanged || sovereigntyChanged || forceRefresh) {
+                    console.log(`🔍 [TerritoryUpdatePipeline] 🔄 Territory ${territoryId} state changed, invalidating caches`);
                     log.info(`[TerritoryUpdatePipeline] 🔄 Territory ${territoryId} state changed, invalidating caches`);
                     // 픽셀 데이터 캐시 무효화
                     pixelDataService.clearMemoryCache(territoryId);
                     // IndexedDB 캐시도 무효화 (소유권 변경 시)
-                    if (ownershipChanged) {
+                    if (ownershipChanged || forceRefresh) {
                         const { localCacheService } = await import('../services/LocalCacheService.js');
                         await localCacheService.clearCache(territoryId).catch(err => {
                             log.warn(`[TerritoryUpdatePipeline] Failed to clear IndexedDB cache:`, err);
@@ -93,31 +124,66 @@ class TerritoryUpdatePipeline {
             
             // 2. 픽셀 데이터 로드 (소유권 검증 포함)
             // 규칙 C: Territory 상태를 먼저 확인하고, 소유자가 없으면 픽셀 데이터를 로드하지 않음
-            const pixelData = await pixelDataService.loadPixelData(territoryId, territory);
+            // ⚠️ 핵심 수정: forceRefresh가 true이면 캐시를 무시하고 API에서 직접 가져오기
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 2: Loading pixel data for ${territoryId} (forceRefresh=${forceRefresh})`);
+            const pixelData = await pixelDataService.loadPixelData(territoryId, territory, { forceRefresh });
+            console.log(`🔍 [TerritoryUpdatePipeline] ✅ Pixel data loaded:`, {
+                territoryId: pixelData.territoryId,
+                pixelsCount: pixelData.pixels?.length || 0,
+                filledPixels: pixelData.filledPixels || 0,
+                hasPixels: !!(pixelData.pixels && pixelData.pixels.length > 0),
+                pixelDataKeys: Object.keys(pixelData)
+            });
             
             // 3. TerritoryViewState 생성 (상태 계산)
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 3: Creating view state`);
             const viewState = new TerritoryViewState(territoryId, territory, pixelData);
+            console.log(`🔍 [TerritoryUpdatePipeline] ✅ View state created:`, {
+                hasPixelArt: viewState.hasPixelArt,
+                viewStateKeys: Object.keys(viewState)
+            });
             
             // 4. 전문가 조언 반영: Properties 기반 접근으로 전환
             // GeoJSON feature의 properties에 hasPixelArt 플래그 추가
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 4: Updating territory properties`);
             await this.updateTerritoryProperties(territory, viewState);
             
             // 5. 맵 feature state 업데이트 (기존 방식 유지 - 호환성)
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 5: Updating map feature state`);
             await this.updateMapFeatureState(territory, viewState);
             
             // 6. feature state가 반영되도록 약간의 지연 (맵 렌더링 대기)
             if (viewState.hasPixelArt && this.map) {
+                console.log(`🔍 [TerritoryUpdatePipeline] Step 6: Triggering map repaint (hasPixelArt=true)`);
                 // feature state가 즉시 반영되도록 맵 강제 새로고침
                 this.map.triggerRepaint();
                 // 약간의 지연 후 픽셀 아트 표시
                 await new Promise(resolve => setTimeout(resolve, 50));
+            } else {
+                console.log(`🔍 [TerritoryUpdatePipeline] Step 6: Skipping repaint (hasPixelArt=${viewState.hasPixelArt}, map=${!!this.map})`);
             }
             
             // 7. 픽셀 아트 표시 (있는 경우)
-            if (viewState.hasPixelArt) {
+            // ⚠️ 핵심 수정: 픽셀 데이터가 있으면 항상 표시 (hasPixelArt 체크 제거)
+            console.log(`🔍 [TerritoryUpdatePipeline] Step 7: Checking if pixel art should be displayed`);
+            console.log(`🔍 [TerritoryUpdatePipeline] Pixel data check:`, {
+                hasPixelData: !!pixelData,
+                hasPixels: !!(pixelData && pixelData.pixels),
+                pixelsLength: pixelData?.pixels?.length || 0,
+                condition: !!(pixelData && pixelData.pixels && pixelData.pixels.length > 0)
+            });
+            
+            if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
+                console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
                 console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
                 await this.displayPixelArt(territory, pixelData);
+                console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
             } else {
+                console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ No pixel art to display for ${territoryId}`, {
+                    pixelData: pixelData ? 'exists' : 'null',
+                    pixels: pixelData?.pixels ? `array[${pixelData.pixels.length}]` : 'null/undefined',
+                    reason: !pixelData ? 'no pixelData' : !pixelData.pixels ? 'no pixels array' : pixelData.pixels.length === 0 ? 'empty pixels array' : 'unknown'
+                });
                 console.debug(`[TerritoryUpdatePipeline] No pixel art for ${territoryId}`);
             }
             
@@ -145,10 +211,15 @@ class TerritoryUpdatePipeline {
                 console.debug(`[TerritoryUpdatePipeline] Refreshed territory ${territoryId}: ${viewState.toString()}`);
             }
             
+            console.log(`🔍 [TerritoryUpdatePipeline] ========== refreshTerritory END (SUCCESS) ==========`);
+            
         } catch (error) {
+            console.log(`🔍 [TerritoryUpdatePipeline] ========== refreshTerritory END (ERROR) ==========`);
+            console.log(`🔍 [TerritoryUpdatePipeline] ❌ ERROR:`, error);
             log.error(`[TerritoryUpdatePipeline] Failed to refresh territory ${territoryId}:`, error);
         } finally {
             this.processingTerritories.delete(territoryId);
+            console.log(`🔍 [TerritoryUpdatePipeline] Removed from processingTerritories`);
         }
     }
     
@@ -159,22 +230,40 @@ class TerritoryUpdatePipeline {
      * 3. 없으면 맵의 GeoJSON 소스에서 feature를 찾아서 생성
      */
     async loadTerritory(territoryId) {
-        // 1. TerritoryManager에서 가져오기
-        let territory = territoryManager.getTerritory(territoryId);
-        if (territory) {
-            return territory;
-        }
-        
-        // 2. API에서 로드 시도
+        // ⚠️ 핵심 수정: 항상 API에서 최신 데이터를 가져와서 TerritoryAdapter로 변환
+        // TerritoryManager에 저장된 데이터는 오래되었을 수 있으므로 API에서 최신 데이터를 가져옴
         try {
             const apiData = await apiService.getTerritory(territoryId);
             if (apiData) {
-                territory = apiData;
+                // TerritoryAdapter를 통해 표준 모델로 변환
+                const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+                const territory = territoryAdapter.toStandardModel(apiData);
+                
+                // TerritoryManager에도 업데이트 (다음 호출 시 빠르게 접근 가능)
                 territoryManager.territories.set(territoryId, territory);
+                
+                console.log(`🔍 [TerritoryUpdatePipeline] ✅ Territory loaded from API and converted via adapter:`, {
+                    id: territory.id,
+                    ruler: territory.ruler || 'null',
+                    ruler_firebase_uid: territory.ruler_firebase_uid || 'null',
+                    sovereignty: territory.sovereignty
+                });
                 return territory;
             }
         } catch (error) {
-            log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not in API (normal for new territories):`, error.message);
+            log.debug(`[TerritoryUpdatePipeline] Territory ${territoryId} not in API, trying TerritoryManager:`, error.message);
+            
+            // API에서 가져오지 못한 경우에만 TerritoryManager에서 가져오기
+            const territory = territoryManager.getTerritory(territoryId);
+            if (territory) {
+                console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ Using cached territory from TerritoryManager (API failed):`, {
+                    id: territory.id,
+                    ruler: territory.ruler || 'null',
+                    ruler_firebase_uid: territory.ruler_firebase_uid || 'null',
+                    sovereignty: territory.sovereignty
+                });
+                return territory;
+            }
         }
         
         // 3. 맵의 GeoJSON 소스에서 feature 찾아서 territory 객체 생성
@@ -517,13 +606,29 @@ class TerritoryUpdatePipeline {
      * 픽셀 아트 표시
      */
     async displayPixelArt(territory, pixelData) {
+        console.log(`🔍 [TerritoryUpdatePipeline] ========== displayPixelArt START ==========`);
+        console.log(`🔍 [TerritoryUpdatePipeline] territory:`, {
+            id: territory?.id,
+            sourceId: territory?.sourceId || 'null',
+            featureId: territory?.featureId || 'null'
+        });
+        console.log(`🔍 [TerritoryUpdatePipeline] pixelData:`, {
+            territoryId: pixelData?.territoryId,
+            pixelsCount: pixelData?.pixels?.length || 0,
+            filledPixels: pixelData?.filledPixels || 0
+        });
+        
         if (!this.pixelMapRenderer) {
+            console.log(`🔍 [TerritoryUpdatePipeline] ❌ pixelMapRenderer not available`);
             log.warn('[TerritoryUpdatePipeline] pixelMapRenderer not available');
             return;
         }
         
+        console.log(`🔍 [TerritoryUpdatePipeline] Calling pixelMapRenderer.loadAndDisplayPixelArt`);
         // PixelMapRenderer3의 메서드 사용
         await this.pixelMapRenderer.loadAndDisplayPixelArt(territory);
+        console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
+        console.log(`🔍 [TerritoryUpdatePipeline] ========== displayPixelArt END ==========`);
     }
     
     /**
@@ -924,7 +1029,20 @@ class TerritoryUpdatePipeline {
             }
             
             // API에서 픽셀 데이터가 있는 영토 ID 목록 가져오기
-            const territoryIdsWithPixels = await apiService.getTerritoriesWithPixels();
+            // ⚠️ 핵심 수정: getTerritoriesWithPixels 메서드가 없을 수 있으므로 try-catch로 처리
+            let territoryIdsWithPixels = [];
+            try {
+                if (typeof apiService.getTerritoriesWithPixels === 'function') {
+                    territoryIdsWithPixels = await apiService.getTerritoriesWithPixels();
+                } else {
+                    log.debug('[TerritoryUpdatePipeline] getTerritoriesWithPixels API method not available, skipping API call');
+                    throw new Error('API method not available');
+                }
+            } catch (apiError) {
+                log.debug('[TerritoryUpdatePipeline] Failed to get territories with pixels from API, will use IndexedDB fallback:', apiError.message);
+                // API 호출 실패 시 IndexedDB로 fallback (아래 catch 블록에서 처리)
+                throw apiError;
+            }
             
             // 규칙 A: 소유권 상태 확인 - 소유자가 있는 영토만 필터링
             const ownedTerritoryIds = [];

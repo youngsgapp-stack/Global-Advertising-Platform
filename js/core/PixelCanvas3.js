@@ -1413,7 +1413,11 @@ class PixelCanvas3 {
                 message: `저장됨 · ${saveTime}`,
                 saveTime: this.lastSaveTime
             });
-            eventBus.emit(EVENTS.PIXEL_DATA_SAVED);
+            // ⚠️ 핵심 수정: territoryId를 포함하여 이벤트 발행
+            eventBus.emit(EVENTS.PIXEL_DATA_SAVED, {
+                territoryId: this.territoryId,
+                filledPixels: this.pixels.size
+            });
             
             log.info(`[PixelCanvas3] Saved ${this.pixels.size} pixels to Firebase`);
         } catch (error) {

@@ -336,20 +336,51 @@ class TerritoryPanel {
         const user = firebaseService.getCurrentUser();
         const isAdmin = this.isAdminMode();
         
+        // ⚠️ 핵심 수정: 관리자 모드에서 실제 Firebase UID 가져오기
+        const realAuthUser = firebaseService.getRealAuthUser();
+        const realUserUid = realAuthUser?.uid || user?.uid;
+        
         // ⚠️ 전문가 조언 반영: TerritoryPanel은 Firestore를 직접 건드리지 않음
         // TerritoryManager가 이미 완전히 하이드레이트된 territory 객체를 제공하므로
         // 그대로 사용 (단일 진실 원칙)
         const territory = t;
         
-        log.debug(`[TerritoryPanel] Rendering territory ${territory.id}: sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}, rulerName=${territory.rulerName || 'null'}, user.uid=${user?.uid || 'null'}`);
+        // ⚠️ 핵심 수정: ruler_firebase_uid도 함께 확인 (백엔드가 ruler_firebase_uid로 통일)
+        // ruler_firebase_uid가 문자열 'null'인 경우 처리
+        const rulerFirebaseUid = territory.ruler || 
+            (territory.ruler_firebase_uid && territory.ruler_firebase_uid !== 'null' ? territory.ruler_firebase_uid : null) || 
+            null;
+        
+        console.log('🔍 [TerritoryPanel] Rendering territory:', territory.id, {
+            sovereignty: territory.sovereignty,
+            ruler: rulerFirebaseUid || 'null',
+            ruler_firebase_uid: territory.ruler_firebase_uid || 'null',
+            ruler_id: territory.rulerId || 'null',
+            rulerName: territory.rulerName || 'null',
+            user_uid: user?.uid || 'null',
+            realUserUid: realUserUid || 'null',
+            territory_object: {
+                ruler: territory.ruler,
+                ruler_firebase_uid: territory.ruler_firebase_uid,
+                rulerId: territory.rulerId
+            }
+        });
         
         // 소유자 체크: 일반 사용자 소유 또는 관리자 모드에서 관리자가 구매한 영토
-        const isOwner = user && (
-            (territory.ruler && territory.ruler === user.uid) || 
+        // ⚠️ 핵심 수정: 실제 Firebase UID를 사용하여 소유자 확인
+        const isOwner = realUserUid && (
+            (rulerFirebaseUid && rulerFirebaseUid === realUserUid) || 
             (isAdmin && territory.purchasedByAdmin)
         );
         
-        log.debug(`[TerritoryPanel] isOwner check: isOwner=${isOwner}, territory.ruler=${territory.ruler || 'null'}, user.uid=${user?.uid || 'null'}, match=${territory.ruler === user?.uid}`);
+        console.log('🔍 [TerritoryPanel] isOwner check:', {
+            isOwner: isOwner,
+            rulerFirebaseUid: rulerFirebaseUid || 'null',
+            user_uid: user?.uid || 'null',
+            match: rulerFirebaseUid === user?.uid,
+            isAdmin: isAdmin,
+            purchasedByAdmin: territory.purchasedByAdmin
+        });
         // 로그인한 사용자만 경매 정보 표시
         const auction = user ? auctionSystem.getAuctionByTerritory(territory.id) : null;
         
@@ -1079,7 +1110,9 @@ class TerritoryPanel {
      * 상태를 사람이 이해하기 쉬운 View Mode로 압축
      */
     determineViewMode(territory, auction, isOwner) {
-        const hasOwner = territory.ruler && territory.ruler.trim() !== '';
+        // ⚠️ 핵심 수정: ruler_firebase_uid도 함께 확인
+        const rulerFirebaseUid = territory.ruler || territory.ruler_firebase_uid || null;
+        const hasOwner = rulerFirebaseUid && rulerFirebaseUid.trim() !== '';
         const hasActiveAuction = auction && auction.status === AUCTION_STATUS.ACTIVE;
         
         log.info('[TerritoryPanel] determineViewMode:', {
@@ -1189,7 +1222,14 @@ class TerritoryPanel {
         
         // View Mode 결정
         const viewMode = this.determineViewMode(territory, auction, isOwner);
-        log.info('[TerritoryPanel] renderActions - viewMode:', viewMode, 'for territory:', territory.id);
+        console.log('🔍 [TerritoryPanel] renderActions - viewMode:', {
+            viewMode: viewMode,
+            territoryId: territory.id,
+            isOwner: isOwner,
+            hasAuction: !!auction,
+            territory_ruler: territory.ruler || 'null',
+            territory_ruler_firebase_uid: territory.ruler_firebase_uid || 'null'
+        });
         
         // View Mode별 UI 렌더링
         switch (viewMode) {
@@ -1272,7 +1312,7 @@ class TerritoryPanel {
                 
             case VIEW_MODE.MINE_IDLE:
                 // 내가 소유, 경매 없음
-                return `
+                const mineIdleHtml = `
                     <button class="action-btn pixel-btn" id="open-pixel-editor">
                         🎨 Edit My Spot
                     </button>
@@ -1283,6 +1323,9 @@ class TerritoryPanel {
                         🏷️ Start Auction
                     </button>
                 `;
+                console.log('✅ [TerritoryPanel] VIEW_MODE.MINE_IDLE - Showing pixel edit button');
+                console.log('✅ [TerritoryPanel] MINE_IDLE HTML:', mineIdleHtml);
+                return mineIdleHtml;
                 
             case VIEW_MODE.MINE_AUCTION:
                 // 내가 소유, 경매 중
@@ -1331,6 +1374,8 @@ class TerritoryPanel {
                 
             case VIEW_MODE.OTHER_IDLE:
                 // 남이 소유, 경매 없음
+                console.log('⚠️ [TerritoryPanel] VIEW_MODE.OTHER_IDLE - Showing auction start button (NOT owner)');
+                console.log('⚠️ [TerritoryPanel] Territory ruler:', territory.ruler, 'ruler_firebase_uid:', territory.ruler_firebase_uid, 'user.uid:', user?.uid);
                 const isAdminOwned = isAdmin && territory.purchasedByAdmin;
                 
                 if (isAdminOwned) {
@@ -2025,6 +2070,25 @@ class TerritoryPanel {
             // 구매 성공 - 백엔드에서 이미 포인트 차감과 소유권 부여 완료
             log.info(`[TerritoryPanel] ✅ Purchase successful via API:`, purchaseResult);
             
+            // ⚠️ 디버깅: 구매 응답 상세 로그
+            const purchaseTerritory = purchaseResult.territory || {};
+            console.log(`[TerritoryPanel] 🔍 Purchase API response (summary):`, {
+                success: purchaseResult.success,
+                territory: {
+                    id: purchaseTerritory.id,
+                    ruler_id: purchaseTerritory.ruler_id,
+                    ruler_id_type: typeof purchaseTerritory.ruler_id,
+                    ruler_id_value: purchaseTerritory.ruler_id,
+                    ruler_firebase_uid: purchaseTerritory.ruler_firebase_uid,
+                    ruler_nickname: purchaseTerritory.ruler_nickname,
+                    sovereignty: purchaseTerritory.sovereignty,
+                    status: purchaseTerritory.status
+                },
+                newBalance: purchaseResult.newBalance
+            });
+            console.log(`[TerritoryPanel] 🔍 Purchase API response (full territory object):`, JSON.stringify(purchaseTerritory, null, 2));
+            console.log(`[TerritoryPanel] 🔍 Purchase API response (full result):`, JSON.stringify(purchaseResult, null, 2));
+            
             // 포인트 차감 및 소유권 확인
             if (purchaseResult.newBalance === undefined || purchaseResult.newBalance === null) {
                 log.error(`[TerritoryPanel] ⚠️ WARNING: purchaseResult.newBalance is undefined/null!`, purchaseResult);
@@ -2098,16 +2162,55 @@ class TerritoryPanel {
                 // ⚠️ 전문가 조언: reconcile은 단일 endpoint만 믿게
                 // purchase 응답을 믿고 끝내지 말고, 바로 최신 ownership 조회 endpoint로 확정
                 log.info(`[TerritoryPanel] 🔄 Starting server reconcile for ${optimisticTerritory.id} (skipCache=true)`);
+                
+                // ⚠️ 타이밍 이슈 해결: 구매 후 DB 커밋이 완료될 때까지 약간의 지연
+                // PostgreSQL 트랜잭션 커밋이 완료되기 전에 reconcile이 실행되면 ruler_id가 null로 나올 수 있음
+                // UUID 저장 시 추가 지연이 필요할 수 있으므로 1초로 증가
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 지연
+                
+                console.log(`[TerritoryPanel] 🔍 Calling getTerritory for reconcile (after 1s delay)...`);
                 const freshTerritory = await apiService.getTerritory(optimisticTerritory.id, { skipCache: true });
+                console.log(`[TerritoryPanel] 🔍 getTerritory response received (summary):`, {
+                    id: freshTerritory?.id,
+                    ruler_id: freshTerritory?.ruler_id,
+                    ruler_id_type: typeof freshTerritory?.ruler_id,
+                    ruler_firebase_uid: freshTerritory?.ruler_firebase_uid,
+                    ruler_nickname: freshTerritory?.ruler_nickname,
+                    sovereignty: freshTerritory?.sovereignty,
+                    status: freshTerritory?.status
+                });
+                console.log(`[TerritoryPanel] 🔍 getTerritory response received (full JSON):`, JSON.stringify(freshTerritory, null, 2));
+                
+                // ⚠️ 디버깅: API 응답 상세 로그
+                console.log(`[TerritoryPanel] 🔍 Reconcile API response for ${optimisticTerritory.id}:`, {
+                    id: freshTerritory.id,
+                    ruler_id: freshTerritory.ruler_id,
+                    ruler_id_type: typeof freshTerritory.ruler_id,
+                    ruler_firebase_uid: freshTerritory.ruler_firebase_uid,
+                    ruler_nickname: freshTerritory.ruler_nickname,
+                    sovereignty: freshTerritory.sovereignty,
+                    status: freshTerritory.status,
+                    fullResponse: freshTerritory
+                });
                 
                 // ⚠️ 전문가 조언: TerritoryAdapter를 사용하여 표준 모델로 변환
                 // ruler_firebase_uid를 확실히 가져오기 위해 adapter 사용
                 const reconciledTerritory = territoryAdapter.toStandardModel(freshTerritory);
                 
+                console.log(`[TerritoryPanel] 🔍 Reconcile after adapter conversion:`, {
+                    id: reconciledTerritory.id,
+                    ruler: reconciledTerritory.ruler,
+                    rulerId: reconciledTerritory.rulerId,
+                    rulerName: reconciledTerritory.rulerName,
+                    sovereignty: reconciledTerritory.sovereignty,
+                    status: reconciledTerritory.status
+                });
+                
                 // ⚠️ 전문가 조언: reconcile에서 ruler가 null이면 조인 실패 또는 저장 실패
                 if (!reconciledTerritory.ruler && freshTerritory.ruler_id) {
                     log.error(`[TerritoryPanel] ❌ Reconcile: Territory ${optimisticTerritory.id} has ruler_id but no ruler_firebase_uid (JOIN may have failed)`, {
                         ruler_id: freshTerritory.ruler_id,
+                        ruler_id_type: typeof freshTerritory.ruler_id,
                         ruler_firebase_uid: freshTerritory.ruler_firebase_uid,
                         apiResponse: freshTerritory
                     });
@@ -2324,8 +2427,11 @@ class TerritoryPanel {
             return;
         }
         
+        // ⚠️ 핵심 수정: ruler_firebase_uid도 함께 확인
+        const rulerFirebaseUid = this.currentTerritory.ruler || this.currentTerritory.ruler_firebase_uid || null;
+        
         // 소유자 확인
-        if (!this.currentTerritory.ruler) {
+        if (!rulerFirebaseUid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
                 message: '이 영토에는 소유자가 없습니다'
@@ -2334,7 +2440,7 @@ class TerritoryPanel {
         }
         
         // 자신의 영토인지 확인
-        if (this.currentTerritory.ruler === user.uid) {
+        if (rulerFirebaseUid === user.uid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
                 message: '이미 소유하고 있는 영토입니다'
@@ -3008,8 +3114,11 @@ class TerritoryPanel {
             return;
         }
         
+        // ⚠️ 핵심 수정: ruler_firebase_uid도 함께 확인
+        const rulerFirebaseUid = this.currentTerritory.ruler || this.currentTerritory.ruler_firebase_uid || null;
+        
         // 소유자 확인
-        if (this.currentTerritory.ruler !== user.uid) {
+        if (rulerFirebaseUid !== user.uid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
                 message: 'Only territory owner can start protection extension auction'

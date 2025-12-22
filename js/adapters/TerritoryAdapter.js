@@ -107,7 +107,9 @@ class TerritoryAdapter {
 
         // ⚠️ 전문가 조언 반영: 백엔드 응답 계약을 ruler_firebase_uid 하나로 통일
         // 한 줄의 규칙으로만 표준화 (여러 필드를 if로 처리하지 않음)
-        const ruler = apiResponse.ruler_firebase_uid || null;
+        // ⚠️ 핵심 수정: 문자열 'null'도 실제 null로 처리
+        const rulerRaw = apiResponse.ruler_firebase_uid;
+        const ruler = (!rulerRaw || (typeof rulerRaw === 'string' && rulerRaw.toLowerCase() === 'null')) ? null : rulerRaw;
 
         // rulerName: ruler_nickname 우선 (백엔드가 ruler_nickname으로 통일)
         const rulerName = apiResponse.ruler_nickname || apiResponse.ruler_name || null;

@@ -1669,17 +1669,25 @@ class FirebaseService {
         if (!userId) return null;
         
         try {
-            const userDoc = await this.getDocument('users', userId);
-            if (userDoc) {
-                return {
-                    userId,
-                    userName: userDoc.userName || userDoc.displayName || null,
-                    email: userDoc.email || null,
-                    photoURL: userDoc.photoURL || null,
-                    ...userDoc
-                };
-            }
+            // ⚠️ 핵심 수정: Firestore 대신 API 사용
+            const { apiService } = await import('./ApiService.js');
+            // API에서 사용자 정보 가져오기 (백엔드가 users 테이블에서 조회)
+            // 현재는 API에 사용자 조회 엔드포인트가 없을 수 있으므로, 
+            // 일단 null 반환 (필요시 API 엔드포인트 추가)
+            log.debug(`[FirebaseService] getUserProfile called for ${userId}, but API endpoint not available yet`);
             return null;
+            
+            // TODO: 백엔드에 GET /api/users/:id 엔드포인트 추가 후 사용
+            // const userData = await apiService.get(`/users/${userId}`);
+            // if (userData) {
+            //     return {
+            //         userId,
+            //         userName: userData.nickname || userData.name || null,
+            //         email: userData.email || null,
+            //         photoURL: userData.avatar_url || null,
+            //         ...userData
+            //     };
+            // }
         } catch (error) {
             log.warn(`[FirebaseService] Failed to get user profile for ${userId}:`, error);
             return null;
