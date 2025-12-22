@@ -97,21 +97,55 @@ async function calculateRankings() {
         const priceColumn = priceColumnCheck.rows[0].column_name;
         logger.info(`[Calculate Rankings] Using price column: ${priceColumn}`);
         
+        // country 컬럼 확인 (country_code가 없을 수 있음)
+        // 스키마 확인: table_schema를 명시적으로 'public'으로 지정
+        const countryColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'territories'
+            AND column_name IN ('country_code', 'country')
+            ORDER BY 
+                CASE column_name
+                    WHEN 'country_code' THEN 1
+                    WHEN 'country' THEN 2
+                END
+            LIMIT 1
+        `);
+        
+        const countryColumn = countryColumnCheck.rows.length > 0 ? countryColumnCheck.rows[0].column_name : null;
+        
+        // 탐지 결과 명확한 로그 출력 (배포 후 확인용)
+        logger.info(`[Calculate Rankings] 🔍 Country column detection: countryColumn=${countryColumn || 'null'}, found=${countryColumnCheck.rows.length > 0}, schema=public, table=territories`);
+        
+        if (!countryColumn) {
+            logger.warn('[Calculate Rankings] ⚠️ No country column found (country_code/country), skipping country-based calculations');
+        } else {
+            logger.info(`[Calculate Rankings] ✅ Using country column: ${countryColumn}`);
+        }
+        
         // PostgreSQL에서 모든 영토 데이터 조회
-        // 주의: 컬럼명은 이미 검증되었으므로 안전하게 사용
-        const territoriesResult = await query(`
+        // country 컬럼이 없으면 country 정보 제외
+        let territoriesQuery = `
             SELECT 
                 t.id, 
                 t.ruler_id, 
                 t.ruler_name,
                 t."${priceColumn}" as territory_price,
-                t.country,
-                t.country_code,
                 u.firebase_uid as ruler_firebase_uid
+        `;
+        
+        if (countryColumn) {
+            territoriesQuery += `, t."${countryColumn}" as territory_country`;
+        }
+        
+        territoriesQuery += `
             FROM territories t
             LEFT JOIN users u ON t.ruler_id = u.id
             WHERE t.ruler_id IS NOT NULL
-        `);
+        `;
+        
+        const territoriesResult = await query(territoriesQuery);
         
         // 사용자별 통계 계산
         const userStats = new Map();
@@ -135,9 +169,9 @@ async function calculateRankings() {
             stats.territoryCount++;
             stats.totalValue += parseFloat(territory.territory_price || 0);
             
-            // 국가 추가
-            if (territory.country_code || territory.country) {
-                const countryCode = territory.country_code || territory.country;
+            // 국가 추가 (country 컬럼이 있는 경우만)
+            if (countryColumn && territory.territory_country) {
+                const countryCode = territory.territory_country;
                 stats.countries.add(countryCode);
                 
                 // 대륙 추가
@@ -301,9 +335,39 @@ async function checkExpiredTerritories() {
         
         const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
         
-        // 동적 쿼리 구성 (컬럼명은 이미 검증됨)
+        // country 컬럼 확인
+        const countryColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'territories'
+            AND column_name IN ('country_code', 'country')
+            ORDER BY 
+                CASE column_name
+                    WHEN 'country_code' THEN 1
+                    WHEN 'country' THEN 2
+                END
+            LIMIT 1
+        `);
+        
+        const countryColumn = countryColumnCheck.rows.length > 0 ? countryColumnCheck.rows[0].column_name : null;
+        
+        // 탐지 결과 명확한 로그 출력 (배포 후 확인용)
+        logger.info(`[Check Expired Territories] 🔍 Country column detection: countryColumn=${countryColumn || 'null'}, found=${countryColumnCheck.rows.length > 0}, schema=public, table=territories`);
+        
+        // 동적 쿼리 구성 (country 컬럼이 없으면 제외)
         let abandonedQuery = `
-            SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price, country, country_code, current_auction_id
+            SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price, current_auction_id
+        `;
+        
+        if (countryColumn) {
+            abandonedQuery += `, "${countryColumn}" as territory_country`;
+            logger.info(`[Check Expired Territories] ✅ Using country column: ${countryColumn}`);
+        } else {
+            logger.info(`[Check Expired Territories] ⚠️ No country column found, country will be set to 'unknown' in auctions`);
+        }
+        
+        abandonedQuery += `
             FROM territories
             WHERE ruler_id IS NOT NULL
             AND status = 'ruled'
@@ -349,7 +413,7 @@ async function checkExpiredTerritories() {
             `, [
                 territory.id,
                 'Territory ' + territory.id,
-                territory.country || territory.country_code,
+                (countryColumn && territory.territory_country) ? territory.territory_country : 'unknown',
                 territory.territory_price || 100,
                 new Date(now.getTime() + 24 * 60 * 60 * 1000)
             ]);
@@ -400,15 +464,47 @@ async function checkExpiredTerritories() {
                 
                 const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
                 
-                // 동적 쿼리 구성 (컬럼명은 이미 검증됨)
-                const expiredLeases = await query(`
-                    SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price, country, country_code
+                // country 컬럼 확인
+                const countryColumnCheck2 = await query(`
+                    SELECT column_name
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'territories'
+                    AND column_name IN ('country_code', 'country')
+                    ORDER BY 
+                        CASE column_name
+                            WHEN 'country_code' THEN 1
+                            WHEN 'country' THEN 2
+                        END
+                    LIMIT 1
+                `);
+                
+                const countryColumn2 = countryColumnCheck2.rows.length > 0 ? countryColumnCheck2.rows[0].column_name : null;
+                
+                // 탐지 결과 명확한 로그 출력 (배포 후 확인용)
+                logger.info(`[Check Expired Territories - Lease] 🔍 Country column detection: countryColumn=${countryColumn2 || 'null'}, found=${countryColumnCheck2.rows.length > 0}, schema=public, table=territories`);
+                
+                // 동적 쿼리 구성 (country 컬럼이 없으면 제외)
+                let expiredLeasesQuery = `
+                    SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price
+                `;
+                
+                if (countryColumn2) {
+                    expiredLeasesQuery += `, "${countryColumn2}" as territory_country`;
+                    logger.info(`[Check Expired Territories - Lease] ✅ Using country column: ${countryColumn2}`);
+                } else {
+                    logger.info(`[Check Expired Territories - Lease] ⚠️ No country column found, country will be set to 'unknown' in auctions`);
+                }
+                
+                expiredLeasesQuery += `
                     FROM territories
                     WHERE lease_ends_at <= NOW()
                     AND lease_ends_at IS NOT NULL
                     AND ruler_id IS NOT NULL
                     LIMIT 100
-                `);
+                `;
+                
+                const expiredLeases = await query(expiredLeasesQuery);
                 
                 for (const territory of expiredLeases.rows) {
                     // 경매 생성
@@ -429,7 +525,7 @@ async function checkExpiredTerritories() {
                     `, [
                         territory.id,
                         'Territory ' + territory.id,
-                        territory.country || territory.country_code,
+                        (countryColumn2 && territory.territory_country) ? territory.territory_country : 'unknown',
                         territory.territory_price || 100,
                         new Date(now.getTime() + 24 * 60 * 60 * 1000)
                     ]);
