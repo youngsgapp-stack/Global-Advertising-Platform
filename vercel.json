@@ -13,7 +13,27 @@
       "destination": "/data/$1"
     },
     {
-      "source": "/(.*\\.(js|css|json|png|jpg|jpeg|svg|webp|ico|woff|woff2|ttf|eot|geojson|map))",
+      "source": "/(.*\\.js)",
+      "destination": "/$1"
+    },
+    {
+      "source": "/(.*\\.css)",
+      "destination": "/$1"
+    },
+    {
+      "source": "/(.*\\.json)",
+      "destination": "/$1"
+    },
+    {
+      "source": "/(.*\\.(png|jpg|jpeg|svg|webp|ico))",
+      "destination": "/$1"
+    },
+    {
+      "source": "/(.*\\.(woff|woff2|ttf|eot))",
+      "destination": "/$1"
+    },
+    {
+      "source": "/(.*\\.(geojson|map))",
       "destination": "/$1"
     },
     {
