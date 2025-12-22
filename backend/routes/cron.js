@@ -62,19 +62,48 @@ router.get('/', async (req, res) => {
 
 /**
  * 랭킹 계산
+ * 주의: 컬럼이 없을 수 있으므로 방어적 처리
  */
 async function calculateRankings() {
     try {
         logger.info('[Calculate Rankings] Starting ranking calculation...');
         
+        // price 컬럼 존재 여부 확인 (purchased_price 또는 base_price)
+        const priceColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'territories'
+            AND column_name IN ('purchased_price', 'base_price', 'price')
+            ORDER BY 
+                CASE column_name
+                    WHEN 'purchased_price' THEN 1
+                    WHEN 'base_price' THEN 2
+                    WHEN 'price' THEN 3
+                END
+            LIMIT 1
+        `);
+        
+        if (priceColumnCheck.rows.length === 0) {
+            logger.warn('[Calculate Rankings] ⚠️ No price column found (purchased_price/base_price/price), skipping');
+            return {
+                success: true,
+                skipped: true,
+                message: 'No price column found in territories table',
+                processed: 0
+            };
+        }
+        
+        const priceColumn = priceColumnCheck.rows[0].column_name;
+        logger.info(`[Calculate Rankings] Using price column: ${priceColumn}`);
+        
         // PostgreSQL에서 모든 영토 데이터 조회
-        // 주의: territory_value 컬럼이 없을 수 있으므로 purchased_price만 사용
         const territoriesResult = await query(`
             SELECT 
                 t.id, 
                 t.ruler_id, 
                 t.ruler_name,
-                t.purchased_price,
+                t.${priceColumn} as territory_price,
                 t.country,
                 t.country_code,
                 u.firebase_uid as ruler_firebase_uid
@@ -103,7 +132,7 @@ async function calculateRankings() {
             
             const stats = userStats.get(userId);
             stats.territoryCount++;
-            stats.totalValue += parseFloat(territory.purchased_price || 0);
+            stats.totalValue += parseFloat(territory.territory_price || 0);
             
             // 국가 추가
             if (territory.country_code || territory.country) {
@@ -196,17 +225,42 @@ async function checkExpiredTerritories() {
         
         // 1. 1주일 고정 기간이 지난 영토 확인
         // 주의: initial_protection_ends_at, can_be_challenged, is_permanent 컬럼이 없을 수 있음
-        // 일단 기본적인 만료 확인만 수행
-        const territoriesAfterOneWeek = await query(`
-            SELECT id, current_auction_id, status, sovereignty, lease_ends_at
-            FROM territories
-            WHERE ruler_id IS NOT NULL
-            AND status = 'ruled'
-            AND (lease_ends_at IS NULL OR lease_ends_at > NOW())
-            LIMIT 100
+        // lease_ends_at도 없을 수 있으므로 컬럼 존재 여부 확인
+        let autoPermanentCount = 0;
+        
+        // lease_ends_at 컬럼 존재 여부 확인
+        const leaseColumnCheck = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'territories'
+                AND column_name = 'lease_ends_at'
+            )
         `);
         
-        let autoPermanentCount = 0;
+        const hasLeaseColumn = leaseColumnCheck.rows[0].exists;
+        
+        let territoriesAfterOneWeek;
+        if (hasLeaseColumn) {
+            territoriesAfterOneWeek = await query(`
+                SELECT id, current_auction_id, status, sovereignty
+                FROM territories
+                WHERE ruler_id IS NOT NULL
+                AND status = 'ruled'
+                AND (lease_ends_at IS NULL OR lease_ends_at > NOW())
+                LIMIT 100
+            `);
+        } else {
+            // lease_ends_at 컬럼이 없으면 모든 ruled 영토 확인
+            territoriesAfterOneWeek = await query(`
+                SELECT id, current_auction_id, status, sovereignty
+                FROM territories
+                WHERE ruler_id IS NOT NULL
+                AND status = 'ruled'
+                LIMIT 100
+            `);
+        }
+        
         for (const territory of territoriesAfterOneWeek.rows) {
             // 경매가 활성화되어 있으면 스킵
             if (territory.current_auction_id) {
@@ -223,21 +277,44 @@ async function checkExpiredTerritories() {
             // 영토 상태는 그대로 유지 (자동으로 permanent로 전환하지 않음)
             // 필요시 나중에 추가
             autoPermanentCount++;
-            
-            autoPermanentCount++;
         }
         
         // 2. 방치 감지 (30일 이상 활동 없음)
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const abandonedTerritories = await query(`
-            SELECT id, ruler_id, ruler_name, purchased_price, country, country_code, current_auction_id
+        
+        // price 컬럼 확인
+        const priceColumnCheck = await query(`
+            SELECT column_name
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'territories'
+            AND column_name IN ('purchased_price', 'base_price', 'price')
+            ORDER BY 
+                CASE column_name
+                    WHEN 'purchased_price' THEN 1
+                    WHEN 'base_price' THEN 2
+                    WHEN 'price' THEN 3
+                END
+            LIMIT 1
+        `);
+        
+        const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
+        
+        let abandonedQuery = `
+            SELECT id, ruler_id, ruler_name, ${priceColumn} as territory_price, country, country_code, current_auction_id
             FROM territories
             WHERE ruler_id IS NOT NULL
             AND status = 'ruled'
             AND updated_at < $1
-            AND (lease_ends_at IS NULL OR lease_ends_at > NOW())
-            LIMIT 100
-        `, [thirtyDaysAgo]);
+        `;
+        
+        if (hasLeaseColumn) {
+            abandonedQuery += ` AND (lease_ends_at IS NULL OR lease_ends_at > NOW())`;
+        }
+        
+        abandonedQuery += ` LIMIT 100`;
+        
+        const abandonedTerritories = await query(abandonedQuery, [thirtyDaysAgo]);
         
         let abandonedCount = 0;
         for (const territory of abandonedTerritories.rows) {
@@ -271,7 +348,7 @@ async function checkExpiredTerritories() {
                 territory.id,
                 'Territory ' + territory.id,
                 territory.country || territory.country_code,
-                territory.purchased_price || 100,
+                territory.territory_price || 100,
                 new Date(now.getTime() + 24 * 60 * 60 * 1000)
             ]);
             
@@ -303,8 +380,26 @@ async function checkExpiredTerritories() {
             `);
             
             if (columnCheck.rows[0].exists) {
+                // price 컬럼 확인
+                const priceColumnCheck = await query(`
+                    SELECT column_name
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'territories'
+                    AND column_name IN ('purchased_price', 'base_price', 'price')
+                    ORDER BY 
+                        CASE column_name
+                            WHEN 'purchased_price' THEN 1
+                            WHEN 'base_price' THEN 2
+                            WHEN 'price' THEN 3
+                        END
+                    LIMIT 1
+                `);
+                
+                const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
+                
                 const expiredLeases = await query(`
-                    SELECT id, ruler_id, ruler_name, purchased_price, country, country_code
+                    SELECT id, ruler_id, ruler_name, ${priceColumn} as territory_price, country, country_code
                     FROM territories
                     WHERE lease_ends_at <= NOW()
                     AND lease_ends_at IS NOT NULL
@@ -332,7 +427,7 @@ async function checkExpiredTerritories() {
                         territory.id,
                         'Territory ' + territory.id,
                         territory.country || territory.country_code,
-                        territory.purchased_price || 100,
+                        territory.territory_price || 100,
                         new Date(now.getTime() + 24 * 60 * 60 * 1000)
                     ]);
                     
