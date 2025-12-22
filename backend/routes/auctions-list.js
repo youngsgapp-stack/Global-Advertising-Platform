@@ -23,13 +23,24 @@ router.get('/', async (req, res) => {
     try {
         const { status = 'active', country, season, limit = 100 } = req.query;
         
+        console.log('[Auctions] 📊 Fetching auctions...', { status, country, season, limit });
+        
         // Redis 캐시 키 생성
         const cacheKey = `auctions:${status}:${country || 'all'}:${season || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        let cached = null;
         
-        if (cached) {
-            return res.json(cached);
+        try {
+            cached = await redis.get(cacheKey);
+            if (cached && typeof cached === 'object') {
+                console.log('[Auctions] ✅ Auctions loaded from cache');
+                return res.json(cached);
+            }
+        } catch (redisError) {
+            console.warn('[Auctions] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
+            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
+        
+        console.log('[Auctions] 📊 Fetching auctions from database...');
         
         // 쿼리 빌드
         let queryText = `
@@ -89,13 +100,29 @@ router.get('/', async (req, res) => {
             filters: { country, season },
         };
         
-        // Redis에 캐시
-        await redis.set(cacheKey, response, CACHE_TTL.AUCTION);
+        // Redis에 캐시 - 실패해도 응답은 반환
+        try {
+            await redis.set(cacheKey, response, CACHE_TTL.AUCTION);
+            console.log('[Auctions] ✅ Auctions cached in Redis');
+        } catch (redisError) {
+            console.warn('[Auctions] ⚠️ Redis cache write error (response still sent):', redisError.message);
+        }
         
+        console.log('[Auctions] ✅ Auctions fetched successfully:', { count: auctions.length });
         res.json(response);
     } catch (error) {
-        console.error('[Auctions List] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch auctions' });
+        console.error('[Auctions] ❌❌❌ Error:', {
+            message: error.message,
+            code: error.code,
+            name: error.name,
+            stack: error.stack,
+            fullError: error
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch auctions',
+            details: error.message,
+            errorCode: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 

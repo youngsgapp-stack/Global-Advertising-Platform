@@ -20,11 +20,20 @@ router.get('/', async (req, res) => {
         
         // Redis에서 먼저 조회 (5분 캐시)
         const cacheKey = `rankings:${type}:${limit}`;
-        const cached = await redis.get(cacheKey);
+        let cached = null;
         
-        if (cached) {
-            return res.json(cached);
+        try {
+            cached = await redis.get(cacheKey);
+            if (cached && typeof cached === 'object') {
+                console.log('[Rankings] ✅ Rankings loaded from cache');
+                return res.json(cached);
+            }
+        } catch (redisError) {
+            console.warn('[Rankings] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
+            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
+        
+        console.log('[Rankings] 📊 Fetching rankings from database...', { type, limit });
         
         // TODO: DB에 rankings 테이블이 있으면 조회
         // 현재는 영토 소유권 기반으로 랭킹 계산
@@ -90,13 +99,29 @@ router.get('/', async (req, res) => {
         
         const result = { type, rankings };
         
-        // Redis에 캐시
-        await redis.set(cacheKey, result, CACHE_TTL.RANKING);
+        // Redis에 캐시 - 실패해도 응답은 반환
+        try {
+            await redis.set(cacheKey, result, CACHE_TTL.RANKING);
+            console.log('[Rankings] ✅ Rankings cached in Redis');
+        } catch (redisError) {
+            console.warn('[Rankings] ⚠️ Redis cache write error (response still sent):', redisError.message);
+        }
         
+        console.log('[Rankings] ✅ Rankings fetched successfully:', { type, count: rankings.length });
         res.json(result);
     } catch (error) {
-        console.error('[Rankings] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch rankings' });
+        console.error('[Rankings] ❌❌❌ Error:', {
+            message: error.message,
+            code: error.code,
+            name: error.name,
+            stack: error.stack,
+            fullError: error
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch rankings',
+            details: error.message,
+            errorCode: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 

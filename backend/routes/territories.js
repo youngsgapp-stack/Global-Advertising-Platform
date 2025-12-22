@@ -20,13 +20,24 @@ router.get('/', async (req, res) => {
     try {
         const { country, status, limit } = req.query;
         
+        console.log('[Territories] 📊 Fetching territories...', { country, status, limit });
+        
         // Redis 캐시 키 생성
         const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limit || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        let cached = null;
         
-        if (cached) {
-            return res.json(cached);
+        try {
+            cached = await redis.get(cacheKey);
+            if (cached && Array.isArray(cached)) {
+                console.log('[Territories] ✅ Territories loaded from cache');
+                return res.json(cached);
+            }
+        } catch (redisError) {
+            console.warn('[Territories] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
+            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
+        
+        console.log('[Territories] 📊 Fetching territories from database...');
         
         // SQL 쿼리 빌드
         // ⚠️ 전문가 조언 반영: ruler_firebase_uid를 포함하여 소유권 정보 완전성 보장
@@ -106,13 +117,29 @@ router.get('/', async (req, res) => {
             updatedAt: row.updated_at
         }));
         
-        // Redis에 캐시
-        await redis.set(cacheKey, territories, CACHE_TTL.TERRITORY_LIST);
+        // Redis에 캐시 - 실패해도 응답은 반환
+        try {
+            await redis.set(cacheKey, territories, CACHE_TTL.TERRITORY_LIST);
+            console.log('[Territories] ✅ Territories cached in Redis');
+        } catch (redisError) {
+            console.warn('[Territories] ⚠️ Redis cache write error (response still sent):', redisError.message);
+        }
         
+        console.log('[Territories] ✅ Territories fetched successfully:', { count: territories.length });
         res.json(territories);
     } catch (error) {
-        console.error('[Territories] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch territories' });
+        console.error('[Territories] ❌❌❌ Error:', {
+            message: error.message,
+            code: error.code,
+            name: error.name,
+            stack: error.stack,
+            fullError: error
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch territories',
+            details: error.message,
+            errorCode: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 
@@ -248,8 +275,22 @@ router.post('/:id/purchase', async (req, res) => {
             
             const userId = userResult.rows[0].id;
             
-            // ⚠️ 디버깅: userId 타입 확인
-            console.log(`[Territories] Purchase: userId type=${typeof userId}, value=${userId}, firebase_uid=${firebaseUid}`);
+            // ⚠️ 디버깅: userId 타입 확인 (상세)
+            console.log(`[Territories] Purchase: userId type=${typeof userId}, value=${userId}, valueString=${String(userId)}, firebase_uid=${firebaseUid}`);
+            console.log(`[Territories] Purchase: userId constructor=${userId?.constructor?.name}`);
+            
+            // ⚠️ 핵심 수정: DB 스키마에 따르면 users.id는 UUID 타입이므로 UUID를 그대로 사용
+            // UUID를 string으로 변환하여 저장 (PostgreSQL UUID 타입은 string으로 처리)
+            if (userId === null || userId === undefined) {
+                await client.query('ROLLBACK');
+                client.release();
+                console.error(`[Territories] Purchase: userId is null or undefined`);
+                return res.status(500).json({ error: 'User ID is missing' });
+            }
+            
+            // userId를 string으로 변환 (UUID는 string으로 처리)
+            const userIdString = String(userId);
+            console.log(`[Territories] Purchase: Using userId as UUID: ${userIdString}`);
             
             // 지갑 조회 및 잠금 (wallets 테이블 사용)
             const walletResult = await client.query(
@@ -364,116 +405,303 @@ router.post('/:id/purchase', async (req, res) => {
             );
             
             // 영토 업데이트
+            // ⚠️ 핵심 수정: userIdString를 사용하여 UUID로 저장 (DB 스키마에 맞춤)
+            console.log(`[Territories] Purchase: About to UPDATE territory ${territoryId} with ruler_id=${userIdString} (type=${typeof userIdString})`);
             const updateResult = await client.query(
                 `UPDATE territories 
-                 SET ruler_id = $1,
-                     ruler_name = (SELECT nickname FROM users WHERE id = $1),
-                     status = 'protected',
-                     sovereignty = 'protected',
-                     protection_ends_at = $2,
-                     base_price = $3,
-                     purchased_by_admin = $4,
-                     updated_at = NOW()
-                 WHERE id = $5
-                 RETURNING *`,
-                [userId, protectionEndsAt, purchasePrice, purchasedByAdmin, territoryId]
+                SET ruler_id = $1,
+                    ruler_name = (SELECT nickname FROM users WHERE id = $1),
+                    status = 'protected',
+                    sovereignty = 'protected',
+                    protection_ends_at = $2,
+                    base_price = $3,
+                    purchased_by_admin = $4,
+                    updated_at = NOW()
+                WHERE id = $5
+                RETURNING *`,
+                [userIdString, protectionEndsAt, purchasePrice, purchasedByAdmin, territoryId]
             );
             
             // ⚠️ 디버깅: 업데이트 결과 확인
             if (updateResult.rows.length > 0) {
-                console.log(`[Territories] Purchase: Territory updated:`, {
+                console.log(`[Territories] Purchase: Territory updated (RETURNING result):`, {
                     territoryId: updateResult.rows[0].id,
                     ruler_id: updateResult.rows[0].ruler_id,
                     ruler_id_type: typeof updateResult.rows[0].ruler_id,
-                    sovereignty: updateResult.rows[0].sovereignty
+                    ruler_id_value: updateResult.rows[0].ruler_id,
+                    sovereignty: updateResult.rows[0].sovereignty,
+                    status: updateResult.rows[0].status,
+                    updated_at: updateResult.rows[0].updated_at
                 });
+            } else {
+                console.error(`[Territories] Purchase: UPDATE returned 0 rows! Territory ${territoryId} may not exist.`);
             }
             
             if (updateResult.rows.length === 0) {
                 throw new Error('Failed to update territory ownership');
             }
             
-            // 7. History 로깅 (감사로그)
-            try {
-                await client.query(
-                    `INSERT INTO territory_history (territory_id, user_id, event_type, metadata, created_at)
-                     VALUES ($1, $2, 'purchase', $3, NOW())`,
-                    [territoryId, userId, JSON.stringify({
-                        price: purchasePrice,
-                        previousRulerId: previousRulerId,
-                        protectionDays: protectionDays,
-                        purchasedByAdmin: purchasedByAdmin
-                    })]
-                );
-            } catch (historyError) {
-                // History 테이블이 없어도 구매는 성공 (나중에 테이블 생성 가능)
-                console.warn('[Territories] History logging failed (table may not exist):', historyError.message);
-            }
+            // ⚠️ 핵심 수정: History 로깅은 트랜잭션 밖으로 이동
+            // History 로깅 실패가 전체 트랜잭션을 abort시키지 않도록 함
+            // History는 부가 기능이므로 실패해도 구매는 성공해야 함
             
             // 트랜잭션 커밋
+            console.log(`[Territories] Purchase: About to COMMIT transaction for territory ${territoryId}`);
+            console.log(`[Territories] Purchase: Pre-commit state:`, {
+                territoryId: updateResult.rows[0].id,
+                ruler_id: updateResult.rows[0].ruler_id,
+                sovereignty: updateResult.rows[0].sovereignty,
+                status: updateResult.rows[0].status,
+                updated_at: updateResult.rows[0].updated_at
+            });
+            
+            // ⚠️ 핵심 진단: COMMIT 전에 실제 DB 상태 확인 (같은 connection에서)
+            const preCommitCheck = await client.query(
+                `SELECT id, ruler_id, sovereignty, status, updated_at FROM territories WHERE id = $1`,
+                [territoryId]
+            );
+            console.log(`[Territories] Purchase: Pre-commit DB check (same connection):`, {
+                id: preCommitCheck.rows[0]?.id,
+                ruler_id: preCommitCheck.rows[0]?.ruler_id,
+                sovereignty: preCommitCheck.rows[0]?.sovereignty,
+                status: preCommitCheck.rows[0]?.status,
+                updated_at: preCommitCheck.rows[0]?.updated_at
+            });
+            
             await client.query('COMMIT');
+            console.log(`[Territories] Purchase: Transaction COMMITTED for territory ${territoryId}`);
             
             const updatedTerritory = updateResult.rows[0];
             
-            // 사용자 정보 조회 (ruler_firebase_uid 포함)
-            let rulerFirebaseUid = null;
-            let rulerNickname = null;
-            if (updatedTerritory.ruler_id) {
-                const rulerResult = await query(
-                    `SELECT firebase_uid, nickname FROM users WHERE id = $1`,
-                    [updatedTerritory.ruler_id]
+            // ⚠️ 핵심 수정: COMMIT 후에는 새로운 connection을 사용하여 조회
+            // 같은 connection을 사용하면 트랜잭션 격리 수준 문제가 있을 수 있음
+            const verifyClient = await getPool().connect();
+            
+            try {
+                // ⚠️ 디버깅: 스키마 및 테이블 정보 확인
+                const schemaCheck = await verifyClient.query(`
+                    SELECT 
+                        table_schema,
+                        table_name,
+                        table_type
+                    FROM information_schema.tables 
+                    WHERE table_name = 'territories'
+                `);
+                console.log(`[Territories] Purchase: Schema check:`, schemaCheck.rows);
+                
+                // ⚠️ 핵심 진단: 모든 트리거 확인
+                const triggersCheck = await verifyClient.query(`
+                    SELECT 
+                        trigger_name,
+                        event_manipulation,
+                        action_timing,
+                        action_statement
+                    FROM information_schema.triggers
+                    WHERE event_object_table = 'territories'
+                `);
+                console.log(`[Territories] Purchase: Triggers on territories table:`, triggersCheck.rows);
+                
+                // ⚠️ 핵심 진단: 제약 조건 확인
+                const constraintsCheck = await verifyClient.query(`
+                    SELECT 
+                        constraint_name,
+                        constraint_type
+                    FROM information_schema.table_constraints
+                    WHERE table_name = 'territories'
+                `);
+                console.log(`[Territories] Purchase: Constraints on territories table:`, constraintsCheck.rows);
+                
+                // ⚠️ 핵심 진단: 뷰 확인 (territories가 뷰인지)
+                const viewsCheck = await verifyClient.query(`
+                    SELECT 
+                        table_schema,
+                        table_name,
+                        view_definition
+                    FROM information_schema.views
+                    WHERE table_name = 'territories'
+                `);
+                console.log(`[Territories] Purchase: Views named 'territories':`, viewsCheck.rows);
+                
+                // ⚠️ 디버깅: 커밋 후 실제 DB에서 확인 (새로운 connection 사용)
+                // ⚠️ 명시적으로 public 스키마 지정
+                const verifyResult = await verifyClient.query(
+                    `SELECT id, ruler_id, sovereignty, status, updated_at FROM public.territories WHERE id = $1`,
+                    [territoryId]
                 );
-                if (rulerResult.rows.length > 0) {
-                    rulerFirebaseUid = rulerResult.rows[0].firebase_uid;
-                    rulerNickname = rulerResult.rows[0].nickname;
+                
+                if (verifyResult.rows.length > 0) {
+                    const dbTerritory = verifyResult.rows[0];
+                    console.log(`[Territories] Purchase: Verified DB state after commit (new connection):`, {
+                        id: dbTerritory.id,
+                        ruler_id: dbTerritory.ruler_id,
+                        ruler_id_type: typeof dbTerritory.ruler_id,
+                        sovereignty: dbTerritory.sovereignty,
+                        status: dbTerritory.status,
+                        updated_at: dbTerritory.updated_at
+                    });
+                    
+                    // ⚠️ 검증: DB에 실제로 저장되었는지 확인
+                    if (!dbTerritory.ruler_id || dbTerritory.ruler_id !== updatedTerritory.ruler_id) {
+                        console.error(`[Territories] ⚠️ WARNING: DB state mismatch! Expected ruler_id: ${updatedTerritory.ruler_id}, Got: ${dbTerritory.ruler_id}`);
+                        
+                        // ⚠️ 핵심 진단: 최근 변경 이력 확인
+                        const changeHistory = await verifyClient.query(`
+                            SELECT 
+                                xact_start,
+                                state,
+                                query_start,
+                                wait_event_type,
+                                wait_event,
+                                query
+                            FROM pg_stat_activity 
+                            WHERE pid = pg_backend_pid()
+                        `);
+                        console.log(`[Territories] Purchase: Current connection state:`, changeHistory.rows);
+                        
+                        // ⚠️ 핵심 진단: 최근 트랜잭션 로그 확인 (가능한 경우)
+                        try {
+                            const recentTxLog = await verifyClient.query(`
+                                SELECT 
+                                    xid,
+                                    committed,
+                                    timestamp
+                                FROM pg_prepared_xacts
+                                ORDER BY timestamp DESC
+                                LIMIT 5
+                            `);
+                            console.log(`[Territories] Purchase: Recent prepared transactions:`, recentTxLog.rows);
+                        } catch (txLogError) {
+                            console.warn(`[Territories] Purchase: Could not check transaction log:`, txLogError.message);
+                        }
+                        
+                        // ⚠️ 핵심 진단: 다른 connection에서도 확인
+                        const otherConnectionCheck = await getPool().connect();
+                        try {
+                            const otherResult = await otherConnectionCheck.query(
+                                `SELECT id, ruler_id, sovereignty, status, updated_at FROM public.territories WHERE id = $1`,
+                                [territoryId]
+                            );
+                            console.log(`[Territories] Purchase: Check from another connection:`, {
+                                id: otherResult.rows[0]?.id,
+                                ruler_id: otherResult.rows[0]?.ruler_id,
+                                sovereignty: otherResult.rows[0]?.sovereignty,
+                                status: otherResult.rows[0]?.status,
+                                updated_at: otherResult.rows[0]?.updated_at
+                            });
+                        } finally {
+                            otherConnectionCheck.release();
+                        }
+                    } else {
+                        console.log(`[Territories] Purchase: ✅ DB state verified successfully!`);
+                    }
+                } else {
+                    console.error(`[Territories] ⚠️ WARNING: Territory not found in DB after commit: ${territoryId}`);
                 }
+                
+                // 사용자 정보 조회 (ruler_firebase_uid 포함)
+                // ⚠️ 핵심 수정: ruler_id는 UUID이므로 그대로 사용
+                let rulerFirebaseUid = null;
+                let rulerNickname = null;
+                if (updatedTerritory.ruler_id) {
+                    const rulerResult = await verifyClient.query(
+                        `SELECT firebase_uid, nickname FROM users WHERE id = $1`,
+                        [updatedTerritory.ruler_id]
+                    );
+                    if (rulerResult.rows.length > 0) {
+                        rulerFirebaseUid = rulerResult.rows[0].firebase_uid;
+                        rulerNickname = rulerResult.rows[0].nickname;
+                    } else {
+                        console.warn(`[Territories] Purchase: User not found for ruler_id: ${updatedTerritory.ruler_id}`);
+                    }
+                }
+                
+                // 응답 형식을 GET 엔드포인트와 동일하게 맞춤
+                // ⚠️ 핵심 수정: ruler_id는 UUID이므로 그대로 반환
+                const responseTerritory = {
+                    ...updatedTerritory,
+                    ruler_id: updatedTerritory.ruler_id || null,
+                    ruler_firebase_uid: rulerFirebaseUid,
+                    ruler_nickname: rulerNickname || updatedTerritory.ruler_name
+                };
+                
+                // Redis 캐시 무효화
+                await invalidateTerritoryCache(territoryId);
+                
+                // WebSocket으로 영토 업데이트 브로드캐스트
+                broadcastTerritoryUpdate(territoryId, {
+                    id: updatedTerritory.id,
+                    status: updatedTerritory.status,
+                    sovereignty: updatedTerritory.sovereignty,
+                    rulerId: updatedTerritory.ruler_id,
+                    rulerFirebaseUid: rulerFirebaseUid,
+                    rulerName: rulerNickname || updatedTerritory.ruler_name,
+                    previousRulerId: previousRulerId,
+                    protectionEndsAt: updatedTerritory.protection_ends_at,
+                    purchasedPrice: updatedTerritory.base_price,
+                    purchasedByAdmin: updatedTerritory.purchased_by_admin,
+                    updatedAt: updatedTerritory.updated_at
+                });
+                
+                res.json({
+                    success: true,
+                    territory: responseTerritory,
+                    newBalance: newBalance,
+                    message: 'Territory purchased successfully'
+                });
+            } finally {
+                verifyClient.release();
             }
             
-            // 응답 형식을 GET 엔드포인트와 동일하게 맞춤
-            const responseTerritory = {
-                ...updatedTerritory,
-                ruler_firebase_uid: rulerFirebaseUid,
-                ruler_nickname: rulerNickname || updatedTerritory.ruler_name
-            };
-            
-            // Redis 캐시 무효화
-            await invalidateTerritoryCache(territoryId);
-            
-            // WebSocket으로 영토 업데이트 브로드캐스트
-            broadcastTerritoryUpdate(territoryId, {
-                id: updatedTerritory.id,
-                status: updatedTerritory.status,
-                sovereignty: updatedTerritory.sovereignty,
-                rulerId: updatedTerritory.ruler_id,
-                rulerFirebaseUid: rulerFirebaseUid,
-                rulerName: rulerNickname || updatedTerritory.ruler_name,
-                previousRulerId: previousRulerId,
-                protectionEndsAt: updatedTerritory.protection_ends_at,
-                purchasedPrice: updatedTerritory.base_price,
-                purchasedByAdmin: updatedTerritory.purchased_by_admin,
-                updatedAt: updatedTerritory.updated_at
-            });
-            
-            res.json({
-                success: true,
-                territory: responseTerritory,
-                newBalance: newBalance,
-                message: 'Territory purchased successfully'
-            });
+            // ⚠️ 핵심 수정: History 로깅을 트랜잭션 밖에서 실행
+            // 트랜잭션이 성공적으로 커밋된 후에만 History 로깅 시도
+            // History 로깅 실패가 구매 성공에 영향을 주지 않도록 함
+            try {
+                const historyClient = await getPool().connect();
+                try {
+                    await historyClient.query(
+                        `INSERT INTO territory_history (territory_id, user_id, event_type, metadata, created_at)
+                         VALUES ($1, $2, 'purchase', $3, NOW())`,
+                        [territoryId, userId, JSON.stringify({
+                            price: purchasePrice,
+                            previousRulerId: previousRulerId,
+                            protectionDays: protectionDays,
+                            purchasedByAdmin: purchasedByAdmin
+                        })]
+                    );
+                    console.log(`[Territories] Purchase: History logged successfully for territory ${territoryId}`);
+                } catch (historyError) {
+                    // History 테이블이 없어도 구매는 성공 (나중에 테이블 생성 가능)
+                    console.warn('[Territories] History logging failed (table may not exist):', historyError.message);
+                } finally {
+                    historyClient.release();
+                }
+            } catch (historyConnectionError) {
+                // History 로깅을 위한 connection 획득 실패도 무시
+                console.warn('[Territories] Failed to get connection for history logging:', historyConnectionError.message);
+            }
             
         } catch (error) {
             console.error('[Territories] Purchase transaction error:', error);
-            await client.query('ROLLBACK');
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('[Territories] Rollback error:', rollbackError);
+            }
+            // ⚠️ 주의: client.release()는 finally 블록에서 처리되므로 여기서 호출하지 않음
             throw error;
         }
         
     } catch (error) {
         // 중첩된 에러 핸들링 - 롤백은 이미 내부에서 처리됨
-        try {
-            await client.query('ROLLBACK');
-        } catch (rollbackError) {
-            console.error('[Territories] Rollback error:', rollbackError);
+        // ⚠️ 주의: client가 이미 release되었을 수 있으므로 확인 필요
+        if (client && !client.released) {
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('[Territories] Rollback error:', rollbackError);
+            }
         }
+        // ⚠️ 주의: client.release()는 finally 블록에서 처리되므로 여기서 호출하지 않음
         console.error('[Territories] Purchase error:', {
             error: error.message,
             stack: error.stack,
@@ -482,7 +710,7 @@ router.post('/:id/purchase', async (req, res) => {
         });
         res.status(500).json({ error: 'Failed to purchase territory', message: error.message });
     } finally {
-        if (client) {
+        if (client && !client.released) {
             client.release();
         }
     }
@@ -553,16 +781,24 @@ router.get('/:id', async (req, res) => {
         
         const row = result.rows[0];
         
-        // ⚠️ 디버깅: 조인 결과 로깅 (소유권 문제 진단용)
-        if (skipCache || row.ruler_id) {
-            console.log(`[Territories] GET /${territoryId} (skipCache=${skipCache}):`, {
-                territoryId: row.id,
-                ruler_id: row.ruler_id,
-                ruler_firebase_uid: row.ruler_firebase_uid,
-                ruler_nickname: row.ruler_nickname,
-                sovereignty: row.sovereignty,
-                status: row.status
-            });
+        // ⚠️ 디버깅: 조인 결과 로깅 (소유권 문제 진단용) - 항상 로깅
+        console.log(`[Territories] GET /${territoryId} (skipCache=${skipCache}):`, {
+            territoryId: row.id,
+            ruler_id: row.ruler_id,
+            ruler_id_type: typeof row.ruler_id,
+            ruler_firebase_uid: row.ruler_firebase_uid,
+            ruler_nickname: row.ruler_nickname,
+            sovereignty: row.sovereignty,
+            status: row.status,
+            // JOIN 결과 확인
+            user_id_from_join: row.ruler_id ? 'present' : 'null',
+            firebase_uid_from_join: row.ruler_firebase_uid ? 'present' : 'null'
+        });
+        
+        // ⚠️ 디버깅: JOIN 실패 원인 확인
+        if (row.ruler_id && !row.ruler_firebase_uid) {
+            console.error(`[Territories] ⚠️ JOIN FAILED: ruler_id exists (${row.ruler_id}) but ruler_firebase_uid is null`);
+            console.error(`[Territories] ⚠️ This indicates the JOIN condition failed or user not found`);
         }
         
         // ⚠️ 전문가 조언 반영: 응답 형식 일관성 확보 - ruler_firebase_uid로 통일

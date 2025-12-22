@@ -39,14 +39,14 @@ topLevelRouter.get('/territories', async (req, res) => {
             try {
                 const pixelData = await redis.get(key);
                 if (pixelData) {
-                    const data = typeof pixelData === 'string' ? JSON.parse(pixelData) : pixelData;
+                    // ⚠️ 핵심 수정: redis.get()이 이미 파싱된 객체를 반환하므로 중복 파싱 제거
                     // 픽셀이 실제로 있는 경우만 포함
-                    if (data.pixels && Array.isArray(data.pixels) && data.pixels.length > 0) {
+                    if (pixelData.pixels && Array.isArray(pixelData.pixels) && pixelData.pixels.length > 0) {
                         const territoryId = key.replace('pixel_data:', '');
                         return {
                             territoryId: territoryId,
-                            pixelCount: data.pixels.length,
-                            hasOwner: !!data.ownerId
+                            pixelCount: pixelData.pixels.length,
+                            hasOwner: !!pixelData.ownerId
                         };
                     }
                 }
@@ -113,9 +113,22 @@ router.get('/', async (req, res) => {
         const pixelCacheKey = `pixel_data:${territoryId}`;
         const pixelData = await redis.get(pixelCacheKey);
         
+        // ⚠️ 디버깅: 조회한 데이터 확인
+        console.log(`[Pixels] GET /territories/${territoryId}/pixels - Retrieved from Redis:`, {
+            hasData: !!pixelData,
+            pixelsLength: pixelData?.pixels?.length || 0,
+            filledPixels: pixelData?.filledPixels || 0,
+            dataType: typeof pixelData,
+            isArray: Array.isArray(pixelData?.pixels)
+        });
+        
+        // ⚠️ 핵심 수정: redis.get()이 이미 파싱된 객체를 반환하므로 중복 파싱 제거
         if (pixelData) {
-            const data = typeof pixelData === 'string' ? JSON.parse(pixelData) : pixelData;
-            return res.json(data);
+            console.log(`[Pixels] Returning pixel data:`, {
+                pixelsLength: pixelData.pixels?.length || 0,
+                filledPixels: pixelData.filledPixels || 0
+            });
+            return res.json(pixelData);
         }
         
         // 캐시된 메타데이터 확인
@@ -156,6 +169,17 @@ router.post('/', async (req, res) => {
         const { territoryId: territoryIdParam } = req.params;
         const { pixels, width, height } = req.body;
         const firebaseUid = req.user.uid;
+        
+        // ⚠️ 디버깅: 받은 데이터 확인
+        console.log(`[Pixels] POST /territories/${territoryIdParam}/pixels - Received data:`, {
+            pixelsType: typeof pixels,
+            pixelsIsArray: Array.isArray(pixels),
+            pixelsLength: pixels ? pixels.length : 0,
+            pixelsSample: pixels ? pixels.slice(0, 3) : null,
+            width,
+            height,
+            bodyKeys: Object.keys(req.body)
+        });
         
         // ID 검증 및 Canonical ID 변환
         const idValidation = validateTerritoryIdParam(territoryIdParam, {
@@ -210,9 +234,26 @@ router.post('/', async (req, res) => {
             ownerId: userId
         };
         
+        // ⚠️ 디버깅: 저장할 데이터 확인
+        console.log(`[Pixels] Saving pixel data for ${territoryId}:`, {
+            pixelsLength: pixelData.pixels.length,
+            filledPixels: pixelData.filledPixels,
+            width: pixelData.width,
+            height: pixelData.height,
+            pixelsSample: pixelData.pixels.slice(0, 3)
+        });
+        
         // Redis에 저장 (메인 저장소 - 무제한 캐시)
         const pixelCacheKey = `pixel_data:${territoryId}`;
         await redis.set(pixelCacheKey, pixelData);
+        
+        // ⚠️ 디버깅: 저장 후 즉시 확인
+        const verifyData = await redis.get(pixelCacheKey);
+        console.log(`[Pixels] Verified saved data for ${territoryId}:`, {
+            hasData: !!verifyData,
+            pixelsLength: verifyData?.pixels?.length || 0,
+            filledPixels: verifyData?.filledPixels || 0
+        });
         
             // 메타데이터 캐시도 업데이트
             const metaCacheKey = `pixels:${territoryId}`;

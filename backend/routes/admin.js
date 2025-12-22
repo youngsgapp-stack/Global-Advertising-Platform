@@ -19,15 +19,24 @@ router.get('/stats', async (req, res) => {
     try {
         // Redis 캐시 확인 (1분 캐시)
         const cacheKey = 'admin:stats';
-        const cached = await redis.get(cacheKey);
+        let cached = null;
         
-        if (cached) {
-            return res.json(cached);
+        try {
+            cached = await redis.get(cacheKey);
+            if (cached && typeof cached === 'object') {
+                console.log('[Admin] ✅ Stats loaded from cache');
+                return res.json(cached);
+            }
+        } catch (redisError) {
+            console.warn('[Admin] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
+            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
+        
+        console.log('[Admin] 📊 Fetching stats from database...');
         
         // 사용자 수
         const usersResult = await query('SELECT COUNT(*) as count FROM users');
-        const userCount = parseInt(usersResult.rows[0].count, 10);
+        const userCount = parseInt(usersResult.rows[0]?.count || 0, 10);
         
         // 영토 통계
         const territoriesResult = await query(`
@@ -59,7 +68,7 @@ router.get('/stats', async (req, res) => {
               AND o.ended_at IS NULL
               AND o.price IS NOT NULL
         `);
-        const totalRevenue = parseFloat(revenueResult.rows[0].total_revenue || 0);
+        const totalRevenue = parseFloat(revenueResult.rows[0]?.total_revenue || 0);
         
         // 활성 경매 수
         const auctionsResult = await query(`
@@ -67,7 +76,7 @@ router.get('/stats', async (req, res) => {
             FROM auctions
             WHERE status = 'active'
         `);
-        const activeAuctions = parseInt(auctionsResult.rows[0].count, 10);
+        const activeAuctions = parseInt(auctionsResult.rows[0]?.count || 0, 10);
         
         const stats = {
             users: userCount,
@@ -79,9 +88,15 @@ router.get('/stats', async (req, res) => {
             timestamp: new Date().toISOString()
         };
         
-        // Redis에 캐시 (1분)
-        await redis.set(cacheKey, stats, 60);
+        // Redis에 캐시 (1분) - 실패해도 응답은 반환
+        try {
+            await redis.set(cacheKey, stats, 60);
+            console.log('[Admin] ✅ Stats cached in Redis');
+        } catch (redisError) {
+            console.warn('[Admin] ⚠️ Redis cache write error (response still sent):', redisError.message);
+        }
         
+        console.log('[Admin] ✅ Stats fetched successfully:', stats);
         res.json(stats);
     } catch (error) {
         console.error('[Admin] ❌❌❌ Stats error:', {

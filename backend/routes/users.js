@@ -61,6 +61,8 @@ router.get('/me/wallet', async (req, res) => {
     try {
         const firebaseUid = req.user.uid;
         
+        console.log('[Users] 📊 Fetching wallet for user:', firebaseUid);
+        
         // 사용자 ID 조회 (없으면 생성)
         let userResult = await query(
             `SELECT id FROM users WHERE firebase_uid = $1`,
@@ -72,6 +74,7 @@ router.get('/me/wallet', async (req, res) => {
             // 사용자가 없으면 먼저 생성
             const nickname = req.user.name || req.user.email || 'User';
             const email = req.user.email || '';
+            console.log('[Users] 👤 Creating new user:', { firebaseUid, email, nickname });
             const insertResult = await query(
                 `INSERT INTO users (firebase_uid, email, nickname)
                  VALUES ($1, $2, $3)
@@ -85,11 +88,20 @@ router.get('/me/wallet', async (req, res) => {
         
         // Redis에서 먼저 조회 (10초 캐시)
         const cacheKey = `wallet:${userId}`;
-        const cached = await redis.get(cacheKey);
+        let cached = null;
         
-        if (cached) {
-            return res.json(cached);
+        try {
+            cached = await redis.get(cacheKey);
+            if (cached && typeof cached === 'object') {
+                console.log('[Users] ✅ Wallet loaded from cache');
+                return res.json(cached);
+            }
+        } catch (redisError) {
+            console.warn('[Users] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
+            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
+        
+        console.log('[Users] 📊 Fetching wallet from database...');
         
         // DB에서 지갑 조회 (없으면 생성)
         let walletResult = await query(
@@ -100,6 +112,7 @@ router.get('/me/wallet', async (req, res) => {
         let wallet;
         if (walletResult.rows.length === 0) {
             // 지갑 없으면 생성 (스타터 포인트 400 지급)
+            console.log('[Users] 💰 Creating new wallet with starter balance: 400');
             const insertResult = await query(
                 `INSERT INTO wallets (user_id, balance)
                  VALUES ($1, 400)
@@ -116,13 +129,29 @@ router.get('/me/wallet', async (req, res) => {
             updatedAt: wallet.updated_at,
         };
         
-        // Redis에 캐시
-        await redis.set(cacheKey, walletData, CACHE_TTL.USER_WALLET);
+        // Redis에 캐시 - 실패해도 응답은 반환
+        try {
+            await redis.set(cacheKey, walletData, CACHE_TTL.USER_WALLET);
+            console.log('[Users] ✅ Wallet cached in Redis');
+        } catch (redisError) {
+            console.warn('[Users] ⚠️ Redis cache write error (response still sent):', redisError.message);
+        }
         
+        console.log('[Users] ✅ Wallet fetched successfully:', walletData);
         res.json(walletData);
     } catch (error) {
-        console.error('[Users] Wallet error:', error);
-        res.status(500).json({ error: 'Failed to fetch wallet' });
+        console.error('[Users] ❌❌❌ Wallet error:', {
+            message: error.message,
+            code: error.code,
+            name: error.name,
+            stack: error.stack,
+            fullError: error
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch wallet',
+            details: error.message,
+            errorCode: error.code || 'UNKNOWN_ERROR'
+        });
     }
 });
 
