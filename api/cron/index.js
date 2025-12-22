@@ -2,6 +2,8 @@
  * 통합 Cron Job
  * Vercel Cron Job
  * 
+ * ⚠️ 마이그레이션 완료: Firestore 비활성화, 백엔드 API로 리다이렉트
+ * 
  * 모든 cron 작업을 하나의 함수로 통합하여 Serverless Functions 개수를 줄입니다.
  * - 랭킹 계산
  * - 만료된 영토 확인
@@ -9,29 +11,8 @@
  * - 시즌 전환
  */
 
-import admin from 'firebase-admin';
-
-// Firebase Admin 초기화
-let adminInitialized = false;
-
-function initializeAdmin() {
-    if (adminInitialized) return;
-    
-    try {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-        
-        if (!admin.apps.length) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-        }
-        
-        adminInitialized = true;
-    } catch (error) {
-        console.error('[Cron] Failed to initialize Firebase Admin:', error);
-        throw error;
-    }
-}
+// ⚠️ Firestore Admin SDK 제거 (번들 크기 감소 및 Firestore 호출 완전 차단)
+// import admin from 'firebase-admin'; // 제거됨
 
 export default async function handler(req, res) {
     // Cron Job 인증
@@ -45,7 +26,32 @@ export default async function handler(req, res) {
         });
     }
     
+    // ⚠️ 마이그레이션 완료: Firestore 비활성화, 백엔드 API로 리다이렉트
+    const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:3001';
+    
     try {
+        // 백엔드 API로 리다이렉트
+        const jobType = req.query.job || req.body.job || 'all';
+        const backendUrl = `${BACKEND_API_URL}/api/cron?job=${jobType}`;
+        
+        const response = await fetch(backendUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+            },
+            body: JSON.stringify(req.body || {})
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Backend API error' }));
+            return res.status(response.status).json(errorData);
+        }
+        
+        const result = await response.json();
+        return res.status(200).json(result);
+        
+        /* 원래 코드 (Firestore 사용 - 비활성화됨)
         initializeAdmin();
         const db = admin.firestore();
         
@@ -83,6 +89,7 @@ export default async function handler(req, res) {
             results,
             timestamp: new Date().toISOString()
         });
+        */
         
     } catch (error) {
         console.error('[Cron] Error:', error);
