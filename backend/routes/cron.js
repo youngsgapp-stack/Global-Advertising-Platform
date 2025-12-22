@@ -68,12 +68,12 @@ async function calculateRankings() {
         logger.info('[Calculate Rankings] Starting ranking calculation...');
         
         // PostgreSQL에서 모든 영토 데이터 조회
+        // 주의: territory_value 컬럼이 없을 수 있으므로 purchased_price만 사용
         const territoriesResult = await query(`
             SELECT 
                 t.id, 
                 t.ruler_id, 
                 t.ruler_name,
-                t.territory_value,
                 t.purchased_price,
                 t.country,
                 t.country_code,
@@ -103,7 +103,7 @@ async function calculateRankings() {
             
             const stats = userStats.get(userId);
             stats.territoryCount++;
-            stats.totalValue += parseFloat(territory.territory_value || territory.purchased_price || 0);
+            stats.totalValue += parseFloat(territory.purchased_price || 0);
             
             // 국가 추가
             if (territory.country_code || territory.country) {
@@ -289,55 +289,72 @@ async function checkExpiredTerritories() {
         }
         
         // 3. 임대 기간 만료된 영토 확인
-        const expiredLeases = await query(`
-            SELECT id, ruler_id, ruler_name, purchased_price, country, country_code
-            FROM territories
-            WHERE lease_ends_at <= NOW()
-            AND lease_ends_at IS NOT NULL
-            AND ruler_id IS NOT NULL
-            LIMIT 100
-        `);
-        
+        // 주의: lease_ends_at 컬럼이 없을 수 있으므로 테이블 존재 여부 확인
         let expiredLeaseCount = 0;
-        for (const territory of expiredLeases.rows) {
-            // 경매 생성
-            const auctionResult = await query(`
-                INSERT INTO auctions (
-                    territory_id,
-                    territory_name,
-                    country,
-                    status,
-                    starting_bid,
-                    current_bid,
-                    bid_count,
-                    created_at,
-                    end_time,
-                    reason
-                ) VALUES ($1, $2, $3, 'active', $4, $4, 0, NOW(), $5, 'lease_expired')
-                RETURNING id
-            `, [
-                territory.id,
-                'Territory ' + territory.id,
-                territory.country || territory.country_code,
-                territory.purchased_price || 100,
-                new Date(now.getTime() + 24 * 60 * 60 * 1000)
-            ]);
+        try {
+            // lease_ends_at 컬럼 존재 여부 확인
+            const columnCheck = await query(`
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'territories'
+                    AND column_name = 'lease_ends_at'
+                )
+            `);
             
-            const auctionId = auctionResult.rows[0].id;
-            
-            await query(`
-                UPDATE territories 
-                SET ruler_id = NULL,
-                    ruler_name = NULL,
-                    sovereignty = 'available',
-                    status = 'auction',
-                    current_auction_id = $1,
-                    lease_ends_at = NULL,
-                    updated_at = NOW()
-                WHERE id = $2
-            `, [auctionId, territory.id]);
-            
-            expiredLeaseCount++;
+            if (columnCheck.rows[0].exists) {
+                const expiredLeases = await query(`
+                    SELECT id, ruler_id, ruler_name, purchased_price, country, country_code
+                    FROM territories
+                    WHERE lease_ends_at <= NOW()
+                    AND lease_ends_at IS NOT NULL
+                    AND ruler_id IS NOT NULL
+                    LIMIT 100
+                `);
+                
+                for (const territory of expiredLeases.rows) {
+                    // 경매 생성
+                    const auctionResult = await query(`
+                        INSERT INTO auctions (
+                            territory_id,
+                            territory_name,
+                            country,
+                            status,
+                            starting_bid,
+                            current_bid,
+                            bid_count,
+                            created_at,
+                            end_time,
+                            reason
+                        ) VALUES ($1, $2, $3, 'active', $4, $4, 0, NOW(), $5, 'lease_expired')
+                        RETURNING id
+                    `, [
+                        territory.id,
+                        'Territory ' + territory.id,
+                        territory.country || territory.country_code,
+                        territory.purchased_price || 100,
+                        new Date(now.getTime() + 24 * 60 * 60 * 1000)
+                    ]);
+                    
+                    const auctionId = auctionResult.rows[0].id;
+                    
+                    await query(`
+                        UPDATE territories 
+                        SET ruler_id = NULL,
+                            ruler_name = NULL,
+                            sovereignty = 'available',
+                            status = 'auction',
+                            current_auction_id = $1,
+                            lease_ends_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = $2
+                    `, [auctionId, territory.id]);
+                    
+                    expiredLeaseCount++;
+                }
+            }
+        } catch (error) {
+            logger.warn('[Check Expired Territories] lease_ends_at column does not exist, skipping lease expiration check');
         }
         
         return {
