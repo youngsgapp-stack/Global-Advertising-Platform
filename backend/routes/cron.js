@@ -98,12 +98,13 @@ async function calculateRankings() {
         logger.info(`[Calculate Rankings] Using price column: ${priceColumn}`);
         
         // PostgreSQL에서 모든 영토 데이터 조회
+        // 주의: 컬럼명은 이미 검증되었으므로 안전하게 사용
         const territoriesResult = await query(`
             SELECT 
                 t.id, 
                 t.ruler_id, 
                 t.ruler_name,
-                t.${priceColumn} as territory_price,
+                t."${priceColumn}" as territory_price,
                 t.country,
                 t.country_code,
                 u.firebase_uid as ruler_firebase_uid
@@ -300,8 +301,9 @@ async function checkExpiredTerritories() {
         
         const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
         
+        // 동적 쿼리 구성 (컬럼명은 이미 검증됨)
         let abandonedQuery = `
-            SELECT id, ruler_id, ruler_name, ${priceColumn} as territory_price, country, country_code, current_auction_id
+            SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price, country, country_code, current_auction_id
             FROM territories
             WHERE ruler_id IS NOT NULL
             AND status = 'ruled'
@@ -398,8 +400,9 @@ async function checkExpiredTerritories() {
                 
                 const priceColumn = priceColumnCheck.rows.length > 0 ? priceColumnCheck.rows[0].column_name : 'base_price';
                 
+                // 동적 쿼리 구성 (컬럼명은 이미 검증됨)
                 const expiredLeases = await query(`
-                    SELECT id, ruler_id, ruler_name, ${priceColumn} as territory_price, country, country_code
+                    SELECT id, ruler_id, ruler_name, "${priceColumn}" as territory_price, country, country_code
                     FROM territories
                     WHERE lease_ends_at <= NOW()
                     AND lease_ends_at IS NOT NULL
