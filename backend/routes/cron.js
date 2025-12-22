@@ -7,7 +7,7 @@
 import express from 'express';
 import logger from '../utils/logger.js';
 import { query } from '../db/init.js';
-import redis from '../redis/init.js';
+import { redis } from '../redis/init.js';
 
 const router = express.Router();
 
