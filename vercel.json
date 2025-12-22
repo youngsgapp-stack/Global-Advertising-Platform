@@ -9,35 +9,11 @@
   ],
   "rewrites": [
     {
-      "source": "/data/(.*)",
-      "destination": "/data/$1"
+      "source": "/data/:path*",
+      "destination": "/data/:path*"
     },
     {
-      "source": "/(.*\\.js)",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*\\.css)",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*\\.json)",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*\\.(png|jpg|jpeg|svg|webp|ico))",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*\\.(woff|woff2|ttf|eot))",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*\\.(geojson|map))",
-      "destination": "/$1"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],
@@ -117,5 +93,3 @@
     }
   ]
 }
-
-
