@@ -182,6 +182,25 @@ async function calculateRankings() {
             }
         }
         
+        // rankings 테이블 존재 여부 확인
+        const rankingsTableCheck = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'rankings'
+            )
+        `);
+        
+        if (!rankingsTableCheck.rows[0].exists) {
+            logger.info('[Calculate Rankings] ⚠️ rankings table does not exist, skipping rankings save');
+            return {
+                success: true,
+                skipped: true,
+                message: 'rankings table does not exist',
+                processed: 0
+            };
+        }
+        
         // 픽셀 수 계산 (Redis 또는 PostgreSQL에서)
         // TODO: 픽셀 데이터 구조에 따라 구현 필요
         
