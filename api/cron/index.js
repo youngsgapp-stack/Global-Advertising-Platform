@@ -14,7 +14,8 @@
 // ⚠️ Firestore Admin SDK 제거 (번들 크기 감소 및 Firestore 호출 완전 차단)
 // import admin from 'firebase-admin'; // 제거됨
 
-export default async function handler(req, res) {
+// Vercel Serverless Function 형식 (CommonJS)
+module.exports = async function handler(req, res) {
     // Cron Job 인증
     const authHeader = req.headers.authorization;
     const cronSecret = process.env.CRON_SECRET;
