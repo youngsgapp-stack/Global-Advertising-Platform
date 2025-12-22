@@ -40,41 +40,73 @@ module.exports = async function handler(req, res) {
         console.log(`[Cron] 🔄 Redirecting to backend API: ${backendUrl}`);
         
         const startTime = Date.now();
-        const response = await fetch(backendUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
-            },
-            body: JSON.stringify(req.body || {})
-        });
         
-        const duration = Date.now() - startTime;
+        // 타임아웃 설정 (30초)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Backend API error' }));
-            console.error(`[Cron] ❌ Backend API error (${response.status}):`, errorData);
-            return res.status(response.status).json(errorData);
+        try {
+            const response = await fetch(backendUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+                },
+                body: JSON.stringify(req.body || {}),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            const duration = Date.now() - startTime;
+        
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Backend API error' }));
+                console.error(`[Cron] ❌ Backend API error (${response.status}):`, errorData);
+                return res.status(response.status).json(errorData);
+            }
+            
+            const result = await response.json();
+            console.log(`[Cron] ✅ Backend API success: duration=${duration}ms, result=`, result);
+            
+            return res.status(200).json({
+                success: true,
+                jobType,
+                backendUrl,
+                duration: `${duration}ms`,
+                timestamp: new Date().toISOString(),
+                result
+            });
+            
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            const duration = Date.now() - startTime;
+            
+            if (fetchError.name === 'AbortError') {
+                console.error(`[Cron] ❌ Backend API timeout after ${duration}ms`);
+                return res.status(504).json({
+                    success: false,
+                    error: 'Backend API timeout',
+                    message: 'Backend API did not respond within 30 seconds',
+                    duration: `${duration}ms`
+                });
+            }
+            
+            throw fetchError; // 다른 에러는 상위 catch로 전달
         }
-        
-        const result = await response.json();
-        console.log(`[Cron] ✅ Backend API success: duration=${duration}ms, result=`, result);
-        
-        return res.status(200).json({
-            success: true,
-            jobType,
-            backendUrl,
-            duration: `${duration}ms`,
-            timestamp: new Date().toISOString(),
-            result
-        });
         
     } catch (error) {
         console.error('[Cron] ❌ Error redirecting to backend API:', error);
+        console.error('[Cron] Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+            cause: error.cause
+        });
         return res.status(500).json({
             success: false,
             error: error.message || 'Internal server error',
-            message: 'Failed to redirect to backend API. Please check BACKEND_API_URL environment variable.'
+            message: 'Failed to redirect to backend API. Please check BACKEND_API_URL environment variable and backend server status.',
+            backendUrl
         });
     }
 }
