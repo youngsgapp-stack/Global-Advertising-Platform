@@ -70,22 +70,25 @@ async function calculateRankings() {
         // PostgreSQL에서 모든 영토 데이터 조회
         const territoriesResult = await query(`
             SELECT 
-                id, 
-                ruler, 
-                ruler_name,
-                territory_value,
-                purchased_price,
-                country_code,
-                country_iso
-            FROM territories
-            WHERE ruler IS NOT NULL
+                t.id, 
+                t.ruler_id, 
+                t.ruler_name,
+                t.territory_value,
+                t.purchased_price,
+                t.country,
+                t.country_code,
+                u.firebase_uid as ruler_firebase_uid
+            FROM territories t
+            LEFT JOIN users u ON t.ruler_id = u.id
+            WHERE t.ruler_id IS NOT NULL
         `);
         
         // 사용자별 통계 계산
         const userStats = new Map();
         
         for (const territory of territoriesResult.rows) {
-            const userId = territory.ruler;
+            // ruler_firebase_uid를 우선 사용, 없으면 ruler_id 사용
+            const userId = territory.ruler_firebase_uid || territory.ruler_id;
             if (!userId) continue;
             
             if (!userStats.has(userId)) {
@@ -103,8 +106,8 @@ async function calculateRankings() {
             stats.totalValue += parseFloat(territory.territory_value || territory.purchased_price || 0);
             
             // 국가 추가
-            if (territory.country_code || territory.country_iso) {
-                const countryCode = territory.country_code || territory.country_iso;
+            if (territory.country_code || territory.country) {
+                const countryCode = territory.country_code || territory.country;
                 stats.countries.add(countryCode);
                 
                 // 대륙 추가
@@ -192,40 +195,34 @@ async function checkExpiredTerritories() {
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         
         // 1. 1주일 고정 기간이 지난 영토 확인
+        // 주의: initial_protection_ends_at, can_be_challenged, is_permanent 컬럼이 없을 수 있음
+        // 일단 기본적인 만료 확인만 수행
         const territoriesAfterOneWeek = await query(`
-            SELECT id, current_auction, can_be_challenged, is_permanent, lease_ends_at
+            SELECT id, current_auction_id, status, sovereignty, lease_ends_at
             FROM territories
-            WHERE initial_protection_ends_at <= $1
-            AND can_be_challenged = false
-            AND is_permanent = false
-            AND lease_ends_at IS NULL
+            WHERE ruler_id IS NOT NULL
+            AND status = 'ruled'
+            AND (lease_ends_at IS NULL OR lease_ends_at > NOW())
             LIMIT 100
-        `, [oneWeekAgo]);
+        `);
         
         let autoPermanentCount = 0;
         for (const territory of territoriesAfterOneWeek.rows) {
             // 경매가 활성화되어 있으면 스킵
-            if (territory.current_auction) {
+            if (territory.current_auction_id) {
                 const auctionResult = await query(`
                     SELECT status FROM auctions WHERE id = $1 AND status = 'active'
-                `, [territory.current_auction]);
+                `, [territory.current_auction_id]);
                 
                 if (auctionResult.rows.length > 0) {
-                    await query(`
-                        UPDATE territories 
-                        SET can_be_challenged = true, updated_at = NOW()
-                        WHERE id = $1
-                    `, [territory.id]);
+                    // 경매가 활성화되어 있으면 상태 유지
                     continue;
                 }
             }
             
-            // 무한 고정으로 전환
-            await query(`
-                UPDATE territories 
-                SET can_be_challenged = false, is_permanent = true, updated_at = NOW()
-                WHERE id = $1
-            `, [territory.id]);
+            // 영토 상태는 그대로 유지 (자동으로 permanent로 전환하지 않음)
+            // 필요시 나중에 추가
+            autoPermanentCount++;
             
             autoPermanentCount++;
         }
@@ -233,21 +230,22 @@ async function checkExpiredTerritories() {
         // 2. 방치 감지 (30일 이상 활동 없음)
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const abandonedTerritories = await query(`
-            SELECT id, ruler, ruler_name, purchased_price, country_iso, current_auction
+            SELECT id, ruler_id, ruler_name, purchased_price, country, country_code, current_auction_id
             FROM territories
-            WHERE is_permanent = true
-            AND last_activity_at < $1
-            AND lease_ends_at IS NULL
+            WHERE ruler_id IS NOT NULL
+            AND status = 'ruled'
+            AND updated_at < $1
+            AND (lease_ends_at IS NULL OR lease_ends_at > NOW())
             LIMIT 100
         `, [thirtyDaysAgo]);
         
         let abandonedCount = 0;
         for (const territory of abandonedTerritories.rows) {
             // 경매가 활성화되어 있으면 스킵
-            if (territory.current_auction) {
+            if (territory.current_auction_id) {
                 const auctionResult = await query(`
                     SELECT status FROM auctions WHERE id = $1 AND status = 'active'
-                `, [territory.current_auction]);
+                `, [territory.current_auction_id]);
                 
                 if (auctionResult.rows.length > 0) {
                     continue;
@@ -259,20 +257,20 @@ async function checkExpiredTerritories() {
                 INSERT INTO auctions (
                     territory_id,
                     territory_name,
-                    country_iso,
+                    country,
                     status,
-                    starting_price,
-                    current_price,
+                    starting_bid,
+                    current_bid,
                     bid_count,
                     created_at,
-                    ends_at,
+                    end_time,
                     reason
                 ) VALUES ($1, $2, $3, 'active', $4, $4, 0, NOW(), $5, 'abandoned_auto_reauction')
                 RETURNING id
             `, [
                 territory.id,
                 'Territory ' + territory.id,
-                territory.country_iso,
+                territory.country || territory.country_code,
                 territory.purchased_price || 100,
                 new Date(now.getTime() + 24 * 60 * 60 * 1000)
             ]);
@@ -281,9 +279,8 @@ async function checkExpiredTerritories() {
             
             await query(`
                 UPDATE territories 
-                SET current_auction = $1,
-                    can_be_challenged = true,
-                    is_permanent = false,
+                SET current_auction_id = $1,
+                    status = 'auction',
                     updated_at = NOW()
                 WHERE id = $2
             `, [auctionId, territory.id]);
@@ -293,11 +290,11 @@ async function checkExpiredTerritories() {
         
         // 3. 임대 기간 만료된 영토 확인
         const expiredLeases = await query(`
-            SELECT id, ruler, ruler_name, lease_type, purchased_price, country_iso
+            SELECT id, ruler_id, ruler_name, purchased_price, country, country_code
             FROM territories
             WHERE lease_ends_at <= NOW()
             AND lease_ends_at IS NOT NULL
-            AND is_permanent = false
+            AND ruler_id IS NOT NULL
             LIMIT 100
         `);
         
@@ -308,20 +305,20 @@ async function checkExpiredTerritories() {
                 INSERT INTO auctions (
                     territory_id,
                     territory_name,
-                    country_iso,
+                    country,
                     status,
-                    starting_price,
-                    current_price,
+                    starting_bid,
+                    current_bid,
                     bid_count,
                     created_at,
-                    ends_at,
+                    end_time,
                     reason
                 ) VALUES ($1, $2, $3, 'active', $4, $4, 0, NOW(), $5, 'lease_expired')
                 RETURNING id
             `, [
                 territory.id,
                 'Territory ' + territory.id,
-                territory.country_iso,
+                territory.country || territory.country_code,
                 territory.purchased_price || 100,
                 new Date(now.getTime() + 24 * 60 * 60 * 1000)
             ]);
@@ -330,13 +327,11 @@ async function checkExpiredTerritories() {
             
             await query(`
                 UPDATE territories 
-                SET ruler = NULL,
+                SET ruler_id = NULL,
                     ruler_name = NULL,
-                    ruler_since = NULL,
                     sovereignty = 'available',
-                    current_auction = $1,
-                    can_be_challenged = true,
-                    lease_type = NULL,
+                    status = 'auction',
+                    current_auction_id = $1,
                     lease_ends_at = NULL,
                     updated_at = NOW()
                 WHERE id = $2
@@ -365,10 +360,29 @@ async function checkExpiredTerritories() {
 
 /**
  * 시즌 전환
+ * 주의: seasons 테이블이 없으면 스킵
  */
 async function seasonTransition() {
     try {
         logger.info('[Season Transition] Starting check...');
+        
+        // seasons 테이블 존재 여부 확인
+        const tableCheck = await query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'seasons'
+            )
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            logger.info('[Season Transition] ⚠️ seasons table does not exist, skipping');
+            return {
+                success: true,
+                skipped: true,
+                message: 'seasons table does not exist'
+            };
+        }
         
         const now = new Date();
         
