@@ -159,7 +159,10 @@ class TerritoryUpdatePipeline {
             
             // 5. 맵 feature state 업데이트 (기존 방식 유지 - 호환성)
             console.log(`🔍 [TerritoryUpdatePipeline] Step 5: Updating map feature state`);
+            const t3Start = performance.now();
             await this.updateMapFeatureState(territory, viewState);
+            const t3End = performance.now();
+            console.log(`[TerritoryUpdatePipeline] ⏱️ Feature-state update time: ${Math.round(t3End - t3Start)}ms`);
             
             // 6. feature state가 반영되도록 약간의 지연 (맵 렌더링 대기)
             if (viewState.hasPixelArt && this.map) {
@@ -185,7 +188,10 @@ class TerritoryUpdatePipeline {
             if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
                 console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
                 console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
+                const t4Start = performance.now();
                 await this.displayPixelArt(territory, pixelData);
+                const t4End = performance.now();
+                console.log(`[TerritoryUpdatePipeline] ⏱️ Pixel image render time: ${Math.round(t4End - t4Start)}ms`);
                 console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
             } else {
                 console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ No pixel art to display for ${territoryId}`, {
@@ -491,6 +497,20 @@ class TerritoryUpdatePipeline {
             
             // Mapbox feature state 업데이트
             try {
+                // 소스 존재 여부 확인
+                if (!this.map.getSource(sourceId)) {
+                    console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature-state failed: source not found (${territory.id}, sourceId=${sourceId})`);
+                    log.debug(`[TerritoryUpdatePipeline] Feature-state failed: source not found for ${territory.id}`);
+                    return;
+                }
+                
+                // featureId 확인
+                if (!featureId && featureId !== 0) {
+                    console.warn(`[TerritoryUpdatePipeline] ⚠️ Feature-state failed: featureId missing (${territory.id})`);
+                    log.debug(`[TerritoryUpdatePipeline] Feature-state failed: featureId missing for ${territory.id}`);
+                    return;
+                }
+                
                 this.map.setFeatureState(
                     { source: sourceId, id: featureId },
                     featureState
@@ -504,8 +524,17 @@ class TerritoryUpdatePipeline {
                     console.log(`[TerritoryUpdatePipeline] ✅ Feature state verified for ${territory.id}: hasPixelArt=${verifyState.hasPixelArt}`);
                 }
             } catch (error) {
-                console.error(`[TerritoryUpdatePipeline] ❌ Failed to set feature state for ${territory.id}:`, error);
-                log.debug(`[TerritoryUpdatePipeline] Failed to set feature state for ${territory.id}:`, error);
+                // ⚡ 성능 로그: feature-state 실패 원인 분류
+                let failureReason = 'unknown';
+                if (error.message?.includes('source') || error.message?.includes('Source')) {
+                    failureReason = 'source_not_found';
+                } else if (error.message?.includes('feature') || error.message?.includes('id')) {
+                    failureReason = 'featureId_invalid';
+                } else if (error.message?.includes('state')) {
+                    failureReason = 'state_error';
+                }
+                console.error(`[TerritoryUpdatePipeline] ❌ Feature-state failed (${failureReason}) for ${territory.id}:`, error);
+                log.debug(`[TerritoryUpdatePipeline] Feature-state failed (${failureReason}) for ${territory.id}:`, error);
             }
             
             // fill-opacity가 즉시 반영되도록 맵 강제 새로고침 (여러 번 호출하여 확실하게)
@@ -648,10 +677,20 @@ class TerritoryUpdatePipeline {
         
         log.info(`[TerritoryUpdatePipeline] Refreshing ${territoryIds.length} territories (batch size: ${batchSize})`);
         
+        const t5Start = performance.now();
+        
         // 배치 처리
         for (let i = 0; i < territoryIds.length; i += batchSize) {
+            const batchStart = performance.now();
             const batch = territoryIds.slice(i, i + batchSize);
+            const actualProcessed = batch.length; // ⚡ 실제 처리된 항목 수
             await Promise.all(batch.map(id => this.refreshTerritory(id)));
+            const batchEnd = performance.now();
+            const batchTime = batchEnd - batchStart;
+            
+            // ⚡ 성능 로그: 배치당 걸린 시간 + 실제 처리 항목 수
+            const batchNum = Math.floor(i / batchSize) + 1;
+            console.log(`[TerritoryUpdatePipeline] ⏱️ Batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms`);
             
             // 배치 사이에 약간의 지연 (Firebase 부하 방지)
             if (i + batchSize < territoryIds.length) {
@@ -659,6 +698,8 @@ class TerritoryUpdatePipeline {
             }
         }
         
+        const t5End = performance.now();
+        console.log(`[TerritoryUpdatePipeline] ⏱️ refreshTerritories total time: ${Math.round(t5End - t5Start)}ms for ${territoryIds.length} territories`);
         log.info(`[TerritoryUpdatePipeline] Completed refreshing ${territoryIds.length} territories`);
     }
     
@@ -719,39 +760,75 @@ class TerritoryUpdatePipeline {
     
     /**
      * 뷰포트 내 영토 ID 가져오기
+     * ⚡ 성능 최적화: 캐시 + debounce로 호출 비용 최소화
      */
     getViewportTerritoryIds() {
         if (!this.map) return [];
         
         try {
+            // ⚡ 성능 최적화: 캐시 확인 (bounds가 같으면 재사용)
             const bounds = this.map.getBounds();
+            const boundsKey = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+            const now = Date.now();
+            
+            if (this._viewportTerritoryIdsCache && 
+                this._viewportTerritoryIdsCache.boundsKey === boundsKey &&
+                (now - this._viewportTerritoryIdsCache.timestamp) < 1000) { // 1초 캐시
+                return this._viewportTerritoryIdsCache.territoryIds;
+            }
+            
+            // ⚡ 성능 최적화: queryRenderedFeatures 사용 (1단계: 렌더된 것만 - 즉시 처리)
             const territoryIds = [];
-            
-            const style = this.map.getStyle();
-            if (!style || !style.sources) return [];
-            
-            for (const sourceId of Object.keys(style.sources)) {
-                try {
-                    const source = this.map.getSource(sourceId);
-                    if (!source || source.type !== 'geojson') continue;
-                    
-                    const data = source._data;
-                    if (!data || !data.features || data.features.length === 0) continue;
-                    
-                    for (const feature of data.features) {
-                        // 간단한 경계 체크 (정확도는 낮지만 빠름)
-                        const geometry = feature.geometry;
-                        if (geometry && this.isGeometryInBounds(geometry, bounds)) {
-                            const territoryId = feature.properties?.id || feature.id;
-                            if (territoryId) {
-                                territoryIds.push(territoryId);
+            try {
+                const renderedFeatures = this.map.queryRenderedFeatures({
+                    layers: [] // 모든 레이어 (필요시 특정 레이어만 지정 가능)
+                });
+                
+                for (const feature of renderedFeatures) {
+                    const territoryId = feature.properties?.id || feature.id;
+                    if (territoryId && !territoryIds.includes(territoryId)) {
+                        territoryIds.push(territoryId);
+                    }
+                }
+                
+                // ⚡ 안정성: queryRenderedFeatures는 렌더된 것만 잡히므로,
+                // 2단계(idle batch)에서는 전체 기반으로 누락된 것 보완
+                // (이 부분은 TerritoryManager의 overlay에서 처리됨)
+            } catch (error) {
+                // queryRenderedFeatures 실패 시 fallback: 기존 방식 (전체 기반)
+                log.debug('[TerritoryUpdatePipeline] queryRenderedFeatures failed, using fallback method (full scan)');
+                const style = this.map.getStyle();
+                if (style && style.sources) {
+                    for (const sourceId of Object.keys(style.sources)) {
+                        try {
+                            const source = this.map.getSource(sourceId);
+                            if (!source || source.type !== 'geojson') continue;
+                            
+                            const data = source._data;
+                            if (!data || !data.features || data.features.length === 0) continue;
+                            
+                            for (const feature of data.features) {
+                                const geometry = feature.geometry;
+                                if (geometry && this.isGeometryInBounds(geometry, bounds)) {
+                                    const territoryId = feature.properties?.id || feature.id;
+                                    if (territoryId && !territoryIds.includes(territoryId)) {
+                                        territoryIds.push(territoryId);
+                                    }
+                                }
                             }
+                        } catch (err) {
+                            log.warn(`[TerritoryUpdatePipeline] Error processing source ${sourceId} for viewport:`, err);
                         }
                     }
-                } catch (error) {
-                    log.warn(`[TerritoryUpdatePipeline] Error processing source ${sourceId} for viewport:`, error);
                 }
             }
+            
+            // 캐시 저장
+            this._viewportTerritoryIdsCache = {
+                boundsKey,
+                territoryIds,
+                timestamp: now
+            };
             
             return territoryIds;
             

@@ -2955,9 +2955,74 @@ class MapController {
                 sourceId: 'world-territories'
             });
             
-            // World View 로드 후 소유한 영토 상태 업데이트
-            // TerritoryManager에서 소유한 영토를 가져와서 TerritoryUpdatePipeline을 통해 갱신
-            this.updateOwnedTerritoriesInWorldView();
+            // ⚡ 안정성: 중복 실행 방지 가드
+            if (this._hasStartedInitialDeferredWork) {
+                log.debug('[MapController] Initial deferred work already started, skipping');
+                return true;
+            }
+            
+            // ⚡ 안정성: 예외 발생 시에도 플래그가 영원히 true로 고정되지 않게 try/finally 사용
+            try {
+                this._hasStartedInitialDeferredWork = true;
+                
+                // ⚡ 성능 최적화: 지도 첫 프레임 보장 후 idle 실행
+                // World View 로드 후 소유한 영토 상태 업데이트는 지도 첫 렌더 후 idle 시간에 수행
+                const scheduleOwnedTerritoriesUpdate = () => {
+                    // ⚡ 안정성: 중복 실행 방지 (이미 실행 중이면 스킵)
+                    if (this._ownedTerritoriesUpdateScheduled) {
+                        return;
+                    }
+                    this._ownedTerritoriesUpdateScheduled = true;
+                    
+                    if (window.requestIdleCallback) {
+                        requestIdleCallback(() => {
+                            this.updateOwnedTerritoriesInWorldView().catch(err => {
+                                log.warn('[MapController] Failed to update owned territories in idle:', err);
+                            }).finally(() => {
+                                // ⚡ 안정성: 완료 후 플래그 해제 (재시도 가능 상태로)
+                                this._ownedTerritoriesUpdateScheduled = false;
+                            });
+                        }, { timeout: 2000 });
+                    } else {
+                        setTimeout(() => {
+                            this.updateOwnedTerritoriesInWorldView().catch(err => {
+                                log.warn('[MapController] Failed to update owned territories:', err);
+                            }).finally(() => {
+                                // ⚡ 안정성: 완료 후 플래그 해제
+                                this._ownedTerritoriesUpdateScheduled = false;
+                            });
+                        }, 2000);
+                    }
+                };
+                
+                // 지도 첫 렌더 보장 후 실행
+                if (this.map) {
+                    // 첫 render 이벤트 후 300ms 지연 (지도 보이는 순간 다음 단계로)
+                    this.map.once('render', () => {
+                        setTimeout(() => {
+                            scheduleOwnedTerritoriesUpdate();
+                        }, 300);
+                    });
+                    
+                    // idle 이벤트도 대기 (더 확실한 보장) - 하지만 이미 실행 중이면 스킵
+                    this.map.once('idle', () => {
+                        scheduleOwnedTerritoriesUpdate();
+                    });
+                    
+                    // idle이 오지 않는 경우를 대비한 fallback (2초 후)
+                    setTimeout(() => {
+                        scheduleOwnedTerritoriesUpdate();
+                    }, 2000);
+                } else {
+                    // map이 없으면 바로 스케줄링
+                    scheduleOwnedTerritoriesUpdate();
+                }
+            } catch (error) {
+                // ⚡ 안정성: 예외 발생 시 플래그 해제하여 재시도 가능하게
+                log.error('[MapController] Error in initial deferred work setup:', error);
+                this._hasStartedInitialDeferredWork = false;
+                throw error;
+            }
             
             return true;
             

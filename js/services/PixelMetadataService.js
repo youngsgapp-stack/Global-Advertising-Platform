@@ -15,6 +15,8 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { localCacheService } from './LocalCacheService.js';
+// ⚡ 성능 최적화: 정적 import로 변경 (초기 로딩 경로에서 사용되므로 dynamic import보다 빠름)
+import { territoryManager } from '../core/TerritoryManager.js';
 
 class PixelMetadataService {
     constructor() {
@@ -54,13 +56,15 @@ class PixelMetadataService {
                     // ⚠️ 캐시 무효화 기준: TTL 또는 updatedAt 기반
                     const cacheAge = Date.now() - (cached.cachedAt || 0);
                     if (cacheAge < this.cacheMaxAge) {
-                        log.info(`[PixelMetadataService] Using cached metadata (age: ${Math.round(cacheAge / 1000)}s)`);
+                        const hasPixelArtCount = cached.metaMap.size;
+                        log.info(`[PixelMetadataService] Using cached metadata (age: ${Math.round(cacheAge / 1000)}s, hasPixelArt: ${hasPixelArtCount})`);
                         await this._applyMetadata(cached.metaMap);
                         this.loaded = true;
                         this.loading = false;
                         this.retryCount = 0; // 성공 시 재시도 카운트 리셋
                         eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
                             count: cached.count,
+                            hasPixelArtCount: hasPixelArtCount,
                             territoryIds: cached.territoryIds,
                             metaMap: cached.metaMap,
                             fromCache: true
@@ -104,7 +108,6 @@ class PixelMetadataService {
             
             // TerritoryManager에 hasPixelArt 플래그 설정
             // ⚠️ 중요: 초기에는 hasPixelArt를 false로 두지 말고, meta 로딩 결과로 채워넣어야 Phase 4가 성립
-            const { territoryManager } = await import('../core/TerritoryManager.js');
             for (const [territoryId, meta] of metaMap.entries()) {
                 const territory = territoryManager.getTerritory(territoryId);
                 if (territory) {
@@ -128,14 +131,20 @@ class PixelMetadataService {
                 metaMap: metaMap
             });
             
-            log.info(`[PixelMetadataService] Loaded metadata for ${data.count} territories`);
+            // ⚡ 성능 로그: 메타 적용 대상 수
+            const hasPixelArtCount = metaMap.size;
+            const payloadSize = JSON.stringify(data).length;
+            log.info(`[PixelMetadataService] Loaded metadata for ${data.count} territories (hasPixelArt: ${hasPixelArtCount})`);
+            console.log(`[PixelMetadataService] 📦 Payload size: ${Math.round(payloadSize / 1024)}KB`);
+            console.log(`[PixelMetadataService] 🎨 Metadata applied to ${hasPixelArtCount} territories with pixel art`);
             
             // ⚠️ 검증용 로그: PIXEL_METADATA_LOADED: count = ?
-            console.log(`[PixelMetadataService] PIXEL_METADATA_LOADED: count = ${data.count}`);
+            console.log(`[PixelMetadataService] PIXEL_METADATA_LOADED: count = ${data.count}, hasPixelArt = ${hasPixelArtCount}`);
             
             // 성공 이벤트 발행
             eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
                 count: data.count,
+                hasPixelArtCount: hasPixelArtCount,
                 territoryIds: data.territoryIds || [],
                 metaMap: metaMap,
                 fromCache: false
@@ -238,7 +247,6 @@ class PixelMetadataService {
      * 메타데이터 적용 (캐시에서 로드한 경우)
      */
     async _applyMetadata(metaMap) {
-        const { territoryManager } = await import('../core/TerritoryManager.js');
         for (const [territoryId, meta] of metaMap.entries()) {
             const territory = territoryManager.getTerritory(territoryId);
             if (territory) {
@@ -270,10 +278,9 @@ class PixelMetadataService {
     /**
      * 메타데이터 무효화 (픽셀 저장 후)
      */
-    invalidate(territoryId) {
+    async invalidate(territoryId) {
         this.pixelMetadata.delete(territoryId);
         // TerritoryManager에서도 제거
-        const { territoryManager } = await import('../core/TerritoryManager.js');
         const territory = territoryManager.getTerritory(territoryId);
         if (territory) {
             territory.hasPixelArt = undefined;

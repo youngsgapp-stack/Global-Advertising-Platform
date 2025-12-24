@@ -35,6 +35,12 @@ class TerritoryManager {
         this._lastFetched = new Map(); // ⚡ 캐시: territoryId -> 마지막 fetch 시간 (가이드 권장)
         this.CACHE_TTL = 30 * 1000; // ⚡ 30초 캐시 (가이드 권장)
         this.localNames = null; // 국가별 현지어 이름 매핑 테이블
+        
+        // ⚡ 성능 최적화: getTerritories API 응답 캐시 (중복 호출 방지)
+        this._territoriesApiCache = null; // 캐시된 territories 배열
+        this._territoriesApiCacheTime = null; // 캐시 시간
+        this._territoriesApiCacheTTL = 10 * 1000; // 10초 캐시 (초기 로딩 중 중복 호출 방지)
+        this._territoriesApiCachePromise = null; // ⚡ Promise 캐시 (동시 호출 완전 합치기)
     }
     
     /**
@@ -716,8 +722,11 @@ class TerritoryManager {
      * - Firestore는 지형/메타데이터 용으로만 사용 (소유권 정보 제외)
      * - 소유권(ownership/ruler)은 백엔드 DB/API에서만 로드
      * - 초기 로드 시 ownership overlay를 별도로 받아서 merge
+     * 
+     * @param {Object} options - 옵션
+     * @param {boolean} options.forceRefresh - 캐시 무시하고 강제 갱신
      */
-    async loadTerritoriesFromFirestore() {
+    async loadTerritoriesFromFirestore(options = {}) {
         try {
             console.log('[TerritoryManager] 🔄 loadTerritoriesFromFirestore() called');
             log.info('[TerritoryManager] 🔄 loadTerritoriesFromFirestore() called');
@@ -759,16 +768,73 @@ class TerritoryManager {
             log.info('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
             log.info('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
             
-            // ⚠️ 전문가 조언 반영: 초기 로드
-            // 백엔드 GET /api/territories 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
-            // 따라서 초기 로드 시 이미 소유권 정보가 포함되어 있을 수 있음
-            console.log('[TerritoryManager] 📡 Calling apiService.getTerritories()...');
-            const territories = await apiService.getTerritories();
-            console.log('[TerritoryManager] 📡 Received territories from API:', territories?.length || 0);
+            // ⚡ 성능 최적화: Promise 캐시로 동시 호출 완전 합치기
+            const now = Date.now();
+            let territories = null;
+            
+            // ⚡ 안정성: forceRefresh 옵션 지원 (상태 변경 후 강제 갱신)
+            const forceRefresh = options?.forceRefresh || false;
+            if (forceRefresh) {
+                this.invalidateTerritoriesCache();
+            }
+            
+            // 1. TTL 캐시 확인 (10초 이내면 재사용, forceRefresh가 아닌 경우에만)
+            if (!forceRefresh && this._territoriesApiCache && this._territoriesApiCacheTime && 
+                (now - this._territoriesApiCacheTime) < this._territoriesApiCacheTTL) {
+                console.log('[TerritoryManager] ⚡ Using cached territories API response (age: ' + 
+                    Math.round((now - this._territoriesApiCacheTime) / 1000) + 's)');
+                log.info('[TerritoryManager] ⚡ Using cached territories API response');
+                territories = this._territoriesApiCache;
+            } 
+            // 2. Promise 캐시 확인 (진행 중인 요청이 있으면 같은 promise 재사용)
+            else if (this._territoriesApiCachePromise) {
+                console.log('[TerritoryManager] ⚡ Reusing existing getTerritories() promise (concurrent call)');
+                log.info('[TerritoryManager] ⚡ Reusing existing getTerritories() promise');
+                territories = await this._territoriesApiCachePromise;
+            } 
+            // 3. 새로운 요청 시작
+            else {
+                // ⚠️ 전문가 조언 반영: 초기 로드
+                // 백엔드 GET /api/territories 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
+                // 따라서 초기 로드 시 이미 소유권 정보가 포함되어 있을 수 있음
+                const t1 = performance.now();
+                console.log('[TerritoryManager] 📡 Calling apiService.getTerritories()...');
+                
+                // Promise 캐시 생성
+                this._territoriesApiCachePromise = apiService.getTerritories().then(result => {
+                    const t2 = performance.now();
+                    const payloadSize = JSON.stringify(result).length;
+                    console.log(`[TerritoryManager] ⏱️ getTerritories() network time: ${Math.round(t2 - t1)}ms`);
+                    console.log(`[TerritoryManager] 📦 Payload size: ${Math.round(payloadSize / 1024)}KB (${result?.length || 0} territories)`);
+                    console.log('[TerritoryManager] 📡 Received territories from API:', result?.length || 0);
+                    
+                    // ⚡ 안정성: 성공 응답에만 TTL 캐시 저장 (실패 응답 캐싱 방지)
+                    if (result && Array.isArray(result)) {
+                        this._territoriesApiCache = result;
+                        this._territoriesApiCacheTime = Date.now();
+                    }
+                    
+                    // Promise 캐시 해제 (다음 요청을 위해)
+                    this._territoriesApiCachePromise = null;
+                    
+                    return result;
+                }).catch(error => {
+                    // ⚡ 안정성: reject 시 Promise 캐시 반드시 초기화 (영원히 실패 promise 재사용 방지)
+                    this._territoriesApiCachePromise = null;
+                    // TTL 캐시는 유지 (이전 성공 응답이 있으면 재사용 가능)
+                    console.error('[TerritoryManager] ❌ getTerritories() failed:', error);
+                    throw error;
+                });
+                
+                territories = await this._territoriesApiCachePromise;
+            }
             
             // TerritoryAdapter를 사용하여 표준 모델로 변환 (변환 로직 중앙화)
+            const t2 = performance.now();
             const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
             const standardTerritories = territoryAdapter.toStandardModels(territories);
+            const t3 = performance.now();
+            console.log(`[TerritoryManager] ⏱️ Territory adapter conversion time: ${Math.round(t3 - t2)}ms`);
             console.log('[TerritoryManager] 🔄 Converted to standard territories:', standardTerritories.length);
             
             // ⚠️ 전문가 조언: 소유권 정보는 명시적으로 overlay하여 일관성 보장
@@ -786,11 +852,22 @@ class TerritoryManager {
             console.log(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
             log.info(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
             
-            // ⚠️ 전문가 조언 반영: 초기 로드 후 ownership overlay 자동 주입
-            // 새로고침 후에도 바로 owner/비owner가 맞게 표시되도록
-            console.log('[TerritoryManager] 🔄 Calling loadOwnershipOverlay()...');
-            await this.loadOwnershipOverlay();
-            console.log('[TerritoryManager] ✅ loadOwnershipOverlay() completed');
+            // ⚡ 성능 최적화: ownership overlay는 초기 필수 아님 → 지연 로딩
+            // 초기 로드 시에는 territories만 로드하고, overlay는 idle 시간에 수행
+            // requestIdleCallback이 지원되지 않으면 1초 후 실행
+            if (window.requestIdleCallback) {
+                requestIdleCallback(() => {
+                    this.loadOwnershipOverlay().catch(err => {
+                        log.warn('[TerritoryManager] Failed to load ownership overlay in idle:', err);
+                    });
+                }, { timeout: 1000 });
+            } else {
+                setTimeout(() => {
+                    this.loadOwnershipOverlay().catch(err => {
+                        log.warn('[TerritoryManager] Failed to load ownership overlay:', err);
+                    });
+                }, 1000);
+            }
             
         } catch (error) {
             // 인증 오류는 조용히 처리 (로그인 전에는 정상)
@@ -826,10 +903,54 @@ class TerritoryManager {
             console.log('[TerritoryManager] 🔄 Loading ownership overlay...');
             log.info('[TerritoryManager] 🔄 Loading ownership overlay...');
             
-            // ⚠️ 전문가 조언: 전체 territory를 한 개씩 GET 하지 말고, 한 번에 가져오는 형태
-            // 기존 getTerritories() 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
-            console.log('[TerritoryManager] 📡 Calling apiService.getTerritories() for ownership overlay...');
-            const territories = await apiService.getTerritories();
+            // ⚡ 성능 최적화: Promise 캐시로 동시 호출 완전 합치기
+            const now = Date.now();
+            let territories = null;
+            
+            // 1. TTL 캐시 확인
+            if (this._territoriesApiCache && this._territoriesApiCacheTime && 
+                (now - this._territoriesApiCacheTime) < this._territoriesApiCacheTTL) {
+                console.log('[TerritoryManager] ⚡ Using cached territories for ownership overlay (age: ' + 
+                    Math.round((now - this._territoriesApiCacheTime) / 1000) + 's)');
+                log.info('[TerritoryManager] ⚡ Using cached territories for ownership overlay');
+                territories = this._territoriesApiCache;
+            } 
+            // 2. Promise 캐시 확인 (진행 중인 요청이 있으면 같은 promise 재사용)
+            else if (this._territoriesApiCachePromise) {
+                console.log('[TerritoryManager] ⚡ Reusing existing getTerritories() promise for overlay (concurrent call)');
+                log.info('[TerritoryManager] ⚡ Reusing existing getTerritories() promise for overlay');
+                territories = await this._territoriesApiCachePromise;
+            } 
+            // 3. 새로운 요청 시작 (이 경우는 거의 없어야 함 - loadTerritoriesFromFirestore에서 이미 호출했을 가능성 높음)
+            else {
+                // ⚠️ 전문가 조언: 전체 territory를 한 개씩 GET 하지 말고, 한 번에 가져오는 형태
+                // 기존 getTerritories() 엔드포인트는 이미 ruler_firebase_uid를 포함하도록 수정됨
+                console.log('[TerritoryManager] 📡 Calling apiService.getTerritories() for ownership overlay...');
+                
+                // Promise 캐시 생성
+                this._territoriesApiCachePromise = apiService.getTerritories().then(result => {
+                    const payloadSize = JSON.stringify(result).length;
+                    console.log(`[TerritoryManager] 📦 Payload size: ${Math.round(payloadSize / 1024)}KB (${result?.length || 0} territories)`);
+                    
+                    // ⚡ 안정성: 성공 응답에만 TTL 캐시 저장 (실패 응답 캐싱 방지)
+                    if (result && Array.isArray(result)) {
+                        this._territoriesApiCache = result;
+                        this._territoriesApiCacheTime = Date.now();
+                    }
+                    
+                    // Promise 캐시 해제
+                    this._territoriesApiCachePromise = null;
+                    
+                    return result;
+                }).catch(error => {
+                    // ⚡ 안정성: reject 시 Promise 캐시 반드시 초기화
+                    this._territoriesApiCachePromise = null;
+                    console.error('[TerritoryManager] ❌ getTerritories() failed for overlay:', error);
+                    throw error;
+                });
+                
+                territories = await this._territoriesApiCachePromise;
+            }
             console.log('[TerritoryManager] 📡 Received territories for ownership overlay:', territories?.length || 0);
             
             if (!territories || !Array.isArray(territories)) {
@@ -875,9 +996,52 @@ class TerritoryManager {
             let territoriesWithoutRuler = 0;
             
             console.log('[TerritoryManager] 🔄 Processing territories for ownership overlay...');
+            const t5Start = performance.now();
+            
+            // ⚡ 안정성: 중복 처리 방지 Set (overlay run 단위로 새로 생성 - 가장 깔끔한 방법)
+            // 각 overlay 실행마다 새로운 Set을 생성하므로 메모리 누수 걱정 없음
+            const processedTerritoryIds = new Set();
+            
+            // ⚡ 성능 최적화: 뷰포트 우선 처리 (캐시된 결과 사용)
+            // TerritoryUpdatePipeline을 통해 뷰포트 내 territories 먼저 가져오기
+            let viewportTerritoryIds = [];
+            try {
+                // TerritoryUpdatePipeline이 초기화되어 있는지 확인
+                const { pixelMapRenderer } = await import('../core/PixelMapRenderer3.js');
+                if (pixelMapRenderer && pixelMapRenderer.updatePipeline && pixelMapRenderer.updatePipeline.map) {
+                    viewportTerritoryIds = pixelMapRenderer.updatePipeline.getViewportTerritoryIds();
+                    console.log(`[TerritoryManager] ⚡ Viewport territories: ${viewportTerritoryIds.length} (will process first)`);
+                }
+            } catch (error) {
+                // TerritoryUpdatePipeline이 없으면 전체 처리
+                log.debug('[TerritoryManager] TerritoryUpdatePipeline not available, processing all territories');
+            }
+            
+            // 1단계: 뷰포트 내 territories 우선 처리
+            const viewportSet = new Set(viewportTerritoryIds);
+            const viewportTerritories = [];
+            const remainingTerritories = [];
+            
             for (const apiTerritory of territories) {
                 const standardTerritory = territoryAdapter.toStandardModel(apiTerritory);
+                if (viewportSet.has(standardTerritory.id)) {
+                    viewportTerritories.push(apiTerritory);
+                } else {
+                    remainingTerritories.push(apiTerritory);
+                }
+            }
+            
+            // ⚡ 안정성: 최신 updatedAt 우선 룰 적용
+            const processTerritory = (apiTerritory) => {
+                const standardTerritory = territoryAdapter.toStandardModel(apiTerritory);
                 const territoryId = standardTerritory.id;
+                
+                // ⚡ 안정성: 중복 처리 방지 (이미 처리한 territory는 스킵)
+                // overlay run 단위로 Set이 생성되므로 상한 체크 불필요
+                if (processedTerritoryIds.has(territoryId)) {
+                    return;
+                }
+                processedTerritoryIds.add(territoryId);
                 
                 // 소유권 정보 통계
                 if (standardTerritory.ruler) {
@@ -889,6 +1053,34 @@ class TerritoryManager {
                 // 기존 territory 가져오기
                 const existing = this.territories.get(territoryId);
                 if (existing && existing.territory) {
+                    // ⚡ 안정성: 최신 updatedAt 우선 룰 (ms로 정규화하여 비교)
+                    // ISO 문자열/Date 객체/epoch 등 모든 형식을 ms로 정규화
+                    // ⚡ 안정성: invalid 값은 -Infinity로 처리하여 "항상 오래된 값"으로 취급
+                    const normalizeToMs = (value) => {
+                        if (!value || value === null || value === undefined) return -Infinity; // invalid = 항상 오래된 값
+                        if (typeof value === 'number') {
+                            if (isNaN(value) || !isFinite(value)) return -Infinity; // NaN/Infinity 처리
+                            return value; // 이미 epoch ms
+                        }
+                        if (value instanceof Date) {
+                            const time = value.getTime();
+                            return isNaN(time) ? -Infinity : time;
+                        }
+                        if (typeof value === 'string') {
+                            const parsed = new Date(value).getTime();
+                            return isNaN(parsed) ? -Infinity : parsed;
+                        }
+                        return -Infinity; // 알 수 없는 타입 = 항상 오래된 값
+                    };
+                    
+                    const existingUpdatedAt = normalizeToMs(existing.territory.updatedAt);
+                    const newUpdatedAt = normalizeToMs(standardTerritory.updatedAt);
+                    
+                    if (newUpdatedAt < existingUpdatedAt) {
+                        log.debug(`[TerritoryManager] Territory ${territoryId} has newer data, skipping overlay`);
+                        return;
+                    }
+                    
                     // 소유권 정보 overlay (merge)
                     const existingTerritory = existing.territory;
                     
@@ -900,6 +1092,7 @@ class TerritoryManager {
                         existingTerritory.rulerName = standardTerritory.rulerName;
                         existingTerritory.sovereignty = standardTerritory.sovereignty;
                         existingTerritory.status = standardTerritory.status;
+                        existingTerritory.updatedAt = standardTerritory.updatedAt || existingTerritory.updatedAt;
                         
                         if (!hadRulerBefore) {
                             updatedCount++;
@@ -917,8 +1110,87 @@ class TerritoryManager {
                     });
                     updatedCount++;
                 }
+            };
+            
+            // 뷰포트 내 territories 먼저 처리
+            for (const apiTerritory of viewportTerritories) {
+                processTerritory(apiTerritory);
             }
             
+            const viewportTime = performance.now();
+            console.log(`[TerritoryManager] ⏱️ Viewport overlay (${viewportTerritories.length} territories): ${Math.round(viewportTime - t5Start)}ms`);
+            
+            // 2단계: 나머지 territories는 idle batch로 처리 (배치 크기 옵션화)
+            if (remainingTerritories.length > 0) {
+                const processRemaining = () => {
+                    // ⚡ 성능 튜닝: 배치 크기 옵션화 (10/20/30/50 중 선택 가능)
+                    const batchSize = 20; // 기본값: 20개 (16ms 프레임 기준 안전)
+                    let processed = 0;
+                    let consecutiveExceeds = 0; // ⚡ 안정성: 연속 초과 카운터
+                    const MAX_CONSECUTIVE_EXCEEDS = 3; // 연속 3회 이상 초과 시 경고
+                    
+                    const processBatch = () => {
+                        const batchStart = performance.now();
+                        const batch = remainingTerritories.slice(processed, processed + batchSize);
+                        const actualProcessed = batch.length; // ⚡ 실제 처리된 항목 수
+                        
+                        for (const apiTerritory of batch) {
+                            processTerritory(apiTerritory);
+                        }
+                        processed += actualProcessed;
+                        const batchEnd = performance.now();
+                        const batchTime = batchEnd - batchStart;
+                        
+                        // ⚡ 성능 모니터링: FPS 관점 (프레임 간격 체크)
+                        const frameInterval = batchStart - lastFrameTime;
+                        if (frameInterval > 25) { // 25ms = 40fps 이하
+                            consecutiveFrameDrops++;
+                            if (consecutiveFrameDrops >= 3) {
+                                console.warn(`[TerritoryManager] ⚠️ Frame drop detected: ${Math.round(frameInterval)}ms interval (${consecutiveFrameDrops} consecutive)`);
+                            }
+                        } else {
+                            consecutiveFrameDrops = 0;
+                        }
+                        lastFrameTime = batchEnd;
+                        
+                        // ⚡ 안정성: 연속 초과 기준으로 경고 (노이즈 감소)
+                        if (batchTime > 16) {
+                            consecutiveExceeds++;
+                            if (consecutiveExceeds >= MAX_CONSECUTIVE_EXCEEDS) {
+                                console.warn(`[TerritoryManager] ⚠️ Overlay batch ${Math.floor(processed / batchSize)} exceeded 16ms frame ${consecutiveExceeds} times consecutively (${Math.round(batchTime)}ms, ${actualProcessed} territories)`);
+                            }
+                        } else {
+                            consecutiveExceeds = 0; // 리셋
+                        }
+                        
+                        // ⚡ 성능 로그: 배치당 걸린 시간 + 실제 처리 항목 수
+                        const batchNum = Math.floor(processed / batchSize) + 1;
+                        console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''}`);
+                        
+                        if (processed < remainingTerritories.length) {
+                            if (window.requestIdleCallback) {
+                                requestIdleCallback(processBatch, { timeout: 100 });
+                            } else {
+                                setTimeout(processBatch, 100);
+                            }
+                        } else {
+                            const totalTime = performance.now();
+                            console.log(`[TerritoryManager] ⏱️ Remaining overlay (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms`);
+                        }
+                    };
+                    
+                    if (window.requestIdleCallback) {
+                        requestIdleCallback(processBatch, { timeout: 1000 });
+                    } else {
+                        setTimeout(processBatch, 500);
+                    }
+                };
+                
+                processRemaining();
+            }
+            
+            const t5End = performance.now();
+            console.log(`[TerritoryManager] ⏱️ Ownership overlay processing time: ${Math.round(t5End - t5Start)}ms`);
             console.log(`[TerritoryManager] 📊 Ownership overlay stats: ${territoriesWithRuler} with ruler, ${territoriesWithoutRuler} without ruler`);
             console.log(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
             log.info(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
@@ -1456,6 +1728,26 @@ class TerritoryManager {
     }
     
     /**
+     * ⚡ 안정성: TTL/Promise 캐시 무효화
+     * 상태 변경 이벤트(구매/입찰 등) 발생 시 캐시를 무효화하여 최신 데이터 반영
+     * ⚡ 성능 최적화: debounce로 무효화 호출을 묶어서 네트워크 스파이크 방지
+     */
+    invalidateTerritoriesCache() {
+        // ⚡ 성능 최적화: debounce (300ms)로 무효화 호출 묶기
+        if (this._invalidateCacheTimeout) {
+            clearTimeout(this._invalidateCacheTimeout);
+        }
+        
+        this._invalidateCacheTimeout = setTimeout(() => {
+            this._territoriesApiCache = null;
+            this._territoriesApiCacheTime = null;
+            this._territoriesApiCachePromise = null;
+            this._invalidateCacheTimeout = null;
+            log.debug('[TerritoryManager] Territories cache invalidated (debounced)');
+        }, 300); // 300ms debounce
+    }
+    
+    /**
      * 영토 정복 처리
      */
     async handleTerritoryConquered(data) {
@@ -1705,6 +1997,9 @@ class TerritoryManager {
                     log.error(`[TerritoryManager] ⚠️ Failed to delete pixel art for ${territoryId}:`, pixelDeleteError);
                 }
             }
+            
+            // ⚡ 안정성: 상태 변경 시 캐시 무효화 (최신 데이터 반영 보장)
+            this.invalidateTerritoriesCache();
             
             // ⚠️ 이벤트는 id만 전달 (구독자는 스토어에서 읽기)
             eventBus.emit(EVENTS.TERRITORY_UPDATE, { 
