@@ -81,6 +81,19 @@ class BillionaireApp {
             // 2.4. Initialize Local Cache Service (IndexedDB)
             await localCacheService.initialize();
             
+            // ⚠️ 개선: 빠른 검증만 수행 (저비용)
+            // deep fix는 에러 발생 시에만 수행
+            try {
+                // 빠른 검증: store 존재 여부만 확인
+                if (localCacheService.db && localCacheService.db.objectStoreNames.contains(localCacheService.storeName)) {
+                    log.debug('[BillionaireApp] IndexedDB validation passed (quick check)');
+                } else {
+                    log.warn('[BillionaireApp] IndexedDB store missing, will fix on demand');
+                }
+            } catch (validationError) {
+                log.debug('[BillionaireApp] IndexedDB quick check failed (will fix on demand):', validationError);
+            }
+            
             // 2.4.1. Initialize Cache Service
             await cacheService.initialize();
             

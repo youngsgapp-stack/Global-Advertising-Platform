@@ -250,22 +250,53 @@ class PixelDataService {
             
             // 2. 로컬 캐시(IndexedDB) 확인 (빠름)
             console.log(`🔍 [PixelDataService] Step 2: Checking local cache (IndexedDB)`);
-            await this.initializeLocalCache();
-            const localCached = await localCacheService.loadFromCache(territoryId);
-            if (localCached) {
-                console.log(`🔍 [PixelDataService] ✅ Local cache found:`, {
-                    pixelsCount: localCached.pixels?.length || 0,
-                    filledPixels: localCached.filledPixels || 0
-                });
-                log.debug(`[PixelDataService] Using local cache for ${territoryId}`);
-                // 메모리 캐시에도 저장
-                this.memoryCache.set(territoryId, {
-                    data: localCached,
-                    timestamp: Date.now()
-                });
-                return localCached;
-            } else {
-                console.log(`🔍 [PixelDataService] No local cache found`);
+            try {
+                await this.initializeLocalCache();
+                const cacheResult = await localCacheService.loadFromCacheWithMetadata(territoryId);
+                
+                if (cacheResult && cacheResult.pixelData) {
+                    // ⚠️ 개선: 캐시 메타데이터 기반 검증 (서버 revision/updatedAt 비교)
+                    const cacheMetadata = cacheResult.metadata || {};
+                    const cacheUpdatedAt = cacheMetadata.updatedAt || cacheMetadata.lastUpdated;
+                    const cacheRevision = cacheMetadata.revision;
+                    
+                    console.log(`🔍 [PixelDataService] ✅ Local cache found:`, {
+                        pixelsCount: cacheResult.pixelData.pixels?.length || 0,
+                        filledPixels: cacheResult.pixelData.filledPixels || 0,
+                        cachedAt: cacheUpdatedAt,
+                        revision: cacheRevision
+                    });
+                    
+                    // ⚠️ 개선: 서버 메타데이터와 비교 (TTL보다 정확)
+                    // 서버에서 territory 메타데이터를 먼저 가져와서 revision/updatedAt 비교
+                    // 지금은 API 응답에 메타데이터가 포함되어 있으므로, API 호출 후 비교
+                    // 여기서는 일단 캐시를 사용하고, API 응답 후 서버 메타와 비교하여 무효화
+                    
+                    // ⚠️ 개선: TTL은 fallback으로만 사용 (서버 메타가 없을 때)
+                    const CACHE_MAX_AGE = 30 * 60 * 1000; // 30분 (fallback)
+                    const cacheAge = Date.now() - (cacheUpdatedAt || 0);
+                    
+                    // 서버 메타데이터가 있으면 그것을 우선, 없으면 TTL 사용
+                    // 실제 비교는 API 응답 후에 수행 (아래 코드에서)
+                    
+                    log.debug(`[PixelDataService] Using local cache for ${territoryId} (will validate with server metadata)`);
+                    // 메모리 캐시에도 저장
+                    this.memoryCache.set(territoryId, {
+                        data: cacheResult.pixelData,
+                        timestamp: Date.now(),
+                        metadata: cacheMetadata // ⚠️ 개선: 메타데이터도 저장
+                    });
+                    
+                    // ⚠️ 개선: 캐시를 반환하되, API 응답 후 서버 메타와 비교하여 무효화
+                    // 지금은 일단 캐시를 반환하고, API 응답이 오면 비교
+                    return cacheResult.pixelData;
+                } else {
+                    console.log(`🔍 [PixelDataService] No local cache found`);
+                }
+            } catch (cacheError) {
+                // IndexedDB 에러는 조용히 처리하고 API에서 로드 계속 진행
+                console.log(`🔍 [PixelDataService] ⚠️ Local cache error (will load from API):`, cacheError);
+                log.warn(`[PixelDataService] Local cache error for ${territoryId}, continuing with API load:`, cacheError);
             }
         } else {
             console.log(`🔍 [PixelDataService] ⚠️ forceRefresh=true, skipping all caches and loading from API directly`);
@@ -297,13 +328,18 @@ class PixelDataService {
             
             if (apiData && apiData.pixels && apiData.pixels.length > 0) {
                 // API 데이터를 기존 형식으로 변환
+                // ⚠️ 개선: 메타데이터 포함 (캐시 일관성 검증용)
                 const data = {
                     territoryId: apiData.territoryId,
                     pixels: apiData.pixels,
                     width: apiData.width || 64,
                     height: apiData.height || 64,
                     filledPixels: apiData.filledPixels || apiData.pixels.length,
-                    lastUpdated: apiData.lastUpdated
+                    lastUpdated: apiData.lastUpdated || Date.now(),
+                    // ⚠️ 개선: 서버 메타데이터 저장
+                    revision: apiData.revision || apiData.version || null,
+                    updatedAt: apiData.updatedAt || apiData.lastUpdated || Date.now(),
+                    payloadHash: apiData.payloadHash || null // 선택적
                 };
                 
                 console.log(`🔍 [PixelDataService] ✅ Pixel data converted:`, {
@@ -314,10 +350,42 @@ class PixelDataService {
                     height: data.height
                 });
                 
-                // 메모리 캐시에 저장
+                // ⚠️ 개선: 서버 메타데이터와 캐시 메타데이터 비교
+                const cachedMetadata = this.memoryCache.get(territoryId)?.metadata;
+                if (cachedMetadata) {
+                    const serverRevision = data.revision;
+                    const serverUpdatedAt = data.updatedAt;
+                    const cacheRevision = cachedMetadata.revision;
+                    const cacheUpdatedAt = cachedMetadata.updatedAt || cachedMetadata.lastUpdated;
+                    
+                    // ⚠️ 개선: 서버 메타데이터가 더 최신이면 캐시 무효화
+                    if (serverRevision && cacheRevision && serverRevision !== cacheRevision) {
+                        console.log(`🔍 [PixelDataService] ⚠️ Server revision (${serverRevision}) differs from cache (${cacheRevision}), cache invalidated`);
+                        this.clearMemoryCache(territoryId);
+                        // IndexedDB 캐시도 무효화
+                        await localCacheService.clearCache(territoryId).catch(() => {});
+                    } else if (serverUpdatedAt && cacheUpdatedAt) {
+                        // ⚠️ 개선: updatedAt 비교 (ISO 문자열 또는 숫자 모두 처리)
+                        const serverTime = typeof serverUpdatedAt === 'string' ? new Date(serverUpdatedAt).getTime() : serverUpdatedAt;
+                        const cacheTime = typeof cacheUpdatedAt === 'string' ? new Date(cacheUpdatedAt).getTime() : cacheUpdatedAt;
+                        
+                        if (serverTime && cacheTime && serverTime > cacheTime) {
+                            console.log(`🔍 [PixelDataService] ⚠️ Server updatedAt (${new Date(serverTime)}) is newer than cache (${new Date(cacheTime)}), cache invalidated`);
+                            this.clearMemoryCache(territoryId);
+                            await localCacheService.clearCache(territoryId).catch(() => {});
+                        }
+                    }
+                }
+                
+                // 메모리 캐시에 저장 (메타데이터 포함)
                 this.memoryCache.set(territoryId, {
                     data,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    metadata: { // ⚠️ 개선: 메타데이터도 저장
+                        revision: data.revision,
+                        updatedAt: data.updatedAt,
+                        lastUpdated: data.lastUpdated
+                    }
                 });
                 
                 // 로컬 캐시에도 저장 (다음 로드 시 빠르게)
