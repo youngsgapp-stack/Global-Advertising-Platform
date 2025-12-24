@@ -344,26 +344,21 @@ class PixelMetadataService {
             const territoryIds = [];
             
             for (const territory of territories) {
-                // ⚡ initial preset에 hasPixelArt, pixelCount, fillRatio가 포함되어 있음
-                // 서버에서 실제 DB 값들을 반환하므로 이를 직접 사용
-                const hasPixelArt = territory.hasPixelArt === true || 
-                                   (territory.hasPixelArt !== null && territory.hasPixelArt !== undefined && territory.hasPixelArt !== false) ||
-                                   (territory.pixelCount && territory.pixelCount > 0);
+                // hasPixelArt, pixelCount, fillRatio 등이 응답에 포함되어 있는지 확인
+                const hasPixelArt = territory.hasPixelArt || 
+                                   territory.pixelCount > 0 || 
+                                   (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0);
                 
                 if (hasPixelArt) {
                     const territoryId = territory.id || territory.territoryId;
                     if (territoryId) {
-                        // ⚡ 서버에서 반환한 실제 값 사용
-                        const pixelCount = territory.pixelCount || 0;
-                        const fillRatio = territory.fillRatio !== null && territory.fillRatio !== undefined 
-                                        ? Math.max(0, Math.min(1, parseFloat(territory.fillRatio) || 0))
-                                        : null;
-                        
                         metaMap.set(territoryId, {
-                            pixelCount: pixelCount,
+                            pixelCount: territory.pixelCount || 
+                                       (territory.pixelCanvas?.filledPixels) || 
+                                       0,
                             hasPixelArt: true,
                             updatedAt: territory.pixelUpdatedAt || territory.updatedAt || null,
-                            fillRatio: fillRatio
+                            fillRatio: territory.fillRatio || null
                         });
                         territoryIds.push(territoryId);
                         count++;
