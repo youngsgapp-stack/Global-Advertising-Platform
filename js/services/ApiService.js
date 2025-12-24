@@ -237,8 +237,23 @@ class ApiService {
     /**
      * 영토 목록 조회
      */
+    /**
+     * 영토 목록 조회
+     * @param {Object} params - 쿼리 파라미터
+     * @param {string} params.country - 국가 필터
+     * @param {string} params.status - 상태 필터
+     * @param {number} params.limit - 제한 개수
+     * @param {string|string[]} params.fields - 반환할 필드 목록 (쉼표로 구분 또는 배열)
+     * @returns {Promise<Array>} 영토 목록
+     */
     async getTerritories(params = {}) {
-        const queryString = new URLSearchParams(params).toString();
+        // ⚡ 성능 최적화: fields가 배열이면 쉼표로 구분된 문자열로 변환
+        const queryParams = { ...params };
+        if (Array.isArray(queryParams.fields)) {
+            queryParams.fields = queryParams.fields.join(',');
+        }
+        
+        const queryString = new URLSearchParams(queryParams).toString();
         const endpoint = queryString ? `/territories?${queryString}` : '/territories';
         return await this.get(endpoint);
     }

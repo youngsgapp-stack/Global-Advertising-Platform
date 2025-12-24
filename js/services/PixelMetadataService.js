@@ -76,13 +76,40 @@ class PixelMetadataService {
                 }
             }
             
-            const response = await fetch('/api/pixels/territories');
+            // ⚡ 임시 우회: /api/pixels/territories가 404인 경우 getTerritories 응답에서 메타 추출
+            let response;
+            let data;
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            try {
+                response = await fetch('/api/pixels/territories');
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        // ⚡ 404 처리: getTerritories 응답에서 메타 추출로 대체
+                        log.warn('[PixelMetadataService] /api/pixels/territories returned 404, extracting metadata from getTerritories response');
+                        data = await this._extractMetadataFromTerritories();
+                        if (data) {
+                            // 성공적으로 추출했으면 정상 흐름으로 진행
+                        } else {
+                            throw new Error('Failed to extract metadata from territories');
+                        }
+                    } else {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                } else {
+                    data = await response.json();
+                }
+            } catch (fetchError) {
+                // 네트워크 에러나 404인 경우 getTerritories에서 추출 시도
+                if (fetchError.message?.includes('404') || fetchError.message?.includes('Failed to fetch')) {
+                    log.warn('[PixelMetadataService] Failed to fetch /api/pixels/territories, extracting metadata from getTerritories response');
+                    data = await this._extractMetadataFromTerritories();
+                    if (!data) {
+                        throw fetchError; // 추출도 실패하면 원래 에러 throw
+                    }
+                } else {
+                    throw fetchError;
+                }
             }
-            
-            const data = await response.json();
             
             // ⚠️ 중요: "빈 배열"도 정상/오류 구분
             if (!data || !Array.isArray(data.territories)) {
@@ -296,6 +323,66 @@ class PixelMetadataService {
         this.loaded = false;
         this.pixelMetadata.clear();
         await this.loadMetadata();
+    }
+    
+    /**
+     * ⚡ 임시 우회: getTerritories 응답에서 픽셀 메타데이터 추출
+     * /api/pixels/territories가 404인 경우 사용
+     */
+    async _extractMetadataFromTerritories() {
+        try {
+            const { apiService } = await import('./ApiService.js');
+            const territories = await apiService.getTerritories();
+            
+            if (!territories || !Array.isArray(territories)) {
+                return null;
+            }
+            
+            // getTerritories 응답에서 픽셀 메타 추출
+            const metaMap = new Map();
+            let count = 0;
+            const territoryIds = [];
+            
+            for (const territory of territories) {
+                // hasPixelArt, pixelCount, fillRatio 등이 응답에 포함되어 있는지 확인
+                const hasPixelArt = territory.hasPixelArt || 
+                                   territory.pixelCount > 0 || 
+                                   (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0);
+                
+                if (hasPixelArt) {
+                    const territoryId = territory.id || territory.territoryId;
+                    if (territoryId) {
+                        metaMap.set(territoryId, {
+                            pixelCount: territory.pixelCount || 
+                                       (territory.pixelCanvas?.filledPixels) || 
+                                       0,
+                            hasPixelArt: true,
+                            updatedAt: territory.pixelUpdatedAt || territory.updatedAt || null,
+                            fillRatio: territory.fillRatio || null
+                        });
+                        territoryIds.push(territoryId);
+                        count++;
+                    }
+                }
+            }
+            
+            log.info(`[PixelMetadataService] Extracted metadata from getTerritories: ${count} territories with pixel art`);
+            
+            return {
+                count: count,
+                territories: Array.from(metaMap.entries()).map(([territoryId, meta]) => ({
+                    territoryId,
+                    pixelCount: meta.pixelCount,
+                    updatedAt: meta.updatedAt,
+                    fillRatio: meta.fillRatio
+                })),
+                territoryIds: territoryIds,
+                metaMap: metaMap
+            };
+        } catch (error) {
+            log.error('[PixelMetadataService] Failed to extract metadata from territories:', error);
+            return null;
+        }
     }
 }
 

@@ -800,8 +800,20 @@ class TerritoryManager {
                 const t1 = performance.now();
                 console.log('[TerritoryManager] 📡 Calling apiService.getTerritories()...');
                 
+                // ⚡ 성능 최적화: 초기 로딩 시 프리셋 사용 (서버에서 정의된 필드 세트)
+                // 이후 상세 정보는 패널 클릭 시 개별 territory 조회로 가져옴
+                const isInitialLoad = !this._territoriesApiCache && !this._territoriesApiCachePromise;
+                
+                // ⚡ 프리셋 사용: 서버에서 정의된 'initial' 프리셋 사용
+                // 클라이언트가 fields 문자열을 매번 만들지 않아도 됨
+                const params = isInitialLoad ? { preset: 'initial' } : {}; // 초기 로딩이 아니면 전체 필드
+                
+                if (isInitialLoad) {
+                    console.log('[TerritoryManager] ⚡ Initial load: using "initial" preset');
+                }
+                
                 // Promise 캐시 생성
-                this._territoriesApiCachePromise = apiService.getTerritories().then(result => {
+                this._territoriesApiCachePromise = apiService.getTerritories(params).then(result => {
                     const t2 = performance.now();
                     const payloadSize = JSON.stringify(result).length;
                     console.log(`[TerritoryManager] ⏱️ getTerritories() network time: ${Math.round(t2 - t1)}ms`);
@@ -1004,13 +1016,16 @@ class TerritoryManager {
             
             // ⚡ 성능 최적화: 뷰포트 우선 처리 (캐시된 결과 사용)
             // TerritoryUpdatePipeline을 통해 뷰포트 내 territories 먼저 가져오기
+            // ⚡ 성능 최적화: 초기 로딩 시 최대 10개로 제한 (첫 체감 개선)
             let viewportTerritoryIds = [];
             try {
                 // TerritoryUpdatePipeline이 초기화되어 있는지 확인
                 const { pixelMapRenderer } = await import('../core/PixelMapRenderer3.js');
                 if (pixelMapRenderer && pixelMapRenderer.updatePipeline && pixelMapRenderer.updatePipeline.map) {
-                    viewportTerritoryIds = pixelMapRenderer.updatePipeline.getViewportTerritoryIds();
-                    console.log(`[TerritoryManager] ⚡ Viewport territories: ${viewportTerritoryIds.length} (will process first)`);
+                    const allViewportIds = pixelMapRenderer.updatePipeline.getViewportTerritoryIds();
+                    // ⚡ 초기 로딩 시 최대 10개로 제한
+                    viewportTerritoryIds = allViewportIds.slice(0, 10);
+                    console.log(`[TerritoryManager] ⚡ Viewport territories: ${viewportTerritoryIds.length}/${allViewportIds.length} (limited to 10 for initial load)`);
                 }
             } catch (error) {
                 // TerritoryUpdatePipeline이 없으면 전체 처리
@@ -1128,6 +1143,10 @@ class TerritoryManager {
                     let processed = 0;
                     let consecutiveExceeds = 0; // ⚡ 안정성: 연속 초과 카운터
                     const MAX_CONSECUTIVE_EXCEEDS = 3; // 연속 3회 이상 초과 시 경고
+                    
+                    // ⚡ 버그 수정: lastFrameTime을 processRemaining 스코프에 선언
+                    let lastFrameTime = performance.now();
+                    let consecutiveFrameDrops = 0; // 연속 프레임 드랍 카운터
                     
                     const processBatch = () => {
                         const batchStart = performance.now();

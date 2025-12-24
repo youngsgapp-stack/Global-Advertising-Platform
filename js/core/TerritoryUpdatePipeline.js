@@ -27,6 +27,11 @@ class TerritoryUpdatePipeline {
         this.processingTerritories = new Set(); // 처리 중인 영토 (중복 방지)
         this.initialLoadCompleted = false; // 초기 로드 완료 플래그
         this.initialLoadInProgress = false; // 초기 로드 진행 중 플래그
+        
+        // ⚡ 성능 최적화: 초기 로딩 시 픽셀 렌더 금지
+        this.initialLoadStartTime = Date.now();
+        this.INITIAL_LOAD_DELAY_MS = 3000; // 첫 3초는 픽셀 렌더 금지
+        this.hasUserInteracted = false; // 사용자 인터랙션 여부
     }
     
     /**
@@ -34,6 +39,23 @@ class TerritoryUpdatePipeline {
      */
     initialize(map) {
         this.map = map;
+        
+        // ⚡ 성능 최적화: 사용자 인터랙션 감지 (줌/이동/클릭 시 픽셀 렌더 허용)
+        if (map) {
+            map.once('zoom', () => {
+                this.hasUserInteracted = true;
+                log.debug('[TerritoryUpdatePipeline] User interaction detected (zoom), enabling pixel render');
+            });
+            map.once('move', () => {
+                this.hasUserInteracted = true;
+                log.debug('[TerritoryUpdatePipeline] User interaction detected (move), enabling pixel render');
+            });
+            map.once('click', () => {
+                this.hasUserInteracted = true;
+                log.debug('[TerritoryUpdatePipeline] User interaction detected (click), enabling pixel render');
+            });
+        }
+        
         log.info('[TerritoryUpdatePipeline] Initialized');
     }
     
@@ -185,14 +207,23 @@ class TerritoryUpdatePipeline {
                 condition: !!(pixelData && pixelData.pixels && pixelData.pixels.length > 0)
             });
             
+            // ⚡ 성능 최적화: 초기 로딩 시 픽셀 렌더 금지 (첫 3초 또는 사용자 인터랙션 전까지)
+            const timeSinceInitialLoad = Date.now() - this.initialLoadStartTime;
+            const shouldSkipPixelRender = timeSinceInitialLoad < this.INITIAL_LOAD_DELAY_MS && !this.hasUserInteracted;
+            
             if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
-                console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
-                console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
-                const t4Start = performance.now();
-                await this.displayPixelArt(territory, pixelData);
-                const t4End = performance.now();
-                console.log(`[TerritoryUpdatePipeline] ⏱️ Pixel image render time: ${Math.round(t4End - t4Start)}ms`);
-                console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
+                if (shouldSkipPixelRender) {
+                    console.log(`[TerritoryUpdatePipeline] ⏭️ Skipping pixel render for ${territoryId} (initial load delay: ${Math.round((this.INITIAL_LOAD_DELAY_MS - timeSinceInitialLoad) / 1000)}s remaining)`);
+                    log.debug(`[TerritoryUpdatePipeline] Skipping pixel render during initial load`);
+                } else {
+                    console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
+                    console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
+                    const t4Start = performance.now();
+                    await this.displayPixelArt(territory, pixelData);
+                    const t4End = performance.now();
+                    console.log(`[TerritoryUpdatePipeline] ⏱️ Pixel image render time: ${Math.round(t4End - t4Start)}ms`);
+                    console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
+                }
             } else {
                 console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ No pixel art to display for ${territoryId}`, {
                     pixelData: pixelData ? 'exists' : 'null',
