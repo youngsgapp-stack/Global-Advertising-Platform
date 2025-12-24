@@ -3,6 +3,7 @@
  */
 
 import express from 'express';
+import crypto from 'crypto';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateTerritoryCache } from '../redis/cache-utils.js';
@@ -12,24 +13,157 @@ import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 const router = express.Router();
 
 /**
+ * ⚡ 성능 최적화: 지원되는 필드 목록 (화이트리스트)
+ * 악의적 요청/실수로 DB 전체 필드 노출 방지
+ */
+const ALLOWED_FIELDS = new Set([
+    'id',
+    'sovereignty',
+    'status',
+    'ruler_firebase_uid',
+    'ruler_id',
+    'ruler_nickname',
+    'hasAuction',
+    'updatedAt',
+    'protectionEndsAt',
+    'basePrice',
+    'code',
+    'name',
+    'name_en',
+    'country',
+    'continent',
+    'polygon',
+    'createdAt',
+    'ruler',
+    'auction'
+]);
+
+/**
+ * ⚡ 성능 최적화: 미리 정의된 프리셋
+ * 클라이언트가 fields 문자열을 매번 만들지 않아도 됨
+ */
+const FIELD_PRESETS = {
+    'initial': ['id', 'sovereignty', 'status', 'ruler_firebase_uid', 'hasAuction', 'updatedAt', 'protectionEndsAt'],
+    'minimal': ['id', 'sovereignty', 'status', 'ruler_firebase_uid'],
+    'full': null // null이면 전체 필드 반환
+};
+
+/**
+ * ⚡ 성능 최적화: 전역 revision (territories 데이터 변경 시 증가)
+ * ETag 계산을 빠르게 하기 위해 revision 기반 사용
+ */
+let territoriesRevision = 1; // 서버 재시작 시 초기화, 실제로는 DB에서 관리 권장
+
+/**
+ * ⚡ 성능 최적화: ETag 생성 헬퍼 함수
+ * fields와 revision을 포함하여 ETag 생성 (CPU 병목 방지)
+ * 
+ * @param {string} fieldsNormalized - 정규화된 fields 문자열
+ * @param {number} revision - 데이터 revision
+ * @returns {string} ETag 값
+ */
+function generateETag(fieldsNormalized, revision) {
+    const etagString = `${fieldsNormalized}:${revision}`;
+    const hash = crypto.createHash('md5').update(etagString).digest('hex');
+    return `"${hash}"`; // ETag는 따옴표로 감싸야 함
+}
+
+/**
+ * ⚡ 안전장치: fields 파라미터 정규화 및 검증
+ * 
+ * @param {string|string[]} fields - 요청된 필드 목록
+ * @param {string} preset - 프리셋 이름 (선택)
+ * @returns {string[]} 정규화된 필드 목록 (id는 항상 포함)
+ */
+function normalizeFields(fields, preset) {
+    // 1. 프리셋 우선 확인
+    if (preset && FIELD_PRESETS[preset] !== undefined) {
+        const presetFields = FIELD_PRESETS[preset];
+        if (presetFields === null) {
+            return null; // 전체 필드
+        }
+        // id는 항상 포함
+        return presetFields.includes('id') ? presetFields : ['id', ...presetFields];
+    }
+    
+    // 2. fields 파라미터 파싱
+    if (!fields) {
+        return null; // 전체 필드
+    }
+    
+    let fieldList = [];
+    if (typeof fields === 'string') {
+        fieldList = fields.split(',').map(f => f.trim()).filter(f => f);
+    } else if (Array.isArray(fields)) {
+        fieldList = fields.map(f => String(f).trim()).filter(f => f);
+    }
+    
+    if (fieldList.length === 0) {
+        return null; // 전체 필드
+    }
+    
+    // 3. 화이트리스트 검증 (unknown field 무시)
+    const validFields = [];
+    const invalidFields = [];
+    
+    for (const field of fieldList) {
+        if (ALLOWED_FIELDS.has(field)) {
+            validFields.push(field);
+        } else {
+            invalidFields.push(field);
+        }
+    }
+    
+    if (invalidFields.length > 0) {
+        console.warn(`[Territories] ⚠️ Unknown fields ignored: ${invalidFields.join(', ')}`);
+    }
+    
+    // 4. id는 항상 강제 포함
+    if (!validFields.includes('id')) {
+        validFields.unshift('id');
+    }
+    
+    return validFields.length > 0 ? validFields : ['id']; // 최소 id는 포함
+}
+
+/**
  * GET /api/territories
  * 영토 목록 조회 (필터링 지원)
  * Query params: country, status, limit
  */
 router.get('/', async (req, res) => {
     try {
-        const { country, status, limit } = req.query;
+        const { country, status, limit, fields, preset } = req.query;
         
-        console.log('[Territories] 📊 Fetching territories...', { country, status, limit });
+        console.log('[Territories] 📊 Fetching territories...', { country, status, limit, fields, preset });
         
-        // Redis 캐시 키 생성
-        const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limit || 'all'}`;
+        // ⚡ 안전장치: fields 파라미터 정규화 및 검증
+        const normalizedFields = normalizeFields(fields, preset);
+        const fieldsKey = normalizedFields ? normalizedFields.sort().join(',') : 'full';
+        
+        // Redis 캐시 키 생성 (정규화된 fields 포함)
+        const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limit || 'all'}:${fieldsKey}`;
         let cached = null;
         
         try {
             cached = await redis.get(cacheKey);
             if (cached && Array.isArray(cached)) {
                 console.log('[Territories] ✅ Territories loaded from cache');
+                
+                // ⚡ 성능 최적화: ETag 생성 및 304 Not Modified 처리
+                // fields와 revision을 포함하여 ETag 생성 (fields별로 다른 ETag 보장)
+                const etag = generateETag(fieldsKey, territoriesRevision);
+                res.setHeader('ETag', etag);
+                res.setHeader('Vary', 'Accept-Encoding'); // 압축 방식별 캐시 분리
+                res.setHeader('Cache-Control', 'public, max-age=10, stale-while-revalidate=60'); // stale-while-revalidate 추가
+                
+                // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+                const clientETag = req.headers['if-none-match'];
+                if (clientETag && clientETag === etag) {
+                    console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+                    return res.status(304).end();
+                }
+                
                 return res.json(cached);
             }
         } catch (redisError) {
@@ -84,38 +218,106 @@ router.get('/', async (req, res) => {
         
         const result = await query(sql, params);
         
-        // ⚠️ 전문가 조언 반영: 응답 형식 일관성 확보 - ruler_firebase_uid로 통일
-        const territories = result.rows.map(row => ({
-            id: row.id,
-            code: row.code,
-            name: row.name,
-            name_en: row.name_en,
-            country: row.country,
-            continent: row.continent,
-            status: row.status,
-            sovereignty: row.sovereignty,
-            ruler_id: row.ruler_id || null,
-            ruler_firebase_uid: row.ruler_firebase_uid || null,
-            ruler_nickname: row.ruler_nickname || row.ruler_name || null,
-            ruler: row.ruler_id ? {
-                id: row.ruler_id,
-                firebase_uid: row.ruler_firebase_uid,
-                name: row.ruler_name || row.ruler_nickname,
-                email: row.ruler_email
-            } : null,
-            basePrice: parseFloat(row.base_price || 0),
-            hasAuction: !!row.auction_id,
-            auction: row.auction_id ? {
-                id: row.auction_id,
-                status: row.auction_status,
-                currentBid: parseFloat(row.auction_current_bid || 0),
-                endTime: row.auction_end_time
-            } : null,
-            polygon: row.polygon,
-            protectionEndsAt: row.protection_ends_at,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at
-        }));
+        // ⚡ 성능 최적화: fields 파라미터에 따라 필드 선택적 포함
+        const territories = result.rows.map(row => {
+            const territory = {};
+            
+            // ⚡ 필수 필드 (항상 포함)
+            territory.id = row.id;
+            
+            // ⚡ fields 파라미터가 없으면 전체 필드 반환 (기존 동작)
+            if (!normalizedFields || normalizedFields.length === 0) {
+                territory.code = row.code;
+                territory.name = row.name;
+                territory.name_en = row.name_en;
+                territory.country = row.country;
+                territory.continent = row.continent;
+                territory.status = row.status;
+                territory.sovereignty = row.sovereignty;
+                territory.ruler_id = row.ruler_id || null;
+                territory.ruler_firebase_uid = row.ruler_firebase_uid || null;
+                territory.ruler_nickname = row.ruler_nickname || row.ruler_name || null;
+                territory.ruler = row.ruler_id ? {
+                    id: row.ruler_id,
+                    firebase_uid: row.ruler_firebase_uid,
+                    name: row.ruler_name || row.ruler_nickname,
+                    email: row.ruler_email
+                } : null;
+                territory.basePrice = parseFloat(row.base_price || 0);
+                territory.hasAuction = !!row.auction_id;
+                territory.auction = row.auction_id ? {
+                    id: row.auction_id,
+                    status: row.auction_status,
+                    currentBid: parseFloat(row.auction_current_bid || 0),
+                    endTime: row.auction_end_time
+                } : null;
+                territory.polygon = row.polygon;
+                territory.protectionEndsAt = row.protection_ends_at;
+                territory.createdAt = row.created_at;
+                territory.updatedAt = row.updated_at;
+            } else {
+                // ⚡ fields 파라미터가 있으면 요청된 필드만 포함 (이미 정규화됨)
+                const fieldMap = {
+                    'id': () => { territory.id = row.id; },
+                    'sovereignty': () => { territory.sovereignty = row.sovereignty; },
+                    'status': () => { territory.status = row.status; },
+                    'ruler_firebase_uid': () => { territory.ruler_firebase_uid = row.ruler_firebase_uid || null; },
+                    'ruler_id': () => { territory.ruler_id = row.ruler_id || null; },
+                    'ruler_nickname': () => { territory.ruler_nickname = row.ruler_nickname || row.ruler_name || null; },
+                    'hasAuction': () => { territory.hasAuction = !!row.auction_id; },
+                    'updatedAt': () => { territory.updatedAt = row.updated_at; },
+                    'protectionEndsAt': () => { territory.protectionEndsAt = row.protection_ends_at; },
+                    'basePrice': () => { territory.basePrice = parseFloat(row.base_price || 0); },
+                    // 선택적 필드 (초기 로딩에 불필요)
+                    'code': () => { territory.code = row.code; },
+                    'name': () => { territory.name = row.name; },
+                    'name_en': () => { territory.name_en = row.name_en; },
+                    'country': () => { territory.country = row.country; },
+                    'continent': () => { territory.continent = row.continent; },
+                    'polygon': () => { territory.polygon = row.polygon; },
+                    'createdAt': () => { territory.createdAt = row.created_at; },
+                    'ruler': () => {
+                        territory.ruler = row.ruler_id ? {
+                            id: row.ruler_id,
+                            firebase_uid: row.ruler_firebase_uid,
+                            name: row.ruler_name || row.ruler_nickname,
+                            email: row.ruler_email
+                        } : null;
+                    },
+                    'auction': () => {
+                        territory.auction = row.auction_id ? {
+                            id: row.auction_id,
+                            status: row.auction_status,
+                            currentBid: parseFloat(row.auction_current_bid || 0),
+                            endTime: row.auction_end_time
+                        } : null;
+                    }
+                };
+                
+                // 요청된 필드만 추가 (이미 화이트리스트 검증됨)
+                for (const field of normalizedFields) {
+                    if (fieldMap[field]) {
+                        fieldMap[field]();
+                    }
+                }
+            }
+            
+            return territory;
+        });
+        
+        // ⚡ 성능 최적화: ETag 생성 및 캐시 헤더 설정
+        // fields와 revision을 포함하여 ETag 생성 (fields별로 다른 ETag 보장)
+        const etag = generateETag(fieldsKey, territoriesRevision);
+        res.setHeader('ETag', etag);
+        res.setHeader('Vary', 'Accept-Encoding'); // 압축 방식별 캐시 분리
+        res.setHeader('Cache-Control', 'public, max-age=10, stale-while-revalidate=60'); // stale-while-revalidate 추가
+        
+        // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+        const clientETag = req.headers['if-none-match'];
+        if (clientETag && clientETag === etag) {
+            console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+            return res.status(304).end();
+        }
         
         // Redis에 캐시 - 실패해도 응답은 반환
         try {
@@ -808,6 +1010,23 @@ router.get('/:id', async (req, res) => {
             ruler_firebase_uid: row.ruler_firebase_uid || null,
             ruler_nickname: row.ruler_nickname || row.ruler_name || null
         };
+        
+        // ⚡ 성능 최적화: ETag 생성 및 캐시 헤더 설정
+        // 개별 territory는 updatedAt 기반 ETag 사용 (revision 대신)
+        const updatedAt = territory.updatedAt || territory.updated_at;
+        const etagString = `territory:${territoryId}:${updatedAt || '0'}`;
+        const etag = `"${crypto.createHash('md5').update(etagString).digest('hex')}"`;
+        
+        res.setHeader('ETag', etag);
+        res.setHeader('Vary', 'Accept-Encoding'); // 압축 방식별 캐시 분리
+        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300'); // stale-while-revalidate 추가
+        
+        // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+        const clientETag = req.headers['if-none-match'];
+        if (clientETag && clientETag === etag) {
+            console.log(`[Territories] ✅ 304 Not Modified (ETag match) for ${territoryId}`);
+            return res.status(304).end();
+        }
         
         // Redis에 캐시 (에러 발생 시 무시하고 계속 진행)
         // ⚠️ 캐시 우회 옵션이 있을 때는 캐시를 업데이트하지 않음 (최신 데이터 보장)
