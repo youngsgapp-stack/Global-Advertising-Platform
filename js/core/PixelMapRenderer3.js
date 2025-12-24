@@ -63,21 +63,50 @@ class PixelMapRenderer3 {
             checkWorldViewReady();
         });
         
+        // ⚡ 마지막 선택 지역 저장 (TERRITORY_SELECTED 이벤트 구독)
+        eventBus.on(EVENTS.TERRITORY_SELECTED, ({ territoryId }) => {
+            if (territoryId) {
+                try {
+                    localStorage.setItem('lastTerritoryId', territoryId);
+                    log.debug(`[PixelMapRenderer3] Saved last selected territory: ${territoryId}`);
+                } catch (error) {
+                    log.warn('[PixelMapRenderer3] Failed to save last territory ID to localStorage:', error);
+                }
+            }
+        });
+        
+        // ⚡ 초기 자동 렌더링: territoryIds 로드 시 자동으로 픽셀아트 렌더링
+        this._initialPixelBootDone = false;
+        eventBus.on('PIXEL_TERRITORY_IDS_LOADED', ({ territoryIds }) => {
+            this._bootInitialPixelArt(territoryIds || []);
+        });
+        
         // ⚠️ Ready Gate: LAYERS_READY + PIXEL_METADATA_LOADED 둘 다 만족해야 Phase 4
         let metadataLoaded = false;
         
-        eventBus.on(EVENTS.PIXEL_METADATA_LOADED, async ({ metaMap, isFallback }) => {
+        eventBus.on(EVENTS.PIXEL_METADATA_LOADED, async ({ metaMap, isFallback, territoryIds }) => {
             metadataLoaded = true;
-            console.log('[PixelMapRenderer3] ✅ PIXEL_METADATA_LOADED event received', isFallback ? '(fallback)' : '');
+            
+            // ⚡ 핵심: territoryIds를 명확히 추출 및 필터링
+            const ids = Array.isArray(territoryIds) ? territoryIds.filter(Boolean) : [];
+            console.log('[PixelMapRenderer3] ✅ PIXEL_METADATA_LOADED event received', isFallback ? '(fallback)' : '', `territoryIds: ${ids.length}`);
             
             if (layersReady && metadataLoaded) {
                 // [NEW] Step 2: 메타데이터 기반으로 초기 표시 (픽셀 데이터는 아직 로드 안 함)
                 await this.createOverlaysFromMetadata(metaMap);
                 
-                // Step 3: 우선순위 기반 픽셀 데이터 로딩 (fallback이 아닐 때만)
-                if (!isFallback) {
-                    await this.loadPriorityPixelData();
+                // ⚡ Step 3: count=0이면 여기서 끝 (undefined territoryId 무한 호출 방지)
+                if (ids.length === 0) {
+                    log.info('[PixelMapRenderer3] No pixel territories to render (count=0), skipping auto-render');
+                    return;
                 }
+                
+                // ⚡ Step 4: territoryIds가 있으면 자동 렌더링 (명시적으로 ids 전달)
+                console.log(`[PixelMapRenderer3] 🚀 Auto-rendering ${ids.length} territories from metadata`);
+                await this._bootInitialPixelArt(ids);
+                
+                // ⚡ Step 5: 마지막 선택 지역 자동 로드 (클릭 없이 표시)
+                await this.loadLastSelectedTerritory();
             }
         });
         
@@ -139,6 +168,12 @@ class PixelMapRenderer3 {
             }
         }
         
+        // 메타가 없으면 조용히 종료 (정상 동작 - 비로그인 상태 등)
+        if (territoriesWithPixels.length === 0) {
+            log.info('[PixelMapRenderer3] Phase4: skip - no metadata available (normal for unauthenticated)');
+            return;
+        }
+        
         // ⚠️ 검증용 로그: Phase4: applying feature-state count = ?
         console.log(`[PixelMapRenderer3] Phase4: applying feature-state count = ${territoriesWithPixels.length}`);
         
@@ -195,21 +230,79 @@ class PixelMapRenderer3 {
     /**
      * [NEW] 우선순위 기반 픽셀 데이터 로딩
      * ⚠️ 전문가 피드백: Phase 5가 Phase 4 표시를 지우지 않도록 보장
+     * @param {string[]} territoryIds - 렌더링할 territory ID 목록 (선택사항, 제공되지 않으면 viewport 기반으로 자동 결정)
      */
-    async loadPriorityPixelData() {
+    async loadPriorityPixelData(territoryIds = null) {
+        // ⚡ 핵심: territoryIds가 명시적으로 제공되고 빈 배열이면 즉시 종료 (무한 호출 방지)
+        if (territoryIds !== null) {
+            const ids = Array.isArray(territoryIds) ? territoryIds.filter(Boolean) : [];
+            if (ids.length === 0) {
+                log.info('[PixelMapRenderer3] loadPriorityPixelData: skip - no valid territoryIds provided');
+                return;
+            }
+        }
+        
         const { territoryManager } = await import('./TerritoryManager.js');
         const { pixelMetadataService } = await import('../services/PixelMetadataService.js');
         
         // 1. 화면에 보이는 지역 우선
         const viewportTerritories = this.getTerritoriesInViewport();
         const loadingPromises = new Set(); // 디듀프용
-        const viewportCandidates = viewportTerritories.filter(t => pixelMetadataService.hasPixelArt(t.id));
+        let viewportCandidates = viewportTerritories.filter(t => pixelMetadataService.hasPixelArt(t.id));
+        
+        // ⚡ 게스트 지원: 메타가 0이어도 최소 샘플 로딩 시도 (자기치유)
+        if (viewportCandidates.length === 0 && viewportTerritories.length > 0) {
+            log.info('[PixelMapRenderer3] Phase5: metadata is 0, attempting fallback sample loading (top 20 territories in viewport)');
+            // 뷰포트 내 상위 20개만 샘플 체크
+            const sampleSize = Math.min(20, viewportTerritories.length);
+            const sampleTerritories = viewportTerritories.slice(0, sampleSize);
+            
+            // 샘플 로딩 시도 (성공하면 메타 보정)
+            for (const territory of sampleTerritories) {
+                try {
+                    const { pixelDataService } = await import('../services/PixelDataService.js');
+                    const pixelData = await pixelDataService.loadPixelData(territory.id, territory);
+                    if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
+                        // 픽셀 데이터가 있으면 메타 서비스에 알림 (자기치유)
+                        territoryManager.setPixelArtMetadata(territory.id, true, pixelData.pixels.length);
+                        viewportCandidates.push(territory);
+                    }
+                } catch (error) {
+                    // 샘플 로딩 실패는 조용히 무시
+                    log.debug(`[PixelMapRenderer3] Fallback sample check failed for ${territory.id}:`, error);
+                }
+            }
+            
+            if (viewportCandidates.length === 0) {
+                log.info('[PixelMapRenderer3] Phase5: skip - no pixel art found in viewport (normal for unauthenticated or no pixels)');
+                return;
+            }
+        } else if (viewportCandidates.length === 0) {
+            log.info('[PixelMapRenderer3] Phase5: skip - no pixel art in viewport (normal for unauthenticated or no pixels)');
+            return;
+        }
         
         // ⚠️ 검증용 로그: Phase5: viewport candidates = ?
         console.log(`[PixelMapRenderer3] Phase5: viewport candidates = ${viewportCandidates.length}`);
         
+        // ⚡ 가드: 메타데이터가 없으면 조기 리턴
+        if (viewportCandidates.length === 0) {
+            log.info('[PixelMapRenderer3] loadPriorityPixelData: skip - no pixel art metadata available');
+            return;
+        }
+        
         let queuedCount = 0;
+        let undefinedWarned = false; // ⚡ undefined 경고는 한 번만
         for (const territory of viewportCandidates) {
+            // ⚡ 가드: territoryId가 없으면 skip (undefined 방지)
+            if (!territory || !territory.id) {
+                if (!undefinedWarned) {
+                    log.warn('[PixelMapRenderer3] loadPriorityPixelData: skip - invalid territoryId (undefined/null)', { territory, source: 'viewportCandidates' });
+                    undefinedWarned = true; // 한 번만 경고
+                }
+                continue;
+            }
+            
             // ⚠️ 디듀프: 이미 로딩 중이면 중복 호출 합치기
             if (!loadingPromises.has(territory.id)) {
                 // ⚠️ 전문가 피드백: Phase 5에서 territory refresh 로직이 hasPixelArt를 다시 false로 덮어쓰지 않도록
@@ -231,6 +324,153 @@ class PixelMapRenderer3 {
     }
     
     /**
+     * [NEW] 초기 자동 렌더링: territoryIds 로드 시 자동으로 픽셀아트 렌더링
+     * 페이지 로딩 시 클릭 없이도 픽셀아트가 표시되도록 함
+     */
+    async _bootInitialPixelArt(territoryIds) {
+        if (this._initialPixelBootDone) {
+            log.debug('[PixelMapRenderer3] Initial pixel boot already done, skipping');
+            return;
+        }
+        
+        this._initialPixelBootDone = true;
+        
+        if (!Array.isArray(territoryIds) || territoryIds.length === 0) {
+            log.info('[PixelMapRenderer3] No pixel territories to render at boot');
+            return;
+        }
+        
+        // 유효한 territoryId만 필터링
+        const validIds = territoryIds.filter(id => id && typeof id === 'string' && id.trim().length > 0);
+        
+        if (validIds.length === 0) {
+            log.warn('[PixelMapRenderer3] No valid territory IDs for boot render');
+            return;
+        }
+        
+        log.info(`[PixelMapRenderer3] 🚀 Boot render: ${validIds.length} territories with pixel art`);
+        
+        // 1) 즉시 렌더링할 상위 N개 (동시성 제한으로 성능 보장)
+        const immediateCount = 60; // 시작값: 30~100 사이에서 튜닝 가능
+        const immediate = validIds.slice(0, immediateCount);
+        const later = validIds.slice(immediateCount);
+        
+        console.log(`[PixelMapRenderer3] Boot render immediate: ${immediate.length}, later: ${later.length}`);
+        
+        // 2) 즉시 배치 렌더링 (동시성 제한: 6개)
+        if (immediate.length > 0) {
+            await this._renderPixelArtsBatch(immediate, 6);
+        }
+        
+        // 3) 나머지는 idle/배치로 천천히 렌더링 (동시성 제한: 3개)
+        if (later.length > 0) {
+            this._renderPixelArtsIdle(later, 3);
+        }
+    }
+    
+    /**
+     * [NEW] 픽셀아트 배치 렌더링 (동시성 제한)
+     */
+    async _renderPixelArtsBatch(territoryIds, concurrency = 6) {
+        let index = 0;
+        const loadingPromises = new Set(); // 중복 방지
+        
+        const worker = async () => {
+            while (index < territoryIds.length) {
+                const territoryId = territoryIds[index++];
+                if (!territoryId) continue;
+                
+                // 중복 방지
+                if (loadingPromises.has(territoryId)) {
+                    continue;
+                }
+                loadingPromises.add(territoryId);
+                
+                try {
+                    // refreshTerritory를 사용하여 픽셀 데이터 로드 및 표시
+                    await this.updatePipeline.refreshTerritory(territoryId, {
+                        preserveHasPixelArt: true
+                    });
+                } catch (error) {
+                    log.warn(`[PixelMapRenderer3] Failed to render pixel art for ${territoryId}:`, error);
+                } finally {
+                    loadingPromises.delete(territoryId);
+                }
+            }
+        };
+        
+        // 동시 실행할 워커 수만큼 Promise 생성
+        const workers = Array.from({ length: concurrency }, worker);
+        await Promise.all(workers);
+    }
+    
+    /**
+     * [NEW] Idle 시간에 픽셀아트 렌더링 (배치 처리)
+     */
+    _renderPixelArtsIdle(territoryIds, concurrency = 3) {
+        let index = 0;
+        const chunkSize = 15; // 한 번에 처리할 청크 크기
+        
+        const tick = async () => {
+            const chunk = territoryIds.slice(index, index + chunkSize);
+            index += chunkSize;
+            
+            if (chunk.length === 0) {
+                return; // 완료
+            }
+            
+            await this._renderPixelArtsBatch(chunk, concurrency);
+            
+            // requestIdleCallback 있으면 사용, 없으면 setTimeout
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(tick);
+            } else {
+                setTimeout(tick, 200); // 200ms 간격
+            }
+        };
+        
+        // 첫 번째 청크 시작
+        tick();
+    }
+    
+    /**
+     * [NEW] 마지막 선택 지역 자동 로드 (클릭 없이 표시)
+     * localStorage에 저장된 마지막 territoryId를 자동으로 로드
+     */
+    async loadLastSelectedTerritory() {
+        try {
+            const lastTerritoryId = localStorage.getItem('lastTerritoryId');
+            if (!lastTerritoryId) {
+                log.debug('[PixelMapRenderer3] No last selected territory found in localStorage');
+                return;
+            }
+            
+            log.info(`[PixelMapRenderer3] 🔄 Auto-loading last selected territory: ${lastTerritoryId}`);
+            
+            // TerritoryManager에서 territory 확인
+            const { territoryManager } = await import('./TerritoryManager.js');
+            const territory = territoryManager.getTerritory(lastTerritoryId);
+            
+            if (!territory) {
+                log.warn(`[PixelMapRenderer3] Last selected territory ${lastTerritoryId} not found in TerritoryManager`);
+                return;
+            }
+            
+            // 픽셀 메타가 있는 경우에만 로드
+            if (this.pixelMetadataService && this.pixelMetadataService.hasPixelArt(lastTerritoryId)) {
+                log.info(`[PixelMapRenderer3] ✅ Last selected territory ${lastTerritoryId} has pixel art, loading...`);
+                await this.updatePipeline.refreshTerritory(lastTerritoryId, {
+                    preserveHasPixelArt: true
+                });
+            } else {
+                log.debug(`[PixelMapRenderer3] Last selected territory ${lastTerritoryId} has no pixel art, skipping auto-load`);
+            }
+        } catch (error) {
+            log.error('[PixelMapRenderer3] Failed to load last selected territory:', error);
+        }
+    }
+    
+    /**
      * [NEW] Idle 시간에 배치 로딩
      * ⚠️ 전문가 피드백: Phase 5가 Phase 4 표시를 지우지 않도록 보장
      */
@@ -247,6 +487,11 @@ class PixelMapRenderer3 {
                     pixelMetadataService.hasPixelArt(t.id) && 
                     !this.isTerritoryInViewport(t.id) // viewport 외부만
                 );
+                
+                // 메타가 없으면 조용히 종료
+                if (territoriesWithPixels.length === 0) {
+                    return;
+                }
                 
                 let displayedCount = 0;
                 for (let i = 0; i < territoriesWithPixels.length; i += batchSize) {

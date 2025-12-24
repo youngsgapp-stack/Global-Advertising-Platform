@@ -16,6 +16,8 @@ class ApiService {
         this.PUBLIC_ENDPOINTS = [
             '/territories',           // 영토 목록 조회 (공개)
             '/territories/:id',       // 영토 상세 조회 (공개)
+            '/territories/:id/pixels', // 픽셀 조회 (GET) - 게스트 허용
+            '/pixels/territories',    // 픽셀 메타 목록 (GET) - 게스트 허용
             '/auctions',              // 경매 목록 조회 (공개)
             '/auctions/:id',          // 경매 상세 조회 (공개)
             '/health',                // 헬스 체크
@@ -23,9 +25,10 @@ class ApiService {
         ];
         
         // ⚠️ 인증 필수 엔드포인트 (절대 optional auth가 섞이면 안 됨)
+        // ⚡ GET /territories/:id/pixels는 PUBLIC_ENDPOINTS에 있으므로 제외
+        // POST/PUT/DELETE는 백엔드 라우터에서 인증 체크
         this.AUTH_REQUIRED_ENDPOINTS = [
             '/territories/:id/purchase',  // 구매
-            '/territories/:id/pixels',    // 픽셀 저장/조회
             '/auctions/:id/bids',         // 입찰
             '/users/me',                  // 사용자 정보
             '/users/me/wallet',           // 지갑 정보
@@ -54,7 +57,9 @@ class ApiService {
                 this.baseUrl = 'http://localhost:3000/api';
             } else {
                 // ?占쎈줈?占쎌뀡 ?占쎄꼍 (localhost媛 ?占쎈땶 紐⑤뱺 寃쎌슦)
-                this.baseUrl = 'https://global-advertising-platform-production.up.railway.app/api';
+                // 프로덕션: 현재 origin 사용 (Vercel 자동 인식)
+                const origin = window.location.origin;
+                this.baseUrl = `${origin}/api`;
             }
         } else {
             // 湲곕낯占?(?占쎈쾭 ?占쎌씠???占쎈뜑占???
@@ -90,6 +95,9 @@ class ApiService {
         await this.initialize();
         
         const url = `${this.baseUrl}${endpoint}`;
+        
+        // ⚡ 디버깅: 요청 URL 로그
+        console.log(`[ApiService] 🔍 Making request: ${url}`, { method: options.method || 'GET', endpoint });
         
         // ⚠️ 엔드포인트 등급 확인: 공개 vs 인증 필수
         const isPublicEndpoint = this.isPublicEndpoint(endpoint);
@@ -141,11 +149,18 @@ class ApiService {
         
         try {
             log.debug(`[ApiService] ${finalOptions.method || 'GET'} ${url}`);
+            console.log(`[ApiService] 🔍 Making request: ${url}`, { 
+                method: finalOptions.method || 'GET',
+                hasAuth: !!token,
+                endpoint 
+            });
             
             const response = await fetch(url, {
                 ...finalOptions,
                 signal: controller.signal
             });
+            
+            console.log(`[ApiService] ✅ Response received: ${response.status} ${response.statusText} for ${url}`);
             
             clearTimeout(timeoutId);
             
@@ -439,10 +454,10 @@ class ApiService {
     isAuthRequiredEndpoint(endpoint) {
         // AUTH_REQUIRED_ENDPOINTS가 정의되어 있지 않으면 기본 규칙 사용
         if (!this.AUTH_REQUIRED_ENDPOINTS || !Array.isArray(this.AUTH_REQUIRED_ENDPOINTS)) {
-            // 기본적으로 /users/me, /purchase, /pixels 등은 인증 필요
+            // 기본적으로 /users/me, /purchase, /bids, /admin 등은 인증 필요
+            // ⚡ /pixels는 PUBLIC_ENDPOINTS에 포함되어 있으므로 제외
             return endpoint.includes('/users/me') || 
                    endpoint.includes('/purchase') || 
-                   endpoint.includes('/pixels') ||
                    endpoint.includes('/bids') ||
                    endpoint.includes('/admin');
         }

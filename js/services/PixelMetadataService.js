@@ -62,13 +62,22 @@ class PixelMetadataService {
                         this.loaded = true;
                         this.loading = false;
                         this.retryCount = 0; // 성공 시 재시도 카운트 리셋
+                        
+                        // ⚡ 핵심: territoryIds 추출
+                        const cachedTerritoryIds = cached.territoryIds || [];
+                        
                         eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
                             count: cached.count,
                             hasPixelArtCount: hasPixelArtCount,
-                            territoryIds: cached.territoryIds,
+                            territoryIds: cachedTerritoryIds,
                             metaMap: cached.metaMap,
                             fromCache: true
                         });
+                        
+                        // ⚡ 추가: territoryIds 전용 이벤트 발행 (초기 자동 렌더링용)
+                        if (cachedTerritoryIds.length > 0) {
+                            eventBus.emit('PIXEL_TERRITORY_IDS_LOADED', { territoryIds: cachedTerritoryIds });
+                        }
                         return;
                     } else {
                         log.info(`[PixelMetadataService] Cache expired (age: ${Math.round(cacheAge / 1000)}s), fetching fresh data`);
@@ -76,61 +85,145 @@ class PixelMetadataService {
                 }
             }
             
-            // ⚡ 임시 우회: /api/pixels/territories가 404인 경우 getTerritories 응답에서 메타 추출
-            let response;
-            let data;
-            
-            try {
-                response = await fetch('/api/pixels/territories');
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        // ⚡ 404 처리: getTerritories 응답에서 메타 추출로 대체
-                        log.warn('[PixelMetadataService] /api/pixels/territories returned 404, extracting metadata from getTerritories response');
-                        data = await this._extractMetadataFromTerritories();
-                        if (data) {
-                            // 성공적으로 추출했으면 정상 흐름으로 진행
-                        } else {
-                            throw new Error('Failed to extract metadata from territories');
+            // ⚡ 우선순위 1: TerritoryManager 메모리에서 메타 추출 (게스트 지원, API 호출 없음)
+            // territories initial preset에 픽셀 메타 필드가 포함되어 있으므로 바로 추출 가능
+            if (territoryManager && territoryManager.territories && territoryManager.territories.size > 0) {
+                log.info(`[PixelMetadataService] Extracting metadata from TerritoryManager memory (${territoryManager.territories.size} territories loaded)`);
+                const extractedData = await this._extractMetadataFromTerritoryManager();
+                if (extractedData && extractedData.count > 0) {
+                    // TerritoryManager에서 메타 추출 성공
+                    const metaMap = extractedData.metaMap;
+                    
+                    // TerritoryManager에 hasPixelArt 플래그 설정
+                    for (const [territoryId, meta] of metaMap.entries()) {
+                        const territory = territoryManager.getTerritory(territoryId);
+                        if (territory) {
+                            territory.hasPixelArt = true;
+                            territory.pixelCount = meta.pixelCount;
+                            territory.pixelUpdatedAt = meta.updatedAt;
+                            if (meta.fillRatio !== null) {
+                                territory.fillRatio = meta.fillRatio;
+                            }
                         }
-                    } else {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
-                } else {
-                    data = await response.json();
-                }
-            } catch (fetchError) {
-                // 네트워크 에러나 404인 경우 getTerritories에서 추출 시도
-                if (fetchError.message?.includes('404') || fetchError.message?.includes('Failed to fetch')) {
-                    log.warn('[PixelMetadataService] Failed to fetch /api/pixels/territories, extracting metadata from getTerritories response');
-                    data = await this._extractMetadataFromTerritories();
-                    if (!data) {
-                        throw fetchError; // 추출도 실패하면 원래 에러 throw
+                    
+                    // 메타데이터 저장
+                    this.pixelMetadata = metaMap;
+                    this.loaded = true;
+                    
+                    // IndexedDB 캐시 저장
+                    await this._saveToCache({
+                        count: extractedData.count,
+                        territoryIds: extractedData.territoryIds,
+                        metaMap: metaMap
+                    });
+                    
+                    const hasPixelArtCount = metaMap.size;
+                    log.info(`[PixelMetadataService] ✅ Extracted metadata from TerritoryManager: ${extractedData.count} territories (hasPixelArt: ${hasPixelArtCount})`);
+                    console.log(`[PixelMetadataService] 📦 Extracted payload size: ${Math.round(JSON.stringify(extractedData).length / 1024)}KB`);
+                    console.log(`[PixelMetadataService] 🎨 Metadata applied to ${hasPixelArtCount} territories with pixel art`);
+                    console.log(`[PixelMetadataService] PIXEL_METADATA_LOADED: count = ${extractedData.count}, hasPixelArt = ${hasPixelArtCount}`);
+                    
+                    // ⚡ 핵심: territoryIds 추출
+                    const territoryIds = extractedData.territoryIds || [];
+                    
+                    // 성공 이벤트 발행
+                    eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
+                        count: extractedData.count,
+                        hasPixelArtCount: hasPixelArtCount,
+                        territoryIds: territoryIds,
+                        metaMap: metaMap,
+                        fromCache: false,
+                        fromTerritoryManager: true
+                    });
+                    
+                    // ⚡ 추가: territoryIds 전용 이벤트 발행 (초기 자동 렌더링용)
+                    if (territoryIds.length > 0) {
+                        eventBus.emit('PIXEL_TERRITORY_IDS_LOADED', { territoryIds });
                     }
+                    
+                    this.retryCount = 0;
+                    this.loading = false;
+                    return; // TerritoryManager에서 추출 성공했으므로 API 호출 불필요
                 } else {
-                    throw fetchError;
+                    log.info('[PixelMetadataService] TerritoryManager has territories but no pixel art metadata found, trying API fallback');
                 }
             }
             
-            // ⚠️ 중요: "빈 배열"도 정상/오류 구분
-            if (!data || !Array.isArray(data.territories)) {
-                throw new Error('Invalid response format');
+            // ⚡ 우선순위 2: API 호출 시도 (TerritoryManager에 메타가 없거나 추출 실패한 경우)
+            // ⚡ ApiService의 baseURL 사용 (로컬/프로덕션 자동 분기)
+            const { apiService } = await import('./ApiService.js');
+            await apiService.initialize();
+            
+            const apiUrl = apiService.baseUrl 
+                ? `${apiService.baseUrl}/pixels/territories`
+                : '/api/pixels/territories'; // fallback: 상대 경로
+            
+            // ⚡ 디버깅: API 호출 로그
+            console.log(`[PixelMetadataService] 🔍 Fetching metadata from API: ${apiUrl}`);
+            log.info(`[PixelMetadataService] Fetching metadata from API: ${apiUrl}`);
+            
+            const response = await fetch(apiUrl);
+            
+            // ⚡ 디버깅: 응답 상태 로그
+            console.log(`[PixelMetadataService] ✅ Response status: ${response.status} for ${apiUrl}`);
+            
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    // ⚡ 401/403 처리: 게스트는 API 접근 불가, TerritoryManager 메타로 이미 처리했거나 빈 메타
+                    log.info(`[PixelMetadataService] /api/pixels/territories returned ${response.status}, using TerritoryManager metadata or empty metadata`);
+                    // 빈 메타로 처리 (TerritoryManager에서 이미 추출했거나 추출 실패)
+                    const emptyData = {
+                        count: 0,
+                        territories: [],
+                        territoryIds: [],
+                        metaMap: new Map()
+                    };
+                    await this._handleEmptyMetadata(emptyData);
+                    return;
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
+            
+            const data = await response.json();
+            
+            // ⚡ 디버깅: 응답 데이터 로그
+            console.log(`[PixelMetadataService] 📥 Response data:`, {
+                status: response.status,
+                count: data?.count,
+                territoryIdsLength: data?.territoryIds?.length || 0,
+                territoriesLength: Array.isArray(data?.territories) ? data.territories.length : 0,
+                hasTerritories: !!data?.territories
+            });
+            
+            // ⚠️ 중요: 백엔드 응답 형식 확인
+            // 백엔드는 {count, territoryIds, territories} 형태로 반환
+            if (!data) {
+                throw new Error('Invalid response format: empty data');
+            }
+            
+            // territories가 배열이 아니면 빈 배열로 처리
+            const territoriesList = Array.isArray(data.territories) ? data.territories : [];
+            const territoryIdsList = Array.isArray(data.territoryIds) ? data.territoryIds : [];
             
             // 0개면 진짜 0개인지, 실패인지 구분
-            if (data.count === 0 && data.territories.length === 0) {
+            if ((data.count === 0 || !data.count) && territoriesList.length === 0 && territoryIdsList.length === 0) {
                 log.info('[PixelMetadataService] No territories with pixels found (empty result)');
-                // 빈 결과도 정상으로 처리
+                console.log(`[PixelMetadataService] ⚠️ Empty result: count=${data.count}, territories=${territoriesList.length}, territoryIds=${territoryIdsList.length}`);
+                // 빈 결과도 정상으로 처리 (픽셀 데이터가 실제로 없을 수 있음)
             }
             
             // 메타데이터 맵 생성
             const metaMap = new Map();
-            for (const territoryInfo of data.territories || []) {
-                metaMap.set(territoryInfo.territoryId, {
-                    pixelCount: territoryInfo.pixelCount || 0,
-                    hasPixelArt: true,
-                    updatedAt: territoryInfo.updatedAt || null,
-                    fillRatio: territoryInfo.fillRatio || null // optional
-                });
+            for (const territoryInfo of territoriesList) {
+                if (territoryInfo && territoryInfo.territoryId) {
+                    metaMap.set(territoryInfo.territoryId, {
+                        pixelCount: territoryInfo.pixelCount || 0,
+                        hasPixelArt: true,
+                        updatedAt: territoryInfo.updatedAt || null,
+                        fillRatio: territoryInfo.fillRatio || null // optional
+                    });
+                }
             }
             
             // TerritoryManager에 hasPixelArt 플래그 설정
@@ -168,14 +261,22 @@ class PixelMetadataService {
             // ⚠️ 검증용 로그: PIXEL_METADATA_LOADED: count = ?
             console.log(`[PixelMetadataService] PIXEL_METADATA_LOADED: count = ${data.count}, hasPixelArt = ${hasPixelArtCount}`);
             
+            // ⚡ 핵심: territoryIds를 명확히 추출 (territoryIds 필드 우선, 없으면 territories에서 추출)
+            const territoryIds = data.territoryIds || (Array.isArray(data.territories) ? data.territories.map(t => t.territoryId).filter(Boolean) : []);
+            
             // 성공 이벤트 발행
             eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
                 count: data.count,
                 hasPixelArtCount: hasPixelArtCount,
-                territoryIds: data.territoryIds || [],
+                territoryIds: territoryIds, // ⚡ 명확한 territoryIds 전달
                 metaMap: metaMap,
                 fromCache: false
             });
+            
+            // ⚡ 추가: territoryIds 전용 이벤트 발행 (초기 자동 렌더링용)
+            if (territoryIds.length > 0) {
+                eventBus.emit('PIXEL_TERRITORY_IDS_LOADED', { territoryIds });
+            }
             
             this.retryCount = 0; // 성공 시 재시도 카운트 리셋
         } catch (error) {
@@ -326,47 +427,92 @@ class PixelMetadataService {
     }
     
     /**
-     * ⚡ 임시 우회: getTerritories 응답에서 픽셀 메타데이터 추출
-     * /api/pixels/territories가 404인 경우 사용
+     * ⚡ TerritoryManager 메모리 데이터에서 픽셀 메타데이터 추출
+     * territories initial preset에 픽셀 메타 필드가 포함되어 있으므로 바로 추출 가능
+     * 네트워크 재호출 없이 메모리에 있는 territories Map에서 직접 추출
      */
-    async _extractMetadataFromTerritories() {
+    async _extractMetadataFromTerritoryManager() {
         try {
-            const { apiService } = await import('./ApiService.js');
-            const territories = await apiService.getTerritories();
-            
-            if (!territories || !Array.isArray(territories)) {
+            // TerritoryManager가 이미 import되어 있음 (파일 상단에 정적 import)
+            if (!territoryManager || !territoryManager.territories) {
+                log.warn('[PixelMetadataService] TerritoryManager not initialized, cannot extract metadata from memory');
                 return null;
             }
             
-            // getTerritories 응답에서 픽셀 메타 추출
+            // TerritoryManager의 territories Map에서 직접 추출
+            const territoriesMap = territoryManager.territories;
+            if (!(territoriesMap instanceof Map) || territoriesMap.size === 0) {
+                log.warn(`[PixelMetadataService] TerritoryManager.territories is empty (size: ${territoriesMap?.size || 0})`);
+                return null;
+            }
+            
+            // 메타데이터 맵 생성
             const metaMap = new Map();
             let count = 0;
             const territoryIds = [];
             
-            for (const territory of territories) {
-                // hasPixelArt, pixelCount, fillRatio 등이 응답에 포함되어 있는지 확인
-                const hasPixelArt = territory.hasPixelArt || 
-                                   territory.pixelCount > 0 || 
-                                   (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0);
+            // ⚡ 디버깅: 샘플 territory 확인 (tamanghasset 등)
+            const sampleTerritoryId = 'tamanghasset';
+            const sampleEntry = territoriesMap.get(sampleTerritoryId);
+            if (sampleEntry) {
+                // territories Map 구조: Map<territoryId, { territory, fetchedAt, revision }>
+                const sampleTerritory = sampleEntry.territory || sampleEntry;
+                console.log('[PixelMetadataService] [CHECK] Sample territory keys:', Object.keys(sampleTerritory));
+                console.log('[PixelMetadataService] [CHECK] hasPixelArt/pixelCount/fillRatio:', 
+                    sampleTerritory.hasPixelArt, sampleTerritory.pixelCount, sampleTerritory.fillRatio);
+                console.log('[PixelMetadataService] [CHECK] raw type:', 
+                    typeof sampleTerritory.hasPixelArt, typeof sampleTerritory.pixelCount, typeof sampleTerritory.fillRatio);
+            }
+            
+            // territories Map 순회
+            // 구조: Map<territoryId, { territory: {...}, fetchedAt: Date, revision: number }>
+            for (const [territoryId, entry] of territoriesMap.entries()) {
+                if (!entry) continue;
                 
-                if (hasPixelArt) {
-                    const territoryId = territory.id || territory.territoryId;
-                    if (territoryId) {
-                        metaMap.set(territoryId, {
-                            pixelCount: territory.pixelCount || 
-                                       (territory.pixelCanvas?.filledPixels) || 
-                                       0,
-                            hasPixelArt: true,
-                            updatedAt: territory.pixelUpdatedAt || territory.updatedAt || null,
-                            fillRatio: territory.fillRatio || null
-                        });
-                        territoryIds.push(territoryId);
-                        count++;
-                    }
+                // entry가 객체이고 territory 속성이 있으면 territory 사용, 없으면 entry 자체가 territory
+                const territory = entry.territory || entry;
+                if (!territory || !territoryId) continue;
+                
+                // ⚡ 안전장치: hasPixelArt, pixelCount, fillRatio 중 하나라도 만족하면 픽셀 있다고 판단
+                const hasPixelArt = territory.hasPixelArt === true || 
+                                   (territory.pixelCount && territory.pixelCount > 0) ||
+                                   (territory.fillRatio && territory.fillRatio > 0) ||
+                                   (territory.pixelUpdatedAt && (territory.pixelCount > 0 || territory.filledPixels > 0));
+                
+                // ⚡ 필드명 매핑 (서버에서 다른 이름으로 올 수 있음)
+                // 프론트 요청: pixelUpdatedAt, 서버 응답: pixelArtUpdatedAt
+                const pixelCount = territory.pixelCount || territory.filledPixels || territory.pixelsCount || territory.pixel_count || 0;
+                const fillRatio = territory.fillRatio || 
+                                 (territory.filledPixels && territory.totalPixels ? territory.filledPixels / territory.totalPixels : null) ||
+                                 (territory.pixelCount && territory.totalPixels ? territory.pixelCount / territory.totalPixels : null) ||
+                                 null;
+                const updatedAt = territory.pixelUpdatedAt || territory.pixelArtUpdatedAt || territory.updatedAt || null;
+                
+                if (hasPixelArt || pixelCount > 0 || (fillRatio !== null && fillRatio > 0)) {
+                    metaMap.set(territoryId, {
+                        pixelCount: pixelCount,
+                        hasPixelArt: true,
+                        updatedAt: updatedAt,
+                        fillRatio: fillRatio
+                    });
+                    territoryIds.push(territoryId);
+                    count++;
                 }
             }
             
-            log.info(`[PixelMetadataService] Extracted metadata from getTerritories: ${count} territories with pixel art`);
+            log.info(`[PixelMetadataService] Extracted metadata from TerritoryManager memory: ${count} territories with pixel art (total: ${territoriesMap.size})`);
+            
+            // payload size 계산 (디버깅용)
+            const payloadSize = JSON.stringify({
+                count,
+                territories: Array.from(metaMap.entries()).map(([territoryId, meta]) => ({
+                    territoryId,
+                    pixelCount: meta.pixelCount,
+                    updatedAt: meta.updatedAt,
+                    fillRatio: meta.fillRatio
+                }))
+            }).length;
+            console.log(`[PixelMetadataService] 📦 Extracted payload size: ${Math.round(payloadSize / 1024)}KB`);
             
             return {
                 count: count,
@@ -380,9 +526,34 @@ class PixelMetadataService {
                 metaMap: metaMap
             };
         } catch (error) {
-            log.error('[PixelMetadataService] Failed to extract metadata from territories:', error);
+            log.error('[PixelMetadataService] Failed to extract metadata from TerritoryManager:', error);
+            console.error('[PixelMetadataService] Extraction error details:', error);
             return null;
         }
+    }
+    
+    /**
+     * 빈 메타데이터 처리 헬퍼
+     */
+    async _handleEmptyMetadata(emptyData) {
+        this.pixelMetadata = emptyData.metaMap;
+        this.loaded = true;
+        
+        // 메타가 0개면 info 레벨로 (정상 동작 - 비로그인 상태 등)
+        log.info('[PixelMetadataService] Loaded metadata: 0 territories with pixel art (normal for unauthenticated or no pixels)');
+        
+        // 빈 메타 이벤트 발행
+        eventBus.emit(EVENTS.PIXEL_METADATA_LOADED, {
+            count: 0,
+            hasPixelArtCount: 0,
+            territoryIds: [],
+            metaMap: new Map(),
+            fromCache: false,
+            isFallback: true
+        });
+        
+        this.retryCount = 0;
+        this.loading = false;
     }
 }
 

@@ -754,19 +754,18 @@ class TerritoryManager {
                 log.info('[TerritoryManager] 🔍 firebaseService.auth.currentUser: null or auth not available');
             }
             
+            // ⚡ 게스트 지원: auth null이어도 territories initial preset은 로드 (공개 데이터)
+            // ownership overlay는 auth 이후에만 실행
             if (!user) {
-                // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
-                console.log('[TerritoryManager] ⚠️ User not authenticated, skipping territory load');
-                console.log('[TerritoryManager] ⚠️ Will retry when user logs in (AUTH_STATE_CHANGED or AUTH_LOGIN event)');
-                log.info('[TerritoryManager] ⚠️ User not authenticated, skipping territory load');
-                log.info('[TerritoryManager] ⚠️ Will retry when user logs in (AUTH_STATE_CHANGED or AUTH_LOGIN event)');
-                return;
+                console.log('[TerritoryManager] ℹ️ Guest mode: loading territories (initial preset, public data only)');
+                log.info('[TerritoryManager] ℹ️ Guest mode: loading territories (initial preset, public data only)');
+                // 게스트 모드로 계속 진행 (preset=initial 사용)
+            } else {
+                console.log('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
+                console.log('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
+                log.info('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
+                log.info('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
             }
-            
-            console.log('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
-            console.log('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
-            log.info('[TerritoryManager] 🔄 Starting loadTerritoriesFromFirestore()...');
-            log.info('[TerritoryManager] ✅ User authenticated:', user.email || user.uid);
             
             // ⚡ 성능 최적화: Promise 캐시로 동시 호출 완전 합치기
             const now = Date.now();
@@ -802,6 +801,7 @@ class TerritoryManager {
                 
                 // ⚡ 성능 최적화: 초기 로딩 시 필드 축소 (1731KB → 300~500KB 목표)
                 // 초기 화면에 필요한 최소 필드만 요청
+                // ⚡ 게스트 지원: 픽셀 메타 필드 포함 (hasPixelArt, pixelCount, fillRatio)
                 const initialFields = [
                     'id',
                     'sovereignty',
@@ -809,7 +809,11 @@ class TerritoryManager {
                     'ruler_firebase_uid',
                     'hasAuction',
                     'updatedAt',
-                    'protectionEndsAt'
+                    'protectionEndsAt',
+                    'hasPixelArt',      // ⚡ 픽셀 메타: 픽셀 아트 존재 여부
+                    'pixelCount',       // ⚡ 픽셀 메타: 픽셀 개수
+                    'fillRatio',       // ⚡ 픽셀 메타: 채움 비율
+                    'pixelUpdatedAt'   // ⚡ 픽셀 메타: 픽셀 업데이트 시간
                 ];
                 
                 // ⚡ 성능 최적화: 초기 로딩은 경량 필드만 요청
@@ -873,21 +877,26 @@ class TerritoryManager {
             console.log(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
             log.info(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
             
-            // ⚡ 성능 최적화: ownership overlay는 초기 필수 아님 → 지연 로딩
+            // ⚡ 성능 최적화: ownership overlay는 auth 이후에만 실행 (게스트는 스킵)
             // 초기 로드 시에는 territories만 로드하고, overlay는 idle 시간에 수행
             // requestIdleCallback이 지원되지 않으면 1초 후 실행
-            if (window.requestIdleCallback) {
-                requestIdleCallback(() => {
-                    this.loadOwnershipOverlay().catch(err => {
-                        log.warn('[TerritoryManager] Failed to load ownership overlay in idle:', err);
-                    });
-                }, { timeout: 1000 });
+            if (user) {
+                // 로그인 사용자만 ownership overlay 실행
+                if (window.requestIdleCallback) {
+                    requestIdleCallback(() => {
+                        this.loadOwnershipOverlay().catch(err => {
+                            log.warn('[TerritoryManager] Failed to load ownership overlay in idle:', err);
+                        });
+                    }, { timeout: 1000 });
+                } else {
+                    setTimeout(() => {
+                        this.loadOwnershipOverlay().catch(err => {
+                            log.warn('[TerritoryManager] Failed to load ownership overlay:', err);
+                        });
+                    }, 1000);
+                }
             } else {
-                setTimeout(() => {
-                    this.loadOwnershipOverlay().catch(err => {
-                        log.warn('[TerritoryManager] Failed to load ownership overlay:', err);
-                    });
-                }, 1000);
+                log.info('[TerritoryManager] Guest mode: skipping ownership overlay (auth required)');
             }
             
         } catch (error) {

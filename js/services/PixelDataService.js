@@ -136,6 +136,17 @@ class PixelDataService {
      * 우선순위: 메모리 캐시 → 로컬 캐시(IndexedDB) → Firebase
      */
     async loadPixelData(territoryId, territory = null, options = {}) {
+        // ⚡ 가드: territoryId가 없으면 즉시 반환 (undefined 방지)
+        if (!territoryId || territoryId === 'undefined' || territoryId === 'null') {
+            log.warn(`[PixelDataService] ⚠️ loadPixelData called with invalid territoryId: ${territoryId}, skipping`);
+            return {
+                territoryId: null,
+                pixels: [],
+                filledPixels: 0,
+                lastUpdated: null
+            };
+        }
+        
         const { forceRefresh = false } = options;
         console.log(`🔍 [PixelDataService] ========== loadPixelData START ==========`);
         console.log(`🔍 [PixelDataService] territoryId: ${territoryId}`, {
@@ -210,18 +221,16 @@ class PixelDataService {
             territoryKeys: territory ? Object.keys(territory) : []
         });
         
+        // ⚡ 게스트 지원: 소유권이 없어도 픽셀 데이터는 조회 가능 (view는 public)
+        // 편집/저장만 auth 필요
+        // 소유권 체크는 저장 시에만 수행
         if (territory && (!actualRuler || territory.sovereignty === 'unconquered')) {
-            console.log(`🔍 [PixelDataService] ⚠️ Territory ${territoryId} has no owner, returning empty data`);
-            log.debug(`[PixelDataService] Territory ${territoryId} has no owner, skipping pixel data load`);
-            return {
-                territoryId,
-                pixels: [],
-                filledPixels: 0,
-                lastUpdated: null
-            };
+            console.log(`🔍 [PixelDataService] ℹ️ Territory ${territoryId} has no owner, but proceeding with pixel data load (guest view allowed)`);
+            log.debug(`[PixelDataService] Territory ${territoryId} has no owner, but loading pixel data for guest view`);
+            // 게스트도 픽셀아트를 볼 수 있도록 계속 진행 (빈 데이터 반환하지 않음)
+        } else if (actualRuler) {
+            console.log(`🔍 [PixelDataService] ✅ Territory ${territoryId} has owner (${actualRuler}), proceeding with pixel data load`);
         }
-        
-        console.log(`🔍 [PixelDataService] ✅ Territory ${territoryId} has owner (${actualRuler}), proceeding with pixel data load`);
         
         // ⚠️ 핵심 수정: forceRefresh가 true이면 캐시를 무시하고 API에서 직접 가져오기
         if (!forceRefresh) {
