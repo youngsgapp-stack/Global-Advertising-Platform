@@ -800,29 +800,20 @@ class TerritoryManager {
                 const t1 = performance.now();
                 console.log('[TerritoryManager] 📡 Calling apiService.getTerritories()...');
                 
-                // ⚡ 성능 최적화: 초기 로딩 시 필드 축소 (1731KB → 300~500KB 목표)
-                // 초기 화면에 필요한 최소 필드만 요청
-                const initialFields = [
-                    'id',
-                    'sovereignty',
-                    'status',
-                    'ruler_firebase_uid',
-                    'hasAuction',
-                    'updatedAt',
-                    'protectionEndsAt'
-                ];
-                
-                // ⚡ 성능 최적화: 초기 로딩은 경량 필드만 요청
+                // ⚡ 성능 최적화: 초기 로딩 시 프리셋 사용 (서버에서 정의된 필드 세트)
                 // 이후 상세 정보는 패널 클릭 시 개별 territory 조회로 가져옴
                 const isInitialLoad = !this._territoriesApiCache && !this._territoriesApiCachePromise;
-                const fields = isInitialLoad ? initialFields : undefined; // 초기 로딩이 아니면 전체 필드
+                
+                // ⚡ 프리셋 사용: 서버에서 정의된 'initial' 프리셋 사용
+                // 클라이언트가 fields 문자열을 매번 만들지 않아도 됨
+                const params = isInitialLoad ? { preset: 'initial' } : {}; // 초기 로딩이 아니면 전체 필드
                 
                 if (isInitialLoad) {
-                    console.log('[TerritoryManager] ⚡ Initial load: requesting lightweight fields only', { fields: initialFields });
+                    console.log('[TerritoryManager] ⚡ Initial load: using "initial" preset');
                 }
                 
                 // Promise 캐시 생성
-                this._territoriesApiCachePromise = apiService.getTerritories(fields ? { fields } : {}).then(result => {
+                this._territoriesApiCachePromise = apiService.getTerritories(params).then(result => {
                     const t2 = performance.now();
                     const payloadSize = JSON.stringify(result).length;
                     console.log(`[TerritoryManager] ⏱️ getTerritories() network time: ${Math.round(t2 - t1)}ms`);
