@@ -124,9 +124,21 @@ router.get('/', async (req, res) => {
         
         // ⚠️ 핵심 수정: redis.get()이 이미 파싱된 객체를 반환하므로 중복 파싱 제거
         if (pixelData) {
+            // ⚠️ 개선: 메타데이터 보장 (캐시 일관성 검증용)
+            // 기존 데이터에 메타데이터가 없으면 추가
+            if (!pixelData.revision || !pixelData.updatedAt) {
+                const now = Date.now();
+                pixelData.revision = pixelData.revision || now; // 타임스탬프 기반 revision
+                pixelData.updatedAt = pixelData.updatedAt || pixelData.lastUpdated || new Date().toISOString();
+                // Redis에 업데이트된 메타데이터 저장
+                await redis.set(pixelCacheKey, pixelData);
+            }
+            
             console.log(`[Pixels] Returning pixel data:`, {
                 pixelsLength: pixelData.pixels?.length || 0,
-                filledPixels: pixelData.filledPixels || 0
+                filledPixels: pixelData.filledPixels || 0,
+                revision: pixelData.revision,
+                updatedAt: pixelData.updatedAt
             });
             return res.json(pixelData);
         }
@@ -136,18 +148,29 @@ router.get('/', async (req, res) => {
         const cached = await redis.get(cacheKey);
         
         if (cached) {
+            // ⚠️ 개선: 메타데이터 보장
+            if (!cached.revision || !cached.updatedAt) {
+                const now = Date.now();
+                cached.revision = cached.revision || now;
+                cached.updatedAt = cached.updatedAt || cached.lastUpdated || new Date().toISOString();
+                await redis.set(cacheKey, cached, CACHE_TTL.PIXEL_META);
+            }
             return res.json(cached);
         }
         
         // TODO: DB에 pixel_canvases 테이블이 있으면 조회
         // 현재는 빈 데이터 반환 (나중에 DB 스키마 확장 필요)
+        const now = Date.now();
         const emptyPixelData = {
             territoryId,
             pixels: [],
             width: 64,
             height: 64,
             filledPixels: 0,
-            lastUpdated: null
+            lastUpdated: null,
+            // ⚠️ 개선: 빈 데이터에도 메타데이터 포함
+            revision: now,
+            updatedAt: new Date().toISOString()
         };
         
             // Redis에 캐시
@@ -224,6 +247,40 @@ router.post('/', async (req, res) => {
             return res.status(403).json({ error: 'You do not own this territory' });
         }
         
+        // Redis 캐시 키 정의
+        const pixelCacheKey = `pixel_data:${territoryId}`;
+        
+        // ⚠️ 전문가 조언: revision은 항상 단조 증가, 타입 고정 (정수 increment)
+        // ⚠️ 최종 피드백: 동시 저장 시 revision 중복 방지를 위해 Redis INCR 사용 (원자적 증가)
+        const revisionKey = `pixel_revision:${territoryId}`;
+        let newRevision;
+        
+        try {
+            // Redis INCR을 사용하여 원자적 증가 보장 (동시 저장 시에도 안전)
+            newRevision = await redis.incr(revisionKey);
+            
+            // 첫 저장인 경우 (INCR 결과가 1) revisionKey가 없었으므로 1로 시작
+            // 이후 저장은 자동으로 2, 3, 4... 로 증가
+            if (newRevision === 1) {
+                // 첫 저장이므로 revisionKey를 영구 저장 (TTL 없음)
+                // 이후 revision은 항상 증가
+                log.debug(`[Pixels] First revision for ${territoryId}, starting at 1`);
+            } else {
+                log.debug(`[Pixels] Revision incremented to ${newRevision} for ${territoryId}`);
+            }
+        } catch (error) {
+            // Redis INCR 실패 시 fallback: 기존 데이터에서 revision 가져오기
+            log.warn(`[Pixels] Redis INCR failed for ${territoryId}, falling back to read-then-increment:`, error.message);
+            const existingPixelData = await redis.get(pixelCacheKey);
+            const existingRevision = existingPixelData?.revision;
+            
+            if (typeof existingRevision === 'number' && Number.isInteger(existingRevision) && existingRevision > 0) {
+                newRevision = existingRevision + 1;
+            } else {
+                newRevision = 1;
+            }
+        }
+        
         const pixelData = {
             territoryId,
             pixels: pixels || [],
@@ -231,7 +288,10 @@ router.post('/', async (req, res) => {
             height: height || 64,
             filledPixels: pixels ? pixels.length : 0,
             lastUpdated: new Date().toISOString(),
-            ownerId: userId
+            ownerId: userId,
+            // ⚠️ 개선: 캐시 일관성 검증을 위한 메타데이터 추가
+            revision: newRevision,
+            updatedAt: new Date().toISOString()
         };
         
         // ⚠️ 디버깅: 저장할 데이터 확인
@@ -240,11 +300,12 @@ router.post('/', async (req, res) => {
             filledPixels: pixelData.filledPixels,
             width: pixelData.width,
             height: pixelData.height,
-            pixelsSample: pixelData.pixels.slice(0, 3)
+            pixelsSample: pixelData.pixels.slice(0, 3),
+            revision: pixelData.revision,
+            updatedAt: pixelData.updatedAt
         });
         
         // Redis에 저장 (메인 저장소 - 무제한 캐시)
-        const pixelCacheKey = `pixel_data:${territoryId}`;
         await redis.set(pixelCacheKey, pixelData);
         
         // ⚠️ 디버깅: 저장 후 즉시 확인
