@@ -213,7 +213,7 @@ app.use('/api/cron', cronRouter); // Cron Job (Vercel에서 호출)
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);
-app.use('/api/pixels', authenticateToken, pixelsTopLevelRouter); // 픽셀 상위 레벨 라우트
+app.use('/api/pixels', optionalAuthenticateToken, pixelsTopLevelRouter); // 픽셀 상위 레벨 라우트 (공개 API)
 // territories 라우터에 pixels 라우터 마운트
 territoriesRouter.use('/:territoryId/pixels', pixelsRouter);
 // Public API: GET /api/territories, GET /api/territories/:id는 선택적 인증 (게스트 허용)
