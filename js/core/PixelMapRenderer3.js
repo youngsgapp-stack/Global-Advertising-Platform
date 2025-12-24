@@ -280,7 +280,12 @@ class PixelMapRenderer3 {
      * [NEW] Viewport 내 territory 확인
      */
     getTerritoriesInViewport() {
-        const { territoryManager } = await import('./TerritoryManager.js');
+        // ⚠️ 동기 함수로 변경 (territoryManager는 이미 import되어 있음)
+        if (!territoryManager || !territoryManager.territories) {
+            // TerritoryManager가 아직 로드되지 않았으면 빈 배열 반환
+            return [];
+        }
+        
         const bounds = this.map.getBounds();
         const territories = [];
         
