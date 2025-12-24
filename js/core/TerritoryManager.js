@@ -164,7 +164,15 @@ class TerritoryManager {
             
             // ⚠️ 타이밍 이슈 해결: initialize() 시점에 이미 로그인되어 있을 수 있으므로
             // 잠시 후 한 번 더 확인 (onAuthStateChanged가 아직 호출되지 않았을 수 있음)
-            setTimeout(async () => {
+            // ⚡ 안정성: 이전 타이머가 있으면 취소
+            if (this._retryCheckTimeout) {
+                clearTimeout(this._retryCheckTimeout);
+            }
+            
+            this._retryCheckTimeout = setTimeout(async () => {
+                // ⚡ 안정성: 타이머 실행 후 즉시 해제
+                this._retryCheckTimeout = null;
+                
                 const realAuthUser = firebaseService.getRealAuthUser ? firebaseService.getRealAuthUser() : null;
                 const currentUser = firebaseService.getCurrentUser();
                 const user = realAuthUser || currentUser;
@@ -178,8 +186,9 @@ class TerritoryManager {
                 log.info('[TerritoryManager] 🔄 getCurrentUser():', currentUser ? `${currentUser.email}` : 'null');
                 log.info('[TerritoryManager] 🔄 territories.size:', this.territories.size);
                 
+                // ⚡ 안정성: retry는 "정말 실패했을 때"만 (territories.size === 0 일 때만)
                 if (user && this.territories.size === 0) {
-                    log.info('[TerritoryManager] 🔄 Retrying loadTerritoriesFromFirestore() after delay (user was already logged in)');
+                    log.info('[TerritoryManager] 🔄 Retrying loadTerritoriesFromFirestore() after delay (user was already logged in, territories.size=0)');
                     await this.loadTerritoriesFromFirestore();
                 } else if (!user) {
                     log.info('[TerritoryManager] ⚠️ Still no user after delay, waiting for AUTH_STATE_CHANGED event');
@@ -902,15 +911,25 @@ class TerritoryManager {
      * 명시적으로 overlay하여 일관성을 보장합니다.
      */
     async loadOwnershipOverlay() {
-        try {
-            console.log('[TerritoryManager] 🔄 loadOwnershipOverlay() called');
-            const currentUser = firebaseService.getCurrentUser();
-            if (!currentUser) {
-                // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
-                console.log('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
-                log.info('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
-                return;
-            }
+        // ⚡ 안정성: 중복 호출 방지 (이미 실행 중이면 기존 Promise 반환)
+        if (this._overlayInFlight) {
+            console.log('[TerritoryManager] ⚡ Overlay already in flight, reusing existing promise');
+            return this._overlayInFlight;
+        }
+        
+        // ⚡ 안정성: 새로운 run 시작 (기존 run 무효화)
+        const runId = ++this._overlayRunId;
+        
+        this._overlayInFlight = (async () => {
+            try {
+                console.log(`[TerritoryManager] 🔄 loadOwnershipOverlay() called (runId: ${runId})`);
+                const currentUser = firebaseService.getCurrentUser();
+                if (!currentUser) {
+                    // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
+                    console.log('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
+                    log.info('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
+                    return;
+                }
             
             console.log('[TerritoryManager] 🔄 Loading ownership overlay...');
             log.info('[TerritoryManager] 🔄 Loading ownership overlay...');
@@ -1147,25 +1166,54 @@ class TerritoryManager {
                     // ⚡ 버그 수정: lastFrameTime을 processRemaining 스코프에 선언
                     let lastFrameTime = performance.now();
                     let consecutiveFrameDrops = 0; // 연속 프레임 드랍 카운터
+                    let lastFrameDropLogTime = 0; // ⚡ 프레임 드랍 로그 빈도 제한 (5초에 1회)
+                    const FRAME_DROP_LOG_INTERVAL = 5000; // 5초
                     
-                    const processBatch = () => {
+                    const processBatch = (deadline) => {
+                        // ⚡ 안정성: 최신 run이 아니면 즉시 중단 (취소 토큰)
+                        if (runId !== this._overlayRunId) {
+                            console.log(`[TerritoryManager] ⚡ Overlay batch cancelled (newer run started, runId: ${runId} vs ${this._overlayRunId})`);
+                            return;
+                        }
+                        
+                        // ⚡ 안정성: 더 이상 처리할 게 없으면 정상 종료 (핵심 수정)
+                        if (processed >= remainingTerritories.length) {
+                            const totalTime = performance.now();
+                            console.log(`[TerritoryManager] ⏱️ Remaining overlay completed (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms`);
+                            return; // ⚡ 정상 종료 - 더 이상 스케줄링하지 않음
+                        }
+                        
+                        // ⚡ 안정성: runId 재확인 (중간에 취소되었을 수 있음)
+                        if (runId !== this._overlayRunId) {
+                            return;
+                        }
+                        
                         const batchStart = performance.now();
                         const batch = remainingTerritories.slice(processed, processed + batchSize);
                         const actualProcessed = batch.length; // ⚡ 실제 처리된 항목 수
                         
-                        for (const apiTerritory of batch) {
-                            processTerritory(apiTerritory);
+                        // ⚡ idle 시간 동안만 처리 (deadline이 있으면 사용)
+                        const timeRemaining = deadline ? deadline.timeRemaining() : Infinity;
+                        let itemsProcessed = 0;
+                        
+                        for (let i = 0; i < batch.length && (timeRemaining > 3 || !deadline); i++) {
+                            processTerritory(batch[i]);
+                            itemsProcessed++;
                         }
-                        processed += actualProcessed;
+                        
+                        processed += itemsProcessed;
                         const batchEnd = performance.now();
                         const batchTime = batchEnd - batchStart;
                         
                         // ⚡ 성능 모니터링: FPS 관점 (프레임 간격 체크)
                         const frameInterval = batchStart - lastFrameTime;
+                        const now = performance.now();
                         if (frameInterval > 25) { // 25ms = 40fps 이하
                             consecutiveFrameDrops++;
-                            if (consecutiveFrameDrops >= 3) {
+                            // ⚡ 프레임 드랍 로그 빈도 제한 (5초에 1회만)
+                            if (consecutiveFrameDrops >= 3 && (now - lastFrameDropLogTime) >= FRAME_DROP_LOG_INTERVAL) {
                                 console.warn(`[TerritoryManager] ⚠️ Frame drop detected: ${Math.round(frameInterval)}ms interval (${consecutiveFrameDrops} consecutive)`);
+                                lastFrameDropLogTime = now;
                             }
                         } else {
                             consecutiveFrameDrops = 0;
@@ -1191,50 +1239,75 @@ class TerritoryManager {
                             console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''}`);
                         }
                         
+                        // ⚡ 안정성: 더 처리할 게 있으면 다음 idle 예약, 없으면 종료
                         if (processed < remainingTerritories.length) {
                             if (window.requestIdleCallback) {
-                                requestIdleCallback(processBatch, { timeout: 100 });
+                                requestIdleCallback(processBatch, { timeout: 200 });
                             } else {
                                 setTimeout(processBatch, 100);
                             }
                         } else {
+                            // ⚡ 정상 종료 - 더 이상 스케줄링하지 않음
                             const totalTime = performance.now();
-                            console.log(`[TerritoryManager] ⏱️ Remaining overlay (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms`);
+                            console.log(`[TerritoryManager] ⏱️ Remaining overlay completed (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms`);
                         }
                     };
                     
                     if (window.requestIdleCallback) {
                         requestIdleCallback(processBatch, { timeout: 1000 });
                     } else {
-                        setTimeout(processBatch, 500);
+                        setTimeout(() => processBatch(null), 500);
                     }
                 };
                 
                 processRemaining();
             }
             
-            const t5End = performance.now();
-            console.log(`[TerritoryManager] ⏱️ Ownership overlay processing time: ${Math.round(t5End - t5Start)}ms`);
-            console.log(`[TerritoryManager] 📊 Ownership overlay stats: ${territoriesWithRuler} with ruler, ${territoriesWithoutRuler} without ruler`);
-            console.log(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
-            log.info(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
-            
-            // ⚠️ 이벤트 발행: 소유권 정보가 업데이트되었음을 알림
-            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
-                territoryId: null, // 전체 업데이트
-                forceRefresh: true,
-                revision: Date.now()
-            });
-            
-        } catch (error) {
-            // 인증 오류는 조용히 처리
-            if (error.message === 'User not authenticated') {
-                log.debug('[TerritoryManager] User not authenticated, skipping ownership overlay');
-                return;
+                const t5End = performance.now();
+                console.log(`[TerritoryManager] ⏱️ Ownership overlay processing time: ${Math.round(t5End - t5Start)}ms`);
+                console.log(`[TerritoryManager] 📊 Ownership overlay stats: ${territoriesWithRuler} with ruler, ${territoriesWithoutRuler} without ruler`);
+                console.log(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated (runId: ${runId})`);
+                log.info(`[TerritoryManager] ✅ Ownership overlay completed: ${updatedCount} territories updated`);
+                
+                // ⚠️ 이벤트 발행: 소유권 정보가 업데이트되었음을 알림
+                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                    territoryId: null, // 전체 업데이트
+                    forceRefresh: true,
+                    revision: Date.now()
+                });
+                
+            } catch (error) {
+                // 인증 오류는 조용히 처리
+                if (error.message === 'User not authenticated') {
+                    log.debug('[TerritoryManager] User not authenticated, skipping ownership overlay');
+                    return;
+                }
+                console.error(`[TerritoryManager] ❌ Error in loadOwnershipOverlay (runId: ${runId}):`, error);
+                log.error(`[TerritoryManager] ❌ Error in loadOwnershipOverlay (runId: ${runId}):`, error);
+                throw error;
+            } finally {
+                // ⚡ 안정성: 최신 run일 때만 inFlight 해제
+                if (runId === this._overlayRunId) {
+                    this._overlayInFlight = null;
+                    console.log(`[TerritoryManager] ✅ Overlay run ${runId} completed, inFlight cleared`);
+                } else {
+                    console.log(`[TerritoryManager] ⚡ Overlay run ${runId} superseded by newer run ${this._overlayRunId}`);
+                }
             }
-            log.warn('[TerritoryManager] Failed to load ownership overlay:', error);
-            // 실패해도 계속 진행 (기존 데이터 사용)
-        }
+        })();
+        
+        return this._overlayInFlight;
+    }
+    
+    /**
+     * ⚡ 안정성: overlay 취소 및 재시작
+     * 로그아웃/데이터 갱신 등에서 기존 overlay를 취소하고 새로 시작
+     */
+    cancelOverlayAndRestart() {
+        this._overlayRunId++; // 기존 run 즉시 무효화
+        this._overlayInFlight = null;
+        console.log(`[TerritoryManager] 🔄 Overlay cancelled and restarting (new runId: ${this._overlayRunId})`);
+        return this.loadOwnershipOverlay();
     }
     
     /**

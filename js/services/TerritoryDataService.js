@@ -455,8 +455,12 @@ class TerritoryDataService {
         try {
             log.info('TerritoryDataService initializing...');
             
-            // REST Countries API에서 국가 데이터 로드
-            await this.loadCountryData();
+            // ⚡ 성능 최적화: country data는 초기 필수 데이터가 아니므로 백그라운드로 로드
+            // await를 제거하여 초기 렌더링을 블로킹하지 않음
+            this.loadCountryData().catch(err => {
+                // 에러는 조용히 처리 (이미 loadCountryData 내부에서 fallback 처리)
+                log.debug('[TerritoryDataService] Country data load failed (non-critical):', err);
+            });
             
             this.initialized = true;
             log.info('TerritoryDataService initialized');
