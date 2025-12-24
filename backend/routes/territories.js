@@ -44,6 +44,7 @@ const ALLOWED_FIELDS = new Set([
  * 클라이언트가 fields 문자열을 매번 만들지 않아도 됨
  */
 const FIELD_PRESETS = {
+    // ⚡ 성능 최적화: initial preset에 픽셀 메타 포함 (PixelMetadataService가 필요로 함)
     'initial': ['id', 'sovereignty', 'status', 'ruler_firebase_uid', 'hasAuction', 'updatedAt', 'protectionEndsAt', 'hasPixelArt', 'pixelCount', 'fillRatio'],
     'minimal': ['id', 'sovereignty', 'status', 'ruler_firebase_uid'],
     'full': null // null이면 전체 필드 반환
@@ -190,6 +191,7 @@ router.get('/', async (req, res) => {
         
         // SQL 쿼리 빌드
         // ⚠️ 전문가 조언 반영: ruler_firebase_uid를 포함하여 소유권 정보 완전성 보장
+        // ⚡ 픽셀 메타: has_pixel_art, pixel_count, fill_ratio 포함 (PixelMetadataService가 필요로 함)
         let sql = `SELECT 
             t.*,
             u.nickname as ruler_nickname,
@@ -198,7 +200,10 @@ router.get('/', async (req, res) => {
             a.id as auction_id,
             a.status as auction_status,
             a.current_bid as auction_current_bid,
-            a.end_time as auction_end_time
+            a.end_time as auction_end_time,
+            t.has_pixel_art,
+            t.pixel_count,
+            t.fill_ratio
         FROM territories t
         LEFT JOIN users u ON t.ruler_id = u.id
         LEFT JOIN auctions a ON t.current_auction_id = a.id AND a.status = 'active'
@@ -289,12 +294,21 @@ router.get('/', async (req, res) => {
                     'protectionEndsAt': () => { territory.protectionEndsAt = row.protection_ends_at; },
                     'basePrice': () => { territory.basePrice = parseFloat(row.base_price || 0); },
                     'hasPixelArt': () => { 
-                        // ⚡ 픽셀 메타: DB에 직접 필드가 없으면 나중에 PixelMetadataService에서 채움
-                        // 여기서는 null로 두고, 클라이언트에서 PixelMetadataService로 확인
-                        territory.hasPixelArt = null; // 나중에 PixelMetadataService에서 채움
+                        // ⚡ 픽셀 메타: DB에서 실제 값 반환 (null이 아닌 boolean)
+                        territory.hasPixelArt = row.has_pixel_art === true || row.has_pixel_art === 1 || row.has_pixel_art === '1' || row.has_pixel_art === 'true';
                     },
-                    'pixelCount': () => { territory.pixelCount = null; }, // 나중에 PixelMetadataService에서 채움
-                    'fillRatio': () => { territory.fillRatio = null; }, // 나중에 PixelMetadataService에서 채움
+                    'pixelCount': () => { 
+                        // ⚡ 픽셀 메타: DB에서 실제 값 반환
+                        territory.pixelCount = row.pixel_count ? parseInt(row.pixel_count, 10) : null;
+                    },
+                    'fillRatio': () => { 
+                        // ⚡ 픽셀 메타: DB에서 실제 값 반환 (0~1 범위)
+                        territory.fillRatio = row.fill_ratio ? parseFloat(row.fill_ratio) : null;
+                        // 0~1 범위로 제한
+                        if (territory.fillRatio !== null) {
+                            territory.fillRatio = Math.max(0, Math.min(1, territory.fillRatio));
+                        }
+                    },
                     'pixelUpdatedAt': () => { territory.pixelUpdatedAt = null; }, // 나중에 PixelMetadataService에서 채움
                     // 선택적 필드 (초기 로딩에 불필요)
                     'code': () => { territory.code = row.code; },
