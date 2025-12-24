@@ -32,6 +32,15 @@ router.get('/', async (req, res) => {
         const { country, status, limit, fields } = req.query;
         
         console.log('[Territories] 📊 Fetching territories...', { country, status, limit, fields });
+        console.log('[Territories] 🔍 Request received:', {
+            method: req.method,
+            url: req.url,
+            query: req.query,
+            headers: {
+                'authorization': req.headers.authorization ? 'Bearer ***' : 'none',
+                'user-agent': req.headers['user-agent']
+            }
+        });
         
         // ⚡ 성능 최적화: fields 파라미터 파싱 (쉼표로 구분된 필드 목록)
         const requestedFields = fields ? fields.split(',').map(f => f.trim()) : null;
@@ -45,19 +54,38 @@ router.get('/', async (req, res) => {
             if (cached && Array.isArray(cached)) {
                 console.log('[Territories] ✅ Territories loaded from cache');
                 
-                // ⚡ 성능 최적화: ETag 생성 및 304 Not Modified 처리
-                const etag = generateETag(cached);
-                res.setHeader('ETag', etag);
-                res.setHeader('Cache-Control', 'public, max-age=10'); // 10초 캐시
+                // ⚡ 픽셀 메타 필드가 요청되었는데 캐시에 없으면 캐시 무효화하고 DB에서 재조회
+                const pixelMetaRequested = !requestedFields || requestedFields.length === 0 || (
+                    requestedFields.includes('hasPixelArt') || 
+                    requestedFields.includes('pixelCount') || 
+                    requestedFields.includes('fillRatio') || 
+                    requestedFields.includes('pixelUpdatedAt')
+                );
                 
-                // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
-                const clientETag = req.headers['if-none-match'];
-                if (clientETag && clientETag === etag) {
-                    console.log('[Territories] ✅ 304 Not Modified (ETag match)');
-                    return res.status(304).end();
+                if (pixelMetaRequested && cached.length > 0) {
+                    // 캐시된 항목 중 하나라도 픽셀 메타 필드가 없으면 캐시 무효화
+                    const sampleItem = cached[0];
+                    if (!('hasPixelArt' in sampleItem) || sampleItem.hasPixelArt === undefined) {
+                        console.log('[Territories] ⚠️ Cache invalid: pixel metadata fields missing, fetching from DB...');
+                        cached = null; // 캐시 무효화, DB에서 재조회
+                    }
                 }
                 
-                return res.json(cached);
+                if (cached) {
+                    // ⚡ 성능 최적화: ETag 생성 및 304 Not Modified 처리
+                    const etag = generateETag(cached);
+                    res.setHeader('ETag', etag);
+                    res.setHeader('Cache-Control', 'public, max-age=10'); // 10초 캐시
+                    
+                    // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+                    const clientETag = req.headers['if-none-match'];
+                    if (clientETag && clientETag === etag) {
+                        console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+                        return res.status(304).end();
+                    }
+                    
+                    return res.json(cached);
+                }
             }
         } catch (redisError) {
             console.warn('[Territories] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
@@ -111,6 +139,60 @@ router.get('/', async (req, res) => {
         
         const result = await query(sql, params);
         
+        // ⚡ 픽셀 메타 필드가 요청된 경우 또는 전체 필드 반환 시 Redis에서 일괄 조회 (성능 최적화)
+        const pixelMetaRequested = !requestedFields || requestedFields.length === 0 || (
+            requestedFields.includes('hasPixelArt') || 
+            requestedFields.includes('pixelCount') || 
+            requestedFields.includes('fillRatio') || 
+            requestedFields.includes('pixelUpdatedAt')
+        );
+        
+        console.log('[Territories] 🔍 Pixel meta requested:', {
+            pixelMetaRequested,
+            requestedFields: requestedFields || 'all',
+            territoryCount: result.rows.length
+        });
+        
+        let pixelMetaMap = new Map();
+        if (pixelMetaRequested && result.rows.length > 0) {
+            console.log('[Territories] 🔍 Starting pixel metadata lookup from Redis...');
+            try {
+                // 모든 territory ID에 대해 픽셀 메타 조회 (병렬 처리)
+                const territoryIds = result.rows.map(row => row.id);
+                const pixelMetaPromises = territoryIds.map(async (territoryId) => {
+                    try {
+                        const pixelData = await redis.get(`pixel_data:${territoryId}`);
+                        if (pixelData && pixelData.pixels && Array.isArray(pixelData.pixels) && pixelData.pixels.length > 0) {
+                            const pixelCount = pixelData.pixels.length;
+                            const width = pixelData.width || 64;
+                            const height = pixelData.height || 64;
+                            const totalPixels = width * height;
+                            const fillRatio = totalPixels > 0 ? pixelCount / totalPixels : 0;
+                            return {
+                                territoryId,
+                                hasPixelArt: true,
+                                pixelCount,
+                                fillRatio,
+                                updatedAt: pixelData.updatedAt || pixelData.lastUpdated || null
+                            };
+                        }
+                    } catch (err) {
+                        // 개별 조회 실패는 무시
+                    }
+                    return null;
+                });
+                
+                const pixelMetaResults = await Promise.all(pixelMetaPromises);
+                pixelMetaResults.forEach(meta => {
+                    if (meta) {
+                        pixelMetaMap.set(meta.territoryId, meta);
+                    }
+                });
+            } catch (error) {
+                console.warn('[Territories] ⚠️ Failed to load pixel metadata from Redis:', error.message);
+            }
+        }
+        
         // ⚡ 성능 최적화: fields 파라미터에 따라 필드 선택적 포함
         const territories = result.rows.map(row => {
             const territory = {};
@@ -148,6 +230,24 @@ router.get('/', async (req, res) => {
                 territory.protectionEndsAt = row.protection_ends_at;
                 territory.createdAt = row.created_at;
                 territory.updatedAt = row.updated_at;
+                
+                // ⚡ 픽셀 메타 필드 포함 (전체 필드 반환 시)
+                if (pixelMetaMap.has(row.id)) {
+                    const meta = pixelMetaMap.get(row.id);
+                    territory.hasPixelArt = meta.hasPixelArt;
+                    territory.pixelCount = meta.pixelCount;
+                    territory.fillRatio = meta.fillRatio;
+                    territory.pixelUpdatedAt = meta.updatedAt;
+                    // ⚡ 필드명 호환성: pixelArtUpdatedAt도 포함 (기존 코드 호환)
+                    territory.pixelArtUpdatedAt = meta.updatedAt;
+                } else {
+                    // ⚡ 픽셀이 없어도 필드를 명시적으로 설정 (undefined 방지)
+                    territory.hasPixelArt = false;
+                    territory.pixelCount = 0;
+                    territory.fillRatio = 0;
+                    territory.pixelUpdatedAt = null;
+                    territory.pixelArtUpdatedAt = null;
+                }
             } else {
                 // ⚡ fields 파라미터가 있으면 요청된 필드만 포함
                 const fieldMap = {
@@ -184,6 +284,25 @@ router.get('/', async (req, res) => {
                             currentBid: parseFloat(row.auction_current_bid || 0),
                             endTime: row.auction_end_time
                         } : null;
+                    },
+                    // ⚡ 픽셀 메타 필드 (게스트 지원) - Redis에서 조회한 메타 사용
+                    'hasPixelArt': () => {
+                        const meta = pixelMetaMap.get(row.id);
+                        territory.hasPixelArt = meta ? meta.hasPixelArt : false;
+                    },
+                    'pixelCount': () => {
+                        const meta = pixelMetaMap.get(row.id);
+                        territory.pixelCount = meta ? meta.pixelCount : 0;
+                    },
+                    'fillRatio': () => {
+                        const meta = pixelMetaMap.get(row.id);
+                        territory.fillRatio = meta ? meta.fillRatio : 0;
+                    },
+                    'pixelUpdatedAt': () => {
+                        const meta = pixelMetaMap.get(row.id);
+                        territory.pixelUpdatedAt = meta ? meta.updatedAt : null;
+                        // ⚡ 필드명 호환성: pixelArtUpdatedAt도 포함 (기존 코드 호환)
+                        territory.pixelArtUpdatedAt = meta ? meta.updatedAt : null;
                     }
                 };
                 

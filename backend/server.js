@@ -158,6 +158,23 @@ app.use(compression({
     // Brotli는 Node.js 18+에서 자동 지원 (Accept-Encoding 확인)
 }));
 
+// ⚡ 최상단 요청 로거 (무조건 찍힘) - 모든 요청을 최우선으로 로깅
+app.use((req, res, next) => {
+    res.setHeader("X-Server-Instance", "LOCAL-3000-" + Date.now());
+    console.log(`[REQ] ${req.method} ${req.originalUrl} origin=${req.headers.origin || "-"} auth=${req.headers.authorization ? "Y" : "N"}`);
+    next();
+});
+
+// ⚡ 요청 로거 (응답 완료 시 로그)
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`[REQ] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
+    });
+    next();
+});
+
 // 미들웨어
 app.use(cors({
     origin: function (origin, callback) {
@@ -213,7 +230,9 @@ app.use('/api/cron', cronRouter); // Cron Job (Vercel에서 호출)
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);
-app.use('/api/pixels', optionalAuthenticateToken, pixelsTopLevelRouter); // 픽셀 상위 레벨 라우트 (공개 API)
+// ⚡ 픽셀 API: GET 요청은 공개 (게스트 허용), 라우터 내부에서 write만 보호
+app.use('/api/pixels', pixelsTopLevelRouter); // 픽셀 상위 레벨 라우트 (공개 API)
+console.log('[Server] ✅ Pixels router mounted at /api/pixels');
 // territories 라우터에 pixels 라우터 마운트
 territoriesRouter.use('/:territoryId/pixels', pixelsRouter);
 // Public API: GET /api/territories, GET /api/territories/:id는 선택적 인증 (게스트 허용)

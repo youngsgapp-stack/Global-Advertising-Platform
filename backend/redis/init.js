@@ -346,6 +346,81 @@ const redisObject = {
             console.warn(`[Redis] ⚠️ expire error for key "${key}" (non-critical):`, error.message);
         }
     },
+    
+    /**
+     * Set에 멤버 추가 (SADD)
+     * Upstash 및 일반 Redis 모두 지원
+     */
+    sadd: async (key, ...members) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return 0;
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.sadd(key, ...members);
+            } else {
+                // 일반 Redis
+                return await client.sAdd(key, members);
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ sadd error for key "${key}" (non-critical):`, error.message);
+            return 0;
+        }
+    },
+    
+    /**
+     * Set의 모든 멤버 조회 (SMEMBERS)
+     * Upstash 및 일반 Redis 모두 지원
+     */
+    smembers: async (key) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return [];
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.smembers(key) || [];
+            } else {
+                // 일반 Redis
+                return await client.sMembers(key) || [];
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ smembers error for key "${key}" (non-critical):`, error.message);
+            return [];
+        }
+    },
+    
+    /**
+     * Set에서 멤버 제거 (SREM)
+     * Upstash 및 일반 Redis 모두 지원
+     */
+    srem: async (key, ...members) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return 0;
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.srem(key, ...members);
+            } else {
+                // 일반 Redis
+                return await client.sRem(key, members);
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ srem error for key "${key}" (non-critical):`, error.message);
+            return 0;
+        }
+    },
 };
 
 // 명시적으로 export

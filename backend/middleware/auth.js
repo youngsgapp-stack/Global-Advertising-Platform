@@ -111,16 +111,51 @@ async function getFirebaseAdmin() {
  * 토큰이 있으면 검증하고, 없으면 req.user = null로 설정하여 계속 진행
  */
 export async function optionalAuthenticateToken(req, res, next) {
+    // ⚡ 공개 API: 항상 게스트 접근 허용 (인증 선택적)
     const authHeader = req.headers.authorization;
     
-    // 토큰이 없으면 게스트 모드로 계속 진행
+    // ⚡ 디버깅: 항상 로그 출력
+    console.log(`[Auth] 🔍 Optional auth called: ${req.method} ${req.originalUrl}`, {
+        hasAuthHeader: !!authHeader,
+        authHeaderPrefix: authHeader ? authHeader.substring(0, 20) : 'none'
+    });
+    
+    // 토큰이 없으면 게스트 모드로 계속 진행 (공개 API)
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        req.user = null;
+        console.log(`[Auth] ✅ No token provided, allowing guest access for ${req.method} ${req.originalUrl}`);
+        return next(); // ⚡ 바로 next() 호출하여 라우트 핸들러로 진행
+    }
+    
+    // 토큰이 있으면 검증 시도 (실패해도 게스트 모드로 진행)
+    try {
+        const firebaseAdmin = await getFirebaseAdmin();
+        const token = authHeader.split(' ')[1];
+        
+        if (!token || token.trim().length === 0) {
+            console.log(`[Auth] ⚠️ Empty token, allowing guest access`);
+            req.user = null;
+            return next();
+        }
+        
+        // Firebase Admin으로 토큰 검증
+        const auth = firebaseAdmin.getAuth(firebaseAdmin.admin.app());
+        const decodedToken = await auth.verifyIdToken(token);
+        
+        // 검증 성공 시 사용자 정보 설정
+        req.user = {
+            uid: decodedToken.uid,
+            email: decodedToken.email,
+            firebase_uid: decodedToken.uid
+        };
+        console.log(`[Auth] ✅ Token verified for user ${decodedToken.uid}`);
+        return next();
+    } catch (error) {
+        // 토큰 검증 실패 시에도 게스트 모드로 진행 (공개 API)
+        console.log(`[Auth] ⚠️ Token verification failed (${error.message}), allowing guest access for ${req.method} ${req.originalUrl}`);
         req.user = null;
         return next();
     }
-    
-    // 토큰이 있으면 authenticateToken과 동일하게 검증
-    return authenticateToken(req, res, next);
 }
 
 /**
