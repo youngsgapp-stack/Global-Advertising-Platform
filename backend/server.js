@@ -13,6 +13,7 @@ console.log(`🚀 ========================================`);
 
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
@@ -141,6 +142,22 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN
         'https://worldadvertisingmap.com'
     ];
 
+// ⚡ 성능 최적화: 응답 압축 (Gzip/Brotli)
+// JSON 응답이 큰 경우 압축률이 높음 (1.7MB → ~300KB)
+app.use(compression({
+    filter: (req, res) => {
+        // 이미 압축된 응답은 제외
+        if (req.headers['x-no-compression']) {
+            return false;
+        }
+        // compression 미들웨어의 기본 필터 사용
+        return compression.filter(req, res);
+    },
+    level: 6, // 압축 레벨 (1-9, 6이 속도/압축률 균형)
+    threshold: 1024, // 1KB 이상만 압축
+    // Brotli는 Node.js 18+에서 자동 지원 (Accept-Encoding 확인)
+}));
+
 // 미들웨어
 app.use(cors({
     origin: function (origin, callback) {
@@ -161,8 +178,8 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Skip-Cache'],
-    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Skip-Cache', 'If-None-Match'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range', 'ETag', 'Cache-Control'],
     maxAge: 86400 // 24시간
 }));
 app.use(express.json());

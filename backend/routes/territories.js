@@ -3,6 +3,7 @@
  */
 
 import express from 'express';
+import crypto from 'crypto';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateTerritoryCache } from '../redis/cache-utils.js';
@@ -12,24 +13,50 @@ import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 const router = express.Router();
 
 /**
+ * ⚡ 성능 최적화: ETag 생성 헬퍼 함수
+ * 응답 데이터의 해시를 기반으로 ETag 생성
+ */
+function generateETag(data) {
+    const dataString = JSON.stringify(data);
+    const hash = crypto.createHash('md5').update(dataString).digest('hex');
+    return `"${hash}"`; // ETag는 따옴표로 감싸야 함
+}
+
+/**
  * GET /api/territories
  * 영토 목록 조회 (필터링 지원)
  * Query params: country, status, limit
  */
 router.get('/', async (req, res) => {
     try {
-        const { country, status, limit } = req.query;
+        const { country, status, limit, fields } = req.query;
         
-        console.log('[Territories] 📊 Fetching territories...', { country, status, limit });
+        console.log('[Territories] 📊 Fetching territories...', { country, status, limit, fields });
         
-        // Redis 캐시 키 생성
-        const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limit || 'all'}`;
+        // ⚡ 성능 최적화: fields 파라미터 파싱 (쉼표로 구분된 필드 목록)
+        const requestedFields = fields ? fields.split(',').map(f => f.trim()) : null;
+        
+        // Redis 캐시 키 생성 (fields 포함)
+        const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limit || 'all'}:${fields || 'all'}`;
         let cached = null;
         
         try {
             cached = await redis.get(cacheKey);
             if (cached && Array.isArray(cached)) {
                 console.log('[Territories] ✅ Territories loaded from cache');
+                
+                // ⚡ 성능 최적화: ETag 생성 및 304 Not Modified 처리
+                const etag = generateETag(cached);
+                res.setHeader('ETag', etag);
+                res.setHeader('Cache-Control', 'public, max-age=10'); // 10초 캐시
+                
+                // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+                const clientETag = req.headers['if-none-match'];
+                if (clientETag && clientETag === etag) {
+                    console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+                    return res.status(304).end();
+                }
+                
                 return res.json(cached);
             }
         } catch (redisError) {
@@ -84,38 +111,104 @@ router.get('/', async (req, res) => {
         
         const result = await query(sql, params);
         
-        // ⚠️ 전문가 조언 반영: 응답 형식 일관성 확보 - ruler_firebase_uid로 통일
-        const territories = result.rows.map(row => ({
-            id: row.id,
-            code: row.code,
-            name: row.name,
-            name_en: row.name_en,
-            country: row.country,
-            continent: row.continent,
-            status: row.status,
-            sovereignty: row.sovereignty,
-            ruler_id: row.ruler_id || null,
-            ruler_firebase_uid: row.ruler_firebase_uid || null,
-            ruler_nickname: row.ruler_nickname || row.ruler_name || null,
-            ruler: row.ruler_id ? {
-                id: row.ruler_id,
-                firebase_uid: row.ruler_firebase_uid,
-                name: row.ruler_name || row.ruler_nickname,
-                email: row.ruler_email
-            } : null,
-            basePrice: parseFloat(row.base_price || 0),
-            hasAuction: !!row.auction_id,
-            auction: row.auction_id ? {
-                id: row.auction_id,
-                status: row.auction_status,
-                currentBid: parseFloat(row.auction_current_bid || 0),
-                endTime: row.auction_end_time
-            } : null,
-            polygon: row.polygon,
-            protectionEndsAt: row.protection_ends_at,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at
-        }));
+        // ⚡ 성능 최적화: fields 파라미터에 따라 필드 선택적 포함
+        const territories = result.rows.map(row => {
+            const territory = {};
+            
+            // ⚡ 필수 필드 (항상 포함)
+            territory.id = row.id;
+            
+            // ⚡ fields 파라미터가 없으면 전체 필드 반환 (기존 동작)
+            if (!requestedFields || requestedFields.length === 0) {
+                territory.code = row.code;
+                territory.name = row.name;
+                territory.name_en = row.name_en;
+                territory.country = row.country;
+                territory.continent = row.continent;
+                territory.status = row.status;
+                territory.sovereignty = row.sovereignty;
+                territory.ruler_id = row.ruler_id || null;
+                territory.ruler_firebase_uid = row.ruler_firebase_uid || null;
+                territory.ruler_nickname = row.ruler_nickname || row.ruler_name || null;
+                territory.ruler = row.ruler_id ? {
+                    id: row.ruler_id,
+                    firebase_uid: row.ruler_firebase_uid,
+                    name: row.ruler_name || row.ruler_nickname,
+                    email: row.ruler_email
+                } : null;
+                territory.basePrice = parseFloat(row.base_price || 0);
+                territory.hasAuction = !!row.auction_id;
+                territory.auction = row.auction_id ? {
+                    id: row.auction_id,
+                    status: row.auction_status,
+                    currentBid: parseFloat(row.auction_current_bid || 0),
+                    endTime: row.auction_end_time
+                } : null;
+                territory.polygon = row.polygon;
+                territory.protectionEndsAt = row.protection_ends_at;
+                territory.createdAt = row.created_at;
+                territory.updatedAt = row.updated_at;
+            } else {
+                // ⚡ fields 파라미터가 있으면 요청된 필드만 포함
+                const fieldMap = {
+                    'id': () => { territory.id = row.id; },
+                    'sovereignty': () => { territory.sovereignty = row.sovereignty; },
+                    'status': () => { territory.status = row.status; },
+                    'ruler_firebase_uid': () => { territory.ruler_firebase_uid = row.ruler_firebase_uid || null; },
+                    'ruler_id': () => { territory.ruler_id = row.ruler_id || null; },
+                    'ruler_nickname': () => { territory.ruler_nickname = row.ruler_nickname || row.ruler_name || null; },
+                    'hasAuction': () => { territory.hasAuction = !!row.auction_id; },
+                    'updatedAt': () => { territory.updatedAt = row.updated_at; },
+                    'protectionEndsAt': () => { territory.protectionEndsAt = row.protection_ends_at; },
+                    'basePrice': () => { territory.basePrice = parseFloat(row.base_price || 0); },
+                    // 선택적 필드 (초기 로딩에 불필요)
+                    'code': () => { territory.code = row.code; },
+                    'name': () => { territory.name = row.name; },
+                    'name_en': () => { territory.name_en = row.name_en; },
+                    'country': () => { territory.country = row.country; },
+                    'continent': () => { territory.continent = row.continent; },
+                    'polygon': () => { territory.polygon = row.polygon; },
+                    'createdAt': () => { territory.createdAt = row.created_at; },
+                    'ruler': () => {
+                        territory.ruler = row.ruler_id ? {
+                            id: row.ruler_id,
+                            firebase_uid: row.ruler_firebase_uid,
+                            name: row.ruler_name || row.ruler_nickname,
+                            email: row.ruler_email
+                        } : null;
+                    },
+                    'auction': () => {
+                        territory.auction = row.auction_id ? {
+                            id: row.auction_id,
+                            status: row.auction_status,
+                            currentBid: parseFloat(row.auction_current_bid || 0),
+                            endTime: row.auction_end_time
+                        } : null;
+                    }
+                };
+                
+                // 요청된 필드만 추가
+                for (const field of requestedFields) {
+                    if (fieldMap[field]) {
+                        fieldMap[field]();
+                    }
+                }
+            }
+            
+            return territory;
+        });
+        
+        // ⚡ 성능 최적화: ETag 생성 및 캐시 헤더 설정
+        const etag = generateETag(territories);
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'public, max-age=10'); // 10초 캐시
+        
+        // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+        const clientETag = req.headers['if-none-match'];
+        if (clientETag && clientETag === etag) {
+            console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+            return res.status(304).end();
+        }
         
         // Redis에 캐시 - 실패해도 응답은 반환
         try {
@@ -808,6 +901,18 @@ router.get('/:id', async (req, res) => {
             ruler_firebase_uid: row.ruler_firebase_uid || null,
             ruler_nickname: row.ruler_nickname || row.ruler_name || null
         };
+        
+        // ⚡ 성능 최적화: ETag 생성 및 캐시 헤더 설정
+        const etag = generateETag(territory);
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'public, max-age=60'); // 60초 캐시
+        
+        // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
+        const clientETag = req.headers['if-none-match'];
+        if (clientETag && clientETag === etag) {
+            console.log(`[Territories] ✅ 304 Not Modified (ETag match) for ${territoryId}`);
+            return res.status(304).end();
+        }
         
         // Redis에 캐시 (에러 발생 시 무시하고 계속 진행)
         // ⚠️ 캐시 우회 옵션이 있을 때는 캐시를 업데이트하지 않음 (최신 데이터 보장)
