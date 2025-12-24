@@ -156,7 +156,6 @@ app.use(compression({
     level: 6, // 압축 레벨 (1-9, 6이 속도/압축률 균형)
     threshold: 1024, // 1KB 이상만 압축
     // Brotli는 Node.js 18+에서 자동 지원 (Accept-Encoding 확인)
-    // Vary: Accept-Encoding 헤더는 compression 미들웨어가 자동으로 추가
 }));
 
 // 미들웨어
