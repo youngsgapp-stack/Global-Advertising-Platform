@@ -105,11 +105,25 @@ class TerritoryAdapter {
             return TerritoryStatus.AVAILABLE;
         };
 
-        // ⚠️ 전문가 조언 반영: 백엔드 응답 계약을 ruler_firebase_uid 하나로 통일
-        // 한 줄의 규칙으로만 표준화 (여러 필드를 if로 처리하지 않음)
-        // ⚠️ 핵심 수정: 문자열 'null'도 실제 null로 처리
+        // ⚡ 안정성: ruler_firebase_uid 정규화 (모든 'null' 문자열 케이스 처리)
+        // 빈 문자열, 'null', 'undefined', 공백 등 모든 경우를 null로 통일
+        const normalizeRulerFirebaseUid = (value) => {
+            if (value === null || value === undefined) return null;
+            if (typeof value === 'string') {
+                const trimmed = value.trim().toLowerCase();
+                if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined' || trimmed === 'none') {
+                    return null;
+                }
+                // 유효한 문자열이면 그대로 반환
+                return trimmed.length > 0 ? value.trim() : null;
+            }
+            // 숫자나 다른 타입은 문자열로 변환하지 않고 null 처리
+            return null;
+        };
+        
         const rulerRaw = apiResponse.ruler_firebase_uid;
-        const ruler = (!rulerRaw || (typeof rulerRaw === 'string' && rulerRaw.toLowerCase() === 'null')) ? null : rulerRaw;
+        const ruler = normalizeRulerFirebaseUid(rulerRaw);
+        const rulerFirebaseUid = normalizeRulerFirebaseUid(rulerRaw); // 별도 필드로도 저장
 
         // rulerName: ruler_nickname 우선 (백엔드가 ruler_nickname으로 통일)
         const rulerName = apiResponse.ruler_nickname || apiResponse.ruler_name || null;
@@ -122,6 +136,7 @@ class TerritoryAdapter {
 
             // === 소유권 정보 ===
             ruler: ruler,
+            rulerFirebaseUid: rulerFirebaseUid, // ⚡ 정규화된 ruler_firebase_uid 별도 저장
             rulerId: apiResponse.ruler_id || null,
             rulerName: rulerName,
             rulerSince: parseDate(apiResponse.ruler_since || apiResponse.acquired_at),
@@ -159,8 +174,25 @@ class TerritoryAdapter {
             history: apiResponse.history || [],
 
             // === 픽셀 아트 ===
-            hasPixelArt: Boolean(apiResponse.has_pixel_art || apiResponse.pixel_data),
-            pixelArtUpdatedAt: parseDate(apiResponse.pixel_art_updated_at),
+            // ⚡ 타입 통일: hasPixelArt는 반드시 boolean (true/false만 허용)
+            hasPixelArt: (() => {
+                const value = apiResponse.hasPixelArt || apiResponse.has_pixel_art || apiResponse.pixel_data;
+                if (value === true || value === 1 || value === '1' || value === 'true') return true;
+                if (value === false || value === 0 || value === '0' || value === 'false' || value === null || value === undefined) return false;
+                // truthy 값은 true로 처리
+                return Boolean(value);
+            })(),
+            pixelCount: apiResponse.pixelCount || apiResponse.pixel_count || null,
+            fillRatio: (() => {
+                // ⚡ 값 범위 고정: 0~1 float로 통일, 없으면 0
+                const value = apiResponse.fillRatio || apiResponse.fill_ratio;
+                if (value === null || value === undefined) return 0;
+                const num = parseFloat(value);
+                if (isNaN(num)) return 0;
+                // 0~1 범위로 제한
+                return Math.max(0, Math.min(1, num));
+            })(),
+            pixelArtUpdatedAt: parseDate(apiResponse.pixel_art_updated_at || apiResponse.pixelUpdatedAt),
 
             // === 경매 정보 ===
             currentAuction: apiResponse.current_auction ? this.normalizeAuction(apiResponse.current_auction) : undefined

@@ -1183,8 +1183,13 @@ class TerritoryManager {
                         }
                         
                         // ⚡ 성능 로그: 배치당 걸린 시간 + 실제 처리 항목 수
+                        // ⚡ 로그 과다 방지: debug 플래그로 전체 로그 제어 가능
                         const batchNum = Math.floor(processed / batchSize) + 1;
-                        console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''}`);
+                        const shouldLog = window.__DEBUG_OVERLAY_BATCH__ !== false && 
+                                         (batchNum % 10 === 0 || batchTime > 16 || frameInterval > 25);
+                        if (shouldLog) {
+                            console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''}`);
+                        }
                         
                         if (processed < remainingTerritories.length) {
                             if (window.requestIdleCallback) {

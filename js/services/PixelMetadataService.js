@@ -344,9 +344,16 @@ class PixelMetadataService {
             const territoryIds = [];
             
             for (const territory of territories) {
+                // ⚡ 초기 프리셋에 hasPixelArt가 포함되어 있지만, DB에 직접 필드가 없어서 null일 수 있음
+                // TerritoryManager에서 이미 로드한 territories를 확인하여 hasPixelArt가 있는지 체크
+                const { territoryManager } = await import('../core/TerritoryManager.js');
+                const territoryData = territoryManager.getTerritory(territory.id);
+                
                 // hasPixelArt, pixelCount, fillRatio 등이 응답에 포함되어 있는지 확인
-                const hasPixelArt = territory.hasPixelArt || 
+                // 또는 TerritoryManager에서 이미 로드된 데이터 확인
+                const hasPixelArt = territory.hasPixelArt === true || 
                                    territory.pixelCount > 0 || 
+                                   (territoryData && territoryData.territory && territoryData.territory.hasPixelArt === true) ||
                                    (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0);
                 
                 if (hasPixelArt) {
