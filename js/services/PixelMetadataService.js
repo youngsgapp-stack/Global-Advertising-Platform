@@ -344,28 +344,26 @@ class PixelMetadataService {
             const territoryIds = [];
             
             for (const territory of territories) {
-                // ⚡ 초기 프리셋에 hasPixelArt가 포함되어 있지만, DB에 직접 필드가 없어서 null일 수 있음
-                // TerritoryManager에서 이미 로드한 territories를 확인하여 hasPixelArt가 있는지 체크
-                const { territoryManager } = await import('../core/TerritoryManager.js');
-                const territoryData = territoryManager.getTerritory(territory.id);
-                
-                // hasPixelArt, pixelCount, fillRatio 등이 응답에 포함되어 있는지 확인
-                // 또는 TerritoryManager에서 이미 로드된 데이터 확인
+                // ⚡ initial preset에 hasPixelArt, pixelCount, fillRatio가 포함되어 있음
+                // 서버에서 실제 DB 값들을 반환하므로 이를 직접 사용
                 const hasPixelArt = territory.hasPixelArt === true || 
-                                   territory.pixelCount > 0 || 
-                                   (territoryData && territoryData.territory && territoryData.territory.hasPixelArt === true) ||
-                                   (territory.pixelCanvas && territory.pixelCanvas.filledPixels > 0);
+                                   (territory.hasPixelArt !== null && territory.hasPixelArt !== undefined && territory.hasPixelArt !== false) ||
+                                   (territory.pixelCount && territory.pixelCount > 0);
                 
                 if (hasPixelArt) {
                     const territoryId = territory.id || territory.territoryId;
                     if (territoryId) {
+                        // ⚡ 서버에서 반환한 실제 값 사용
+                        const pixelCount = territory.pixelCount || 0;
+                        const fillRatio = territory.fillRatio !== null && territory.fillRatio !== undefined 
+                                        ? Math.max(0, Math.min(1, parseFloat(territory.fillRatio) || 0))
+                                        : null;
+                        
                         metaMap.set(territoryId, {
-                            pixelCount: territory.pixelCount || 
-                                       (territory.pixelCanvas?.filledPixels) || 
-                                       0,
+                            pixelCount: pixelCount,
                             hasPixelArt: true,
                             updatedAt: territory.pixelUpdatedAt || territory.updatedAt || null,
-                            fillRatio: territory.fillRatio || null
+                            fillRatio: fillRatio
                         });
                         territoryIds.push(territoryId);
                         count++;
