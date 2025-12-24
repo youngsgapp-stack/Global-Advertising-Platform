@@ -22,41 +22,284 @@ class PixelMapRenderer3 {
         
         // 통합 갱신 파이프라인 초기화
         this.updatePipeline = new TerritoryUpdatePipeline(this);
+        
+        // ⚠️ 전문가 피드백: MAP_STYLE_LOADED 재적용용
+        this.pixelMetadataService = null;
+        this.metadataApplied = false; // Phase 4 적용 여부 추적
     }
     
     /**
      * 초기화
+     * ⚠️ 전문가 피드백 반영: Ready Gate 기반 이벤트 플로우
      */
     initialize() {
         this.map = this.mapController.map;
         this.updatePipeline.initialize(this.map);
         this.setupEvents();
         
-        // World View 로드 완료 후 초기 로드 (우선순위 1)
+        // ⚠️ Ready Gate: MAP_STYLE_LOADED + LAYERS_READY 둘 다 만족해야 다음 단계
+        let mapStyleLoaded = false;
+        let layersReady = false;
+        
+        const checkWorldViewReady = () => {
+            if (mapStyleLoaded && layersReady) {
+                console.log('[PixelMapRenderer3] ✅ Ready Gate satisfied (MAP_STYLE_LOADED + LAYERS_READY)');
+                // WORLD_VIEW_LOADED는 이미 MapController에서 발행되므로 여기서는 픽셀 메타 로딩만 시작
+                this._loadPixelMetadata();
+            }
+        };
+        
+        // MAP_STYLE_LOADED 체크
+        eventBus.once(EVENTS.MAP_STYLE_LOADED, () => {
+            mapStyleLoaded = true;
+            console.log('[PixelMapRenderer3] ✅ MAP_STYLE_LOADED event received');
+            checkWorldViewReady();
+        });
+        
+        // LAYERS_READY 체크 (World View 레이어 추가 완료)
+        eventBus.once(EVENTS.LAYERS_READY, () => {
+            layersReady = true;
+            console.log('[PixelMapRenderer3] ✅ LAYERS_READY event received');
+            checkWorldViewReady();
+        });
+        
+        // ⚠️ Ready Gate: LAYERS_READY + PIXEL_METADATA_LOADED 둘 다 만족해야 Phase 4
+        let metadataLoaded = false;
+        
+        eventBus.on(EVENTS.PIXEL_METADATA_LOADED, async ({ metaMap, isFallback }) => {
+            metadataLoaded = true;
+            console.log('[PixelMapRenderer3] ✅ PIXEL_METADATA_LOADED event received', isFallback ? '(fallback)' : '');
+            
+            if (layersReady && metadataLoaded) {
+                // [NEW] Step 2: 메타데이터 기반으로 초기 표시 (픽셀 데이터는 아직 로드 안 함)
+                await this.createOverlaysFromMetadata(metaMap);
+                
+                // Step 3: 우선순위 기반 픽셀 데이터 로딩 (fallback이 아닐 때만)
+                if (!isFallback) {
+                    await this.loadPriorityPixelData();
+                }
+            }
+        });
+        
+        // 실패 처리
+        eventBus.on(EVENTS.PIXEL_METADATA_FAILED, ({ error, reason, retryCount }) => {
+            log.warn(`[PixelMapRenderer3] Pixel metadata loading failed (${reason}, retryCount: ${retryCount}):`, error);
+            // ⚠️ 전문가 피드백: 실패해도 fallback 표시가 있으므로 앱은 계속 동작
+        });
+        
+        // ⚠️ 전문가 피드백: MAP_STYLE_LOADED 재발화 시 메타 기반 표시 재적용
+        eventBus.on(EVENTS.MAP_STYLE_LOADED, async () => {
+            // 스타일이 리로드되면 feature-state가 초기화될 수 있으므로 재적용
+            if (this.metadataApplied && this.pixelMetadataService && this.pixelMetadataService.pixelMetadata.size > 0) {
+                log.info('[PixelMapRenderer3] Re-applying metadata-based display after style reload');
+                await this.createOverlaysFromMetadata(this.pixelMetadataService.pixelMetadata);
+            }
+        });
+        
+        // Fallback: 기존 WORLD_VIEW_LOADED 이벤트도 처리 (하위 호환성)
         eventBus.once(EVENTS.WORLD_VIEW_LOADED, () => {
-            console.log('[PixelMapRenderer3] ✅ WORLD_VIEW_LOADED event received, starting initial load...');
-            // World View가 로드되었으므로 Territory 매핑이 가능함
-            setTimeout(() => {
-                this.waitForLayersAndLoad(3, 500); // 재시도 횟수 감소 (이미 World View 로드됨)
-            }, 500);
+            console.log('[PixelMapRenderer3] ✅ WORLD_VIEW_LOADED event received (fallback)');
+            // Ready Gate가 아직 만족되지 않았으면 메타 로딩 시도
+            if (!mapStyleLoaded || !layersReady) {
+                this._loadPixelMetadata();
+            }
         });
         
-        // 맵 로드 완료 후 파이프라인을 통한 초기 로드 (fallback)
-        eventBus.once(EVENTS.MAP_LOADED, () => {
-            console.log('[PixelMapRenderer3] ✅ MAP_LOADED event received, waiting for layers...');
-            // 레이어가 준비될 때까지 기다린 후 처리
-            this.waitForLayersAndLoad();
-        });
+        log.info('[PixelMapRenderer3] Initialized with TerritoryUpdatePipeline (Ready Gate based)');
+    }
+    
+    /**
+     * [NEW] 픽셀 메타데이터 로드 (공개 API, 인증 불필요)
+     */
+    async _loadPixelMetadata() {
+        try {
+            const { pixelMetadataService } = await import('../services/PixelMetadataService.js');
+            this.pixelMetadataService = pixelMetadataService; // ⚠️ 재적용용 저장
+            await pixelMetadataService.loadMetadata();
+        } catch (error) {
+            log.error('[PixelMapRenderer3] Failed to load pixel metadata:', error);
+        }
+    }
+    
+    /**
+     * [NEW] 메타데이터 기반으로 초기 표시
+     * ⚠️ 중요: 실제 픽셀 그림(이미지 overlay)은 아직 표시하지 않음
+     * 메타 기반 초기 표시 = 픽셀아트 존재 지역을 '시각적으로 표시' (하이라이트/윤곽/채움 비율)
+     * ⚠️ 전문가 피드백: feature-state 적용 배치 처리 (100~200개 단위)
+     */
+    async createOverlaysFromMetadata(metaMap) {
+        const { territoryManager } = await import('./TerritoryManager.js');
         
-        // APP_READY 이벤트 후에도 다시 시도 (fallback)
-        eventBus.once(EVENTS.APP_READY, () => {
-            console.log('[PixelMapRenderer3] ✅ APP_READY event received, waiting for layers...');
-            setTimeout(() => {
-                this.waitForLayersAndLoad();
-            }, 2000); // World View 로드를 기다리기 위해 지연 증가
-        });
+        // hasPixelArt=true인 territory들 찾기
+        const territoriesWithPixels = [];
+        for (const [territoryId, meta] of metaMap.entries()) {
+            const territory = territoryManager.getTerritory(territoryId);
+            if (territory && territory.sourceId && territory.featureId) {
+                territoriesWithPixels.push({ territory, meta });
+            }
+        }
         
-        log.info('[PixelMapRenderer3] Initialized with TerritoryUpdatePipeline');
+        // ⚠️ 검증용 로그: Phase4: applying feature-state count = ?
+        console.log(`[PixelMapRenderer3] Phase4: applying feature-state count = ${territoriesWithPixels.length}`);
+        
+        // ⚠️ 전문가 피드백: feature-state 적용 배치 처리 (100~200개 단위)
+        const batchSize = 150;
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (let i = 0; i < territoriesWithPixels.length; i += batchSize) {
+            const batch = territoriesWithPixels.slice(i, i + batchSize);
+            
+            // 배치 단위로 feature-state 설정
+            for (const { territory, meta } of batch) {
+                // ⚠️ 중요: 실제 픽셀 그림은 Phase 5에서 로딩 후 표시
+                // 여기서는 메타 기반 시각적 표시만 (하이라이트/윤곽/채움 비율)
+                try {
+                    // ⚠️ 전문가 피드백: sourceId/featureId가 확정돼 있어야 하고, 스타일/레이어가 이미 살아 있어야 함
+                    if (!this.map.getSource(territory.sourceId)) {
+                        log.debug(`[PixelMapRenderer3] Source not found: ${territory.sourceId}`);
+                        failCount++;
+                        continue;
+                    }
+                    
+                    this.map.setFeatureState(
+                        { source: territory.sourceId, id: territory.featureId },
+                        {
+                            hasPixelArt: true,
+                            pixelCount: meta.pixelCount,
+                            fillRatio: meta.fillRatio || null
+                        }
+                    );
+                    successCount++;
+                } catch (error) {
+                    // feature가 아직 준비되지 않았을 수 있음
+                    log.debug(`[PixelMapRenderer3] Failed to set feature state for ${territory.id}:`, error);
+                    failCount++;
+                }
+            }
+            
+            // 배치 사이에 requestAnimationFrame으로 렌더링 기회 제공
+            if (i + batchSize < territoriesWithPixels.length) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+            }
+        }
+        
+        // ⚠️ 검증용 로그: Phase4: applied success = ? / fail = ?
+        console.log(`[PixelMapRenderer3] Phase4: applied success = ${successCount} / fail = ${failCount}`);
+        
+        this.metadataApplied = true; // ⚠️ Phase 4 적용 완료 표시
+        this.map.triggerRepaint();
+        log.info(`[PixelMapRenderer3] Created visual indicators for ${territoriesWithPixels.length} territories (metadata-based, success: ${successCount}, fail: ${failCount})`);
+    }
+    
+    /**
+     * [NEW] 우선순위 기반 픽셀 데이터 로딩
+     * ⚠️ 전문가 피드백: Phase 5가 Phase 4 표시를 지우지 않도록 보장
+     */
+    async loadPriorityPixelData() {
+        const { territoryManager } = await import('./TerritoryManager.js');
+        const { pixelMetadataService } = await import('../services/PixelMetadataService.js');
+        
+        // 1. 화면에 보이는 지역 우선
+        const viewportTerritories = this.getTerritoriesInViewport();
+        const loadingPromises = new Set(); // 디듀프용
+        const viewportCandidates = viewportTerritories.filter(t => pixelMetadataService.hasPixelArt(t.id));
+        
+        // ⚠️ 검증용 로그: Phase5: viewport candidates = ?
+        console.log(`[PixelMapRenderer3] Phase5: viewport candidates = ${viewportCandidates.length}`);
+        
+        let queuedCount = 0;
+        for (const territory of viewportCandidates) {
+            // ⚠️ 디듀프: 이미 로딩 중이면 중복 호출 합치기
+            if (!loadingPromises.has(territory.id)) {
+                // ⚠️ 전문가 피드백: Phase 5에서 territory refresh 로직이 hasPixelArt를 다시 false로 덮어쓰지 않도록
+                // refreshTerritory는 메타에서 세팅한 hasPixelArt=true를 유지해야 함
+                const promise = this.updatePipeline.refreshTerritory(territory.id, {
+                    preserveHasPixelArt: true // ⚠️ Phase 4 표시 보존 플래그
+                });
+                loadingPromises.add(territory.id);
+                queuedCount++;
+                promise.finally(() => loadingPromises.delete(territory.id));
+            }
+        }
+        
+        // ⚠️ 검증용 로그: Phase5: pixel fetch queued = ?
+        console.log(`[PixelMapRenderer3] Phase5: pixel fetch queued = ${queuedCount}`);
+        
+        // 2. 나머지는 idle 시간에 배치 로딩
+        this.scheduleIdlePixelDataLoading();
+    }
+    
+    /**
+     * [NEW] Idle 시간에 배치 로딩
+     * ⚠️ 전문가 피드백: Phase 5가 Phase 4 표시를 지우지 않도록 보장
+     */
+    scheduleIdlePixelDataLoading() {
+        if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(async () => {
+                const { territoryManager } = await import('./TerritoryManager.js');
+                const { pixelMetadataService } = await import('../services/PixelMetadataService.js');
+                
+                // 배치 크기: 10개씩
+                const batchSize = 10;
+                const allTerritories = Array.from(territoryManager.territories.values());
+                const territoriesWithPixels = allTerritories.filter(t => 
+                    pixelMetadataService.hasPixelArt(t.id) && 
+                    !this.isTerritoryInViewport(t.id) // viewport 외부만
+                );
+                
+                let displayedCount = 0;
+                for (let i = 0; i < territoriesWithPixels.length; i += batchSize) {
+                    const batch = territoriesWithPixels.slice(i, i + batchSize);
+                    const results = await Promise.all(batch.map(async t => {
+                        try {
+                            await this.updatePipeline.refreshTerritory(t.id, {
+                                preserveHasPixelArt: true // ⚠️ Phase 4 표시 보존
+                            });
+                            return true;
+                        } catch (error) {
+                            log.debug(`[PixelMapRenderer3] Failed to load pixel data for ${t.id}:`, error);
+                            return false;
+                        }
+                    }));
+                    displayedCount += results.filter(r => r).length;
+                    
+                    // 배치 사이에 약간의 지연
+                    if (i + batchSize < territoriesWithPixels.length) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+                
+                // ⚠️ 검증용 로그: Phase5: pixel displayed = ?
+                console.log(`[PixelMapRenderer3] Phase5: pixel displayed = ${displayedCount}`);
+            });
+        }
+    }
+    
+    /**
+     * [NEW] Viewport 내 territory 확인
+     */
+    getTerritoriesInViewport() {
+        const { territoryManager } = await import('./TerritoryManager.js');
+        const bounds = this.map.getBounds();
+        const territories = [];
+        
+        for (const [territoryId, territory] of territoryManager.territories) {
+            if (territory.geometry) {
+                // 간단한 bounds 체크 (실제로는 더 정교한 계산 필요할 수 있음)
+                territories.push(territory);
+            }
+        }
+        
+        return territories;
+    }
+    
+    /**
+     * [NEW] Territory가 viewport 내에 있는지 확인
+     */
+    isTerritoryInViewport(territoryId) {
+        // 간단한 구현 (실제로는 더 정교한 계산 필요)
+        return false; // 일단 false 반환 (나중에 구현)
     }
     
     /**

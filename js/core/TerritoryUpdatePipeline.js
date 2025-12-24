@@ -138,6 +138,15 @@ class TerritoryUpdatePipeline {
             // 3. TerritoryViewState 생성 (상태 계산)
             console.log(`🔍 [TerritoryUpdatePipeline] Step 3: Creating view state`);
             const viewState = new TerritoryViewState(territoryId, territory, pixelData);
+            
+            // ⚠️ 전문가 피드백: Phase 5가 Phase 4 표시를 지우지 않도록 보장
+            // 메타에서 세팅한 hasPixelArt=true가 "단일 진실 소스"로 유지돼야 함
+            if (context.preserveHasPixelArt && territory.hasPixelArt === true) {
+                // Phase 4에서 메타 기반으로 설정한 hasPixelArt를 보존
+                viewState.hasPixelArt = true;
+                log.debug(`[TerritoryUpdatePipeline] Preserving hasPixelArt=true from metadata for ${territoryId}`);
+            }
+            
             console.log(`🔍 [TerritoryUpdatePipeline] ✅ View state created:`, {
                 hasPixelArt: viewState.hasPixelArt,
                 viewStateKeys: Object.keys(viewState)

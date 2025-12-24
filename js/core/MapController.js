@@ -62,6 +62,8 @@ class MapController {
             // 지구본 분위기 설정
             this.map.on('style.load', () => {
                 this.setupGlobeAtmosphere();
+                // [NEW] MAP_STYLE_LOADED 이벤트 발행 (Ready Gate용)
+                eventBus.emit(EVENTS.MAP_STYLE_LOADED);
             });
             
             // 지도 로드 완료 대기
@@ -2934,6 +2936,13 @@ class MapController {
             }
             
             this.activeLayerIds.add('world-territories');
+            
+            // [NEW] LAYERS_READY 이벤트 발행 (Ready Gate용)
+            // world-territories 소스와 레이어가 모두 추가된 후 발행
+            eventBus.emit(EVENTS.LAYERS_READY, {
+                sourceId: 'world-territories',
+                layerIds: ['world-territories-fill', 'world-territories-line']
+            });
             
             // Fly to world view
             this.flyTo([0, 20], 2);

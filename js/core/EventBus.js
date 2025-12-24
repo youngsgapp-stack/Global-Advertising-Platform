@@ -127,6 +127,9 @@ export const EVENTS = {
     MAP_MODE_CHANGE: 'map:modeChange',
     MAP_LAYER_ADDED: 'map:layerAdded',
     WORLD_VIEW_LOADED: 'map:worldViewLoaded',  // World View 로드 완료
+    // [NEW] 지도 레이어 준비 상태 (Ready Gate용)
+    MAP_STYLE_LOADED: 'map:styleLoaded',  // Mapbox style 로드 완료
+    LAYERS_READY: 'map:layersReady',      // World View 레이어 추가 완료
     
     // 영토
     // ⚠️ 전문가 조언 반영: 입력/출력 이벤트 분리
@@ -153,6 +156,11 @@ export const EVENTS = {
     PIXEL_CANVAS_SAVED: 'pixel:canvasSaved',
     PIXEL_DATA_SAVED: 'pixel:dataSaved',
     PIXEL_DATA_DELETED: 'pixel:dataDeleted',  // 소유권 변경 시 픽셀 아트 삭제
+    
+    // [NEW] 픽셀 메타데이터
+    PIXEL_METADATA_LOADED: 'pixel:metadataLoaded',  // 픽셀 메타데이터 로드 완료
+    PIXEL_METADATA_FAILED: 'pixel:metadataFailed',  // 픽셀 메타데이터 로드 실패 (네트워크/서버/빈 결과)
+    PIXEL_METADATA_UPDATED: 'pixel:metadataUpdated', // 특정 territory의 메타데이터 업데이트
     
     // 랭킹
     RANKING_UPDATE: 'ranking:update',

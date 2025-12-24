@@ -2014,6 +2014,34 @@ class TerritoryManager {
     }
     
     /**
+     * [NEW] Territory에 hasPixelArt 플래그 설정
+     * ⚠️ 전문가 피드백: 초기에는 hasPixelArt를 false로 두지 말고, meta 로딩 결과로 채우기
+     */
+    setHasPixelArt(territoryId, hasPixelArt, pixelCount = null, pixelUpdatedAt = null, fillRatio = null) {
+        const territory = this.getTerritory(territoryId);
+        if (territory) {
+            territory.hasPixelArt = hasPixelArt;
+            if (pixelCount !== null) {
+                territory.pixelCount = pixelCount;
+            }
+            if (pixelUpdatedAt !== null) {
+                territory.pixelUpdatedAt = pixelUpdatedAt;
+            }
+            if (fillRatio !== null) {
+                territory.fillRatio = fillRatio;
+            }
+        }
+    }
+    
+    /**
+     * [NEW] Territory의 hasPixelArt 플래그 가져오기
+     */
+    hasPixelArt(territoryId) {
+        const territory = this.getTerritory(territoryId);
+        return territory?.hasPixelArt === true;
+    }
+    
+    /**
      * 정리
      */
     cleanup() {
