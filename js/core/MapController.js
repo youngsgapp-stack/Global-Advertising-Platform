@@ -1584,31 +1584,48 @@ class MapController {
             }
         });
         
-        // 경매 중 영역 - 내부 펄스 애니메이션 (fill layer)
-        // ⚠️ 단계별 검증: 1단계 - 레이어 자체가 보이는지 확인
-        // 모든 필터/조건 제거하고 고정 opacity로 테스트
+        // 경매 중 영역 - 경계선만 표시 (line layer)
+        // ⚠️ 사용자 요청: 전체를 주황색으로 덮지 않고 경계선만 표시
+        // 특히 그 지역을 클릭했을 때만 경매 중이면 지역 경계선만 약간 티나는 정도로만 표시
+        this.map.addLayer({
+            id: `${sourceId}-auction-border`,
+            type: 'line',
+            source: sourceId,
+            filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 표시
+            paint: {
+                'line-color': '#ff6600',  // 주황색
+                'line-width': [
+                    'case',
+                    // 선택된 territory일 때만 경계선 표시 (약간 두껍게)
+                    ['boolean', ['feature-state', 'selected'], false], 2.5,
+                    // hover 상태일 때도 약간 표시
+                    ['boolean', ['feature-state', 'hover'], false], 1.5,
+                    // 기본: 거의 보이지 않게 (0.5px)
+                    0.5
+                ],
+                'line-opacity': [
+                    'case',
+                    // 선택된 territory일 때만 선명하게 표시
+                    ['boolean', ['feature-state', 'selected'], false], 0.8,
+                    // hover 상태일 때도 약간 표시
+                    ['boolean', ['feature-state', 'hover'], false], 0.4,
+                    // 기본: 거의 보이지 않게
+                    0.2
+                ],
+                'line-dasharray': [2, 2]  // 점선으로 표시하여 더 눈에 띄게
+            }
+        });
+        
+        // 경매 중 영역 - 내부 펄스 애니메이션 (fill layer) - 채우기 제거 (경계선만 사용)
         this.map.addLayer({
             id: `${sourceId}-auction-pulse`,
             type: 'fill',
             source: sourceId,
-            // 1단계: 필터 완전 제거 (모든 territory 표시)
-            // filter: ['==', ['get', 'auctionStatus'], 'active'],  // 임시 주석
+            filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 표시
             paint: {
                 'fill-color': '#ff6600',  // 주황색
-                // 1단계: 고정 opacity로 테스트 (feature-state 제거)
-                'fill-opacity': 0.5  // 고정값으로 테스트
-                // 원래 코드 (나중에 단계별로 복구):
-                // 'fill-opacity': [
-                //     'case',
-                //     ['!', ['boolean', ['feature-state', 'selected'], false]], 0,
-                //     [
-                //         'interpolate',
-                //         ['linear'],
-                //         ['feature-state', 'pulseOpacity'],
-                //         0, 0.2,
-                //         1, 0.6
-                //     ]
-                // ]
+                // ⚠️ 채우기 완전히 제거 (경계선만 사용)
+                'fill-opacity': 0  // 채우기 제거
             }
         });
         
@@ -2907,28 +2924,47 @@ class MapController {
                 });
                 
                 // ⚠️ 중요: 경매 레이어 추가 - 내부 펄스 애니메이션
-                // ⚠️ 레이어 순서: auction-pulse는 fill 위에 배치되어야 함 (나중에 추가된 레이어가 위에 렌더링됨)
-                // 선택된 territory이고 경매 중일 때만 표시
+                // ⚠️ 경매 중 영역 - 경계선만 표시 (line layer)
+                // 사용자 요청: 전체를 주황색으로 덮지 않고 경계선만 표시
+                this.map.addLayer({
+                    id: 'world-territories-auction-border',
+                    type: 'line',
+                    source: 'world-territories',
+                    filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 표시
+                    paint: {
+                        'line-color': '#ff6600',  // 주황색
+                        'line-width': [
+                            'case',
+                            // 선택된 territory일 때만 경계선 표시 (약간 두껍게)
+                            ['boolean', ['feature-state', 'selected'], false], 2.5,
+                            // hover 상태일 때도 약간 표시
+                            ['boolean', ['feature-state', 'hover'], false], 1.5,
+                            // 기본: 거의 보이지 않게 (0.5px)
+                            0.5
+                        ],
+                        'line-opacity': [
+                            'case',
+                            // 선택된 territory일 때만 선명하게 표시
+                            ['boolean', ['feature-state', 'selected'], false], 0.8,
+                            // hover 상태일 때도 약간 표시
+                            ['boolean', ['feature-state', 'hover'], false], 0.4,
+                            // 기본: 거의 보이지 않게
+                            0.2
+                        ],
+                        'line-dasharray': [2, 2]  // 점선으로 표시하여 더 눈에 띄게
+                    }
+                });
+                
+                // 경매 중 영역 - 내부 펄스 애니메이션 (fill layer) - 채우기 제거 (경계선만 사용)
                 this.map.addLayer({
                     id: 'world-territories-auction-pulse',
                     type: 'fill',
                     source: 'world-territories',
-            filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 확인 (selected는 paint에서 처리)
+                    filter: ['==', ['get', 'auctionStatus'], 'active'],  // 경매 중만 표시
                     paint: {
                         'fill-color': '#ff6600',  // 주황색
-                        'fill-opacity': [
-                            'case',
-                            // 선택되지 않았으면 완전히 투명
-                            ['!', ['boolean', ['feature-state', 'selected'], false]], 0,
-                            // 선택되었으면 펄스 애니메이션 적용
-                            [
-                                'interpolate',
-                                ['linear'],
-                                ['feature-state', 'pulseOpacity'],  // feature-state에서 가져오기
-                                0, 0.2,  // 최소 opacity
-                                1, 0.6   // 최대 opacity
-                            ]
-                        ]
+                        // ⚠️ 채우기 완전히 제거 (경계선만 사용)
+                        'fill-opacity': 0  // 채우기 제거
                     }
                 });
                 

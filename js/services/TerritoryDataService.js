@@ -512,13 +512,12 @@ class TerritoryDataService {
             log.info(`Loaded data for ${this.countryStats.size} countries`);
             
         } catch (error) {
+            // 타임아웃은 정상적인 fallback이므로 경고만 표시
             if (error.name === 'AbortError') {
                 log.warn('Country data fetch timed out, using default data');
             } else {
                 log.error('Failed to load country data:', error);
             }
-            // 기본 데이터 사용 (빈 맵으로 시작, 나중에 필요시 로드)
-            log.error('Failed to load country data:', error);
             // 폴백: 기본 데이터 사용
             this.loadFallbackData();
         }

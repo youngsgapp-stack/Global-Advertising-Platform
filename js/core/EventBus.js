@@ -144,6 +144,7 @@ export const EVENTS = {
     // 옥션
     AUCTION_START: 'auction:start',
     AUCTION_BID: 'auction:bid',
+    AUCTION_BID_PLACED: 'auction:bid:placed', // 입찰 성공 시 발행
     AUCTION_END: 'auction:end',
     AUCTION_UPDATE: 'auction:update',
     

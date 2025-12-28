@@ -33,6 +33,9 @@ class TerritoryPanel {
         this.lang = 'en';  // English default
         this.countryData = null;
         this.isProcessingBid = false;  // ⚡ 입찰 처리 중 플래그 (중복 클릭 방지)
+        // ⚠️ 전문가 조언 반영: 서버 재조회 남발 방지
+        this._auctionRefreshInFlight = false; // 인플라이트 가드
+        this._auctionRefreshDebounceTimer = null; // 디바운스 타이머
     }
     
     /**
@@ -227,29 +230,145 @@ class TerritoryPanel {
         
         // 영토 업데이트 이벤트
         // 옥션 업데이트 이벤트 리스닝 (다른 사용자의 입찰 반영)
+        // ⚠️ 규칙: AUCTION_UPDATE는 auction 객체를 직접 전달 (데이터 이벤트)
         eventBus.on(EVENTS.AUCTION_UPDATE, async (data) => {
-            if (data && data.auction && this.currentTerritory) {
-                const auctionId = data.auction.id;
-                const territoryId = data.auction.territoryId;
+            if (!data || !data.auction || !this.currentTerritory) return;
+            
+            const auctionId = data.auction.id;
+            const territoryId = data.auction.territoryId;
+            const currentTerritoryId = this.currentTerritory.id;
+            const currentAuction = auctionSystem.getAuctionByTerritory(currentTerritoryId);
+            const currentAuctionId = currentAuction?.id;
+            
+            // ⚠️ 이벤트 스코프 확인: territoryId 또는 auctionId로 매칭
+            const isRelevant = (territoryId === currentTerritoryId) ||
+                              (auctionId && auctionId === currentAuctionId);
+            
+            if (!isRelevant) {
+                return; // 관련 없는 이벤트는 무시
+            }
+            
+            log.debug(`[TerritoryPanel] Auction ${auctionId} updated, refreshing panel`);
+            
+            // ⚠️ 전문가 조언 반영: 이벤트 데이터로 직접 업데이트
+            const updatedAuction = data.auction;
+            if (updatedAuction && updatedAuction.id) {
+                const { normalizeAuctionDTO } = await import('../utils/auction-normalizer.js');
+                const normalizedAuction = normalizeAuctionDTO(updatedAuction);
                 
-                // 현재 표시 중인 영토의 옥션이면 패널 새로고침
-                if (territoryId === this.currentTerritory.id || 
-                    (this.currentTerritory.currentAuction && this.currentTerritory.currentAuction.id === auctionId)) {
-                    log.debug(`[TerritoryPanel] Auction ${auctionId} updated, refreshing panel`);
-                    
-                    // ⚡ 최적화: 전체 경매 재로드 대신 이벤트 데이터로 직접 업데이트
-                    // loadActiveAuctions()는 이미 handleBid에서 캐시를 업데이트했으므로 불필요
-                    // 이벤트로 전달된 데이터를 직접 사용
-                    const updatedAuction = data.auction;
-                    if (updatedAuction && this.currentTerritory) {
-                        this.currentTerritory.currentAuction = updatedAuction;
+                // ⚠️ 상태 업데이트 순서 보장: updatedAt 기반으로 더 최신만 반영
+                const cachedAuction = auctionSystem.activeAuctions.get(updatedAuction.id);
+                const cachedUpdatedAt = cachedAuction?.updatedAt ? new Date(cachedAuction.updatedAt).getTime() : 0;
+                const eventUpdatedAt = normalizedAuction.updatedAt ? new Date(normalizedAuction.updatedAt).getTime() : 0;
+                
+                if (eventUpdatedAt >= cachedUpdatedAt) {
+                    // 이벤트가 더 최신이거나 같으면 업데이트
+                    auctionSystem.activeAuctions.set(updatedAuction.id, normalizedAuction);
+                    if (this.currentTerritory) {
+                        this.currentTerritory.currentAuction = normalizedAuction;
                     }
                     
                     // 패널 새로고침
                     this.render();
                     this.bindActions();
+                    log.debug('[TerritoryPanel] Auction updated from event', {
+                        auctionId: updatedAuction.id,
+                        eventUpdatedAt: new Date(eventUpdatedAt).toISOString(),
+                        cachedUpdatedAt: cachedUpdatedAt ? new Date(cachedUpdatedAt).toISOString() : 'none'
+                    });
+                } else {
+                    log.debug('[TerritoryPanel] Ignored stale auction update from event', {
+                        auctionId: updatedAuction.id,
+                        eventUpdatedAt: new Date(eventUpdatedAt).toISOString(),
+                        cachedUpdatedAt: new Date(cachedUpdatedAt).toISOString()
+                    });
                 }
             }
+        });
+        
+        // ⚠️ 전문가 조언 반영: AUCTION_BID_PLACED 이벤트 구독 (입찰 성공 시 UI 갱신)
+        // ⚠️ 규칙: AUCTION_BID_PLACED는 트리거만 (auctionId/territoryId만 전달)
+        // 실제 auction 객체는 AUCTION_UPDATE에서 전달받음
+        // ⚠️ 참고: _auctionRefreshInFlight와 _auctionRefreshDebounceTimer는 constructor에서 초기화됨
+        
+        eventBus.on(EVENTS.AUCTION_BID_PLACED, async (data) => {
+            if (!data || !this.currentTerritory) return;
+            
+            // ⚠️ 이벤트 스코프 확인: auctionId 또는 territoryId로 매칭
+            const eventAuctionId = data.auctionId;
+            const eventTerritoryId = data.territoryId;
+            const currentTerritoryId = this.currentTerritory.id;
+            const currentAuction = auctionSystem.getAuctionByTerritory(currentTerritoryId);
+            const currentAuctionId = currentAuction?.id;
+            
+            // 현재 패널이 보고 있는 경매와 일치하는지 확인
+            const isRelevant = (eventAuctionId && eventAuctionId === currentAuctionId) ||
+                              (eventTerritoryId && eventTerritoryId === currentTerritoryId);
+            
+            if (!isRelevant) {
+                return; // 관련 없는 이벤트는 무시
+            }
+            
+            // ⚠️ 디바운스: 연속 입찰 시 재조회 폭탄 방지
+            if (this._auctionRefreshDebounceTimer) {
+                clearTimeout(this._auctionRefreshDebounceTimer);
+            }
+            
+            this._auctionRefreshDebounceTimer = setTimeout(async () => {
+                // ⚠️ 인플라이트 가드: 이미 재조회 중이면 스킵
+                if (this._auctionRefreshInFlight) {
+                    log.debug('[TerritoryPanel] Auction refresh already in flight, skipping');
+                    return;
+                }
+                
+                this._auctionRefreshInFlight = true;
+                
+                try {
+                    // 서버에서 최신 상태 재조회 (레이스 컨디션 방지)
+                    const auctionId = eventAuctionId || currentAuctionId;
+                    if (!auctionId) {
+                        return;
+                    }
+                    
+                    const { apiService } = await import('../services/ApiService.js');
+                    const serverAuction = await apiService.getAuction(auctionId);
+                    if (serverAuction) {
+                        const { normalizeAuctionDTO } = await import('../utils/auction-normalizer.js');
+                        const latestAuction = normalizeAuctionDTO(serverAuction);
+                        
+                        // ⚠️ 상태 업데이트 순서 보장: updatedAt 기반으로 더 최신만 반영
+                        const cachedAuction = auctionSystem.activeAuctions.get(auctionId);
+                        const cachedUpdatedAt = cachedAuction?.updatedAt ? new Date(cachedAuction.updatedAt).getTime() : 0;
+                        const serverUpdatedAt = latestAuction.updatedAt ? new Date(latestAuction.updatedAt).getTime() : 0;
+                        
+                        if (serverUpdatedAt >= cachedUpdatedAt) {
+                            // 서버가 더 최신이거나 같으면 업데이트
+                            auctionSystem.activeAuctions.set(auctionId, latestAuction);
+                            if (this.currentTerritory) {
+                                this.currentTerritory.currentAuction = latestAuction;
+                            }
+                            // 패널 새로고침
+                            this.render();
+                            this.bindActions();
+                            log.debug('[TerritoryPanel] Auction refreshed after bid placed', {
+                                auctionId,
+                                serverUpdatedAt: new Date(serverUpdatedAt).toISOString(),
+                                cachedUpdatedAt: cachedUpdatedAt ? new Date(cachedUpdatedAt).toISOString() : 'none'
+                            });
+                        } else {
+                            log.debug('[TerritoryPanel] Ignored stale auction update', {
+                                auctionId,
+                                serverUpdatedAt: new Date(serverUpdatedAt).toISOString(),
+                                cachedUpdatedAt: new Date(cachedUpdatedAt).toISOString()
+                            });
+                        }
+                    }
+                } catch (error) {
+                    log.warn('[TerritoryPanel] Failed to refresh auction after bid placed', error);
+                } finally {
+                    this._auctionRefreshInFlight = false;
+                }
+            }, 500); // 500ms 디바운스
         });
         
         eventBus.on(EVENTS.TERRITORY_UPDATE, (data) => {
@@ -272,11 +391,45 @@ class TerritoryPanel {
     /**
      * 패널 열기
      */
-    open(territory) {
+    async open(territory) {
         this.currentTerritory = territory;
         this.isOpen = true;
         
-        // HTML 렌더링
+        // ⚠️ 전문가 조언 반영: 패널 오픈 시점에 서버에서 최신 경매 상태 강제 조회
+        // UI stale 방지: 서버 최신 상태로 캐시 및 패널 상태 즉시 갱신
+        if (territory && territory.id) {
+            try {
+                const auction = auctionSystem.getAuctionByTerritory(territory.id);
+                if (auction && auction.id) {
+                    // 서버에서 최신 경매 상태 강제 조회
+                    const { apiService } = await import('../services/ApiService.js');
+                    const serverAuction = await apiService.getAuction(auction.id);
+                    if (serverAuction) {
+                        // 서버에서 받은 최신 데이터로 업데이트
+                        const { normalizeAuctionDTO } = await import('../utils/auction-normalizer.js');
+                        const latestAuction = normalizeAuctionDTO(serverAuction);
+                        // 캐시 즉시 업데이트
+                        auctionSystem.activeAuctions.set(auction.id, latestAuction);
+                        // 패널 내부 상태도 최신으로 교체
+                        if (this.currentTerritory) {
+                            this.currentTerritory.currentAuction = latestAuction;
+                        }
+                        console.log('[TerritoryPanel] Refreshed auction on panel open', {
+                            auctionId: latestAuction.id,
+                            serverMinNextBid: latestAuction.minNextBid,
+                            serverCurrentBid: latestAuction.currentBid,
+                            serverStartingBid: latestAuction.startingBid,
+                            hasBids: !!latestAuction.highestBidder
+                        });
+                    }
+                }
+            } catch (refreshError) {
+                console.warn('[TerritoryPanel] Failed to refresh auction on panel open', refreshError);
+                // 서버 조회 실패 시 기존 캐시 사용
+            }
+        }
+        
+        // HTML 렌더링 (최신 상태로)
         this.render();
         
         // 패널 표시
@@ -613,14 +766,21 @@ class TerritoryPanel {
             territoryName = territory.id || 'Unknown Territory';
         }
         
-        // 디버깅: 이름 추출 실패 시에만 로그
-        if (territoryName === 'Unknown Territory' || !territoryName || territoryName === territory.id) {
+        // 디버깅: 이름 추출 실패 시에만 로그 (territory ID와 같아도 properties에 이름이 있으면 정상)
+        if ((territoryName === 'Unknown Territory' || !territoryName) && 
+            !territory.properties?.name && !territory.properties?.name_en && !territory.name) {
             log.warn(`[TerritoryPanel] ⚠️ Failed to extract proper name for ${territory.id}`, {
                 nameObject: territory.name,
                 propertiesName: territory.properties?.name,
                 propertiesNameEn: territory.properties?.name_en,
                 countryCode,
                 extractedName: territoryName
+            });
+        } else if (territoryName === territory.id && (territory.properties?.name || territory.properties?.name_en)) {
+            // territory ID와 같지만 properties에 이름이 있는 경우는 디버그 레벨로만 로그
+            log.debug(`[TerritoryPanel] Using territory ID as name for ${territory.id} (properties name available but not extracted)`, {
+                propertiesName: territory.properties?.name,
+                propertiesNameEn: territory.properties?.name_en
             });
         }
         
@@ -640,6 +800,23 @@ class TerritoryPanel {
         // 디버깅: 인구/면적 데이터 확인
         if (territoryName.toLowerCase() === 'texas') {
             log.debug(`[TerritoryPanel] Texas - countryCode: ${countryCode}, isoCode: ${territoryDataService.convertToISOCode(countryCode)}, population: ${population}, area: ${area}`);
+        }
+        
+        // ⚠️ 중요: 추출한 countryCode를 territory 객체에 저장 (경매 시작 시 사용)
+        if (countryCode && countryCode !== 'unknown') {
+            if (!territory.country) {
+                territory.country = countryCode;
+            }
+            // ISO 코드도 저장 (adm0_a3 형식으로)
+            if (!territory.properties) {
+                territory.properties = {};
+            }
+            if (!territory.properties.adm0_a3) {
+                const isoCode = territoryDataService.convertToISOCode(countryCode);
+                if (isoCode && isoCode.length === 3) {
+                    territory.properties.adm0_a3 = isoCode;
+                }
+            }
         }
         
         // 픽셀 수 계산 (면적 기반)
@@ -1172,8 +1349,8 @@ class TerritoryPanel {
             if (diff <= 10) {
                 return auction.startingBid;
             } else {
-                // 잘못된 값이면 올바른 값으로 수정
-                log.warn(`[TerritoryPanel] Invalid startingBid ${auction.startingBid} in getAuctionStartingPrice, using correct value ${correctStartingBid} (realPrice: ${realPrice})`);
+                // 잘못된 값이면 올바른 값으로 수정 (디버그 레벨로 변경 - 너무 자주 나타나므로)
+                log.debug(`[TerritoryPanel] Invalid startingBid ${auction.startingBid} in getAuctionStartingPrice, using correct value ${correctStartingBid} (realPrice: ${realPrice})`);
                 return correctStartingBid;
             }
         }
@@ -1189,11 +1366,28 @@ class TerritoryPanel {
         if (!auction) return null;
         
         const startingBid = this.getAuctionStartingPrice(auction, territory);
-        const hasBids = !!auction.highestBidder;
+        const increment = auction.increment || 1;
+        
+        // ⚠️ 전문가 조언 반영: hasBids 판정 로직 개선
+        // 1. 서버가 제공한 minNextBid를 우선 사용
+        // 2. currentBid > startingBid면 입찰이 있는 것으로 판정
+        // 3. minNextBid > startingBid면 입찰이 있는 것으로 판정
+        const serverMinNextBid = auction.minNextBid;
+        const serverCurrentBid = auction.currentBid || 0;
+        
+        // hasBids 판정: 서버 기준으로 판정
+        const hasBids = !!(
+            auction.highestBidder || 
+            (serverCurrentBid > startingBid) || 
+            (serverMinNextBid && serverMinNextBid > startingBid)
+        );
+        
         const currentBid = hasBids 
-            ? Math.max(auction.currentBid || startingBid, startingBid)
+            ? Math.max(serverCurrentBid || startingBid, startingBid)
             : startingBid;
-        const minNextBid = currentBid + 1;
+        
+        // ⚠️ 서버가 제공한 minNextBid를 우선 사용 (단일 진실의 원천)
+        const minNextBid = serverMinNextBid ?? (currentBid + increment);
         
         return {
             startingBid,
@@ -2628,9 +2822,18 @@ class TerritoryPanel {
         const input = document.getElementById('bid-amount-input');
         if (!input) return;
         
-        const bidAmount = parseInt(input.value, 10);
+        // ⚠️ currentTerritory 체크
+        if (!this.currentTerritory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'Territory information not available'
+            });
+            return;
+        }
+        
+        let bidAmount = parseInt(input.value, 10); // ⚠️ let으로 변경: 자동 보정 시 재할당 필요
         const user = firebaseService.getCurrentUser();
-        const auction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id);
+        let auction = auctionSystem.getAuctionByTerritory(this.currentTerritory.id); // ⚠️ let으로 변경: stale 방지를 위한 재할당 필요
         const isAdmin = this.isAdminMode();
         
         // ⚡ 처리 시작 플래그 설정
@@ -2661,6 +2864,27 @@ class TerritoryPanel {
             return;
         }
         
+        // ⚠️ 중요: startingBid 검증 및 수정 (handleBid 호출 전에 수행)
+        // 잘못된 startingBid로 인한 최소 입찰가 계산 오류 방지
+        const territory = this.currentTerritory;
+        if (!territory) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'error',
+                message: 'Territory information not available'
+            });
+            return;
+        }
+        const correctStartingBid = this.getAuctionStartingPrice(auction, territory);
+        if (auction.startingBid !== correctStartingBid) {
+            const diff = Math.abs(auction.startingBid - correctStartingBid);
+            if (diff > 10) {
+                log.debug(`[TerritoryPanel] Correcting invalid startingBid ${auction.startingBid} to ${correctStartingBid} before bid validation`);
+                auction.startingBid = correctStartingBid;
+                // 로컬 캐시에도 반영
+                auctionSystem.activeAuctions.set(auction.id, auction);
+            }
+        }
+        
         // 입찰 금액 검증
         if (!bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
@@ -2670,39 +2894,36 @@ class TerritoryPanel {
             return;
         }
         
-        // 입찰자가 있는지 확인
-        const hasBids = !!auction.highestBidder;
-        
-        // 입찰자가 없으면 무조건 startingBid 사용 (currentBid는 무시)
-        // 입찰자가 있으면 currentBid 사용
-        let effectiveCurrentBid;
-        if (!hasBids) {
-            // 입찰자가 없으면 startingBid를 그대로 사용 (currentBid는 확인하지 않음)
-            // 화면에 표시된 startingBid와 일치해야 함
-            effectiveCurrentBid = auction.startingBid || 10;
-            log.debug('[TerritoryPanel] No bids yet, using startingBid:', effectiveCurrentBid);
+        // ⚠️ 전문가 조언 반영: 서버가 제공한 minNextBid를 우선 사용 (단일 진실의 원천)
+        // 서버가 계산한 minNextBid가 있으면 그것을 사용, 없으면 fallback으로 계산
+        let minBid;
+        if (auction.minNextBid && auction.minNextBid > 0) {
+            // 서버가 제공한 minNextBid 사용 (권위 있는 값)
+            minBid = auction.minNextBid;
+            log.debug('[TerritoryPanel] Using server-provided minNextBid:', minBid);
         } else {
-            // 입찰자가 있으면 currentBid 사용 (최소 startingBid 이상이어야 함)
-            effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0)
-                ? auction.currentBid
-                : (auction.startingBid || 10);
-            log.debug('[TerritoryPanel] Has bids, using currentBid:', effectiveCurrentBid);
+            // Fallback: 서버 값이 없으면 클라이언트에서 계산 (레거시 지원)
+            const hasBids = !!auction.highestBidder;
+            let effectiveCurrentBid;
+            if (!hasBids) {
+                effectiveCurrentBid = auction.startingBid || 10;
+            } else {
+                effectiveCurrentBid = auction.currentBid && auction.currentBid >= (auction.startingBid || 0)
+                    ? auction.currentBid
+                    : (auction.startingBid || 10);
+            }
+            const effectiveMinIncrement = auction.increment || 1;
+            minBid = effectiveCurrentBid + effectiveMinIncrement;
+            log.debug('[TerritoryPanel] Calculated minBid (fallback):', minBid);
         }
-        
-        // minIncrement 계산
-        // 입찰자가 있든 없든 항상 1pt 증가액 사용 (1pt 단위 입찰)
-        const effectiveMinIncrement = 1;
-        
-        const minBid = effectiveCurrentBid + effectiveMinIncrement;
         
         // 디버깅 로그
         log.debug('[TerritoryPanel] Bid validation:', {
+            minNextBidFromServer: auction.minNextBid,
             startingBid: auction.startingBid,
             currentBid: auction.currentBid,
             highestBidder: auction.highestBidder,
-            hasBids,
-            effectiveCurrentBid,
-            effectiveMinIncrement,
+            increment: auction.increment,
             minBid,
             bidAmount
         });
@@ -2712,6 +2933,8 @@ class TerritoryPanel {
                 type: 'warning',
                 message: `Minimum bid is ${this.formatNumber(minBid)} pt`
             });
+            this.isProcessingBid = false; // ⚡ 처리 완료 플래그 해제
+            if (bidButton) { bidButton.disabled = false; bidButton.textContent = 'Place Bid'; } // 버튼 활성화
             return;
         }
         
@@ -2733,8 +2956,8 @@ class TerritoryPanel {
         }
         
         // ⚠️ Step 6-4: READ_ONLY 모드 체크
-        const { serviceModeManager } = await import('../services/ServiceModeManager.js');
-        if (serviceModeManager.currentMode === serviceModeManager.SERVICE_MODE.READ_ONLY) {
+        const { serviceModeManager, SERVICE_MODE } = await import('../services/ServiceModeManager.js');
+        if (serviceModeManager.currentMode === SERVICE_MODE.READ_ONLY) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
                 message: '현재는 입찰이 제한된 상태입니다. 다시 시도해주세요.',
@@ -2742,6 +2965,19 @@ class TerritoryPanel {
             });
             return;
         }
+        
+        // ⚠️ Step 6-3: Optimistic Update - 입찰 전 상태 저장 (try 블록 밖에서 정의하여 catch에서 접근 가능)
+        let previousAuctionState = null;
+        let previousWalletBalance = null;
+        
+        // ⚠️ 전문가 조언 반영: Optimistic Update 제거
+        // - 경매 상태(currentBid/bids)는 절대 변경하지 않음
+        // - pending 상태만 표시 (버튼 disabled, 스피너)
+        // - 서버 응답 성공 후에만 갱신
+        
+        // ⚠️ Step 6-3: 입찰 전 상태 저장은 제거 (롤백 불필요)
+        // let previousAuctionState = null;
+        // let previousWalletBalance = null;
         
         try {
             // Rate Limiting 체크 (관리자가 아닌 경우에만)
@@ -2754,51 +2990,127 @@ class TerritoryPanel {
                         message: `⚠️ Too many bids. Please wait ${waitTime > 0 ? waitTime + ' seconds' : 'a moment'} before bidding again.`,
                         duration: 5000
                     });
+                    this.isProcessingBid = false;
+                    if (bidButton) { bidButton.disabled = false; bidButton.textContent = 'Place Bid'; }
                     return;
                 }
             }
             
-            // ⚠️ Step 6-3: Optimistic Update - 입찰 전 상태 저장
-            const previousAuctionState = JSON.parse(JSON.stringify(auction)); // Deep copy
-            const previousWalletBalance = !isAdmin ? walletService.currentBalance : null;
+            // ⚠️ 전문가 조언 반영: 제출 직전 서버에서 최신 경매 상태 강제 조회 (stale 방지)
+            // UI와 서버 상태 불일치 방지: 서버에서 최신 상태를 가져와서 검증
+            let latestAuction = auctionSystem.activeAuctions.get(auction.id);
             
-            // Optimistic Update: UI에 즉시 반영
-            auction.currentBid = bidAmount;
-            auction.highestBidder = user.uid;
-            auction.highestBidderName = user.displayName || user.email;
-            if (!auction.bids) auction.bids = [];
-            auction.bids.push({
-                userId: user.uid,
-                userName: user.displayName || user.email,
-                amount: bidAmount,
-                timestamp: new Date()
+            // ⚠️ 중요: 서버에서 최신 경매 상태 강제 조회 (UI stale 상태 방지)
+            try {
+                const { apiService } = await import('../services/ApiService.js');
+                const serverAuction = await apiService.getAuction(auction.id);
+                if (serverAuction) {
+                    // 서버에서 받은 최신 데이터로 업데이트
+                    const { normalizeAuctionDTO } = await import('../utils/auction-normalizer.js');
+                    const normalizedServerAuction = normalizeAuctionDTO(serverAuction);
+                    
+                    // ⚠️ 전문가 조언 반영: GET으로 refresh한 결과가 현재보다 낮으면 캐시 업데이트 거부
+                    const cachedCurrentBid = latestAuction?.currentBid || 0;
+                    const serverCurrentBid = normalizedServerAuction.currentBid || 0;
+                    const cachedMinNextBid = latestAuction?.minNextBid || 0;
+                    const serverMinNextBid = normalizedServerAuction.minNextBid || 0;
+                    
+                    // 서버가 더 최신이거나 같으면 업데이트, 낮으면 거부
+                    if (serverCurrentBid >= cachedCurrentBid && serverMinNextBid >= cachedMinNextBid) {
+                        // 캐시도 즉시 업데이트
+                        auctionSystem.activeAuctions.set(auction.id, normalizedServerAuction);
+                        latestAuction = normalizedServerAuction;
+                        auction = normalizedServerAuction; // 최신 객체로 업데이트
+                        console.log('[Bid] Refreshed auction from server', {
+                            serverMinNextBid: normalizedServerAuction.minNextBid,
+                            serverCurrentBid: normalizedServerAuction.currentBid,
+                            serverStartingBid: normalizedServerAuction.startingBid,
+                            hasBids: !!normalizedServerAuction.highestBidder,
+                            cachedCurrentBid: cachedCurrentBid,
+                            cachedMinNextBid: cachedMinNextBid
+                        });
+                    } else {
+                        // 서버 응답이 stale하면 캐시 유지
+                        console.warn('[Bid] ⚠️ Server response is stale, keeping cache', {
+                            serverCurrentBid,
+                            cachedCurrentBid,
+                            serverMinNextBid,
+                            cachedMinNextBid
+                        });
+                        // latestAuction은 기존 캐시 유지
+                    }
+                }
+            } catch (refreshError) {
+                console.warn('[Bid] Failed to refresh auction from server, using cache', refreshError);
+                // 서버 조회 실패 시 캐시 사용
+                if (latestAuction) {
+                    auction = latestAuction;
+                }
+            }
+            
+            // 서버 기준 최소 입찰가 재계산
+            const serverMin = auction.minNextBid ?? null;
+            const increment = auction.increment ?? 1;
+            const fallbackMin = (auction.currentBid ?? auction.startingBid ?? 0) + increment;
+            const effectiveMin = serverMin ?? fallbackMin;
+            
+            // ⚠️ 디버깅 로그: 제출 직전 최종 검증 (항상 출력)
+            console.log('[Bid] submit - FINAL VALIDATION', {
+                bidAmount,
+                serverMin: auction.minNextBid,
+                currentBid: auction.currentBid,
+                startingBid: auction.startingBid,
+                increment: auction.increment,
+                effectiveMin,
+                hasBids: !!auction.highestBidder,
+                willBlock: bidAmount < effectiveMin
             });
             
-            // 로컬 캐시에 즉시 반영
-            auctionSystem.activeAuctions.set(auction.id, auction);
-            if (this.currentTerritory) {
-                this.currentTerritory.currentAuction = auction;
+            // 최종 검증: 입찰값이 effectiveMin보다 낮으면 API 호출 차단
+            if (bidAmount < effectiveMin) {
+                console.warn('[Bid] BLOCKED: bidAmount < effectiveMin', { bidAmount, effectiveMin });
+                // 옵션 B(권장): 사용자 확인 - 최소 입찰가로 자동 보정 제안
+                const confirmMessage = `최소 입찰가는 ${this.formatNumber(effectiveMin)} pt입니다. ${this.formatNumber(effectiveMin)} pt로 입찰하시겠습니까?`;
+                const shouldAutoCorrect = confirm(confirmMessage);
+                
+                if (shouldAutoCorrect) {
+                    // 자동 보정: 최소 입찰가로 변경
+                    bidAmount = effectiveMin;
+                    input.value = effectiveMin;
+                    log.info(`[TerritoryPanel] Auto-corrected bid amount to minimum: ${effectiveMin} pt`);
+                    console.log('[Bid] Auto-corrected', { oldAmount: bidAmount - effectiveMin, newAmount: bidAmount });
+                } else {
+                    // 사용자가 취소
+                    console.log('[Bid] User cancelled auto-correction');
+                    this.isProcessingBid = false;
+                    if (bidButton) { bidButton.disabled = false; bidButton.textContent = 'Place Bid'; }
+                    return;
+                }
             }
             
-            // UI 즉시 업데이트
-            this.render();
-            this.bindActions();
+            // ⚠️ 최종 제출 직전 로그 (가장 중요 - payload 확인)
+            console.log('[Bid] FINAL before API', {
+                bidAmount,
+                effectiveMin,
+                serverMin: auction?.minNextBid,
+                currentBid: auction?.currentBid,
+                increment: auction?.increment,
+                auctionId: auction?.id,
+                territoryId: auction?.territoryId,
+                inputValue: input.value, // 입력창 값 확인
+                willSend: bidAmount // 실제 전송될 값
+            });
             
-            // 관리자 모드가 아닌 경우에만 포인트 차감
-            if (!isAdmin) {
-                await walletService.deductPoints(bidAmount, `Auction bid for ${auction.territoryId}`, 'bid', {
-                    auctionId: auction.id,
-                    territoryId: auction.territoryId
-                });
-            }
-            
-            // ⚠️ Step 6-1: 서버 권위 강화 - 실제 서버 호출 (현재는 클라이언트 트랜잭션, 나중에 Cloud Functions로 전환)
+            // ⚠️ 전문가 조언 반영: 서버 권위 강화 - API 호출만 수행
+            // Optimistic Update 제거: auction 객체는 절대 변경하지 않음
+            // ⚠️ 중요: bidAmount 변수를 그대로 전달 (다른 값 참조 금지)
             await auctionSystem.handleBid({
                 auctionId: auction.id,
-                bidAmount,
+                bidAmount: bidAmount, // ⚠️ 명시적으로 bidAmount 변수 사용
                 userId: user.uid,
                 userName: user.displayName || user.email,
-                isAdmin: isAdmin  // ✅ 관리자 플래그 추가
+                isAdmin: isAdmin,
+                territory: territory
             });
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
@@ -2809,28 +3121,10 @@ class TerritoryPanel {
             // 입력 필드 초기화
             input.value = '';
             
-            // ⚠️ 응급 조치: 입찰 후 Firestore 재조회 제거 (불필요한 읽기 방지)
-            // handleBid가 이미 로컬 캐시(activeAuctions)를 업데이트했으므로 Firestore 재조회 불필요
-            // 로컬 캐시에서 직접 가져오기
+            // 서버 응답으로 UI 업데이트 (handleBid가 이미 로컬 캐시 업데이트 완료)
             const updatedAuction = auctionSystem.activeAuctions.get(auction.id);
             if (updatedAuction && this.currentTerritory) {
-                // currentTerritory의 옥션 정보 업데이트
                 this.currentTerritory.currentAuction = updatedAuction;
-                
-                // 디버깅: 입찰가 확인
-                const highestBid = updatedAuction.bids && Array.isArray(updatedAuction.bids) && updatedAuction.bids.length > 0
-                    ? Math.max(...updatedAuction.bids.map(b => b.amount || b.buffedAmount || 0))
-                    : 0;
-                
-                log.info(`[TerritoryPanel] ✅ Bid placed successfully. Updated auction data:`, {
-                    auctionId: auction.id,
-                    currentBid: updatedAuction.currentBid,
-                    highestBidFromArray: highestBid,
-                    bidsCount: updatedAuction.bids?.length || 0,
-                    highestBidder: updatedAuction.highestBidder
-                });
-            } else {
-                log.warn(`[TerritoryPanel] ⚠️ Failed to get updated auction data for ${auction.id}`);
             }
             
             // 패널 갱신
@@ -2840,25 +3134,8 @@ class TerritoryPanel {
         } catch (error) {
             log.error('Bid failed:', error);
             
-            // ⚠️ Step 6-3: Optimistic Update 롤백
-            try {
-                if (previousAuctionState) {
-                    auctionSystem.activeAuctions.set(auction.id, previousAuctionState);
-                    if (this.currentTerritory) {
-                        this.currentTerritory.currentAuction = previousAuctionState;
-                    }
-                }
-                if (previousWalletBalance !== null && !isAdmin) {
-                    // 지갑 잔액 롤백 (실제로는 서버에서 처리되지만, UI만 롤백)
-                    walletService.currentBalance = previousWalletBalance;
-                    eventBus.emit('wallet:balance-updated', { balance: previousWalletBalance });
-                }
-                // UI 롤백
-                this.render();
-                this.bindActions();
-            } catch (rollbackError) {
-                log.error('[TerritoryPanel] Failed to rollback optimistic update:', rollbackError);
-            }
+            // ⚠️ 전문가 조언 반영: Optimistic Update 롤백 불필요 (상태를 변경하지 않았으므로)
+            // 단순히 에러 메시지만 표시
             
             let errorMessage = 'Failed to place bid';
             let shouldRetry = false;
@@ -2873,9 +3150,77 @@ class TerritoryPanel {
                 const { serviceModeManager } = await import('../services/ServiceModeManager.js');
                 serviceModeManager.setMode(serviceModeManager.SERVICE_MODE.READ_ONLY, { reason: 'quota-exceeded' });
             } 
-            // 최소 입찰가 에러
-            else if (error.message.includes('Minimum')) {
-                errorMessage = error.message;
+            // 최소 입찰가 에러 (400 Bad Request)
+            else if (error.status === 400 && (error.message.includes('Minimum') || error.message.includes('Bid amount too low') || error.message.includes('too low'))) {
+                // ⚠️ 전문가 조언 반영: 서버가 400으로 minNextBid를 줬을 때 즉시 동기화
+                // error.details는 ApiService에서 파싱한 응답 본문
+                const errorDetails = error.details || {};
+                console.log('[Bid] 400 error details:', errorDetails);
+                const serverMinNextBid = errorDetails.minNextBid || errorDetails.minBid;
+                const serverCurrentBid = errorDetails.currentBid || errorDetails.currentHighestBid;
+                const serverIncrement = errorDetails.increment || 1;
+                
+                if (serverMinNextBid) {
+                    // 캐시 업데이트: 서버가 제공한 최신 값으로 동기화
+                    const cachedAuction = auctionSystem.activeAuctions.get(auction.id);
+                    if (cachedAuction) {
+                        cachedAuction.minNextBid = serverMinNextBid;
+                        cachedAuction.currentBid = serverCurrentBid || cachedAuction.currentBid;
+                        cachedAuction.increment = serverIncrement;
+                        auctionSystem.activeAuctions.set(auction.id, cachedAuction);
+                        log.info(`[TerritoryPanel] Updated auction cache from 400 error: minNextBid=${serverMinNextBid}, currentBid=${serverCurrentBid}`);
+                    }
+                    
+                    // 입력창 최소값/placeholder 갱신
+                    const bidInput = document.getElementById('bid-amount-input');
+                    if (bidInput) {
+                        bidInput.min = serverMinNextBid;
+                        bidInput.placeholder = `Minimum: ${this.formatNumber(serverMinNextBid)} pt`;
+                    }
+                    
+                    // 에러 메시지 + 재시도 버튼 제공
+                    errorMessage = `최소 입찰가는 ${this.formatNumber(serverMinNextBid)} pt입니다. (현재: ${this.formatNumber(serverCurrentBid || 0)} pt)`;
+                    
+                    // 재시도 버튼 제공 (원클릭)
+                    // ⚠️ 중요: 재시도 시 serverMinNextBid를 직접 사용 (입력창/기존 변수 참조 금지)
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'warning',
+                        message: errorMessage,
+                        duration: 8000,
+                        action: {
+                            label: `${this.formatNumber(serverMinNextBid)} pt로 입찰`,
+                            handler: () => {
+                                // ⚠️ 중요: 입력창 값 설정 후 직접 API 호출 (handlePlaceBid 재호출 금지)
+                                if (bidInput) {
+                                    bidInput.value = serverMinNextBid;
+                                }
+                                
+                                // ⚠️ 직접 API 호출: serverMinNextBid를 명시적으로 전달
+                                const correctedBidAmount = serverMinNextBid;
+                                console.log('[Bid] Retry with corrected amount', { correctedBidAmount, serverMinNextBid });
+                                
+                                // 직접 handleBid 호출 (입력창 재읽기 방지)
+                                auctionSystem.handleBid({
+                                    auctionId: auction.id,
+                                    bidAmount: correctedBidAmount, // ⚠️ 명시적으로 serverMinNextBid 사용
+                                    userId: user.uid,
+                                    userName: user.displayName || user.email,
+                                    isAdmin: isAdmin,
+                                    territory: territory
+                                }).catch(err => {
+                                    log.error('[TerritoryPanel] Retry bid failed:', err);
+                                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                                        type: 'error',
+                                        message: `재입찰 실패: ${err.message}`
+                                    });
+                                });
+                            }
+                        }
+                    });
+                    return; // 재시도 버튼을 제공했으므로 일반 에러 처리 스킵
+                } else {
+                    errorMessage = error.message || 'Minimum bid requirement not met';
+                }
             } 
             // 경매 종료 에러
             else if (error.message.includes('not active')) {
@@ -3015,6 +3360,80 @@ class TerritoryPanel {
     /**
      * 지역명 추출 및 포맷팅 (영어(현지어) 형식)
      */
+    /**
+     * Territory 객체에서 countryCode 추출 (render 메서드의 로직 재사용)
+     */
+    extractCountryCodeFromTerritory(territory) {
+        if (!territory) return 'unknown';
+        
+        // 국가 코드 결정 (우선순위: territory.country > properties > fallback)
+        let countryCode = territory.country || 
+                        territory.properties?.country || 
+                        territory.properties?.country_code ||
+                        territory.properties?.adm0_a3?.toLowerCase() ||  // adm0_a3 우선 사용 (USA -> usa)
+                        territory.properties?.sov_a3?.toLowerCase() ||
+                        'unknown';
+        
+        // 잘못된 값 필터링
+        const invalidCodes = ['territories', 'states', 'regions', 'prefectures', 'provinces', 'unknown'];
+        if (invalidCodes.includes(countryCode?.toLowerCase())) {
+            countryCode = null;
+        }
+        
+        // countryCode가 국가명인 경우 슬러그로 변환 시도
+        if (countryCode && !CONFIG.COUNTRIES[countryCode]) {
+            const normalized = countryCode.toLowerCase().replace(/\s+/g, '-');
+            if (CONFIG.COUNTRIES[normalized]) {
+                countryCode = normalized;
+            } else {
+                // 국가명으로 검색
+                for (const [key, value] of Object.entries(CONFIG.COUNTRIES)) {
+                    if (value.name === countryCode || value.nameKo === countryCode) {
+                        countryCode = key;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // countryCode가 없거나 유효하지 않은 경우, properties에서 다시 시도
+        if (!countryCode || !CONFIG.COUNTRIES[countryCode]) {
+            // properties에서 다른 필드 시도 (adm0_a3 우선)
+            let altCode = territory.properties?.adm0_a3 || 
+                         territory.properties?.country_code || 
+                         territory.properties?.sov_a3 ||
+                         territory.properties?.iso_a3;
+            
+            if (altCode) {
+                altCode = altCode.toString().toUpperCase();
+                
+                // ISO 코드를 슬러그로 변환하는 매핑 사용 (render 메서드와 동일한 로직)
+                const isoToSlugMap = {
+                    'USA': 'usa', 'CAN': 'canada', 'MEX': 'mexico', 'KOR': 'south-korea',
+                    'JPN': 'japan', 'CHN': 'china', 'GBR': 'uk', 'DEU': 'germany',
+                    'FRA': 'france', 'ITA': 'italy', 'ESP': 'spain', 'IND': 'india',
+                    'BRA': 'brazil', 'RUS': 'russia', 'AUS': 'australia',
+                    'SGP': 'singapore', 'MYS': 'malaysia', 'IDN': 'indonesia',
+                    'THA': 'thailand', 'VNM': 'vietnam', 'PHL': 'philippines',
+                    'SAU': 'saudi-arabia', 'ARE': 'uae', 'QAT': 'qatar', 'IRN': 'iran',
+                    'ISR': 'israel', 'TUR': 'turkey', 'EGY': 'egypt',
+                    'ZAF': 'south-africa', 'NGA': 'nigeria', 'KEN': 'kenya',
+                    'DZA': 'algeria', 'MAR': 'morocco', 'TUN': 'tunisia',
+                    'NER': 'niger', 'MLI': 'mali', 'SEN': 'senegal', 'GHA': 'ghana',
+                    'CIV': 'ivory-coast', 'CMR': 'cameroon', 'UGA': 'uganda',
+                    'TZA': 'tanzania', 'ETH': 'ethiopia', 'SDN': 'sudan',
+                    // 주요 국가들만 포함 (전체 목록은 render 메서드 참조)
+                };
+                const convertedSlug = isoToSlugMap[altCode];
+                if (convertedSlug && CONFIG.COUNTRIES[convertedSlug]) {
+                    countryCode = convertedSlug;
+                }
+            }
+        }
+        
+        return countryCode && countryCode !== 'unknown' ? countryCode : 'unknown';
+    }
+    
     extractName(name, countryCode = null) {
         if (!name) return null;
         
@@ -3589,8 +4008,94 @@ class TerritoryPanel {
             }
             
             try {
+                // ⚠️ 중요: 경매 시작 전에 territory 객체에 country 정보가 있는지 확인하고 없으면 추출
+                const territory = this.currentTerritory;
+                if (territory && !territory.properties?.adm0_a3) {
+                    log.info(`[TerritoryPanel] 🔍 Territory ${territory.id} has no adm0_a3, attempting to extract country info...`);
+                    
+                    // 1. TerritoryPanel의 extractCountryCodeFromTerritory로 추출 시도
+                    let countryCode = this.extractCountryCodeFromTerritory(territory);
+                    if (countryCode && countryCode !== 'unknown') {
+                        if (!territory.country) {
+                            territory.country = countryCode;
+                        }
+                        if (!territory.properties) {
+                            territory.properties = {};
+                        }
+                        const isoCode = territoryDataService.convertToISOCode(countryCode);
+                        if (isoCode && isoCode.length === 3) {
+                            territory.properties.adm0_a3 = isoCode;
+                            log.info(`[TerritoryPanel] ✅ Extracted and saved countryIso (${isoCode}) from extractCountryCodeFromTerritory`);
+                        }
+                    }
+                    
+                    // 2. MapController에서 feature properties 확인
+                    if (!territory.properties?.adm0_a3) {
+                        try {
+                            const territoryFeature = mapController.getTerritoryFeature(territory.id);
+                            if (territoryFeature && territoryFeature.feature && territoryFeature.feature.properties) {
+                                const featureProps = territoryFeature.feature.properties;
+                                log.info(`[TerritoryPanel] 🔍 MapController feature properties:`, {
+                                    adm0_a3: featureProps.adm0_a3,
+                                    country: featureProps.country,
+                                    country_code: featureProps.country_code,
+                                    sov_a3: featureProps.sov_a3,
+                                    admin: featureProps.admin
+                                });
+                                
+                                if (featureProps.adm0_a3 && featureProps.adm0_a3.length === 3) {
+                                    if (!territory.properties) {
+                                        territory.properties = {};
+                                    }
+                                    territory.properties.adm0_a3 = featureProps.adm0_a3.toUpperCase();
+                                    log.info(`[TerritoryPanel] ✅ Extracted and saved countryIso (${featureProps.adm0_a3.toUpperCase()}) from MapController feature`);
+                                } else if (featureProps.country_code && featureProps.country_code.length === 3) {
+                                    if (!territory.properties) {
+                                        territory.properties = {};
+                                    }
+                                    territory.properties.adm0_a3 = featureProps.country_code.toUpperCase();
+                                    log.info(`[TerritoryPanel] ✅ Extracted and saved countryIso (${featureProps.country_code.toUpperCase()}) from MapController feature.country_code`);
+                                }
+                            } else {
+                                log.info(`[TerritoryPanel] ⚠️ No feature found in MapController for ${territory.id}`);
+                            }
+                        } catch (error) {
+                            log.info(`[TerritoryPanel] ⚠️ Could not get territory feature from MapController:`, error.message);
+                        }
+                    }
+                    
+                    // 3. API에서 territory를 가져와서 확인
+                    if (!territory.properties?.adm0_a3) {
+                        try {
+                            // ⚠️ 중요: 캐시 우회하여 최신 데이터 가져오기 (countryIso 포함)
+                            const apiTerritory = await apiService.getTerritory(territory.id, { skipCache: true });
+                            if (apiTerritory) {
+                                log.info(`[TerritoryPanel] 🔍 API territory data:`, {
+                                    country: apiTerritory.country,
+                                    countryIso: apiTerritory.countryIso,
+                                    properties: apiTerritory.properties
+                                });
+                                
+                                if (apiTerritory.properties?.adm0_a3 && apiTerritory.properties.adm0_a3.length === 3) {
+                                    if (!territory.properties) {
+                                        territory.properties = {};
+                                    }
+                                    territory.properties.adm0_a3 = apiTerritory.properties.adm0_a3.toUpperCase();
+                                    log.info(`[TerritoryPanel] ✅ Extracted and saved countryIso (${apiTerritory.properties.adm0_a3.toUpperCase()}) from API`);
+                                }
+                            }
+                        } catch (error) {
+                            log.info(`[TerritoryPanel] ⚠️ Could not load territory from API:`, error.message);
+                        }
+                    }
+                    
+                    if (!territory.properties?.adm0_a3) {
+                        log.warn(`[TerritoryPanel] ⚠️ Could not extract countryIso for territory ${territory.id} from any source`);
+                    }
+                }
+                
                 // 경매 생성 (기간 옵션 포함)
-                await auctionSystem.createAuction(this.currentTerritory.id, {
+                await auctionSystem.createAuction(territory.id, {
                     protectionDays: days,
                     startingBid: price
                 });

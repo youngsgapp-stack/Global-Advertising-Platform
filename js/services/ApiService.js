@@ -279,7 +279,12 @@ class ApiService {
             
             // 이미 HTTP 상태 코드가 있는 에러는 그대로 전달
             if (error.status) {
-                log.error(`[ApiService] HTTP ${error.status} error: ${endpoint}`, { url, error: error.message });
+                // 409 Conflict는 정상적인 상황일 수 있으므로 조용히 처리
+                if (error.status === 409) {
+                    log.debug(`[ApiService] HTTP 409 Conflict (expected in some cases): ${endpoint}`, { url, error: error.message });
+                } else {
+                    log.error(`[ApiService] HTTP ${error.status} error: ${endpoint}`, { url, error: error.message });
+                }
                 throw error;
             }
             
@@ -402,10 +407,22 @@ class ApiService {
         // 또는 헤더로 전달 (더 명확함)
         const headers = skipCache ? { 'X-Skip-Cache': 'true' } : {};
         
-        return await this.request(endpoint, { 
+        const territory = await this.request(endpoint, { 
             method: 'GET',
             headers
         });
+        
+        // ⚠️ 디버깅: API 응답에 countryIso가 포함되어 있는지 확인
+        console.log(`[ApiService] 🔍 Territory response for ${id}:`, {
+            id: territory?.id,
+            country: territory?.country,
+            countryIso: territory?.countryIso,
+            country_iso: territory?.country_iso,
+            hasCountryIso: !!territory?.countryIso,
+            keys: Object.keys(territory || {}).slice(0, 20) // 처음 20개 키만
+        });
+        
+        return territory;
     }
     
     /**
@@ -419,7 +436,19 @@ class ApiService {
      * ?곹넗 ?낅뜲?댄듃 (?뚯쑀沅?蹂寃? ?곹깭 蹂寃???
      */
     async updateTerritory(territoryId, data) {
-        return await this.put(`/territories/${territoryId}`, data);
+        try {
+            return await this.put(`/territories/${territoryId}`, data);
+        } catch (error) {
+            // 409 Conflict는 이미 소유된 영토이므로 정상적인 상황 (조용히 무시)
+            if (error.status === 409) {
+                const errorMessage = error.message || error.details?.error || '';
+                if (errorMessage.includes('already owned')) {
+                    log.debug(`[ApiService] Territory ${territoryId} already owned, skipping update`);
+                    return null; // 조용히 성공으로 처리
+                }
+            }
+            throw error; // 다른 에러는 그대로 전달
+        }
     }
     
     /**
@@ -522,10 +551,18 @@ class ApiService {
     }
     
     /**
-     * ?占쎌같 ?占쎌꽦
+     * 입찰 제출
      */
     async placeBid(auctionId, amount) {
-        const result = await this.post(`/auctions/${auctionId}/bids`, { amount });
+        // ⚠️ 디버깅 로그: API 호출 직전 payload 확인 (가장 중요)
+        const payload = { amount };
+        console.log('[Bid] PAYLOAD amount', payload.amount, payload, {
+            amount,
+            amountType: typeof amount,
+            auctionId
+        });
+        
+        const result = await this.post(`/auctions/${auctionId}/bids`, payload);
         
         // ?占쎈떟 ?占쎌떇 蹂??(?占쏀솚??
         if (result.bid) {
@@ -536,6 +573,14 @@ class ApiService {
             };
         }
         return result;
+    }
+    
+    /**
+     * 경매 종료
+     * ⚠️ 전문가 조언 반영: Firestore runTransaction 대신 API 사용
+     */
+    async endAuction(auctionId) {
+        return await this.post(`/auctions/${auctionId}/end`, {});
     }
     
     /**
