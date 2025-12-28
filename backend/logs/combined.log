@@ -773,3 +773,562 @@ error: password authentication failed for user "postgres"
 2025-12-21 13:56:40 [info]: 📡 WebSocket server ready
 2025-12-21 13:56:40 [info]: 🌍 Environment: development
 2025-12-21 13:56:40 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 14:32:16 [info]: ✅ Database connected
+2025-12-21 14:32:16 [info]: ✅ Redis connected
+2025-12-21 14:32:16 [info]: 🚀 Server running on port 3000
+2025-12-21 14:32:16 [info]: 📡 WebSocket server ready
+2025-12-21 14:32:16 [info]: 🌍 Environment: development
+2025-12-21 14:32:16 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 17:18:29 [info]: ✅ Database connected
+2025-12-21 17:18:29 [info]: ✅ Redis connected
+2025-12-21 17:18:30 [info]: 🚀 Server running on port 3000
+2025-12-21 17:18:30 [info]: 📡 WebSocket server ready
+2025-12-21 17:18:30 [info]: 🌍 Environment: development
+2025-12-21 17:18:30 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 17:18:31 [info]: ✅ Database connected
+2025-12-21 17:18:31 [info]: ✅ Redis connected
+2025-12-21 17:18:31 [info]: 🚀 Server running on port 3000
+2025-12-21 17:18:31 [info]: 📡 WebSocket server ready
+2025-12-21 17:18:31 [info]: 🌍 Environment: development
+2025-12-21 17:18:31 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 17:51:24 [info]: ✅ Database connected
+2025-12-21 17:51:24 [info]: ✅ Redis connected
+2025-12-21 17:51:24 [info]: 🚀 Server running on port 3000
+2025-12-21 17:51:24 [info]: 📡 WebSocket server ready
+2025-12-21 17:51:24 [info]: 🌍 Environment: development
+2025-12-21 17:51:24 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 17:53:25 [info]: ✅ Database connected
+2025-12-21 17:53:25 [info]: ✅ Redis connected
+2025-12-21 17:53:25 [info]: 🚀 Server running on port 3000
+2025-12-21 17:53:25 [info]: 📡 WebSocket server ready
+2025-12-21 17:53:25 [info]: 🌍 Environment: development
+2025-12-21 17:53:25 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:04:01 [info]: ✅ Database connected
+2025-12-21 18:04:01 [info]: ✅ Redis connected
+2025-12-21 18:04:01 [info]: 🚀 Server running on port 3000
+2025-12-21 18:04:01 [info]: 📡 WebSocket server ready
+2025-12-21 18:04:01 [info]: 🌍 Environment: development
+2025-12-21 18:04:01 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:04:04 [info]: ✅ Database connected
+2025-12-21 18:04:04 [info]: ✅ Redis connected
+2025-12-21 18:04:04 [info]: 🚀 Server running on port 3000
+2025-12-21 18:04:04 [info]: 📡 WebSocket server ready
+2025-12-21 18:04:04 [info]: 🌍 Environment: development
+2025-12-21 18:04:04 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:04:30 [info]: ✅ Database connected
+2025-12-21 18:04:30 [info]: ✅ Redis connected
+2025-12-21 18:04:30 [info]: 🚀 Server running on port 3000
+2025-12-21 18:04:30 [info]: 📡 WebSocket server ready
+2025-12-21 18:04:30 [info]: 🌍 Environment: development
+2025-12-21 18:04:30 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:04:44 [info]: ✅ Database connected
+2025-12-21 18:04:44 [info]: ✅ Redis connected
+2025-12-21 18:04:44 [info]: 🚀 Server running on port 3000
+2025-12-21 18:04:44 [info]: 📡 WebSocket server ready
+2025-12-21 18:04:44 [info]: 🌍 Environment: development
+2025-12-21 18:04:44 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:05:27 [error]: unhandledRejection: Release called on client which has already been released to the pool.
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:503:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:503:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Sun Dec 21 2025 18:05:27 GMT+0900 (대한민국 표준시)","process":{"pid":16660,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":138059776,"heapTotal":94105600,"heapUsed":58421968,"external":7498437,"arrayBuffers":3778824}},"os":{"loadavg":[0,0,0],"uptime":1310551.546},"trace":[{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"throwOnDoubleRelease","line":27,"method":null,"native":false},{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"Client.release","line":338,"method":"release","native":false},{"column":20,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js","function":null,"line":503,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-21 18:05:53 [info]: ✅ Database connected
+2025-12-21 18:05:53 [info]: ✅ Redis connected
+2025-12-21 18:05:53 [info]: 🚀 Server running on port 3000
+2025-12-21 18:05:53 [info]: 📡 WebSocket server ready
+2025-12-21 18:05:53 [info]: 🌍 Environment: development
+2025-12-21 18:05:53 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:06:13 [info]: ✅ Database connected
+2025-12-21 18:06:13 [info]: ✅ Redis connected
+2025-12-21 18:06:13 [info]: 🚀 Server running on port 3000
+2025-12-21 18:06:13 [info]: 📡 WebSocket server ready
+2025-12-21 18:06:13 [info]: 🌍 Environment: development
+2025-12-21 18:06:13 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:06:24 [info]: ✅ Database connected
+2025-12-21 18:06:24 [info]: ✅ Redis connected
+2025-12-21 18:06:24 [info]: 🚀 Server running on port 3000
+2025-12-21 18:06:24 [info]: 📡 WebSocket server ready
+2025-12-21 18:06:24 [info]: 🌍 Environment: development
+2025-12-21 18:06:24 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:07:21 [error]: unhandledRejection: Release called on client which has already been released to the pool.
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:522:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:522:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Sun Dec 21 2025 18:07:21 GMT+0900 (대한민국 표준시)","process":{"pid":6948,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":78467072,"heapTotal":32862208,"heapUsed":29969856,"external":3916051,"arrayBuffers":199697}},"os":{"loadavg":[0,0,0],"uptime":1310665.515},"trace":[{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"throwOnDoubleRelease","line":27,"method":null,"native":false},{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"Client.release","line":338,"method":"release","native":false},{"column":20,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js","function":null,"line":522,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-21 18:07:59 [info]: ✅ Database connected
+2025-12-21 18:07:59 [info]: ✅ Redis connected
+2025-12-21 18:07:59 [info]: 🚀 Server running on port 3000
+2025-12-21 18:07:59 [info]: 📡 WebSocket server ready
+2025-12-21 18:07:59 [info]: 🌍 Environment: development
+2025-12-21 18:07:59 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:08:13 [info]: ✅ Database connected
+2025-12-21 18:08:13 [info]: ✅ Redis connected
+2025-12-21 18:08:13 [info]: 🚀 Server running on port 3000
+2025-12-21 18:08:13 [info]: 📡 WebSocket server ready
+2025-12-21 18:08:13 [info]: 🌍 Environment: development
+2025-12-21 18:08:13 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:09:02 [error]: unhandledRejection: Release called on client which has already been released to the pool.
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:535:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:535:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Sun Dec 21 2025 18:09:02 GMT+0900 (대한민국 표준시)","process":{"pid":13124,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":138981376,"heapTotal":95154176,"heapUsed":58201952,"external":7590622,"arrayBuffers":3871201}},"os":{"loadavg":[0,0,0],"uptime":1310766.25},"trace":[{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"throwOnDoubleRelease","line":27,"method":null,"native":false},{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"Client.release","line":338,"method":"release","native":false},{"column":20,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js","function":null,"line":535,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-21 18:10:02 [info]: ✅ Database connected
+2025-12-21 18:10:02 [info]: ✅ Redis connected
+2025-12-21 18:10:02 [info]: 🚀 Server running on port 3000
+2025-12-21 18:10:02 [info]: 📡 WebSocket server ready
+2025-12-21 18:10:02 [info]: 🌍 Environment: development
+2025-12-21 18:10:02 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:10:08 [info]: ✅ Database connected
+2025-12-21 18:10:08 [info]: ✅ Redis connected
+2025-12-21 18:10:08 [info]: 🚀 Server running on port 3000
+2025-12-21 18:10:08 [info]: 📡 WebSocket server ready
+2025-12-21 18:10:08 [info]: 🌍 Environment: development
+2025-12-21 18:10:08 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:10:15 [info]: ✅ Database connected
+2025-12-21 18:10:15 [info]: ✅ Redis connected
+2025-12-21 18:10:15 [info]: 🚀 Server running on port 3000
+2025-12-21 18:10:15 [info]: 📡 WebSocket server ready
+2025-12-21 18:10:15 [info]: 🌍 Environment: development
+2025-12-21 18:10:15 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:10:30 [info]: ✅ Database connected
+2025-12-21 18:10:30 [info]: ✅ Redis connected
+2025-12-21 18:10:30 [info]: 🚀 Server running on port 3000
+2025-12-21 18:10:30 [info]: 📡 WebSocket server ready
+2025-12-21 18:10:30 [info]: 🌍 Environment: development
+2025-12-21 18:10:30 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:11:51 [info]: ✅ Database connected
+2025-12-21 18:11:51 [info]: ✅ Redis connected
+2025-12-21 18:11:51 [info]: 🚀 Server running on port 3000
+2025-12-21 18:11:51 [info]: 📡 WebSocket server ready
+2025-12-21 18:11:51 [info]: 🌍 Environment: development
+2025-12-21 18:11:51 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:12:05 [info]: ✅ Database connected
+2025-12-21 18:12:05 [info]: ✅ Redis connected
+2025-12-21 18:12:05 [info]: 🚀 Server running on port 3000
+2025-12-21 18:12:05 [info]: 📡 WebSocket server ready
+2025-12-21 18:12:05 [info]: 🌍 Environment: development
+2025-12-21 18:12:05 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 18:52:02 [info]: ✅ Database connected
+2025-12-21 18:52:02 [info]: ✅ Redis connected
+2025-12-21 18:52:02 [info]: 🚀 Server running on port 3000
+2025-12-21 18:52:02 [info]: 📡 WebSocket server ready
+2025-12-21 18:52:02 [info]: 🌍 Environment: development
+2025-12-21 18:52:02 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 19:03:06 [info]: ✅ Database connected
+2025-12-21 19:03:06 [info]: ✅ Redis connected
+2025-12-21 19:03:06 [info]: 🚀 Server running on port 3000
+2025-12-21 19:03:06 [info]: 📡 WebSocket server ready
+2025-12-21 19:03:06 [info]: 🌍 Environment: development
+2025-12-21 19:03:06 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 19:03:32 [error]: unhandledRejection: Release called on client which has already been released to the pool.
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:538:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Error: Release called on client which has already been released to the pool.
+    at throwOnDoubleRelease (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:27:9)
+    at Client.release (C:\Users\win\Downloads\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\backend\node_modules\pg-pool\index.js:338:9)
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js:538:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Sun Dec 21 2025 19:03:32 GMT+0900 (대한민국 표준시)","process":{"pid":35940,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":76967936,"heapTotal":32600064,"heapUsed":29981776,"external":3808360,"arrayBuffers":116660}},"os":{"loadavg":[0,0,0],"uptime":1314036.453},"trace":[{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"throwOnDoubleRelease","line":27,"method":null,"native":false},{"column":9,"file":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\node_modules\\pg-pool\\index.js","function":"Client.release","line":338,"method":"release","native":false},{"column":20,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/territories.js","function":null,"line":538,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-21 19:16:30 [info]: ✅ Database connected
+2025-12-21 19:16:30 [info]: ✅ Redis connected
+2025-12-21 19:16:30 [info]: 🚀 Server running on port 3000
+2025-12-21 19:16:30 [info]: 📡 WebSocket server ready
+2025-12-21 19:16:30 [info]: 🌍 Environment: development
+2025-12-21 19:16:30 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 19:19:25 [info]: ✅ Database connected
+2025-12-21 19:19:25 [info]: ✅ Redis connected
+2025-12-21 19:19:25 [info]: 🚀 Server running on port 3000
+2025-12-21 19:19:25 [info]: 📡 WebSocket server ready
+2025-12-21 19:19:25 [info]: 🌍 Environment: development
+2025-12-21 19:19:25 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 21:03:41 [info]: ✅ Database connected
+2025-12-21 21:03:41 [info]: ✅ Redis connected
+2025-12-21 21:03:41 [info]: 🚀 Server running on port 3000
+2025-12-21 21:03:41 [info]: 📡 WebSocket server ready
+2025-12-21 21:03:41 [info]: 🌍 Environment: development
+2025-12-21 21:03:41 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 21:10:14 [info]: ✅ Database connected
+2025-12-21 21:10:14 [info]: ✅ Redis connected
+2025-12-21 21:10:14 [info]: 🚀 Server running on port 3000
+2025-12-21 21:10:14 [info]: 📡 WebSocket server ready
+2025-12-21 21:10:14 [info]: 🌍 Environment: development
+2025-12-21 21:10:14 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 21:15:44 [info]: ✅ Database connected
+2025-12-21 21:15:44 [info]: ✅ Redis connected
+2025-12-21 21:15:44 [info]: 🚀 Server running on port 3000
+2025-12-21 21:15:44 [info]: 📡 WebSocket server ready
+2025-12-21 21:15:44 [info]: 🌍 Environment: development
+2025-12-21 21:15:44 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-21 21:23:27 [info]: ✅ Database connected
+2025-12-21 21:23:27 [info]: ✅ Redis connected
+2025-12-21 21:23:27 [info]: 🚀 Server running on port 3000
+2025-12-21 21:23:27 [info]: 📡 WebSocket server ready
+2025-12-21 21:23:27 [info]: 🌍 Environment: development
+2025-12-21 21:23:27 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 00:41:23 [info]: ✅ Database connected
+2025-12-22 00:41:23 [info]: ✅ Redis connected
+2025-12-22 00:41:23 [info]: 🚀 Server running on port 3000
+2025-12-22 00:41:23 [info]: 📡 WebSocket server ready
+2025-12-22 00:41:23 [info]: 🌍 Environment: development
+2025-12-22 00:41:23 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 00:47:56 [info]: ✅ Database connected
+2025-12-22 00:47:56 [info]: ✅ Redis connected
+2025-12-22 00:47:56 [info]: 🚀 Server running on port 3000
+2025-12-22 00:47:56 [info]: 📡 WebSocket server ready
+2025-12-22 00:47:56 [info]: 🌍 Environment: development
+2025-12-22 00:47:56 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 16:41:24 [info]: ✅ Database connected
+2025-12-22 16:41:24 [info]: ✅ Redis connected
+2025-12-22 16:41:24 [info]: 🚀 Server running on port 3000
+2025-12-22 16:41:24 [info]: 📡 WebSocket server ready
+2025-12-22 16:41:24 [info]: 🌍 Environment: development
+2025-12-22 16:41:24 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 16:57:18 [info]: ✅ Database connected
+2025-12-22 16:57:18 [info]: ✅ Redis connected
+2025-12-22 16:57:18 [info]: 🚀 Server running on port 3000
+2025-12-22 16:57:18 [info]: 📡 WebSocket server ready
+2025-12-22 16:57:18 [info]: 🌍 Environment: development
+2025-12-22 16:57:18 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 17:07:07 [info]: ✅ Database connected
+2025-12-22 17:07:07 [info]: ✅ Redis connected
+2025-12-22 17:07:07 [info]: 🚀 Server running on port 3000
+2025-12-22 17:07:07 [info]: 📡 WebSocket server ready
+2025-12-22 17:07:07 [info]: 🌍 Environment: development
+2025-12-22 17:07:07 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 17:10:53 [info]: ✅ Database connected
+2025-12-22 17:10:53 [info]: ✅ Redis connected
+2025-12-22 17:10:53 [info]: 🚀 Server running on port 3000
+2025-12-22 17:10:53 [info]: 📡 WebSocket server ready
+2025-12-22 17:10:53 [info]: 🌍 Environment: development
+2025-12-22 17:10:53 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 17:38:48 [info]: ✅ Database connected
+2025-12-22 17:38:48 [info]: ✅ Redis connected
+2025-12-22 17:38:48 [info]: 🚀 Server running on port 3000
+2025-12-22 17:38:48 [info]: 📡 WebSocket server ready
+2025-12-22 17:38:48 [info]: 🌍 Environment: development
+2025-12-22 17:38:48 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 17:51:16 [info]: ✅ Database connected
+2025-12-22 17:51:16 [info]: ✅ Redis connected
+2025-12-22 17:51:16 [info]: 🚀 Server running on port 3000
+2025-12-22 17:51:16 [info]: 📡 WebSocket server ready
+2025-12-22 17:51:16 [info]: 🌍 Environment: development
+2025-12-22 17:51:16 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-22 21:53:49 [info]: ✅ Database connected
+2025-12-22 21:53:49 [info]: ✅ Redis connected
+2025-12-22 21:53:49 [info]: 🚀 Server running on port 3000
+2025-12-22 21:53:49 [info]: 📡 WebSocket server ready
+2025-12-22 21:53:49 [info]: 🌍 Environment: development
+2025-12-22 21:53:49 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-24 22:59:15 [info]: ✅ Database connected
+2025-12-24 22:59:15 [info]: ✅ Redis connected
+2025-12-24 22:59:15 [info]: 🚀 Server running on port 3000
+2025-12-24 22:59:15 [info]: 📡 WebSocket server ready
+2025-12-24 22:59:15 [info]: 🌍 Environment: development
+2025-12-24 22:59:15 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-24 22:59:36 [info]: ✅ Database connected
+2025-12-24 23:03:05 [info]: ✅ Database connected
+2025-12-24 23:28:14 [info]: ✅ Database connected
+2025-12-25 01:18:56 [info]: ✅ Database connected
+2025-12-25 01:29:42 [info]: ✅ Database connected
+2025-12-25 01:36:05 [info]: ✅ Database connected
+2025-12-25 01:58:33 [info]: ✅ Database connected
+2025-12-25 02:01:50 [info]: ✅ Database connected
+2025-12-25 02:05:01 [info]: ✅ Database connected
+2025-12-25 02:08:48 [info]: ✅ Database connected
+2025-12-25 02:11:35 [info]: ✅ Database connected
+2025-12-25 02:24:41 [info]: ✅ Database connected
+2025-12-25 02:26:58 [info]: ✅ Database connected
+2025-12-25 02:28:30 [info]: ✅ Database connected
+2025-12-25 02:30:38 [info]: ✅ Database connected
+2025-12-25 02:32:23 [info]: ✅ Database connected
+2025-12-25 02:33:34 [info]: ✅ Database connected
+2025-12-25 02:44:32 [info]: ✅ Database connected
+2025-12-25 02:49:00 [info]: ✅ Database connected
+2025-12-25 02:51:55 [info]: ✅ Database connected
+2025-12-25 02:52:09 [info]: ✅ Database connected
+2025-12-25 02:56:29 [info]: ✅ Database connected
+2025-12-25 02:56:29 [info]: ✅ Redis connected
+2025-12-25 02:56:29 [info]: 🚀 Server running on port 3000
+2025-12-25 02:56:29 [info]: 📡 WebSocket server ready
+2025-12-25 02:56:29 [info]: 🌍 Environment: development
+2025-12-25 02:56:29 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-25 03:09:23 [info]: ✅ Database connected
+2025-12-25 03:09:23 [info]: ✅ Redis connected
+2025-12-25 03:09:23 [info]: 🚀 Server running on port 3000
+2025-12-25 03:09:23 [info]: 📡 WebSocket server ready
+2025-12-25 03:09:23 [info]: 🌍 Environment: development
+2025-12-25 03:09:23 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-25 03:13:17 [info]: ✅ Database connected
+2025-12-25 03:13:17 [info]: ✅ Redis connected
+2025-12-25 03:13:17 [info]: 🚀 Server running on port 3000
+2025-12-25 03:13:17 [info]: 📡 WebSocket server ready
+2025-12-25 03:13:17 [info]: 🌍 Environment: development
+2025-12-25 03:13:17 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-25 04:08:05 [info]: ✅ Database connected
+2025-12-25 04:08:05 [info]: ✅ Redis connected
+2025-12-25 04:08:05 [info]: 🚀 Server running on port 3000
+2025-12-25 04:08:05 [info]: 📡 WebSocket server ready
+2025-12-25 04:08:05 [info]: 🌍 Environment: development
+2025-12-25 04:08:05 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-25 04:10:22 [info]: ✅ Database connected
+2025-12-25 04:10:22 [info]: ✅ Redis connected
+2025-12-25 04:10:22 [info]: 🚀 Server running on port 3000
+2025-12-25 04:10:22 [info]: 📡 WebSocket server ready
+2025-12-25 04:10:22 [info]: 🌍 Environment: development
+2025-12-25 04:10:22 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-26 00:07:10 [info]: ✅ Database connected
+2025-12-26 00:07:10 [info]: ✅ Redis connected
+2025-12-26 00:07:10 [info]: 🚀 Server running on port 3000
+2025-12-26 00:07:10 [info]: 📡 WebSocket server ready
+2025-12-26 00:07:10 [info]: 🌍 Environment: development
+2025-12-26 00:07:10 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 04:56:43 [info]: ✅ Database connected
+2025-12-27 04:56:43 [info]: ✅ Redis connected
+2025-12-27 04:56:43 [info]: 🚀 Server running on port 3000
+2025-12-27 04:56:43 [info]: 📡 WebSocket server ready
+2025-12-27 04:56:43 [info]: 🌍 Environment: development
+2025-12-27 04:56:43 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 04:57:45 [info]: ✅ Database connected
+2025-12-27 04:58:15 [info]: ✅ Database connected
+2025-12-27 04:58:15 [info]: ✅ Redis connected
+2025-12-27 04:58:15 [info]: 🚀 Server running on port 3000
+2025-12-27 04:58:15 [info]: 📡 WebSocket server ready
+2025-12-27 04:58:15 [info]: 🌍 Environment: development
+2025-12-27 04:58:15 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 05:03:39 [info]: ✅ Database connected
+2025-12-27 05:05:22 [info]: ✅ Database connected
+2025-12-27 05:05:27 [info]: ✅ Database connected
+2025-12-27 05:08:50 [info]: ✅ Database connected
+2025-12-27 05:08:50 [info]: ✅ Redis connected
+2025-12-27 05:08:50 [info]: 🚀 Server running on port 3000
+2025-12-27 05:08:50 [info]: 📡 WebSocket server ready
+2025-12-27 05:08:50 [info]: 🌍 Environment: development
+2025-12-27 05:08:50 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 05:13:34 [info]: ✅ Database connected
+2025-12-27 05:13:55 [info]: ✅ Database connected
+2025-12-27 05:16:29 [info]: ✅ Database connected
+2025-12-27 05:18:01 [info]: ✅ Database connected
+2025-12-27 05:18:01 [info]: ✅ Redis connected
+2025-12-27 05:18:01 [info]: 🚀 Server running on port 3000
+2025-12-27 05:18:01 [info]: 📡 WebSocket server ready
+2025-12-27 05:18:01 [info]: 🌍 Environment: development
+2025-12-27 05:18:01 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 05:18:52 [info]: ✅ Database connected
+2025-12-27 05:18:52 [info]: ✅ Redis connected
+2025-12-27 05:18:52 [info]: 🚀 Server running on port 3000
+2025-12-27 05:18:52 [info]: 📡 WebSocket server ready
+2025-12-27 05:18:52 [info]: 🌍 Environment: development
+2025-12-27 05:18:52 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 06:13:49 [info]: ✅ Database connected
+2025-12-27 06:13:49 [info]: ✅ Redis connected
+2025-12-27 06:13:49 [info]: 🚀 Server running on port 3000
+2025-12-27 06:13:49 [info]: 📡 WebSocket server ready
+2025-12-27 06:13:49 [info]: 🌍 Environment: development
+2025-12-27 06:13:49 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 16:19:03 [info]: ✅ Database connected
+2025-12-27 16:19:03 [info]: ✅ Redis connected
+2025-12-27 16:19:03 [info]: 🚀 Server running on port 3000
+2025-12-27 16:19:03 [info]: 📡 WebSocket server ready
+2025-12-27 16:19:03 [info]: 🌍 Environment: development
+2025-12-27 16:19:03 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 16:35:24 [info]: ✅ Database connected
+2025-12-27 16:35:24 [info]: 🔄 Running database migrations...
+2025-12-27 16:35:24 [info]: ✅ Migrations completed
+2025-12-27 16:35:24 [info]: 🔍 Validating database schema...
+2025-12-27 16:35:24 [info]: ✅ Schema validation passed
+2025-12-27 16:35:24 [info]: ✅ Redis connected
+2025-12-27 16:35:24 [info]: 🚀 Server running on port 3000
+2025-12-27 16:35:24 [info]: 📡 WebSocket server ready
+2025-12-27 16:35:24 [info]: 🌍 Environment: development
+2025-12-27 16:35:24 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 16:55:08 [info]: ✅ Database connected
+2025-12-27 16:55:08 [info]: 🔄 Running database migrations...
+2025-12-27 16:55:09 [info]: ✅ Migrations completed
+2025-12-27 16:55:09 [info]: 🔍 Validating database schema...
+2025-12-27 16:55:09 [info]: ✅ Schema validation passed
+2025-12-27 16:55:09 [info]: ✅ Redis connected
+2025-12-27 16:55:09 [info]: 🚀 Server running on port 3000
+2025-12-27 16:55:09 [info]: 📡 WebSocket server ready
+2025-12-27 16:55:09 [info]: 🌍 Environment: development
+2025-12-27 16:55:09 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 16:55:54 [error]: [Pixels] Tiles save error:
+TypeError: redis.hset is not a function
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/pixels.js:1084:25
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":"redis.hset is not a function","territoryId":"adrar","userId":"bsWpkiRGJNhFuqxABQ4ewTuH5ca2","tilesCount":4}
+2025-12-27 17:00:49 [info]: ✅ Database connected
+2025-12-27 17:00:49 [info]: 🔄 Running database migrations...
+2025-12-27 17:00:49 [info]: ✅ Migrations completed
+2025-12-27 17:00:49 [info]: 🔍 Validating database schema...
+2025-12-27 17:00:49 [info]: ✅ Schema validation passed
+2025-12-27 17:00:49 [info]: ✅ Redis connected
+2025-12-27 17:00:49 [info]: 🚀 Server running on port 3000
+2025-12-27 17:00:49 [info]: 📡 WebSocket server ready
+2025-12-27 17:00:49 [info]: 🌍 Environment: development
+2025-12-27 17:00:49 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 17:03:05 [error]: [Pixels] Tiles save error:
+TypeError: redis.hset is not a function
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/pixels.js:1100:25
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":"redis.hset is not a function","territoryId":"tamanghasset","userId":"bsWpkiRGJNhFuqxABQ4ewTuH5ca2","tilesCount":4}
+2025-12-27 17:15:55 [info]: ✅ Database connected
+2025-12-27 17:15:55 [info]: 🔄 Running database migrations...
+2025-12-27 17:15:55 [info]: ✅ Migrations completed
+2025-12-27 17:15:55 [info]: 🔍 Validating database schema...
+2025-12-27 17:15:55 [info]: ✅ Schema validation passed
+2025-12-27 17:15:55 [info]: ✅ Redis connected
+2025-12-27 17:15:55 [info]: 🚀 Server running on port 3000
+2025-12-27 17:15:55 [info]: 📡 WebSocket server ready
+2025-12-27 17:15:55 [info]: 🌍 Environment: development
+2025-12-27 17:15:55 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 17:16:10 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823370428-yvtdgrfqg","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:10 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823370428-yvtdgrfqg","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":0,"filledPixels":0,"revision":21,"dataType":"object"}
+2025-12-27 17:16:35 [error]: [Pixels] Tiles save error:
+TypeError: redis.hset is not a function
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/pixels.js:1244:25
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":"redis.hset is not a function","territoryId":"tamanghasset","userId":"bsWpkiRGJNhFuqxABQ4ewTuH5ca2","tilesCount":7}
+2025-12-27 17:16:35 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766823395367-162kp6dky","territoryIdRaw":"tamanghasset","contentLength":35225,"payloadPixelsLen":463,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-27 17:16:35 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766823395367-162kp6dky","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:35 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766823395367-162kp6dky","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":463,"finalPixelsLen":463,"finalWidth":128,"finalHeight":128,"revisionToWrite":22,"incomingRevision":21,"isDelta":false}
+2025-12-27 17:16:35 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766823395367-162kp6dky","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":463,"finalPixelsLen":463,"verifiedPixelsLen":463,"storedRevision":22,"updatedAt":"2025-12-27T08:16:35.467Z"}
+2025-12-27 17:16:35 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823395914-csl3zhcq8","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:35 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823395973-z6bnybr6b","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:36 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823395914-csl3zhcq8","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":463,"filledPixels":463,"revision":22,"dataType":"object"}
+2025-12-27 17:16:36 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823396020-r5egklji6","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:36 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823396020-r5egklji6","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":463,"filledPixels":463,"revision":22,"dataType":"object"}
+2025-12-27 17:16:36 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823395973-z6bnybr6b","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":463,"filledPixels":463,"revision":22,"dataType":"object"}
+2025-12-27 17:16:50 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823410478-vhc3t40mo","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:50 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823410478-vhc3t40mo","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":463,"filledPixels":463,"revision":22,"dataType":"object"}
+2025-12-27 17:16:51 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823411953-8vqnstaov","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:16:52 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823411953-8vqnstaov","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":463,"filledPixels":463,"revision":22,"dataType":"object"}
+2025-12-27 17:19:55 [info]: ✅ Database connected
+2025-12-27 17:19:55 [info]: 🔄 Running database migrations...
+2025-12-27 17:19:55 [info]: ✅ Migrations completed
+2025-12-27 17:19:55 [info]: 🔍 Validating database schema...
+2025-12-27 17:19:55 [info]: ✅ Schema validation passed
+2025-12-27 17:19:55 [info]: ✅ Redis connected
+2025-12-27 17:19:55 [info]: 🚀 Server running on port 3000
+2025-12-27 17:19:55 [info]: 📡 WebSocket server ready
+2025-12-27 17:19:55 [info]: 🌍 Environment: development
+2025-12-27 17:19:55 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 17:20:41 [info]: [Pixels] 🔍 POST /tiles START {"reqId":"tiles-1766823641097-i8an2jbh6","territoryIdRaw":"tamanghasset","contentLength":6243,"tilesCount":3,"bodyKeys":["tiles"],"tilesType":"object","tilesIsArray":true,"tilesSample":{"tileId":"tamanghasset:2:6","pixels":[{"x":38,"y":96,"color":"#ff0000"},{"x":39,"y":96,"color":"#ff0000"},{"x":40,"y":96,"color":"#ff0000"},{"x":41,"y":96,"color":"#ff0000"},{"x":42,"y":96,"color":"#ff0000"},{"x":43,"y":96,"color":"#ff0000"},{"x":44,"y":96,"color":"#ff0000"},{"x":37,"y":97,"color":"#ff0000"},{"x":38,"y":97,"color":"#ff0000"},{"x":39,"y":97,"color":"#ff0000"},{"x":40,"y":97,"color":"#ff0000"},{"x":41,"y":97,"color":"#ff0000"},{"x":42,"y":97,"color":"#ff0000"},{"x":43,"y":97,"color":"#ff0000"},{"x":44,"y":97,"color":"#ff0000"},{"x":36,"y":98,"color":"#ff0000"},{"x":37,"y":98,"color":"#ff0000"},{"x":38,"y":98,"color":"#ff0000"},{"x":43,"y":98,"color":"#ff0000"},{"x":44,"y":98,"color":"#ff0000"},{"x":45,"y":98,"color":"#ff0000"},{"x":35,"y":99,"color":"#ff0000"},{"x":36,"y":99,"color":"#ff0000"},{"x":37,"y":99,"color":"#ff0000"},{"x":43,"y":99,"color":"#ff0000"},{"x":44,"y":99,"color":"#ff0000"},{"x":45,"y":99,"color":"#ff0000"},{"x":34,"y":100,"color":"#ff0000"},{"x":35,"y":100,"color":"#ff0000"},{"x":36,"y":100,"color":"#ff0000"},{"x":37,"y":100,"color":"#ff0000"},{"x":43,"y":100,"color":"#ff0000"},{"x":44,"y":100,"color":"#ff0000"},{"x":45,"y":100,"color":"#ff0000"},{"x":46,"y":100,"color":"#ff0000"},{"x":47,"y":100,"color":"#ff0000"},{"x":34,"y":101,"color":"#ff0000"},{"x":35,"y":101,"color":"#ff0000"},{"x":36,"y":101,"color":"#ff0000"},{"x":44,"y":101,"color":"#ff0000"},{"x":45,"y":101,"color":"#ff0000"},{"x":46,"y":101,"color":"#ff0000"},{"x":47,"y":101,"color":"#ff0000"},{"x":34,"y":102,"color":"#ff0000"},{"x":35,"y":102,"color":"#ff0000"},{"x":36,"y":102,"color":"#ff0000"},{"x":44,"y":102,"color":"#ff0000"},{"x":45,"y":102,"color":"#ff0000"},{"x":46,"y":102,"color":"#ff0000"},{"x":47,"y":102,"color":"#ff0000"},{"x":34,"y":103,"color":"#ff0000"},{"x":35,"y":103,"color":"#ff0000"},{"x":36,"y":103,"color":"#ff0000"},{"x":44,"y":103,"color":"#ff0000"},{"x":45,"y":103,"color":"#ff0000"},{"x":46,"y":103,"color":"#ff0000"},{"x":47,"y":103,"color":"#ff0000"},{"x":34,"y":104,"color":"#ff0000"},{"x":35,"y":104,"color":"#ff0000"},{"x":36,"y":104,"color":"#ff0000"},{"x":44,"y":104,"color":"#ff0000"},{"x":45,"y":104,"color":"#ff0000"},{"x":46,"y":104,"color":"#ff0000"},{"x":47,"y":104,"color":"#ff0000"},{"x":34,"y":105,"color":"#ff0000"},{"x":35,"y":105,"color":"#ff0000"},{"x":36,"y":105,"color":"#ff0000"},{"x":44,"y":105,"color":"#ff0000"},{"x":45,"y":105,"color":"#ff0000"},{"x":46,"y":105,"color":"#ff0000"},{"x":34,"y":106,"color":"#ff0000"},{"x":35,"y":106,"color":"#ff0000"},{"x":36,"y":106,"color":"#ff0000"},{"x":44,"y":106,"color":"#ff0000"},{"x":45,"y":106,"color":"#ff0000"},{"x":46,"y":106,"color":"#ff0000"},{"x":35,"y":107,"color":"#ff0000"},{"x":36,"y":107,"color":"#ff0000"},{"x":37,"y":107,"color":"#ff0000"},{"x":44,"y":107,"color":"#ff0000"},{"x":45,"y":107,"color":"#ff0000"},{"x":46,"y":107,"color":"#ff0000"},{"x":35,"y":108,"color":"#ff0000"},{"x":36,"y":108,"color":"#ff0000"},{"x":37,"y":108,"color":"#ff0000"},{"x":44,"y":108,"color":"#ff0000"},{"x":45,"y":108,"color":"#ff0000"},{"x":46,"y":108,"color":"#ff0000"},{"x":35,"y":109,"color":"#ff0000"},{"x":36,"y":109,"color":"#ff0000"},{"x":37,"y":109,"color":"#ff0000"},{"x":45,"y":109,"color":"#ff0000"},{"x":35,"y":110,"color":"#ff0000"},{"x":36,"y":110,"color":"#ff0000"},{"x":37,"y":110,"color":"#ff0000"},{"x":35,"y":111,"color":"#ff0000"},{"x":36,"y":111,"color":"#ff0000"},{"x":37,"y":111,"color":"#ff0000"},{"x":38,"y":111,"color":"#ff0000"}],"revision":0}}
+2025-12-27 17:20:41 [error]: [Pixels] ❌ Tiles save error (detailed):
+TypeError: redis.hset is not a function
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/pixels.js:1263:25
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"reqId":"tiles-1766823641097-i8an2jbh6","territoryId":"tamanghasset","bodyKeys":["tiles"],"tilesCount":3,"userId":"bsWpkiRGJNhFuqxABQ4ewTuH5ca2","error":"redis.hset is not a function","name":"TypeError"}
+2025-12-27 17:20:41 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766823641464-ol9zesrpx","territoryIdRaw":"tamanghasset","contentLength":52352,"payloadPixelsLen":686,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-27 17:20:41 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766823641464-ol9zesrpx","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:41 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766823641464-ol9zesrpx","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":686,"finalPixelsLen":686,"finalWidth":128,"finalHeight":128,"revisionToWrite":23,"incomingRevision":22,"isDelta":false}
+2025-12-27 17:20:41 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766823641464-ol9zesrpx","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":686,"finalPixelsLen":686,"verifiedPixelsLen":686,"storedRevision":23,"updatedAt":"2025-12-27T08:20:41.642Z"}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823642202-cwl76zd2e","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823642241-tpccx3cyn","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823642202-cwl76zd2e","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":686,"filledPixels":686,"revision":23,"dataType":"object"}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823642249-1lo1zxi7l","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823642249-1lo1zxi7l","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":686,"filledPixels":686,"revision":23,"dataType":"object"}
+2025-12-27 17:20:42 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823642241-tpccx3cyn","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":686,"filledPixels":686,"revision":23,"dataType":"object"}
+2025-12-27 17:20:47 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823647271-5j6bc84v6","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:47 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823647271-5j6bc84v6","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":686,"filledPixels":686,"revision":23,"dataType":"object"}
+2025-12-27 17:20:48 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823648186-uz3hctwsc","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:20:48 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823648186-uz3hctwsc","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":686,"filledPixels":686,"revision":23,"dataType":"object"}
+2025-12-27 17:24:02 [info]: [Pixels] 🔍 POST /tiles START {"reqId":"tiles-1766823842481-gxd3fd8qw","territoryIdRaw":"tamanghasset","contentLength":3751,"tilesCount":3,"bodyKeys":["tiles"],"tilesType":"object","tilesIsArray":true,"tilesSample":{"tileId":"tamanghasset:5:4","pixels":[{"x":91,"y":72,"color":"#ff8080"},{"x":85,"y":73,"color":"#ff8080"},{"x":86,"y":73,"color":"#ff8080"},{"x":90,"y":73,"color":"#ff8080"},{"x":91,"y":73,"color":"#ff8080"},{"x":92,"y":73,"color":"#ff8080"},{"x":84,"y":74,"color":"#ff8080"},{"x":85,"y":74,"color":"#ff8080"},{"x":86,"y":74,"color":"#ff8080"},{"x":87,"y":74,"color":"#ff8080"},{"x":90,"y":74,"color":"#ff8080"},{"x":91,"y":74,"color":"#ff8080"},{"x":92,"y":74,"color":"#ff8080"},{"x":80,"y":75,"color":"#ff8080"},{"x":84,"y":75,"color":"#ff8080"},{"x":85,"y":75,"color":"#ff8080"},{"x":86,"y":75,"color":"#ff8080"},{"x":90,"y":75,"color":"#ff8080"},{"x":91,"y":75,"color":"#ff8080"},{"x":92,"y":75,"color":"#ff8080"},{"x":93,"y":75,"color":"#ff8080"},{"x":80,"y":76,"color":"#ff8080"},{"x":81,"y":76,"color":"#ff8080"},{"x":83,"y":76,"color":"#ff8080"},{"x":84,"y":76,"color":"#ff8080"},{"x":85,"y":76,"color":"#ff8080"},{"x":91,"y":76,"color":"#ff8080"},{"x":92,"y":76,"color":"#ff8080"},{"x":93,"y":76,"color":"#ff8080"},{"x":95,"y":76,"color":"#ff8080"},{"x":80,"y":77,"color":"#ff8080"},{"x":81,"y":77,"color":"#ff8080"},{"x":83,"y":77,"color":"#ff8080"},{"x":84,"y":77,"color":"#ff8080"},{"x":85,"y":77,"color":"#ff8080"},{"x":91,"y":77,"color":"#ff8080"},{"x":92,"y":77,"color":"#ff8080"},{"x":93,"y":77,"color":"#ff8080"},{"x":95,"y":77,"color":"#ff8080"},{"x":80,"y":78,"color":"#ff8080"},{"x":81,"y":78,"color":"#ff8080"},{"x":82,"y":78,"color":"#ff8080"},{"x":83,"y":78,"color":"#ff8080"},{"x":84,"y":78,"color":"#ff8080"},{"x":91,"y":78,"color":"#ff8080"},{"x":92,"y":78,"color":"#ff8080"},{"x":93,"y":78,"color":"#ff8080"},{"x":94,"y":78,"color":"#ff8080"},{"x":95,"y":78,"color":"#ff8080"},{"x":80,"y":79,"color":"#ff8080"},{"x":81,"y":79,"color":"#ff8080"},{"x":82,"y":79,"color":"#ff8080"},{"x":83,"y":79,"color":"#ff8080"},{"x":91,"y":79,"color":"#ff8080"},{"x":92,"y":79,"color":"#ff8080"},{"x":93,"y":79,"color":"#ff8080"},{"x":94,"y":79,"color":"#ff8080"},{"x":95,"y":79,"color":"#ff8080"}],"revision":0}}
+2025-12-27 17:24:02 [error]: [Pixels] ❌ Tiles save error (detailed):
+TypeError: redis.hset is not a function
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/pixels.js:1263:25
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"reqId":"tiles-1766823842481-gxd3fd8qw","territoryId":"tamanghasset","bodyKeys":["tiles"],"tilesCount":3,"userId":"bsWpkiRGJNhFuqxABQ4ewTuH5ca2","error":"redis.hset is not a function","name":"TypeError"}
+2025-12-27 17:24:02 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766823842845-bkyoa1zz1","territoryIdRaw":"tamanghasset","contentLength":60644,"payloadPixelsLen":795,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-27 17:24:02 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766823842845-bkyoa1zz1","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766823842845-bkyoa1zz1","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":795,"finalPixelsLen":795,"finalWidth":128,"finalHeight":128,"revisionToWrite":24,"incomingRevision":23,"isDelta":false}
+2025-12-27 17:24:03 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766823842845-bkyoa1zz1","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":795,"finalPixelsLen":795,"verifiedPixelsLen":795,"storedRevision":24,"updatedAt":"2025-12-27T08:24:03.025Z"}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823843603-saqmhxj0l","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823843603-saqmhxj0l","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":795,"filledPixels":795,"revision":24,"dataType":"object"}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823843701-wi56q9ywa","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823843701-wi56q9ywa","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":795,"filledPixels":795,"revision":24,"dataType":"object"}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823843750-c354ygmo9","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:24:03 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823843750-c354ygmo9","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":795,"filledPixels":795,"revision":24,"dataType":"object"}
+2025-12-27 17:25:19 [info]: ✅ Database connected
+2025-12-27 17:25:19 [info]: 🔄 Running database migrations...
+2025-12-27 17:25:19 [info]: ✅ Migrations completed
+2025-12-27 17:25:19 [info]: 🔍 Validating database schema...
+2025-12-27 17:25:19 [info]: ✅ Schema validation passed
+2025-12-27 17:25:19 [info]: ✅ Redis connected
+2025-12-27 17:25:19 [info]: 🚀 Server running on port 3000
+2025-12-27 17:25:19 [info]: 📡 WebSocket server ready
+2025-12-27 17:25:19 [info]: 🌍 Environment: development
+2025-12-27 17:25:19 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-27 17:26:02 [info]: [Pixels] 🔍 POST /tiles START {"reqId":"tiles-1766823962037-78xbnwlw2","territoryIdRaw":"tamanghasset","contentLength":3845,"tilesCount":3,"bodyKeys":["tiles"],"tilesType":"object","tilesIsArray":true,"tilesSample":{"tileId":"tamanghasset:1:1","pixels":[{"x":18,"y":16,"color":"#4f72f3"},{"x":19,"y":16,"color":"#4f72f3"},{"x":20,"y":16,"color":"#4f72f3"},{"x":21,"y":16,"color":"#4f72f3"},{"x":22,"y":16,"color":"#4f72f3"},{"x":17,"y":17,"color":"#4f72f3"},{"x":18,"y":17,"color":"#4f72f3"},{"x":19,"y":17,"color":"#4f72f3"},{"x":20,"y":17,"color":"#4f72f3"},{"x":21,"y":17,"color":"#4f72f3"},{"x":22,"y":17,"color":"#4f72f3"},{"x":23,"y":17,"color":"#4f72f3"},{"x":17,"y":18,"color":"#4f72f3"},{"x":18,"y":18,"color":"#4f72f3"},{"x":19,"y":18,"color":"#4f72f3"},{"x":21,"y":18,"color":"#4f72f3"},{"x":22,"y":18,"color":"#4f72f3"},{"x":23,"y":18,"color":"#4f72f3"},{"x":16,"y":19,"color":"#4f72f3"},{"x":17,"y":19,"color":"#4f72f3"},{"x":18,"y":19,"color":"#4f72f3"},{"x":21,"y":19,"color":"#4f72f3"},{"x":22,"y":19,"color":"#4f72f3"},{"x":23,"y":19,"color":"#4f72f3"},{"x":31,"y":19,"color":"#4f72f3"},{"x":16,"y":20,"color":"#4f72f3"},{"x":17,"y":20,"color":"#4f72f3"},{"x":21,"y":20,"color":"#4f72f3"},{"x":22,"y":20,"color":"#4f72f3"},{"x":23,"y":20,"color":"#4f72f3"},{"x":30,"y":20,"color":"#4f72f3"},{"x":31,"y":20,"color":"#4f72f3"},{"x":16,"y":21,"color":"#4f72f3"},{"x":17,"y":21,"color":"#4f72f3"},{"x":22,"y":21,"color":"#4f72f3"},{"x":23,"y":21,"color":"#4f72f3"},{"x":24,"y":21,"color":"#4f72f3"},{"x":29,"y":21,"color":"#4f72f3"},{"x":30,"y":21,"color":"#4f72f3"},{"x":31,"y":21,"color":"#4f72f3"},{"x":16,"y":22,"color":"#4f72f3"},{"x":23,"y":22,"color":"#4f72f3"},{"x":29,"y":22,"color":"#4f72f3"},{"x":30,"y":22,"color":"#4f72f3"},{"x":31,"y":22,"color":"#4f72f3"},{"x":28,"y":23,"color":"#4f72f3"},{"x":29,"y":23,"color":"#4f72f3"},{"x":30,"y":23,"color":"#4f72f3"},{"x":27,"y":24,"color":"#4f72f3"},{"x":28,"y":24,"color":"#4f72f3"},{"x":29,"y":24,"color":"#4f72f3"},{"x":30,"y":24,"color":"#4f72f3"},{"x":28,"y":25,"color":"#4f72f3"},{"x":29,"y":25,"color":"#4f72f3"}],"revision":0}}
+2025-12-27 17:26:02 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766823962902-6nnhbx85j","territoryIdRaw":"tamanghasset","contentLength":69764,"payloadPixelsLen":915,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-27 17:26:02 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766823962902-6nnhbx85j","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:02 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823962952-4z3nuiuuj","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:03 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823962952-4z3nuiuuj","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":795,"filledPixels":795,"revision":24,"dataType":"object"}
+2025-12-27 17:26:03 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766823962902-6nnhbx85j","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":915,"finalPixelsLen":915,"finalWidth":128,"finalHeight":128,"revisionToWrite":25,"incomingRevision":24,"isDelta":false}
+2025-12-27 17:26:03 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766823962902-6nnhbx85j","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":915,"finalPixelsLen":915,"verifiedPixelsLen":915,"storedRevision":25,"updatedAt":"2025-12-27T08:26:03.182Z"}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823964078-wakpcnld8","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823964105-hzcgzm49b","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823964117-377v4lxn3","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823964078-wakpcnld8","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823964105-hzcgzm49b","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-27 17:26:04 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823964117-377v4lxn3","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-27 17:26:06 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823966655-6t4rsc395","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:06 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823966655-6t4rsc395","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-27 17:26:08 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766823968139-81mwle5hk","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-27 17:26:08 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766823968139-81mwle5hk","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-28 01:03:29 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766851409315-82hunw8l6","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:03:29 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766851409343-dmxwp67xy","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:03:29 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766851409315-82hunw8l6","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-28 01:03:29 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766851409343-dmxwp67xy","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-28 01:23:36 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766852616802-ud6v24ir1","territoryIdRaw":"adrar","territoryIdNormalized":"adrar","redisKey":"pixel_data:adrar","wasDisplayId":false}
+2025-12-28 01:23:36 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766852616823-adkg95cni","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:23:36 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766852616802-ud6v24ir1","territoryId":"adrar","redisKey":"pixel_data:adrar","hasData":true,"pixelsLength":385,"filledPixels":385,"revision":42,"dataType":"object"}
+2025-12-28 01:23:36 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766852616823-adkg95cni","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":915,"filledPixels":915,"revision":25,"dataType":"object"}
+2025-12-28 01:30:46 [info]: [Pixels] 🔍 POST /tiles START {"reqId":"tiles-1766853046649-132lmsc5c","territoryIdRaw":"tamanghasset","contentLength":16953,"tilesCount":9,"bodyKeys":["tiles"],"tilesType":"object","tilesIsArray":true,"tilesSample":{"tileId":"tamanghasset:4:3","pixels":[{"x":64,"y":60,"color":"#f37100"},{"x":65,"y":60,"color":"#f37100"},{"x":64,"y":61,"color":"#f37100"},{"x":65,"y":61,"color":"#f37100"},{"x":64,"y":62,"color":"#f37100"},{"x":65,"y":62,"color":"#f37100"},{"x":69,"y":62,"color":"#f47100"},{"x":64,"y":63,"color":"#f37100"},{"x":65,"y":63,"color":"#f37100"},{"x":68,"y":63,"color":"#f37100"},{"x":69,"y":63,"color":"#f37100"},{"x":70,"y":63,"color":"#f37100"}],"revision":0}}
+2025-12-28 01:30:49 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766853049430-zez50dtio","territoryIdRaw":"tamanghasset","contentLength":41661,"payloadPixelsLen":484,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-28 01:30:49 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766853049430-zez50dtio","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:49 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766853049430-zez50dtio","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":484,"finalPixelsLen":484,"finalWidth":128,"finalHeight":128,"revisionToWrite":26,"incomingRevision":25,"isDelta":false}
+2025-12-28 01:30:49 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766853049430-zez50dtio","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":484,"finalPixelsLen":484,"verifiedPixelsLen":484,"storedRevision":26,"updatedAt":"2025-12-27T16:30:49.674Z"}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853050147-0isd295vv","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853050184-n3rwau3tz","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853050147-0isd295vv","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853050192-lcr6jr3pt","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853050184-n3rwau3tz","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:50 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853050192-lcr6jr3pt","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853051410-bib9ou3cj","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853051440-akbw1smot","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853051563-3pdfk0bdb","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766853051566-tkiuch8r3","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853051563-3pdfk0bdb","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853051566-tkiuch8r3","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853051410-bib9ou3cj","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:30:51 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766853051440-akbw1smot","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":484,"filledPixels":484,"revision":26,"dataType":"object"}
+2025-12-28 01:48:19 [info]: [Pixels] 🔍 POST /tiles START {"reqId":"tiles-1766854099774-p9027kcan","territoryIdRaw":"tamanghasset","contentLength":18245,"tilesCount":9,"bodyKeys":["tiles"],"tilesType":"object","tilesIsArray":true,"tilesSample":{"tileId":"tamanghasset:4:4","pixels":[{"x":72,"y":65,"color":"#f37000"},{"x":73,"y":65,"color":"#f37100"},{"x":72,"y":66,"color":"#f37100"},{"x":73,"y":66,"color":"#f37100"},{"x":74,"y":66,"color":"#f37100"},{"x":67,"y":67,"color":"#f47100"},{"x":68,"y":67,"color":"#f47100"},{"x":72,"y":67,"color":"#f37100"},{"x":73,"y":67,"color":"#f37100"},{"x":74,"y":67,"color":"#f37000"},{"x":67,"y":68,"color":"#f37100"},{"x":68,"y":68,"color":"#f37100"},{"x":69,"y":68,"color":"#f37100"},{"x":72,"y":68,"color":"#f37000"},{"x":73,"y":68,"color":"#f37100"},{"x":74,"y":68,"color":"#f47000"},{"x":78,"y":68,"color":"#f37100"},{"x":79,"y":68,"color":"#f37100"},{"x":67,"y":69,"color":"#f37100"},{"x":68,"y":69,"color":"#f37100"},{"x":69,"y":69,"color":"#f37100"},{"x":70,"y":69,"color":"#f37000"},{"x":72,"y":69,"color":"#f47100"},{"x":73,"y":69,"color":"#f37100"},{"x":74,"y":69,"color":"#f37100"},{"x":77,"y":69,"color":"#f37100"},{"x":78,"y":69,"color":"#f37100"},{"x":79,"y":69,"color":"#f37000"},{"x":68,"y":70,"color":"#f37100"},{"x":69,"y":70,"color":"#f37100"},{"x":70,"y":70,"color":"#f37100"},{"x":72,"y":70,"color":"#f27100"},{"x":73,"y":70,"color":"#f37100"},{"x":74,"y":70,"color":"#f37000"},{"x":76,"y":70,"color":"#f37100"},{"x":77,"y":70,"color":"#f37100"},{"x":78,"y":70,"color":"#f47000"},{"x":69,"y":71,"color":"#f37100"},{"x":70,"y":71,"color":"#f37100"},{"x":71,"y":71,"color":"#f37100"},{"x":72,"y":71,"color":"#f37000"},{"x":73,"y":71,"color":"#f37100"},{"x":75,"y":71,"color":"#f37100"},{"x":76,"y":71,"color":"#f37100"},{"x":77,"y":71,"color":"#f37100"},{"x":70,"y":72,"color":"#f37100"},{"x":71,"y":72,"color":"#f37100"},{"x":72,"y":72,"color":"#f37100"},{"x":73,"y":72,"color":"#f37100"},{"x":74,"y":72,"color":"#f37100"},{"x":75,"y":72,"color":"#f37100"},{"x":76,"y":72,"color":"#f37000"},{"x":71,"y":73,"color":"#f37100"},{"x":72,"y":73,"color":"#f37100"},{"x":73,"y":73,"color":"#f37100"},{"x":74,"y":73,"color":"#f37100"},{"x":75,"y":73,"color":"#f37100"},{"x":74,"y":74,"color":"#f37100"},{"x":75,"y":74,"color":"#f37100"},{"x":76,"y":74,"color":"#f37100"},{"x":77,"y":74,"color":"#f37100"},{"x":78,"y":74,"color":"#f37100"},{"x":79,"y":74,"color":"#f37100"},{"x":64,"y":75,"color":"#000000"},{"x":65,"y":75,"color":"#000000"},{"x":66,"y":75,"color":"#000000"},{"x":67,"y":75,"color":"#000000"},{"x":68,"y":75,"color":"#000000"},{"x":69,"y":75,"color":"#000000"},{"x":70,"y":75,"color":"#000000"},{"x":71,"y":75,"color":"#000000"},{"x":72,"y":75,"color":"#000000"},{"x":74,"y":75,"color":"#f37100"},{"x":75,"y":75,"color":"#f37000"},{"x":64,"y":76,"color":"#000000"},{"x":65,"y":76,"color":"#000000"},{"x":66,"y":76,"color":"#000000"},{"x":67,"y":76,"color":"#000000"},{"x":68,"y":76,"color":"#000000"},{"x":69,"y":76,"color":"#000000"},{"x":70,"y":76,"color":"#000000"},{"x":71,"y":76,"color":"#000000"},{"x":72,"y":76,"color":"#000000"},{"x":74,"y":76,"color":"#f37100"},{"x":75,"y":76,"color":"#f37100"},{"x":66,"y":77,"color":"#000000"},{"x":67,"y":77,"color":"#000000"},{"x":69,"y":77,"color":"#000000"},{"x":70,"y":77,"color":"#000000"},{"x":71,"y":77,"color":"#000000"},{"x":75,"y":77,"color":"#f37100"},{"x":76,"y":77,"color":"#f37100"},{"x":66,"y":78,"color":"#000000"},{"x":67,"y":78,"color":"#000000"},{"x":69,"y":78,"color":"#000000"},{"x":70,"y":78,"color":"#000000"},{"x":71,"y":78,"color":"#000000"},{"x":76,"y":78,"color":"#f37100"},{"x":77,"y":78,"color":"#f37100"},{"x":64,"y":79,"color":"#000000"},{"x":65,"y":79,"color":"#000000"},{"x":66,"y":79,"color":"#000000"},{"x":67,"y":79,"color":"#000000"},{"x":68,"y":79,"color":"#000000"},{"x":69,"y":79,"color":"#000000"},{"x":70,"y":79,"color":"#000000"},{"x":71,"y":79,"color":"#000000"},{"x":72,"y":79,"color":"#000000"},{"x":77,"y":79,"color":"#f37100"},{"x":78,"y":79,"color":"#f37100"}],"revision":0}}
+2025-12-28 01:48:20 [info]: [Pixels] 🔍 POST /pixels START {"reqId":"req-1766854100767-me0xznvdo","territoryIdRaw":"tamanghasset","contentLength":44929,"payloadPixelsLen":522,"payloadEncodedLen":0,"isDelta":false,"width":128,"height":128,"pixelsType":"object","pixelsIsArray":true,"bodyKeys":["pixels","width","height"]}
+2025-12-28 01:48:20 [info]: [Pixels] 🔍 Territory ID normalized {"reqId":"req-1766854100767-me0xznvdo","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:20 [info]: [Pixels] 🔍 Before save {"reqId":"req-1766854100767-me0xznvdo","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":522,"finalPixelsLen":522,"finalWidth":128,"finalHeight":128,"revisionToWrite":27,"incomingRevision":26,"isDelta":false}
+2025-12-28 01:48:21 [info]: [Pixels] ✅ Save completed {"reqId":"req-1766854100767-me0xznvdo","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","payloadPixelsLen":522,"finalPixelsLen":522,"verifiedPixelsLen":522,"storedRevision":27,"updatedAt":"2025-12-27T16:48:20.954Z"}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766854101542-zculburqc","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766854101542-zculburqc","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766854101634-0mnqea8jn","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766854101634-0mnqea8jn","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766854101684-hwhzs81qb","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:21 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766854101684-hwhzs81qb","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-28 01:48:23 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766854103257-fwkgy4bvu","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:23 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766854103281-80df5yd97","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-28 01:48:23 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766854103257-fwkgy4bvu","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-28 01:48:23 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766854103281-80df5yd97","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}

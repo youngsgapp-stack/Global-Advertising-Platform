@@ -98,7 +98,23 @@ router.post('/', async (req, res) => {
         
         const territory = territoryResult.rows[0];
         
-        // 2. 이미 활성 경매가 있는지 확인
+        // 2. 영토 상태 확인 - ruled, protected, 또는 unconquered 상태에서 경매 시작 가능
+        // ⚠️ 중요: Protected 상태에서도 경매 시작 가능
+        // 보호 기간은 소유권 보호용이며, 경매는 보호 기간 중에도 누구나 시작 가능
+        // contested 상태는 이미 경매가 진행 중이므로 불가
+        if (territory.status === 'contested') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Auction already in progress' });
+        }
+        
+        if (territory.status !== 'ruled' && territory.status !== 'protected' && territory.status !== 'unconquered') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                error: `Territory must be in ruled, protected, or unconquered status to start auction. Current status: ${territory.status}`
+            });
+        }
+        
+        // 5. 이미 활성 경매가 있는지 확인
         const existingAuctionResult = await client.query(
             `SELECT id FROM auctions 
              WHERE territory_id = $1 AND status = 'active'`,
@@ -110,7 +126,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Active auction already exists for this territory' });
         }
         
-        // 3. 사용자 정보 조회
+        // 6. 사용자 정보 조회
         let userId;
         const userResult = await client.query(
             `SELECT id FROM users WHERE firebase_uid = $1`,
@@ -130,7 +146,10 @@ router.post('/', async (req, res) => {
             userId = userResult.rows[0].id;
         }
         
-        // 4. 경매 종료 시간 결정
+        // 7. 소유자 확인 제거 - 보호 기간이 지나면 누구나 경매 시작 가능
+        // (Protected 상태는 이미 위에서 체크했으므로, 여기까지 오면 보호 기간이 지난 상태)
+        
+        // 8. 경매 종료 시간 결정
         let auctionEndTime = endTime;
         if (!auctionEndTime) {
             // 기본값: 24시간 후
@@ -138,7 +157,7 @@ router.post('/', async (req, res) => {
             auctionEndTime = endDate.toISOString();
         }
         
-        // 5. 경매 생성
+        // 9. 경매 생성
         const auctionResult = await client.query(
             `INSERT INTO auctions (
                 territory_id, 
@@ -164,7 +183,7 @@ router.post('/', async (req, res) => {
         
         const auction = auctionResult.rows[0];
         
-        // 6. 영토 상태 업데이트 (미점유 영토인 경우 CONTESTED로 변경)
+        // 10. 영토 상태 업데이트 (미점유 영토인 경우 CONTESTED로 변경)
         if (!territory.ruler_id && territory.status === 'unconquered') {
             await client.query(
                 `UPDATE territories 
@@ -385,9 +404,29 @@ router.post('/:id/bids', async (req, res) => {
             return res.status(400).json({ error: 'Auction is not active' });
         }
         
-        if (new Date(auction.end_time) < new Date()) {
+        // ⚠️ 중요: endTime이 지났으면 즉시 종료 처리 (cron 지연 보완)
+        const now = new Date();
+        const endTime = new Date(auction.end_time);
+        if (endTime < now) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ error: 'Auction has ended' });
+            
+            // ⚠️ 즉시 종료 처리를 위한 가벼운 트리거 (Redis 큐)
+            // cron 누락 시에도 자연 회복성 확보, UX 개선 (화면 갱신 시간 단축)
+            try {
+                // Redis에 종료 대기 경매 ID 추가 (중복 방지: SET 사용)
+                await redis.sadd('auctions:pending-end', auctionId);
+                // TTL 설정 (1시간 후 자동 삭제, cron이 처리하면 바로 삭제됨)
+                await redis.expire('auctions:pending-end', 3600);
+            } catch (queueError) {
+                // 큐 추가 실패해도 입찰 거부는 정상 처리 (cron이 곧 처리할 것)
+                console.warn(`[Auctions] Failed to queue auction ${auctionId} for immediate end:`, queueError);
+            }
+            
+            return res.status(400).json({ 
+                error: 'Auction has ended',
+                endedAt: auction.end_time,
+                message: 'This auction has ended. The results will be finalized shortly.'
+            });
         }
         
         const minBid = auction.current_bid 

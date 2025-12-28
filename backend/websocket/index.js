@@ -190,9 +190,14 @@ export function broadcastTerritoryUpdate(territoryId, data) {
 }
 
 /**
- * 픽셀 업데이트 브로드캐스트
+ * 픽셀 업데이트 브로드캐스트 (레거시 호환성)
  */
 export function broadcastPixelUpdate(territoryId, data) {
+    // 타일 업데이트인 경우 별도 처리
+    if (data.type === 'PIXEL_TILES_UPDATED') {
+        return broadcastPixelTilesUpdate(territoryId, data);
+    }
+    
     const message = JSON.stringify({
         type: 'pixel:updated',
         data: {
@@ -213,5 +218,32 @@ export function broadcastPixelUpdate(territoryId, data) {
     }
     
     console.log(`📢 Broadcasted pixel update to ${sentCount} connections`);
+}
+
+/**
+ * 타일 업데이트 브로드캐스트 (128×128 타일 시스템용)
+ */
+export function broadcastPixelTilesUpdate(territoryId, data) {
+    const message = JSON.stringify({
+        type: 'pixel:tiles:updated',
+        data: {
+            territoryId,
+            territoryRevision: data.territoryRevision,
+            updatedTiles: data.updatedTiles,
+            timestamp: new Date().toISOString(),
+        }
+    });
+    
+    let sentCount = 0;
+    for (const [userId, userConnections] of connections.entries()) {
+        for (const ws of userConnections) {
+            if (ws.readyState === 1) {
+                ws.send(message);
+                sentCount++;
+            }
+        }
+    }
+    
+    console.log(`📢 Broadcasted pixel tiles update to ${sentCount} connections (${data.updatedTiles?.length || 0} tiles)`);
 }
 

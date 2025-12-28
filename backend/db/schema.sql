@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS territories (
   continent VARCHAR(50),
   polygon JSONB, -- GeoJSON 폴리곤 데이터
   base_price DECIMAL(10, 2),
+  market_base_price DECIMAL(10, 2), -- 시장 기준가 (경매 낙찰가에 따라 갱신)
   status VARCHAR(50) DEFAULT 'unconquered', -- 'unconquered', 'contested', 'ruled'
   ruler_id UUID REFERENCES users(id),
   ruler_name VARCHAR(255),

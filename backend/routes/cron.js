@@ -6,8 +6,10 @@
 
 import express from 'express';
 import logger from '../utils/logger.js';
-import { query } from '../db/init.js';
+import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
+import { invalidateAuctionCache, invalidateTerritoryCache } from '../redis/cache-utils.js';
+import { broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
 
 const router = express.Router();
 
@@ -18,9 +20,25 @@ const router = express.Router();
  */
 router.post('/', async (req, res) => {
     try {
+        // ⚠️ cron 보안: 서버 내부 시크릿 토큰 체크
+        const cronSecret = process.env.CRON_SECRET || process.env.VERCEL_CRON_SECRET;
+        const providedSecret = req.headers['x-cron-secret'] || req.query.secret || req.body.secret;
+        
+        if (cronSecret && providedSecret !== cronSecret) {
+            logger.warn(`[Cron] Unauthorized access attempt from ${req.ip}`);
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized: Invalid cron secret'
+            });
+        }
+        
         const jobType = req.query.job || req.body.job || 'all';
         
-        logger.info(`[Cron] Starting job: ${jobType}`);
+        logger.info(`[Cron] Starting job: ${jobType}`, {
+            ip: req.ip,
+            userAgent: req.get('user-agent'),
+            timestamp: new Date().toISOString()
+        });
         
         const results = {};
         
@@ -33,17 +51,54 @@ router.post('/', async (req, res) => {
             results.expired = await checkExpiredTerritories();
         }
         
+        if (jobType === 'all' || jobType === 'end-auctions') {
+            results.auctions = await endExpiredAuctions();
+        }
+        
         if (jobType === 'all' || jobType === 'season-transition') {
             results.season = await seasonTransition();
         }
         
-        logger.info('[Cron] Completed:', results);
+        // ⚠️ 관측성: 실행 결과 로깅 및 집계
+        const summary = {
+            jobType,
+            timestamp: new Date().toISOString(),
+            results: {},
+            summary: {}
+        };
+        
+        // 결과 요약 생성
+        if (results.auctions) {
+            summary.summary.auctions = {
+                ended: results.auctions.ended || 0,
+                errors: results.auctions.errors || 0
+            };
+        }
+        if (results.expired) {
+            summary.summary.expired = results.expired.stats || {};
+        }
+        if (results.rankings) {
+            summary.summary.rankings = {
+                processed: results.rankings.processed || 0
+            };
+        }
+        
+        logger.info('[Cron] Completed:', summary);
+        
+        // ⚠️ 실패 알림: 에러가 있으면 경고 로그 (향후 슬랙/디스코드 연동 가능)
+        const hasErrors = Object.values(results).some(result => 
+            result && result.success === false
+        );
+        if (hasErrors) {
+            logger.warn('[Cron] ⚠️ Some jobs failed:', results);
+        }
         
         return res.status(200).json({
             success: true,
             jobType,
             results,
-            timestamp: new Date().toISOString()
+            summary: summary.summary,
+            timestamp: summary.timestamp
         });
         
     } catch (error) {
@@ -672,6 +727,324 @@ async function seasonTransition() {
         
     } catch (error) {
         logger.error('[Season Transition] Error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+/**
+ * 만료된 경매 종료 처리
+ * ⚠️ 중요: EMA 계산은 백엔드에서만 수행 (프론트엔드 신뢰 불가)
+ */
+async function endExpiredAuctions() {
+    try {
+        // ⚠️ idempotency 로그: runId 생성 (같은 실행 묶음 추적)
+        const runId = `run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        logger.info(`[End Expired Auctions] Starting check... [runId: ${runId}]`);
+        
+        const client = await getPool().connect();
+        let endedCount = 0;
+        let errorCount = 0;
+        const endedAuctionIds = []; // ⚠️ idempotency 로그: 종료 처리한 auction ID 목록
+        const updatedTerritoryIds = []; // ⚠️ idempotency 로그: 시장가 갱신된 territory ID 목록
+        const MAX_LOG_IDS = 10; // 상위 10개만 로그에 기록, 나머지는 카운트만
+        
+        try {
+            // ⚠️ 입찰 시도로 큐에 추가된 경매도 함께 처리
+            // ⚠️ 큐는 Redis Set으로 운영 (중복 자동 방지)
+            const pendingEndIds = await redis.smembers('auctions:pending-end');
+            const queueSize = pendingEndIds ? pendingEndIds.length : 0;
+            
+            // ⚠️ 큐 크기 모니터링: 길이가 계속 증가하면 경고 로그
+            if (queueSize > 50) {
+                logger.warn(`[End Expired Auctions] ⚠️ Queue size is large: ${queueSize} auctions pending. This may indicate cron issues.`);
+            } else if (queueSize > 0) {
+                logger.info(`[End Expired Auctions] Found ${queueSize} auctions in pending-end queue [runId: ${runId}]`);
+            }
+            
+            // 종료 시간이 지났지만 아직 active 상태인 경매 조회
+            // 큐에 있는 경매도 포함 (OR 조건 추가)
+            const expiredAuctions = await query(`
+                SELECT 
+                    a.id,
+                    a.territory_id,
+                    a.current_bid,
+                    a.current_bidder_id,
+                    a.protection_days,
+                    t.market_base_price,
+                    t.base_price,
+                    t.ruler_id as current_owner_id,
+                    u.nickname as bidder_nickname,
+                    u.firebase_uid as bidder_firebase_uid
+                FROM auctions a
+                LEFT JOIN territories t ON a.territory_id = t.id
+                LEFT JOIN users u ON a.current_bidder_id = u.id
+                WHERE a.status = 'active'
+                AND (
+                    a.end_time <= NOW()
+                    ${pendingEndIds && pendingEndIds.length > 0 ? `OR a.id = ANY($1::uuid[])` : ''}
+                )
+                ORDER BY a.end_time ASC
+                LIMIT 50
+            `, pendingEndIds && pendingEndIds.length > 0 ? [pendingEndIds] : []);
+            
+            logger.info(`[End Expired Auctions] Found ${expiredAuctions.rows.length} expired auctions`);
+            
+            for (const auction of expiredAuctions.rows) {
+                await client.query('BEGIN');
+                
+                try {
+                    // ⚠️ 트랜잭션 경합 방지: status='active' 조건으로 중복 종료 방지
+                    const updateResult = await client.query(`
+                        UPDATE auctions 
+                        SET status = 'ended', 
+                            ended_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = $1 
+                        AND status = 'active'
+                        RETURNING *
+                    `, [auction.id]);
+                    
+                    // 영향받은 row가 0이면 이미 종료된 경매 (다른 프로세스가 처리)
+                    if (updateResult.rows.length === 0) {
+                        await client.query('ROLLBACK');
+                        logger.info(`[End Expired Auctions] Auction ${auction.id} already ended by another process [runId: ${runId}]`);
+                        // 큐에서 제거 (이미 처리됨)
+                        await redis.srem('auctions:pending-end', auction.id);
+                        continue;
+                    }
+                    
+                    const finalBid = parseFloat(auction.current_bid || 0);
+                    const hasWinner = auction.current_bidder_id && finalBid > 0;
+                    
+                    if (hasWinner) {
+                        // ⚠️ EMA 계산 (백엔드에서만 수행)
+                        // ⚠️ 중요: 적용 순서를 명시적으로 고정 (디버깅 용이성)
+                        // ⚠️ null/0 가드: oldMarketBase가 null/0이면 static_base_price 또는 finalBid로 대체
+                        let currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 0);
+                        
+                        // 가드: currentMarketBase가 0이거나 null이면 base_price 우선 사용
+                        // ⚠️ 대체 규칙: base_price 우선 (가장 안정적), 없으면 finalBid, 둘 다 없으면 100
+                        if (!currentMarketBase || currentMarketBase <= 0) {
+                            // 우선순위: base_price > finalBid > 100 (기본값)
+                            currentMarketBase = parseFloat(auction.base_price || finalBid || 100);
+                            logger.warn(`[End Expired Auctions] ⚠️ market_base_price is null/0 for ${auction.territory_id}, using base_price (${auction.base_price}) or finalBid (${finalBid}) or default (100): ${currentMarketBase} [runId: ${runId}]`);
+                        }
+                        
+                        // 가드: finalBid가 비정상이면 갱신 스킵
+                        if (!finalBid || finalBid <= 0) {
+                            logger.error(`[End Expired Auctions] ❌ Invalid finalBid (${finalBid}) for auction ${auction.id}, skipping market_base_price update`);
+                            // market_base_price 갱신 없이 소유권만 이전
+                            currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 100);
+                        } else {
+                            const EMA_WEIGHT_OLD = 0.7;
+                            const EMA_WEIGHT_NEW = 0.3;
+                            
+                            // 1단계: raw EMA 계산
+                            const rawEMA = currentMarketBase * EMA_WEIGHT_OLD + finalBid * EMA_WEIGHT_NEW;
+                            
+                            // 2단계: 캡 적용 (최대 3배 상승)
+                            const CAP_MULTIPLIER = 3.0;
+                            const capped = Math.min(rawEMA, currentMarketBase * CAP_MULTIPLIER);
+                            
+                            // 3단계: 바닥 적용 (최소 70% 하락)
+                            const FLOOR_MULTIPLIER = 0.7;
+                            const floored = Math.max(capped, currentMarketBase * FLOOR_MULTIPLIER);
+                            
+                            // 4단계: 최종 rounding
+                            currentMarketBase = Math.ceil(floored);
+                        }
+                        
+                        const newMarketBase = currentMarketBase;
+                        
+                        logger.info(`[End Expired Auctions] 📊 Market base price update for ${auction.territory_id}: ${currentMarketBase} → ${newMarketBase} (finalBid: ${finalBid}, rawEMA: ${rawEMA.toFixed(2)}, capped: ${capped.toFixed(2)}, floored: ${floored.toFixed(2)}, final: ${newMarketBase})`);
+                        
+                        // 보호 기간 계산
+                        const protectionDays = auction.protection_days !== null ? auction.protection_days : 7;
+                        const protectionEndsAt = protectionDays === null 
+                            ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000) // 평생
+                            : new Date(Date.now() + protectionDays * 24 * 60 * 60 * 1000);
+                        
+                        // ⚠️ 중요: 상태 변경과 market_base_price 갱신을 같은 트랜잭션 안에서 처리
+                        // 멀티 인스턴스 환경에서도 안전하게 동작하도록 보장
+                        await client.query(`
+                            UPDATE territories 
+                            SET ruler_id = $1,
+                                ruler_name = $2,
+                                sovereignty = 'protected',
+                                status = 'protected',
+                                protection_ends_at = $3,
+                                protection_days = $4,
+                                market_base_price = $5,
+                                current_auction_id = NULL,
+                                updated_at = NOW()
+                            WHERE id = $6
+                        `, [
+                            auction.current_bidder_id,
+                            auction.bidder_nickname || 'Unknown',
+                            protectionEndsAt,
+                            protectionDays,
+                            newMarketBase,
+                            auction.territory_id
+                        ]);
+                        
+                        // 소유권 이력 기록 (같은 트랜잭션 내)
+                        await client.query(`
+                            INSERT INTO ownerships (territory_id, user_id, acquired_at, price)
+                            VALUES ($1, $2, NOW(), $3)
+                        `, [auction.territory_id, auction.current_bidder_id, finalBid]);
+                        
+                        // ⚠️ 중요: 트랜잭션 커밋 전에는 캐시/WS 브로드캐스트 하지 않음
+                        // 커밋 후에만 실행하여 다른 인스턴스/클라이언트가 "아직 DB 반영 전" 상태를 받지 않도록 보장
+                        
+                        logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended. Winner: ${auction.bidder_nickname} (${auction.bidder_firebase_uid}), Bid: ${finalBid}, Market base: ${newMarketBase}`);
+                        
+                        // ⚠️ idempotency 로그: 시장가 갱신된 territory ID 기록
+                        if (updatedTerritoryIds.length < MAX_LOG_IDS) {
+                            updatedTerritoryIds.push(auction.territory_id);
+                        }
+                        
+                        // 큐에서 제거 (처리 완료)
+                        await redis.srem('auctions:pending-end', auction.id);
+                    } else {
+                        // 낙찰자 없음: 영토 상태 복구
+                        if (auction.current_owner_id) {
+                            await client.query(`
+                                UPDATE territories 
+                                SET sovereignty = 'ruled',
+                                    status = 'ruled',
+                                    current_auction_id = NULL,
+                                    updated_at = NOW()
+                                WHERE id = $1
+                            `, [auction.territory_id]);
+                        } else {
+                            await client.query(`
+                                UPDATE territories 
+                                SET sovereignty = 'unconquered',
+                                    status = 'unconquered',
+                                    ruler_id = NULL,
+                                    ruler_name = NULL,
+                                    current_auction_id = NULL,
+                                    updated_at = NOW()
+                                WHERE id = $1
+                            `, [auction.territory_id]);
+                        }
+                        
+                        logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended with no winner. Territory ${auction.territory_id} restored.`);
+                    }
+                    
+                    await client.query('COMMIT');
+                    endedCount++;
+                    
+                    // ⚠️ 캐시 무효화
+                    await invalidateAuctionCache(auction.id, auction.territory_id);
+                    await invalidateTerritoryCache(auction.territory_id);
+                    
+                    // ⚠️ WebSocket 브로드캐스트 순서 및 payload 보완
+                    // 순서: 1) auction ended, 2) territory 업데이트 (새 ruler, market_base_price, protectionEndsAt)
+                    try {
+                        // 1단계: 경매 종료 브로드캐스트
+                        await broadcastAuctionUpdate({
+                            id: auction.id,
+                            status: 'ended',
+                            territoryId: auction.territory_id,
+                            finalBid: hasWinner ? finalBid : null,
+                            winnerId: hasWinner ? auction.current_bidder_id : null,
+                            winnerName: hasWinner ? auction.bidder_nickname : null
+                        });
+                        
+                        // 2단계: 영토 업데이트 브로드캐스트 (market_base_price 포함)
+                        // 최신 영토 정보 조회
+                        const updatedTerritory = await query(`
+                            SELECT 
+                                id as territoryId,
+                                market_base_price,
+                                base_price,
+                                sovereignty,
+                                status,
+                                current_auction_id,
+                                ruler_id,
+                                ruler_name as ruler,
+                                protection_ends_at as protectionEndsAt
+                            FROM territories
+                            WHERE id = $1
+                        `, [auction.territory_id]);
+                        
+                        if (updatedTerritory.rows.length > 0) {
+                            const territory = updatedTerritory.rows[0];
+                            await broadcastTerritoryUpdate(auction.territory_id, {
+                                territoryId: territory.territoryid,
+                                market_base_price: parseFloat(territory.market_base_price || 0),
+                                base_price: parseFloat(territory.base_price || 0),
+                                sovereignty: territory.sovereignty,
+                                status: territory.status,
+                                current_auction_id: territory.current_auction_id,
+                                ruler: territory.ruler,
+                                ruler_id: territory.ruler_id,
+                                protectionEndsAt: territory.protectionendsat
+                            });
+                        } else {
+                            // 영토 정보가 없으면 기본 브로드캐스트
+                            await broadcastTerritoryUpdate(auction.territory_id);
+                        }
+                    } catch (wsError) {
+                        // ⚠️ 브로드캐스트 실패 로그는 반드시 남기기 (UI 싱크 문제 디버깅의 핵심)
+                        logger.error(`[End Expired Auctions] ❌ WebSocket broadcast failed for auction ${auction.id}, territory ${auction.territory_id}:`, {
+                            error: wsError.message,
+                            stack: wsError.stack,
+                            auctionId: auction.id,
+                            territoryId: auction.territory_id,
+                            runId: runId
+                        });
+                    }
+                    
+                } catch (error) {
+                    await client.query('ROLLBACK');
+                    logger.error(`[End Expired Auctions] Error ending auction ${auction.id}:`, error);
+                    errorCount++;
+                }
+            }
+            
+        } finally {
+            client.release();
+        }
+        
+        // ⚠️ 관측성: 상세 결과 로깅 (idempotency 로그 포함)
+        const result = {
+            success: true,
+            ended: endedCount,
+            errors: errorCount,
+            timestamp: new Date().toISOString(),
+            runId: runId, // ⚠️ idempotency 로그: runId 추가 (같은 실행 묶음 추적)
+            // ⚠️ idempotency 로그: 처리한 auction/territory ID 목록 (최대 10개)
+            endedAuctionIds: endedAuctionIds.length > 0 ? endedAuctionIds : undefined,
+            updatedTerritoryIds: updatedTerritoryIds.length > 0 ? updatedTerritoryIds : undefined,
+            // 나머지는 카운트만
+            totalEndedAuctions: endedCount,
+            totalUpdatedTerritories: updatedTerritoryIds.length + (endedCount > MAX_LOG_IDS ? endedCount - MAX_LOG_IDS : 0)
+        };
+        
+        logger.info(`[End Expired Auctions] ✅ Completed. Ended: ${endedCount}, Errors: ${errorCount} [runId: ${runId}]`, {
+            ...result,
+            // 상세 ID 목록은 별도 로그로 (너무 길어질 수 있으므로)
+            detail: {
+                endedAuctionIds: endedAuctionIds.length > 0 ? endedAuctionIds : 'none',
+                updatedTerritoryIds: updatedTerritoryIds.length > 0 ? updatedTerritoryIds : 'none',
+                moreAuctions: endedCount > MAX_LOG_IDS ? `${endedCount - MAX_LOG_IDS} more` : 'none'
+            }
+        });
+        
+        // 에러가 있으면 경고
+        if (errorCount > 0) {
+            logger.warn(`[End Expired Auctions] ⚠️ ${errorCount} errors occurred during processing [runId: ${runId}]`);
+        }
+        
+        return result;
+        
+    } catch (error) {
+        logger.error('[End Expired Auctions] Error:', error);
         return {
             success: false,
             error: error.message

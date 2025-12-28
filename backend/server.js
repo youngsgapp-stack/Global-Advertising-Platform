@@ -123,6 +123,7 @@ import { setupWebSocket } from './websocket/index.js';
 // DB/Redis 초기화
 import { initDatabase } from './db/init.js';
 import { initRedis } from './redis/init.js';
+import { runMigrations, validateSchema } from './db/migrations.js';
 
 // 모니터링 시스템
 import logger from './utils/logger.js';
@@ -282,6 +283,34 @@ async function startServer() {
         await initDatabase();
         logger.info('✅ Database connected');
         console.log('[Server] ✅ Database connected');
+        
+        // ⚠️ 마이그레이션 실행 및 스키마 검증
+        try {
+            console.log('[Server] 🔄 Running database migrations...');
+            logger.info('🔄 Running database migrations...');
+            await runMigrations();
+            console.log('[Server] ✅ Migrations completed');
+            logger.info('✅ Migrations completed');
+            
+            console.log('[Server] 🔍 Validating database schema...');
+            logger.info('🔍 Validating database schema...');
+            await validateSchema();
+            console.log('[Server] ✅ Schema validation passed');
+            logger.info('✅ Schema validation passed');
+        } catch (error) {
+            console.error('[Server] ❌ Migration or schema validation failed:', error);
+            logger.error('❌ Migration or schema validation failed:', error);
+            if (process.env.NODE_ENV !== 'production') {
+                // 개발 환경에서는 서버 시작을 막음
+                console.error('[Server] ⚠️  Server startup blocked due to schema issues');
+                logger.error('⚠️  Server startup blocked due to schema issues');
+                throw error;
+            } else {
+                // 프로덕션에서는 경고만 표시하고 계속 진행
+                console.warn('[Server] ⚠️  Continuing despite schema issues (production mode)');
+                logger.warn('⚠️  Continuing despite schema issues (production mode)');
+            }
+        }
         
         // Redis 초기화
         console.log('[Server] Initializing Redis...');

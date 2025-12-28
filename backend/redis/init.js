@@ -421,6 +421,131 @@ const redisObject = {
             return 0;
         }
     },
+    
+    /**
+     * Hash 필드 설정 (HSET)
+     * node-redis v4는 hSet, Upstash/다른 클라이언트는 hset 사용
+     * 호환성: (key, field, value) 형태만 지원 (가장 호환성 좋음)
+     */
+    hset: async (key, field, value) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return 0;
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.hset(key, field, value);
+            } else {
+                // 일반 Redis (node-redis v4는 hSet 사용)
+                if (typeof client.hSet === 'function') {
+                    return await client.hSet(key, field, value);
+                } else if (typeof client.hset === 'function') {
+                    return await client.hset(key, field, value);
+                } else {
+                    throw new Error('Redis client does not support HSET');
+                }
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ hset error for key "${key}", field "${field}" (non-critical):`, error.message);
+            return 0;
+        }
+    },
+    
+    /**
+     * Hash 필드 조회 (HGET)
+     * node-redis v4는 hGet, Upstash/다른 클라이언트는 hget 사용
+     */
+    hget: async (key, field) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return null;
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.hget(key, field);
+            } else {
+                // 일반 Redis (node-redis v4는 hGet 사용)
+                if (typeof client.hGet === 'function') {
+                    return await client.hGet(key, field);
+                } else if (typeof client.hget === 'function') {
+                    return await client.hget(key, field);
+                } else {
+                    throw new Error('Redis client does not support HGET');
+                }
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ hget error for key "${key}", field "${field}" (non-critical):`, error.message);
+            return null;
+        }
+    },
+    
+    /**
+     * Hash 전체 조회 (HGETALL)
+     * node-redis v4는 hGetAll, Upstash/다른 클라이언트는 hgetall 사용
+     */
+    hgetall: async (key) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return {};
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.hgetall(key) || {};
+            } else {
+                // 일반 Redis (node-redis v4는 hGetAll 사용)
+                if (typeof client.hGetAll === 'function') {
+                    return await client.hGetAll(key) || {};
+                } else if (typeof client.hgetall === 'function') {
+                    return await client.hgetall(key) || {};
+                } else {
+                    throw new Error('Redis client does not support HGETALL');
+                }
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ hgetall error for key "${key}" (non-critical):`, error.message);
+            return {};
+        }
+    },
+    
+    /**
+     * Hash 필드 삭제 (HDEL)
+     * node-redis v4는 hDel, Upstash/다른 클라이언트는 hdel 사용
+     */
+    hdel: async (key, ...fields) => {
+        try {
+            const client = getRedis();
+            
+            if (client._type === 'disabled') {
+                return 0;
+            }
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                return await client.hdel(key, ...fields);
+            } else {
+                // 일반 Redis (node-redis v4는 hDel 사용)
+                if (typeof client.hDel === 'function') {
+                    return await client.hDel(key, fields);
+                } else if (typeof client.hdel === 'function') {
+                    return await client.hdel(key, ...fields);
+                } else {
+                    throw new Error('Redis client does not support HDEL');
+                }
+            }
+        } catch (error) {
+            console.warn(`[Redis] ⚠️ hdel error for key "${key}" (non-critical):`, error.message);
+            return 0;
+        }
+    },
 };
 
 // 명시적으로 export

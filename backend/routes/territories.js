@@ -556,6 +556,15 @@ router.post('/:id/purchase', async (req, res) => {
                 return res.status(400).json({ error: 'Invalid purchase price' });
             }
             
+            // ⚠️ 중요: market_base_price 계산 (초기 구매 시)
+            // 기존 market_base_price가 있으면 유지, 없으면 base_price와 purchasePrice 중 큰 값 사용
+            let marketBasePrice = parseFloat(territory.market_base_price || 0);
+            if (!marketBasePrice || marketBasePrice <= 0) {
+                const basePrice = parseFloat(territory.base_price || 0);
+                marketBasePrice = Math.max(basePrice, purchasePrice);
+                console.log(`[Territories] Purchase: Setting initial market_base_price: ${marketBasePrice} (basePrice: ${basePrice}, purchasePrice: ${purchasePrice})`);
+            }
+            
             // 5. 잔액 확인
             if (currentBalance < purchasePrice) {
                 await client.query('ROLLBACK');
@@ -627,11 +636,12 @@ router.post('/:id/purchase', async (req, res) => {
                     sovereignty = 'protected',
                     protection_ends_at = $2,
                     base_price = $3,
-                    purchased_by_admin = $4,
+                    market_base_price = $4,
+                    purchased_by_admin = $5,
                     updated_at = NOW()
-                WHERE id = $5
+                WHERE id = $6
                 RETURNING *`,
-                [userIdString, protectionEndsAt, purchasePrice, purchasedByAdmin, territoryId]
+                [userIdString, protectionEndsAt, purchasePrice, marketBasePrice, purchasedByAdmin, territoryId]
             );
             
             // ⚠️ 디버깅: 업데이트 결과 확인
@@ -1093,7 +1103,8 @@ router.put('/:id', async (req, res) => {
             protectionEndsAt,
             protectionDays,
             purchasedPrice,
-            purchasedByAdmin
+            purchasedByAdmin,
+            market_base_price  // 시장 기준가 (경매 낙찰가에 따라 갱신)
         } = req.body;
         const firebaseUid = req.user.uid;
         
@@ -1212,6 +1223,12 @@ router.put('/:id', async (req, res) => {
         if (purchasedByAdmin !== undefined) {
             updates.push(`purchased_by_admin = $${paramIndex}`);
             params.push(purchasedByAdmin);
+            paramIndex++;
+        }
+        
+        if (market_base_price !== undefined) {
+            updates.push(`market_base_price = $${paramIndex}`);
+            params.push(market_base_price);
             paramIndex++;
         }
         
