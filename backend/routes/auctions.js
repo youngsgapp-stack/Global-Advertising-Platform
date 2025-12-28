@@ -7,32 +7,109 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateAuctionCache } from '../redis/cache-utils.js';
 import { broadcastBidUpdate, broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
+import { serializeAuction, serializeAuctions } from '../utils/auction-serializer.js';
 
 const router = express.Router();
 
 /**
  * GET /api/auctions/:id
  * 경매 상세 조회
+ * ⚠️ 전문가 조언 반영: POST /bids와 동일한 기준으로 최신 입찰 상태 반영
  */
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        
+        // ⚠️ 체크 A: 데이터 출처 로그
+        console.debug(`[GET auction] id=${id}`);
         
         // Redis에서 먼저 조회
         const cacheKey = `auction:${id}`;
         const cached = await redis.get(cacheKey);
         
         if (cached) {
-            return res.json(cached);
+            // ⚠️ 수정: Redis 캐시는 JSON 문자열이므로 파싱 필요
+            let parsedCache;
+            try {
+                // 캐시가 이미 객체인 경우와 문자열인 경우 모두 처리
+                parsedCache = typeof cached === 'string' ? JSON.parse(cached) : cached;
+                console.debug(`[GET auction] source=redis key=${cacheKey}, currentBid=${parsedCache.currentBid}, minNextBid=${parsedCache.minNextBid}`);
+            } catch (parseError) {
+                console.error(`[GET auction] Failed to parse cache for ${id}:`, parseError);
+                // 파싱 실패 시 캐시 무효화하고 DB에서 재조회
+                await redis.del(cacheKey);
+                parsedCache = null;
+            }
+            
+            if (!parsedCache) {
+                // 파싱 실패로 인해 캐시가 무효화된 경우, DB 조회로 계속 진행
+                console.debug(`[GET auction] Cache invalidated due to parse error, falling back to DB`);
+            } else {
+            
+            // ⚠️ 중요: 캐시된 데이터도 최신 입찰 상태를 반영해야 함
+            // 캐시는 빠른 응답용이지만, 입찰 상태는 항상 DB에서 최신 확인 필요
+            // 따라서 캐시가 있어도 DB에서 최고 입찰을 확인하여 재계산
+            const highestBidResult = await query(
+                `SELECT MAX(amount) as max_amount FROM bids WHERE auction_id = $1`,
+                [id]
+            );
+            const highestBidFromDB = highestBidResult.rows[0]?.max_amount ? parseFloat(highestBidResult.rows[0].max_amount) : null;
+            
+            // ⚠️ 체크 B: DB 최고 입찰 vs 캐시 currentBid 비교
+            const cachedCurrentBid = parseFloat(parsedCache.currentBid || 0);
+            console.debug(`[GET auction] DB highestBid=${highestBidFromDB}, cached currentBid=${cachedCurrentBid}`);
+            
+            // ⚠️ 전문가 조언 반영: DB 최고 입찰이 캐시보다 높으면 항상 재계산
+            // 또는 캐시에 minNextBid가 없으면 재계산
+            if (highestBidFromDB && highestBidFromDB > cachedCurrentBid) {
+                console.debug(`[GET auction] ⚠️ Cache stale: DB has higher bid (${highestBidFromDB} > ${cachedCurrentBid}), recalculating`);
+                // 캐시 무효화하고 DB에서 재조회
+                await redis.del(cacheKey);
+            } else if (!parsedCache.minNextBid || !parsedCache.increment) {
+                // 캐시에 minNextBid/increment가 없으면 재계산
+                console.debug(`[GET auction] ⚠️ Cache missing minNextBid/increment, recalculating`);
+                await redis.del(cacheKey);
+            } else {
+                // 캐시가 최신이면 minNextBid/increment만 보완해서 반환
+                const increment = 1;
+                const effectiveCurrentBid = highestBidFromDB || cachedCurrentBid || parseFloat(parsedCache.startingBid || 0);
+                const minNextBid = effectiveCurrentBid + increment;
+                
+                // ⚠️ 중요: 캐시된 currentBid와 DB 최고 입찰 중 더 큰 값 사용
+                const finalCurrentBid = Math.max(effectiveCurrentBid, cachedCurrentBid);
+                const finalMinNextBid = finalCurrentBid + increment;
+                
+                console.debug(`[GET auction] Using cache with DB validation: currentBid=${finalCurrentBid}, minNextBid=${finalMinNextBid}`);
+                
+                return res.json({
+                    ...parsedCache,
+                    currentBid: finalCurrentBid,
+                    minNextBid: finalMinNextBid,
+                    increment: increment
+                });
+            }
+            }
         }
         
-        // DB에서 조회
+        // DB에서 조회 (캐시 없거나 stale인 경우)
+        console.debug(`[GET auction] source=db id=${id}`);
+        
+        // ⚠️ 전문가 조언 반영: bids 테이블에서 최고 입찰 조회
+        const highestBidResult = await query(
+            `SELECT MAX(amount) as max_amount FROM bids WHERE auction_id = $1`,
+            [id]
+        );
+        const highestBidFromDB = highestBidResult.rows[0]?.max_amount ? parseFloat(highestBidResult.rows[0].max_amount) : null;
+        
+        // 경매 기본 정보 조회
         const result = await query(
             `SELECT 
                 a.*,
                 u.nickname as bidder_nickname,
                 t.name as territory_name,
-                t.code as territory_code
+                t.code as territory_code,
+                t.base_price,
+                t.market_base_price
             FROM auctions a
             LEFT JOIN users u ON a.current_bidder_id = u.id
             LEFT JOIN territories t ON a.territory_id = t.id
@@ -44,15 +121,59 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Auction not found' });
         }
         
-        const auction = result.rows[0];
+        const row = result.rows[0];
         
-        // Redis에 캐시
-        await redis.set(cacheKey, auction, CACHE_TTL.AUCTION);
+        // ⚠️ 체크 B: auctions 테이블의 current_bid vs bids 테이블의 최고 입찰 비교
+        const storedCurrentBid = parseFloat(row.current_bid || 0);
+        console.debug(`[GET auction] stored currentBid=${storedCurrentBid}, DB highestBid=${highestBidFromDB}`);
+        
+        // ⚠️ 전문가 조언 반영: 최신 입찰 상태 반영
+        // DB의 current_bid와 bids 테이블의 최고 입찰 중 더 큰 값을 사용
+        const effectiveCurrentBid = highestBidFromDB && highestBidFromDB > storedCurrentBid
+            ? highestBidFromDB
+            : storedCurrentBid;
+        
+        // ⚠️ 전문가 조언 반영: minNextBid 계산 (POST /bids와 동일한 로직)
+        const increment = 1; // 고정 증가액
+        const startingBid = parseFloat(row.min_bid || 0);
+        const minNextBid = effectiveCurrentBid > 0
+            ? effectiveCurrentBid + increment
+            : startingBid + increment;
+        
+        // ⚠️ 체크 C: minNextBid/increment 계산 결과 로그
+        console.debug(`[GET auction] calculated: effectiveCurrentBid=${effectiveCurrentBid}, startingBid=${startingBid}, minNextBid=${minNextBid}, increment=${increment}`);
+        
+        // row에 계산된 값 추가
+        const enrichedRow = {
+            ...row,
+            current_bid: effectiveCurrentBid,
+            minNextBid: minNextBid,
+            increment: increment
+        };
+        
+        // ⚠️ 재발 방지: serializer를 통한 일관된 변환
+        const auction = serializeAuction(enrichedRow);
+        
+        // ⚠️ 중요: minNextBid와 increment는 serializer에서 추가되지 않으므로 여기서 명시적으로 추가
+        auction.minNextBid = minNextBid;
+        auction.increment = increment;
+        
+        // Redis에 캐시 (변환된 형식으로, JSON 문자열로 저장)
+        await redis.set(cacheKey, JSON.stringify(auction), CACHE_TTL.AUCTION);
         
         res.json(auction);
     } catch (error) {
-        console.error('[Auctions] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch auction' });
+        console.error('[Auctions] GET /:id Error:', error);
+        console.error('[Auctions] Error stack:', error.stack);
+        console.error('[Auctions] Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch auction',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
@@ -97,6 +218,20 @@ router.post('/', async (req, res) => {
         }
         
         const territory = territoryResult.rows[0];
+        
+        // ⚠️ 전문가 조언 반영: countryIso 필수 검증
+        // 경매 생성 시 countryIso가 없으면 경매를 생성할 수 없음
+        const countryIso = territory.country_iso;
+        if (!countryIso || countryIso.length !== 3) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(400).json({ 
+                error: 'Cannot create auction: countryIso is required',
+                message: `Territory ${territoryId} must have a valid countryIso (ISO 3166-1 alpha-3). Got: ${countryIso || 'null'}. Territory must have valid country information.`,
+                territoryId,
+                countryIso: countryIso || null
+            });
+        }
         
         // 2. 영토 상태 확인 - ruled, protected, 또는 unconquered 상태에서 경매 시작 가능
         // ⚠️ 중요: Protected 상태에서도 경매 시작 가능
@@ -177,7 +312,7 @@ router.post('/', async (req, res) => {
                 auctionEndTime,
                 minBid || startingBid,
                 startingBid,
-                territory.country
+                countryIso // ⚠️ 중요: countryIso 사용 (ISO 3166-1 alpha-3)
             ]
         );
         
@@ -209,16 +344,11 @@ router.post('/', async (req, res) => {
         // Redis 캐시 무효화
         await invalidateAuctionCache(auction.id, territoryId);
         
+        // ⚠️ 재발 방지: serializer를 통한 일관된 변환
+        const serializedAuction = serializeAuction(auction);
+        
         // WebSocket 브로드캐스트
-        broadcastAuctionUpdate(auction.id, {
-            id: auction.id,
-            territoryId: auction.territory_id,
-            status: auction.status,
-            startingBid: parseFloat(auction.min_bid || auction.current_bid || 0),
-            currentBid: parseFloat(auction.current_bid || 0),
-            endTime: auction.end_time,
-            createdAt: auction.created_at
-        });
+        broadcastAuctionUpdate(auction.id, serializedAuction);
         
         broadcastTerritoryUpdate(territoryId, {
             id: territoryId,
@@ -227,17 +357,10 @@ router.post('/', async (req, res) => {
             updatedAt: new Date().toISOString()
         });
         
+        // ⚠️ 재발 방지: 위에서 이미 serialize한 객체 재사용
         res.json({
             success: true,
-            auction: {
-                id: auction.id,
-                territoryId: auction.territory_id,
-                status: auction.status,
-                startingBid: parseFloat(auction.min_bid || auction.current_bid || 0),
-                currentBid: parseFloat(auction.current_bid || 0),
-                endTime: auction.end_time,
-                createdAt: auction.created_at
-            }
+            auction: serializedAuction
         });
         
     } catch (error) {
@@ -378,6 +501,14 @@ router.post('/:id/bids', async (req, res) => {
         const { amount } = req.body;
         const firebaseUid = req.user.uid;
         
+        // ⚠️ 디버깅 로그: 서버에서 받은 요청 확인 (가장 중요)
+        console.log('[Bid] REQUEST BODY', { 
+            amount: req.body.amount, 
+            amountType: typeof req.body.amount,
+            auctionId: req.params.id,
+            bodyKeys: Object.keys(req.body)
+        });
+        
         if (!amount || amount <= 0) {
             return res.status(400).json({ error: 'Invalid bid amount' });
         }
@@ -429,15 +560,41 @@ router.post('/:id/bids', async (req, res) => {
             });
         }
         
-        const minBid = auction.current_bid 
-            ? parseFloat(auction.current_bid) * 1.1 // 현재가의 110%
-            : parseFloat(auction.min_bid);
+        // ⚠️ 전문가 조언 반영: 최소 입찰가 계산 로직 단일화 (서버 권위)
+        // - DB의 bids 테이블에서 최고 입찰가 조회 (FOR UPDATE로 동시성 안전)
+        // - 입찰이 없으면 territoryPrice (min_bid) 기준
+        // - increment는 1pt로 고정
+        const bidsResult = await client.query(
+            `SELECT MAX(amount) as highest_bid FROM bids WHERE auction_id = $1`,
+            [auctionId]
+        );
         
-        if (amount < minBid) {
+        const highestBid = bidsResult.rows[0]?.highest_bid;
+        const currentBid = highestBid ? parseFloat(highestBid) : 0;
+        const startingBid = parseFloat(auction.min_bid || 0);
+        const increment = 1; // 1pt 고정
+        
+        // minNextBid 계산: 입찰이 있으면 최고입찰가 + 1pt, 없으면 startingBid
+        const minNextBid = currentBid > 0 
+            ? currentBid + increment 
+            : startingBid;
+        
+        console.log(`[Auctions] Bid validation for ${auctionId}:`, {
+            highestBid,
+            currentBid,
+            startingBid,
+            minNextBid,
+            bidAmount: amount
+        });
+        
+        if (amount < minNextBid) {
             await client.query('ROLLBACK');
             return res.status(400).json({ 
                 error: 'Bid amount too low',
-                minBid 
+                minNextBid,
+                currentBid,
+                increment,
+                message: `Minimum bid is ${minNextBid} pt (current: ${currentBid} pt, increment: ${increment} pt)`
             });
         }
         
@@ -553,20 +710,234 @@ router.post('/:id/bids', async (req, res) => {
             });
         }
         
+        // ⚠️ 전문가 조언 반영: 응답에 minNextBid 포함 (프론트에서 계산하지 않도록)
+        const newMinNextBid = amount + increment;
+        
+        // ⚠️ 재발 방지: serializer를 통한 일관된 변환 + 추가 필드
+        const serializedAuction = serializeAuction({
+            ...auction,
+            current_bid: amount, // 업데이트된 입찰가
+            current_bidder_id: userId
+        });
+        
+        // minNextBid와 increment는 serializer에 없으므로 추가
+        serializedAuction.minNextBid = newMinNextBid;
+        serializedAuction.increment = increment;
+        
         res.json({
             success: true,
             bid: bidResult.rows[0],
-            auction: {
-                id: auctionId,
-                currentBid: amount,
-                currentBidderId: userId,
-            }
+            auction: serializedAuction
         });
         
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('[Auctions] Bid error:', error);
         res.status(500).json({ error: 'Failed to place bid' });
+    } finally {
+        client.release();
+    }
+});
+
+/**
+ * POST /api/auctions/:id/end
+ * 경매 수동 종료 (관리자 또는 경매 생성자만 가능)
+ * ⚠️ 전문가 조언 반영: Firestore runTransaction 대신 API 사용
+ */
+router.post('/:id/end', async (req, res) => {
+    const client = await getPool().connect();
+    
+    try {
+        const { id: auctionId } = req.params;
+        const firebaseUid = req.user.uid;
+        
+        // 트랜잭션 시작
+        await client.query('BEGIN');
+        
+        // 1. 경매 정보 조회
+        const auctionResult = await client.query(
+            `SELECT 
+                a.*,
+                t.base_price,
+                t.market_base_price,
+                t.ruler_id as current_owner_id,
+                t.ruler_name as current_owner_name,
+                u.nickname as bidder_nickname,
+                u.firebase_uid as bidder_firebase_uid
+            FROM auctions a
+            LEFT JOIN territories t ON a.territory_id = t.id
+            LEFT JOIN users u ON a.current_bidder_id = u.id
+            WHERE a.id = $1 FOR UPDATE`,
+            [auctionId]
+        );
+        
+        if (auctionResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Auction not found' });
+        }
+        
+        const auction = auctionResult.rows[0];
+        
+        // 2. 이미 종료된 경매인지 확인
+        if (auction.status !== 'active') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                error: 'Auction is not active',
+                status: auction.status
+            });
+        }
+        
+        // 3. 권한 확인 (관리자 또는 경매 생성자만 종료 가능)
+        // TODO: 경매 생성자 확인 로직 추가 필요 (auctions 테이블에 created_by 필드가 있다면)
+        // 현재는 관리자만 허용
+        const isAdmin = firebaseUid && (
+            firebaseUid.startsWith('admin_') ||
+            req.user.email?.includes('admin')
+        );
+        
+        if (!isAdmin) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ 
+                error: 'Only admins can manually end auctions'
+            });
+        }
+        
+        // 4. 경매 종료 처리 (cron.js의 endExpiredAuctions 로직 참고)
+        const finalBid = parseFloat(auction.current_bid || 0);
+        const hasWinner = auction.current_bidder_id && finalBid > 0;
+        
+        // 경매 상태를 ended로 업데이트
+        await client.query(
+            `UPDATE auctions 
+             SET status = 'ended', 
+                 ended_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [auctionId]
+        );
+        
+        if (hasWinner) {
+            // 낙찰자가 있는 경우: 소유권 이전 및 market_base_price 갱신
+            let currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 0);
+            
+            if (!currentMarketBase || currentMarketBase <= 0) {
+                currentMarketBase = parseFloat(auction.base_price || finalBid || 100);
+            }
+            
+            // EMA 계산
+            const EMA_WEIGHT_OLD = 0.7;
+            const EMA_WEIGHT_NEW = 0.3;
+            const rawEMA = currentMarketBase * EMA_WEIGHT_OLD + finalBid * EMA_WEIGHT_NEW;
+            const CAP_MULTIPLIER = 3.0;
+            const capped = Math.min(rawEMA, currentMarketBase * CAP_MULTIPLIER);
+            const FLOOR_MULTIPLIER = 0.7;
+            const floored = Math.max(capped, currentMarketBase * FLOOR_MULTIPLIER);
+            const newMarketBase = Math.ceil(floored);
+            
+            // 보호 기간 계산
+            const protectionDays = auction.protection_days !== null ? auction.protection_days : 7;
+            const protectionEndsAt = protectionDays === null 
+                ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000)
+                : new Date(Date.now() + protectionDays * 24 * 60 * 60 * 1000);
+            
+            // 영토 소유권 이전
+            await client.query(
+                `UPDATE territories 
+                 SET ruler_id = $1,
+                     ruler_name = $2,
+                     sovereignty = 'protected',
+                     status = 'protected',
+                     protection_ends_at = $3,
+                     protection_days = $4,
+                     market_base_price = $5,
+                     current_auction_id = NULL,
+                     updated_at = NOW()
+                 WHERE id = $6`,
+                [
+                    auction.current_bidder_id,
+                    auction.bidder_nickname || 'Unknown',
+                    protectionEndsAt,
+                    protectionDays,
+                    newMarketBase,
+                    auction.territory_id
+                ]
+            );
+            
+            // 소유권 이력 기록
+            await client.query(
+                `INSERT INTO ownerships (territory_id, user_id, acquired_at, price)
+                 VALUES ($1, $2, NOW(), $3)`,
+                [auction.territory_id, auction.current_bidder_id, finalBid]
+            );
+        } else {
+            // 낙찰자 없음: 영토 상태 복구
+            if (auction.current_owner_id) {
+                await client.query(
+                    `UPDATE territories 
+                     SET sovereignty = 'ruled',
+                         status = 'ruled',
+                         current_auction_id = NULL,
+                         updated_at = NOW()
+                     WHERE id = $1`,
+                    [auction.territory_id]
+                );
+            } else {
+                await client.query(
+                    `UPDATE territories 
+                     SET sovereignty = 'unconquered',
+                         status = 'unconquered',
+                         ruler_id = NULL,
+                         ruler_name = NULL,
+                         current_auction_id = NULL,
+                         updated_at = NOW()
+                     WHERE id = $1`,
+                    [auction.territory_id]
+                );
+            }
+        }
+        
+        // 트랜잭션 커밋
+        await client.query('COMMIT');
+        
+        // 캐시 무효화
+        await invalidateAuctionCache(auctionId, auction.territory_id);
+        await invalidateTerritoryCache(auction.territory_id);
+        
+        // WebSocket 브로드캐스트
+        broadcastAuctionUpdate(auctionId, {
+            status: 'ended',
+            endedAt: new Date().toISOString()
+        });
+        
+        if (hasWinner) {
+            broadcastTerritoryUpdate(auction.territory_id, {
+                rulerId: auction.current_bidder_id,
+                rulerNickname: auction.bidder_nickname || 'Unknown',
+                sovereignty: 'protected',
+                status: 'protected',
+                currentAuctionId: null,
+                updatedAt: new Date().toISOString()
+            });
+        }
+        
+        res.json({
+            success: true,
+            auction: {
+                id: auctionId,
+                status: 'ended',
+                endedAt: new Date().toISOString(),
+                winner: hasWinner ? {
+                    userId: auction.current_bidder_id,
+                    userName: auction.bidder_nickname || 'Unknown',
+                    bid: finalBid
+                } : null
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Auctions] Error ending auction:', error);
+        res.status(500).json({ error: 'Failed to end auction', details: error.message });
     } finally {
         client.release();
     }

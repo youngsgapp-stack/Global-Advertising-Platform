@@ -207,6 +207,8 @@ router.get('/', async (req, res) => {
                 territory.name_en = row.name_en;
                 territory.country = row.country;
                 territory.continent = row.continent;
+                // ⚠️ 중요: countryIso 필수 포함 (경매 생성에 필수)
+                territory.countryIso = row.country_iso || null;
                 territory.status = row.status;
                 territory.sovereignty = row.sovereignty;
                 territory.ruler_id = row.ruler_id || null;
@@ -261,6 +263,8 @@ router.get('/', async (req, res) => {
                     'updatedAt': () => { territory.updatedAt = row.updated_at; },
                     'protectionEndsAt': () => { territory.protectionEndsAt = row.protection_ends_at; },
                     'basePrice': () => { territory.basePrice = parseFloat(row.base_price || 0); },
+                    // ⚠️ 중요: countryIso 필수 필드로 포함 (경매 생성에 필수)
+                    'countryIso': () => { territory.countryIso = row.country_iso || null; },
                     // 선택적 필드 (초기 로딩에 불필요)
                     'code': () => { territory.code = row.code; },
                     'name': () => { territory.name = row.name; },
@@ -1004,8 +1008,11 @@ router.get('/:id', async (req, res) => {
         const row = result.rows[0];
         
         // ⚠️ 디버깅: 조인 결과 로깅 (소유권 문제 진단용) - 항상 로깅
+        // ⚠️ 중요: country_iso 확인
         console.log(`[Territories] GET /${territoryId} (skipCache=${skipCache}):`, {
             territoryId: row.id,
+            country: row.country,
+            country_iso: row.country_iso, // ⚠️ 중요: DB에서 가져온 값
             ruler_id: row.ruler_id,
             ruler_id_type: typeof row.ruler_id,
             ruler_firebase_uid: row.ruler_firebase_uid,
@@ -1025,11 +1032,22 @@ router.get('/:id', async (req, res) => {
         
         // ⚠️ 전문가 조언 반영: 응답 형식 일관성 확보 - ruler_firebase_uid로 통일
         // 구매 API와 동일한 형식으로 응답 (ruler_firebase_uid 포함)
+        // ⚠️ 중요: countryIso 필수 포함 (경매 생성에 필수)
+        // ⚠️ 중요: row 객체의 모든 키 확인 (디버깅)
+        console.log(`[Territories] GET /${territoryId}: row keys:`, Object.keys(row).filter(k => k.includes('country') || k.includes('iso')));
+        console.log(`[Territories] GET /${territoryId}: row.country_iso=`, row.country_iso, `(type: ${typeof row.country_iso})`);
+        
         const territory = {
             ...row,
             ruler_firebase_uid: row.ruler_firebase_uid || null,
-            ruler_nickname: row.ruler_nickname || row.ruler_name || null
+            ruler_nickname: row.ruler_nickname || row.ruler_name || null,
+            // country_iso를 countryIso로 매핑 (프론트엔드 호환성)
+            // ⚠️ 중요: row.country_iso가 undefined일 수 있으므로 명시적으로 확인
+            countryIso: (row.country_iso && row.country_iso.length === 3) ? row.country_iso.toUpperCase() : null
         };
+        
+        // ⚠️ 디버깅: countryIso 포함 확인
+        console.log(`[Territories] GET /${territoryId}: country_iso=${row.country_iso}, countryIso=${territory.countryIso}`);
         
         // ⚡ 성능 최적화: ETag 생성 및 캐시 헤더 설정
         const etag = generateETag(territory);

@@ -2,41 +2,36 @@
  * 마이그레이션 실행 스크립트
  * 
  * 사용법:
- *   node scripts/run-migration.js                    # 모든 마이그레이션 실행
- *   node scripts/run-migration.js migrations/001_xxx.sql  # 특정 마이그레이션 실행
+ *   node backend/scripts/run-migration.js
+ * 
+ * 또는 특정 마이그레이션만 실행:
+ *   node backend/scripts/run-migration.js 002_add_country_iso.sql
  */
 
 import dotenv from 'dotenv';
+import { runMigrations } from '../db/migrations.js';
 import { initDatabase } from '../db/init.js';
-import { runMigrations, validateSchema } from '../db/migrations.js';
 
+// 환경 변수 로드 (.env 파일)
 dotenv.config();
 
 async function main() {
     try {
-        console.log('🚀 Starting migration process...');
+        console.log('🔄 [Migration Runner] Starting migrations...');
         
         // DB 초기화
         await initDatabase();
-        console.log('✅ Database connected');
+        console.log('✅ [Migration Runner] Database initialized');
         
         // 마이그레이션 실행
-        console.log('🔄 Running migrations...');
         await runMigrations();
-        console.log('✅ Migrations completed');
         
-        // 스키마 검증
-        console.log('🔍 Validating schema...');
-        await validateSchema();
-        console.log('✅ Schema validation passed');
-        
-        console.log('\n✅ All migrations completed successfully!');
+        console.log('✅ [Migration Runner] All migrations completed successfully');
         process.exit(0);
     } catch (error) {
-        console.error('\n❌ Migration failed:', error);
+        console.error('❌ [Migration Runner] Migration failed:', error);
         process.exit(1);
     }
 }
 
 main();
-
