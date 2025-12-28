@@ -141,6 +141,16 @@ class TerritoryUpdatePipeline {
                             log.warn(`[TerritoryUpdatePipeline] Failed to clear IndexedDB cache:`, err);
                         });
                     }
+                    
+                    // ⚠️ 핵심: 소유권이 삭제된 경우 픽셀아트 오버레이 제거
+                    const currentRuler = territory?.ruler || territory?.ruler_firebase_uid;
+                    const hasOwner = currentRuler && currentRuler !== 'null' && currentRuler !== null && currentRuler !== undefined;
+                    
+                    if (ownershipChanged && !hasOwner) {
+                        console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ Ownership removed for ${territoryId}, removing pixel art overlay`);
+                        log.info(`[TerritoryUpdatePipeline] Ownership removed for ${territoryId}, removing pixel art overlay`);
+                        await this.pixelMapRenderer.removePixelOverlay(territoryId);
+                    }
                 }
             }
             
@@ -197,40 +207,60 @@ class TerritoryUpdatePipeline {
                 console.log(`🔍 [TerritoryUpdatePipeline] Step 6: Skipping repaint (hasPixelArt=${viewState.hasPixelArt}, map=${!!this.map})`);
             }
             
-            // 7. 픽셀 아트 표시 (있는 경우)
-            // ⚠️ 핵심 수정: 픽셀 데이터가 있으면 항상 표시 (hasPixelArt 체크 제거)
+            // 7. 픽셀 아트 표시/제거 (소유권 체크 포함)
+            // ⚠️ 핵심: 소유자가 없으면 픽셀아트를 표시하지 않고 기존 오버레이 제거
             console.log(`🔍 [TerritoryUpdatePipeline] Step 7: Checking if pixel art should be displayed`);
-            console.log(`🔍 [TerritoryUpdatePipeline] Pixel data check:`, {
-                hasPixelData: !!pixelData,
-                hasPixels: !!(pixelData && pixelData.pixels),
-                pixelsLength: pixelData?.pixels?.length || 0,
-                condition: !!(pixelData && pixelData.pixels && pixelData.pixels.length > 0)
+            
+            // 소유권 체크
+            const ruler = territory?.ruler || territory?.ruler_firebase_uid;
+            const hasOwner = ruler && ruler !== 'null' && ruler !== null && ruler !== undefined;
+            
+            console.log(`🔍 [TerritoryUpdatePipeline] Ownership check:`, {
+                territoryId,
+                ruler: ruler || 'null',
+                hasOwner,
+                sovereignty: territory?.sovereignty
             });
             
-            // ⚡ 성능 최적화: 초기 로딩 시 픽셀 렌더 금지 (첫 3초 또는 사용자 인터랙션 전까지)
-            const timeSinceInitialLoad = Date.now() - this.initialLoadStartTime;
-            const shouldSkipPixelRender = timeSinceInitialLoad < this.INITIAL_LOAD_DELAY_MS && !this.hasUserInteracted;
-            
-            if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
-                if (shouldSkipPixelRender) {
-                    console.log(`[TerritoryUpdatePipeline] ⏭️ Skipping pixel render for ${territoryId} (initial load delay: ${Math.round((this.INITIAL_LOAD_DELAY_MS - timeSinceInitialLoad) / 1000)}s remaining)`);
-                    log.debug(`[TerritoryUpdatePipeline] Skipping pixel render during initial load`);
-                } else {
-                    console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
-                    console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
-                    const t4Start = performance.now();
-                    await this.displayPixelArt(territory, pixelData);
-                    const t4End = performance.now();
-                    console.log(`[TerritoryUpdatePipeline] ⏱️ Pixel image render time: ${Math.round(t4End - t4Start)}ms`);
-                    console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
-                }
+            if (!hasOwner) {
+                // 소유자가 없으면 픽셀아트 오버레이 제거
+                console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ Territory ${territoryId} has no owner, removing pixel art overlay`);
+                log.info(`[TerritoryUpdatePipeline] Territory ${territoryId} has no owner, removing pixel art overlay`);
+                await this.pixelMapRenderer.removePixelOverlay(territoryId);
             } else {
-                console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ No pixel art to display for ${territoryId}`, {
-                    pixelData: pixelData ? 'exists' : 'null',
-                    pixels: pixelData?.pixels ? `array[${pixelData.pixels.length}]` : 'null/undefined',
-                    reason: !pixelData ? 'no pixelData' : !pixelData.pixels ? 'no pixels array' : pixelData.pixels.length === 0 ? 'empty pixels array' : 'unknown'
+                // 소유자가 있으면 픽셀아트 표시
+                console.log(`🔍 [TerritoryUpdatePipeline] Pixel data check:`, {
+                    hasPixelData: !!pixelData,
+                    hasPixels: !!(pixelData && pixelData.pixels),
+                    pixelsLength: pixelData?.pixels?.length || 0,
+                    condition: !!(pixelData && pixelData.pixels && pixelData.pixels.length > 0)
                 });
-                console.debug(`[TerritoryUpdatePipeline] No pixel art for ${territoryId}`);
+                
+                // ⚡ 성능 최적화: 초기 로딩 시 픽셀 렌더 금지 (첫 3초 또는 사용자 인터랙션 전까지)
+                const timeSinceInitialLoad = Date.now() - this.initialLoadStartTime;
+                const shouldSkipPixelRender = timeSinceInitialLoad < this.INITIAL_LOAD_DELAY_MS && !this.hasUserInteracted;
+                
+                if (pixelData && pixelData.pixels && pixelData.pixels.length > 0) {
+                    if (shouldSkipPixelRender) {
+                        console.log(`[TerritoryUpdatePipeline] ⏭️ Skipping pixel render for ${territoryId} (initial load delay: ${Math.round((this.INITIAL_LOAD_DELAY_MS - timeSinceInitialLoad) / 1000)}s remaining)`);
+                        log.debug(`[TerritoryUpdatePipeline] Skipping pixel render during initial load`);
+                    } else {
+                        console.log(`🔍 [TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
+                        console.log(`[TerritoryUpdatePipeline] 🎨 Displaying pixel art for ${territoryId} (${pixelData.pixels.length} pixels)`);
+                        const t4Start = performance.now();
+                        await this.displayPixelArt(territory, pixelData);
+                        const t4End = performance.now();
+                        console.log(`[TerritoryUpdatePipeline] ⏱️ Pixel image render time: ${Math.round(t4End - t4Start)}ms`);
+                        console.log(`🔍 [TerritoryUpdatePipeline] ✅ displayPixelArt completed`);
+                    }
+                } else {
+                    console.log(`🔍 [TerritoryUpdatePipeline] ⚠️ No pixel art to display for ${territoryId}`, {
+                        pixelData: pixelData ? 'exists' : 'null',
+                        pixels: pixelData?.pixels ? `array[${pixelData.pixels.length}]` : 'null/undefined',
+                        reason: !pixelData ? 'no pixelData' : !pixelData.pixels ? 'no pixels array' : pixelData.pixels.length === 0 ? 'empty pixels array' : 'unknown'
+                    });
+                    console.debug(`[TerritoryUpdatePipeline] No pixel art for ${territoryId}`);
+                }
             }
             
             // 모바일에서도 맵에 즉시 반영되도록 추가 새로고침

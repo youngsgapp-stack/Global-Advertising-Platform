@@ -12,10 +12,12 @@ import { CONFIG, log } from '../config.js';
 class LocalCacheService {
     constructor() {
         this.dbName = 'pixelCanvasCache';
-        this.LATEST_SCHEMA_VERSION = 3; // ⚠️ 개선: 최신 스키마 버전 고정
+        this.LATEST_SCHEMA_VERSION = 4; // ⚠️ 타일 기반 캐시 추가 (v4)
         this.dbVersion = this.LATEST_SCHEMA_VERSION;
         this.storeName = 'pixelCanvases';
         this.sessionStoreName = 'pixelSessions'; // 미완성 세션 저장소
+        this.tileStoreName = 'pixel_tiles'; // 타일 데이터 저장소 (128×128)
+        this.metadataStoreName = 'territory_metadata'; // 영토 메타데이터 저장소
         this.db = null;
         this.initialized = false;
         this._initPromise = null; // ⚠️ 개선: 단일 initialization promise (race condition 방지)
@@ -223,6 +225,22 @@ class LocalCacheService {
                             sessionStore.createIndex('lastModified', 'lastModified', { unique: false });
                             log.info('[LocalCacheService] Session store created during upgrade');
                         }
+                        
+                        // 타일 데이터 저장소 생성 (128×128)
+                        if (!db.objectStoreNames.contains(this.tileStoreName)) {
+                            const tileStore = db.createObjectStore(this.tileStoreName, { keyPath: 'tileId' });
+                            tileStore.createIndex('territoryId', 'territoryId', { unique: false });
+                            tileStore.createIndex('revision', 'revision', { unique: false });
+                            log.info('[LocalCacheService] Tile store created during upgrade');
+                        }
+                        
+                        // 영토 메타데이터 저장소 생성
+                        if (!db.objectStoreNames.contains(this.metadataStoreName)) {
+                            const metadataStore = db.createObjectStore(this.metadataStoreName, { keyPath: 'territoryId' });
+                            metadataStore.createIndex('territoryRevision', 'territoryRevision', { unique: false });
+                            metadataStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                            log.info('[LocalCacheService] Metadata store created during upgrade');
+                        }
                     };
                     
                     // ⚠️ 개선: 멀티 탭 이슈 처리 - blocked
@@ -317,6 +335,22 @@ class LocalCacheService {
                     const sessionStore = db.createObjectStore(this.sessionStoreName, { keyPath: 'territoryId' });
                     sessionStore.createIndex('lastModified', 'lastModified', { unique: false });
                     log.info('[LocalCacheService] Session store created');
+                }
+                
+                // 타일 데이터 저장소 생성 (128×128)
+                if (!db.objectStoreNames.contains(this.tileStoreName)) {
+                    const tileStore = db.createObjectStore(this.tileStoreName, { keyPath: 'tileId' });
+                    tileStore.createIndex('territoryId', 'territoryId', { unique: false });
+                    tileStore.createIndex('revision', 'revision', { unique: false });
+                    log.info('[LocalCacheService] Tile store created');
+                }
+                
+                // 영토 메타데이터 저장소 생성
+                if (!db.objectStoreNames.contains(this.metadataStoreName)) {
+                    const metadataStore = db.createObjectStore(this.metadataStoreName, { keyPath: 'territoryId' });
+                    metadataStore.createIndex('territoryRevision', 'territoryRevision', { unique: false });
+                    metadataStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                    log.info('[LocalCacheService] Metadata store created');
                 }
             };
         });
@@ -957,6 +991,8 @@ class LocalCacheService {
                 try {
                     result.details.storeExists = this.db.objectStoreNames.contains(this.storeName);
                     result.details.sessionStoreExists = this.db.objectStoreNames.contains(this.sessionStoreName);
+                    result.details.tileStoreExists = this.db.objectStoreNames.contains(this.tileStoreName);
+                    result.details.metadataStoreExists = this.db.objectStoreNames.contains(this.metadataStoreName);
                 } catch (error) {
                     result.details.errors.push(`Failed to check object stores: ${error.message}`);
                 }

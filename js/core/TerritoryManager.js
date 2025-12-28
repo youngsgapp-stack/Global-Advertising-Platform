@@ -41,6 +41,10 @@ class TerritoryManager {
         this._territoriesApiCacheTime = null; // 캐시 시간
         this._territoriesApiCacheTTL = 10 * 1000; // 10초 캐시 (초기 로딩 중 중복 호출 방지)
         this._territoriesApiCachePromise = null; // ⚡ Promise 캐시 (동시 호출 완전 합치기)
+        
+        // ⚡ 성능 최적화: overlay 중복 실행 방지
+        this._overlayRunId = null; // 현재 실행 중인 overlay run ID
+        this._overlayInFlight = false; // overlay 실행 중 플래그
     }
     
     /**
@@ -921,12 +925,30 @@ class TerritoryManager {
      */
     async loadOwnershipOverlay() {
         try {
-            console.log('[TerritoryManager] 🔄 loadOwnershipOverlay() called');
+            // ⚡ 성능 최적화: 중복 실행 방지 (runId 기반)
+            const runId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            if (this._overlayInFlight) {
+                const existingRunId = this._overlayRunId;
+                if (window.__DEBUG_PERF__) {
+                    console.warn(`[TerritoryManager] ⚠️ Overlay already in flight (runId: ${existingRunId}), skipping new run (${runId})`);
+                }
+                return;
+            }
+            
+            this._overlayInFlight = true;
+            this._overlayRunId = runId;
+            
+            if (window.__DEBUG_PERF__) {
+                console.log(`[TerritoryManager] 🔄 loadOwnershipOverlay() called (runId: ${runId})`);
+            }
+            
             const currentUser = firebaseService.getCurrentUser();
             if (!currentUser) {
                 // ⚠️ 검증을 위해 info 레벨로 변경 (로그인 상태 확인용)
                 console.log('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
                 log.info('[TerritoryManager] ⚠️ User not authenticated, skipping ownership overlay (this is normal if not logged in)');
+                this._overlayInFlight = false;
+                this._overlayRunId = null;
                 return;
             }
             
@@ -1156,8 +1178,10 @@ class TerritoryManager {
             // 2단계: 나머지 territories는 idle batch로 처리 (배치 크기 옵션화)
             if (remainingTerritories.length > 0) {
                 const processRemaining = () => {
-                    // ⚡ 성능 튜닝: 배치 크기 옵션화 (10/20/30/50 중 선택 가능)
-                    const batchSize = 20; // 기본값: 20개 (16ms 프레임 기준 안전)
+                    // ⚡ 성능 튜닝: 동적 배치 크기 조절 (프레임 드랍 감지 시 자동 감소)
+                    let batchSize = 20; // 기본값: 20개 (16ms 프레임 기준 안전)
+                    const MIN_BATCH_SIZE = 5; // 최소 배치 크기
+                    const MAX_BATCH_SIZE = 20; // 최대 배치 크기
                     let processed = 0;
                     let consecutiveExceeds = 0; // ⚡ 안정성: 연속 초과 카운터
                     const MAX_CONSECUTIVE_EXCEEDS = 3; // 연속 3회 이상 초과 시 경고
@@ -1166,7 +1190,19 @@ class TerritoryManager {
                     let lastFrameTime = performance.now();
                     let consecutiveFrameDrops = 0; // 연속 프레임 드랍 카운터
                     
+                    // ⚡ 로그 rate limiting (1초에 1번만)
+                    let lastLogTime = 0;
+                    const LOG_RATE_LIMIT = 1000; // 1초
+                    
                     const processBatch = () => {
+                        // ⚡ 중복 실행 방지: runId 확인
+                        if (this._overlayRunId !== runId) {
+                            if (window.__DEBUG_PERF__) {
+                                console.warn(`[TerritoryManager] ⚠️ Overlay runId mismatch (expected: ${runId}, current: ${this._overlayRunId}), cancelling batch`);
+                            }
+                            return;
+                        }
+                        
                         const batchStart = performance.now();
                         const batch = remainingTerritories.slice(processed, processed + batchSize);
                         const actualProcessed = batch.length; // ⚡ 실제 처리된 항목 수
@@ -1182,11 +1218,27 @@ class TerritoryManager {
                         const frameInterval = batchStart - lastFrameTime;
                         if (frameInterval > 25) { // 25ms = 40fps 이하
                             consecutiveFrameDrops++;
-                            if (consecutiveFrameDrops >= 3) {
-                                console.warn(`[TerritoryManager] ⚠️ Frame drop detected: ${Math.round(frameInterval)}ms interval (${consecutiveFrameDrops} consecutive)`);
+                            
+                            // ⚡ 동적 배치 크기 감소 (프레임 드랍 감지 시)
+                            if (consecutiveFrameDrops >= 3 && batchSize > MIN_BATCH_SIZE) {
+                                batchSize = Math.max(MIN_BATCH_SIZE, Math.floor(batchSize * 0.5));
+                                if (window.__DEBUG_PERF__) {
+                                    console.log(`[TerritoryManager] ⚡ Reducing batch size to ${batchSize} due to frame drops`);
+                                }
+                            }
+                            
+                            // ⚡ 디버그 모드에서만 경고 출력 + rate limiting
+                            const now = Date.now();
+                            if (window.__DEBUG_PERF__ && (now - lastLogTime) >= LOG_RATE_LIMIT) {
+                                console.warn(`[TerritoryManager] ⚠️ Frame drop detected: ${Math.round(frameInterval)}ms interval (${consecutiveFrameDrops} consecutive) [runId: ${runId}]`);
+                                lastLogTime = now;
                             }
                         } else {
                             consecutiveFrameDrops = 0;
+                            // ⚡ 프레임이 안정되면 배치 크기 복구
+                            if (batchSize < MAX_BATCH_SIZE && frameInterval < 16) {
+                                batchSize = Math.min(MAX_BATCH_SIZE, batchSize + 2);
+                            }
                         }
                         lastFrameTime = batchEnd;
                         
@@ -1194,15 +1246,22 @@ class TerritoryManager {
                         if (batchTime > 16) {
                             consecutiveExceeds++;
                             if (consecutiveExceeds >= MAX_CONSECUTIVE_EXCEEDS) {
-                                console.warn(`[TerritoryManager] ⚠️ Overlay batch ${Math.floor(processed / batchSize)} exceeded 16ms frame ${consecutiveExceeds} times consecutively (${Math.round(batchTime)}ms, ${actualProcessed} territories)`);
+                                // ⚡ 디버그 모드에서만 경고 출력 + rate limiting
+                                const now = Date.now();
+                                if (window.__DEBUG_PERF__ && (now - lastLogTime) >= LOG_RATE_LIMIT) {
+                                    console.warn(`[TerritoryManager] ⚠️ Overlay batch ${Math.floor(processed / batchSize)} exceeded 16ms frame ${consecutiveExceeds} times consecutively (${Math.round(batchTime)}ms, ${actualProcessed} territories) [runId: ${runId}]`);
+                                    lastLogTime = now;
+                                }
                             }
                         } else {
                             consecutiveExceeds = 0; // 리셋
                         }
                         
-                        // ⚡ 성능 로그: 배치당 걸린 시간 + 실제 처리 항목 수
-                        const batchNum = Math.floor(processed / batchSize) + 1;
-                        console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''}`);
+                        // ⚡ 성능 로그: 디버그 모드에서만 출력
+                        if (window.__DEBUG_PERF__) {
+                            const batchNum = Math.floor(processed / batchSize) + 1;
+                            console.log(`[TerritoryManager] ⏱️ Overlay batch ${batchNum} (${actualProcessed}/${batchSize} territories): ${Math.round(batchTime)}ms${frameInterval > 25 ? ` [frame: ${Math.round(frameInterval)}ms]` : ''} [runId: ${runId}]`);
+                        }
                         
                         if (processed < remainingTerritories.length) {
                             if (window.requestIdleCallback) {
@@ -1212,7 +1271,12 @@ class TerritoryManager {
                             }
                         } else {
                             const totalTime = performance.now();
-                            console.log(`[TerritoryManager] ⏱️ Remaining overlay (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms`);
+                            if (window.__DEBUG_PERF__) {
+                                console.log(`[TerritoryManager] ⏱️ Remaining overlay (${remainingTerritories.length} territories): ${Math.round(totalTime - viewportTime)}ms [runId: ${runId}]`);
+                            }
+                            // ⚡ overlay 완료 시 플래그 해제
+                            this._overlayInFlight = false;
+                            this._overlayRunId = null;
                         }
                     };
                     
@@ -1224,6 +1288,10 @@ class TerritoryManager {
                 };
                 
                 processRemaining();
+            } else {
+                // ⚡ 뷰포트만 처리하고 나머지가 없으면 즉시 플래그 해제
+                this._overlayInFlight = false;
+                this._overlayRunId = null;
             }
             
             const t5End = performance.now();
@@ -1240,6 +1308,10 @@ class TerritoryManager {
             });
             
         } catch (error) {
+            // ⚡ 오류 발생 시 플래그 해제
+            this._overlayInFlight = false;
+            this._overlayRunId = null;
+            
             // 인증 오류는 조용히 처리
             if (error.message === 'User not authenticated') {
                 log.debug('[TerritoryManager] User not authenticated, skipping ownership overlay');
@@ -1892,6 +1964,22 @@ class TerritoryManager {
                 log.info(`[TerritoryManager] Protection set for ${protectionDays} days for ${territoryId}`);
             }
             
+            // ⚠️ 중요: market_base_price 계산 및 설정
+            // 초기 구매 시: market_base_price = basePrice (또는 tribute가 basePrice보다 크면 tribute 사용)
+            // 경매 낙찰 시: market_base_price는 AuctionSystem에서 갱신됨
+            const { territoryDataService } = await import('../services/TerritoryDataService.js');
+            const countryCode = territory.country || territory.properties?.country || 'unknown';
+            const basePrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+            
+            // market_base_price 설정: 기존 값이 있으면 유지, 없으면 basePrice 또는 tribute 중 큰 값 사용
+            let marketBasePrice = territory.market_base_price || territory.marketBasePrice;
+            if (!marketBasePrice || marketBasePrice <= 0) {
+                // 초기 구매: basePrice와 tribute 중 큰 값 사용
+                marketBasePrice = Math.max(basePrice, tribute || basePrice);
+                log.info(`[TerritoryManager] Setting initial market_base_price: ${marketBasePrice} (basePrice: ${basePrice}, tribute: ${tribute})`);
+            }
+            // 경매 낙찰의 경우 market_base_price는 AuctionSystem에서 갱신됨
+            
             // 영토 상태 업데이트
             territory.sovereignty = SOVEREIGNTY.PROTECTED; // 구매 직후 보호 상태
             territory.ruler = userId;
@@ -1903,6 +1991,8 @@ class TerritoryManager {
             territory.purchasedPrice = tribute; // 낙찰가 저장
             territory.tribute = tribute; // 낙찰가 저장 (호환성)
             territory.protectionDays = protectionDays; // 보호 기간 일수 저장 (null이면 평생)
+            territory.market_base_price = marketBasePrice; // 시장 기준가 저장
+            territory.marketBasePrice = marketBasePrice; // 호환성
             
             // 역사 기록 추가
             territory.history = territory.history || [];
@@ -1953,6 +2043,7 @@ class TerritoryManager {
                 purchasedByAdmin: territory.purchasedByAdmin || false,
                 purchasedPrice: territory.purchasedPrice || tribute, // 낙찰가 저장
                 tribute: territory.tribute || tribute, // 낙찰가 저장 (호환성)
+                market_base_price: territory.market_base_price || territory.marketBasePrice || basePrice, // 시장 기준가 저장
                 currentAuction: null, // 옥션 종료 후 null로 설정
                 updatedAt: nowTimestamp
             };
@@ -1980,7 +2071,8 @@ class TerritoryManager {
                     sovereignty: territory.sovereignty,
                     protectionEndsAt: protectionEndsAt.toISOString(),
                     purchasedPrice: tribute,
-                    purchasedByAdmin: isAdmin || false
+                    purchasedByAdmin: isAdmin || false,
+                    market_base_price: territory.market_base_price || marketBasePrice // 시장 기준가 전달
                 };
                 
                 // ⚠️ 중요: 원본 territoryId 사용 (Canonical ID)
@@ -1995,6 +2087,14 @@ class TerritoryManager {
                     territory.rulerName = normalized.ruler_name || normalized.rulerName || userName;
                     territory.sovereignty = normalized.sovereignty || normalized.status || territory.sovereignty;
                     territory.protectionEndsAt = normalized.protection_ends_at || normalized.protectionEndsAt || protectionEndsAt;
+                    // ⚠️ 중요: market_base_price 업데이트
+                    if (normalized.market_base_price !== undefined) {
+                        territory.market_base_price = normalized.market_base_price;
+                        territory.marketBasePrice = normalized.market_base_price; // 호환성
+                    } else if (normalized.marketBasePrice !== undefined) {
+                        territory.market_base_price = normalized.marketBasePrice;
+                        territory.marketBasePrice = normalized.marketBasePrice;
+                    }
                     territory.updatedAt = new Date();
                     
                     // ⚠️ 중요: territories Map에 업데이트된 territory 저장 (Canonical ID로 저장)
@@ -2003,7 +2103,7 @@ class TerritoryManager {
                     if (normalizedTerritoryId !== territoryId) {
                         this.territories.set(normalizedTerritoryId, territory);
                     }
-                    log.info(`[TerritoryManager] ✅ Territory ${territoryId} (Canonical) updated in territories Map: ruler=${territory.ruler}, sovereignty=${territory.sovereignty}`);
+                    log.info(`[TerritoryManager] ✅ Territory ${territoryId} (Canonical) updated in territories Map: ruler=${territory.ruler}, sovereignty=${territory.sovereignty}, market_base_price=${territory.market_base_price}`);
                 }
             } catch (apiError) {
                 // API 오류 시 사용자에게 명확한 에러 메시지

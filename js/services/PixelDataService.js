@@ -505,10 +505,22 @@ class PixelDataService {
     
     /**
      * 즉시 저장 (debounce 없이)
+     * @param {string} territoryId - 영토 ID
+     * @param {object} pixelData - 픽셀 데이터
+     * @param {object} options - 옵션
+     * @param {string} options.saveRunId - 저장 실행 ID (진단용)
      */
-    async savePixelDataImmediate(territoryId, pixelData) {
+    async savePixelDataImmediate(territoryId, pixelData, options = {}) {
         // pending 저장 업데이트
         this.pendingSaves.set(territoryId, pixelData);
+        
+        // saveRunId 저장 (나중에 _executeSave에서 사용)
+        if (options.saveRunId) {
+            if (!this.saveRunIds) {
+                this.saveRunIds = new Map();
+            }
+            this.saveRunIds.set(territoryId, options.saveRunId);
+        }
         
         // 기존 timeout 취소
         if (this.saveTimeouts.has(territoryId)) {
@@ -594,37 +606,78 @@ class PixelDataService {
                 const { apiService } = await import('./ApiService.js');
                 const savePayload = {
                     pixels: dataToSave.pixels,
-                    width: dataToSave.width || 64,
-                    height: dataToSave.height || 64
+                    width: dataToSave.width || 128,
+                    height: dataToSave.height || 128
                 };
+                
+                // ⚠️ 페이로드 크기 검증 및 로깅
+                const payloadJson = JSON.stringify(savePayload);
+                const payloadSizeKB = (payloadJson.length / 1024).toFixed(2);
+                const payloadSizeMB = (payloadJson.length / (1024 * 1024)).toFixed(2);
+                
                 console.log(`🔍 [PixelDataService] Saving pixel data to API:`, {
                     territoryId,
                     pixelsCount: savePayload.pixels?.length || 0,
                     width: savePayload.width,
                     height: savePayload.height,
+                    payloadSizeKB: `${payloadSizeKB} KB`,
+                    payloadSizeMB: `${payloadSizeMB} MB`,
                     pixelsType: Array.isArray(savePayload.pixels) ? 'array' : typeof savePayload.pixels,
                     pixelsSample: savePayload.pixels?.slice(0, 3) // 처음 3개만 샘플로
                 });
-                await apiService.savePixelData(territoryId, savePayload);
+                
+                // ⚠️ 페이로드 크기 경고 (10MB 이상이면 경고)
+                if (parseFloat(payloadSizeMB) > 10) {
+                    log.warn(`[PixelDataService] ⚠️ Large payload size: ${payloadSizeMB} MB for ${territoryId}. Server may reject.`);
+                }
+                
+                // ⚠️ 진단용: saveRunId 헤더 전달
+                const saveRunId = this.saveRunIds?.get(territoryId);
+                await apiService.savePixelData(territoryId, savePayload, { saveRunId });
                 console.log(`🔍 [PixelDataService] ✅ Pixel data saved to API successfully`);
-                log.info(`[PixelDataService] ✅ Saved pixel data to API for ${territoryId}`);
+                log.info(`[PixelDataService] ✅ Saved pixel data to API for ${territoryId} (${payloadSizeKB} KB)`);
             } catch (apiError) {
                 // ⚠️ 전문가 조언: Firestore fallback 제거 (장애 은폐 방지)
                 // API 실패 시 재시도 가능한 형태로 에러 처리
+                
+                // ⚠️ 에러 상세 정보 로깅
+                const errorDetails = {
+                    territoryId,
+                    errorMessage: apiError.message,
+                    errorStatus: apiError.status,
+                    pixelsCount: dataToSave.pixels?.length || 0,
+                    payloadSize: JSON.stringify(dataToSave).length
+                };
+                
                 log.error(`[PixelDataService] ❌ Failed to save to API for ${territoryId}:`, apiError);
+                log.error(`[PixelDataService] Error details:`, errorDetails);
+                
+                // 서버 응답 본문이 있으면 로깅
+                if (apiError.response) {
+                    try {
+                        const errorBody = await apiError.response.text();
+                        log.error(`[PixelDataService] Server error response:`, errorBody);
+                    } catch (e) {
+                        // 응답 본문 파싱 실패는 무시
+                    }
+                }
                 
                 // 오프라인 복구 큐에 추가 (네트워크 복구 시 자동 재시도)
                 this.setupOfflineRecovery(territoryId, dataToSave);
                 
                 // 사용자에게 재시도 가능한 에러 알림
+                const userMessage = apiError.status === 500 
+                    ? '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+                    : `픽셀 저장 실패: ${apiError.message || '네트워크 오류'}. 재시도 중...`;
+                
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
-                    message: `픽셀 저장 실패: ${apiError.message || '네트워크 오류'}. 재시도 중...`,
+                    message: userMessage,
                     duration: 5000
                 });
                 
                 // 에러를 다시 throw하여 호출자가 처리할 수 있도록 함
-                throw new Error(`Failed to save pixel data: ${apiError.message}`);
+                throw new Error(`Failed to save pixel data: ${apiError.message || 'Server error'}`);
             }
             
             // ⚠️ 핵심 수정: 저장 후 메모리 캐시를 무효화하여 다음 로드 시 API에서 최신 데이터 가져오기
@@ -783,6 +836,204 @@ class PixelDataService {
         
         await Promise.all(saves);
         log.info(`[PixelDataService] Batch saved ${saves.length} territories`);
+    }
+    
+    /**
+     * 영토 메타데이터 로드 (타일 시스템용)
+     * @param {string} territoryId - 영토 ID
+     * @returns {Promise<Object>} 영토 메타데이터
+     */
+    async loadTerritoryMetadata(territoryId) {
+        try {
+            // ⚠️ URL 중복 방지: baseUrl에 이미 /api가 포함되어 있으므로 /api 제거
+            const response = await apiService.get(`/territories/${territoryId}/pixels/metadata`);
+            return response;
+        } catch (error) {
+            log.error(`[PixelDataService] Failed to load territory metadata for ${territoryId}:`, error);
+            // 기본값 반환
+            return {
+                territoryId,
+                gridVersion: 2,
+                territoryRevision: 0,
+                tileRevisionMap: {},
+                updatedAt: new Date().toISOString(),
+                ownerId: null
+            };
+        }
+    }
+    
+    /**
+     * 타일 데이터 로드 (타일 시스템용)
+     * @param {string} territoryId - 영토 ID
+     * @param {Array<string>} tileIds - 요청할 타일 ID 목록
+     * @param {Object} clientRevisions - 클라이언트가 가진 타일 리비전 맵 {tileId: revision}
+     * @returns {Promise<Object>} {tiles: Array, unchanged: Array}
+     */
+    async loadTiles(territoryId, tileIds, clientRevisions = {}) {
+        try {
+            const tilesParam = tileIds.join(',');
+            const revisionsParam = JSON.stringify(clientRevisions);
+            
+            // ⚠️ URL 중복 방지: baseUrl에 이미 /api가 포함되어 있으므로 /api 제거
+            const response = await apiService.get(
+                `/territories/${territoryId}/pixels/tiles`,
+                { tiles: tilesParam, revisions: revisionsParam }
+            );
+            
+            return response;
+        } catch (error) {
+            log.error(`[PixelDataService] Failed to load tiles for ${territoryId}:`, error);
+            return { tiles: [], unchanged: [] };
+        }
+    }
+    
+    /**
+     * 타일 데이터 저장 (타일 시스템용)
+     * ⚠️ 운영 안정성: chunk 분할, 409 충돌 재동기화 처리
+     * @param {string} territoryId - 영토 ID
+     * @param {Array<Object>} tiles - 저장할 타일 데이터 [{tileId, pixels, revision}]
+     * @returns {Promise<Object>} {success, updatedTiles, conflicts, territoryRevision}
+     */
+    async saveTiles(territoryId, tiles) {
+        try {
+            // ⚠️ 가드레일: chunk 분할 (대량 변경 대응)
+            const MAX_TILES_PER_CHUNK = CONFIG.TERRITORY.TILE_SYSTEM?.SAVE_CHUNK_SIZE || 50;
+            
+            if (tiles.length <= MAX_TILES_PER_CHUNK) {
+                // 작은 요청은 바로 전송
+                return await this._saveTilesChunk(territoryId, tiles);
+            }
+            
+            // 대량 요청은 chunk로 분할하여 순차 전송
+            const chunks = [];
+            for (let i = 0; i < tiles.length; i += MAX_TILES_PER_CHUNK) {
+                chunks.push(tiles.slice(i, i + MAX_TILES_PER_CHUNK));
+            }
+            
+            log.info(`[PixelDataService] Splitting ${tiles.length} tiles into ${chunks.length} chunks`);
+            
+            const results = [];
+            for (let i = 0; i < chunks.length; i++) {
+                const chunkResult = await this._saveTilesChunk(territoryId, chunks[i]);
+                results.push(chunkResult);
+                // ⚠️ 최적화: conflict 발생 시에도 모든 chunk 처리 후 결과 병합
+                // PixelCanvas3에서 conflict 타일만 재시도하도록 변경
+            }
+            
+            // 모든 chunk 결과 병합 (conflict 포함)
+            const allConflicts = results.flatMap(r => r.conflicts || []);
+            const allUpdatedTiles = results.flatMap(r => r.updatedTiles || []);
+            
+            return {
+                success: allConflicts.length === 0, // conflict가 없으면 success
+                updatedTiles: allUpdatedTiles,
+                conflicts: allConflicts.length > 0 ? allConflicts : undefined,
+                territoryRevision: results[results.length - 1]?.territoryRevision
+            };
+        } catch (error) {
+            log.error(`[PixelDataService] Failed to save tiles for ${territoryId}:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 타일 chunk 저장 (내부)
+     */
+    async _saveTilesChunk(territoryId, tiles) {
+        // ⚠️ 진단용: tiles 저장 요청 payload 요약 출력
+        const tileCount = Array.isArray(tiles) ? tiles.length : 0;
+        const chunkBytes = JSON.stringify({ tiles }).length;
+        const width = tiles?.[0]?.pixels ? Math.max(...tiles.map(t => Math.max(...(t.pixels || []).map(p => p.x || 0)))) : 0;
+        const height = tiles?.[0]?.pixels ? Math.max(...tiles.map(t => Math.max(...(t.pixels || []).map(p => p.y || 0)))) : 0;
+        const revision = tiles?.[0]?.revision || 0;
+        
+        console.log('[PixelDataService] 🔍 [tiles payload]', {
+            territoryId,
+            keys: ['tiles'],
+            tileCount,
+            chunkBytes: `${(chunkBytes / 1024).toFixed(2)} KB`,
+            width,
+            height,
+            revision,
+            tilesSample: Array.isArray(tiles) && tiles.length > 0 ? {
+                tileId: tiles[0].tileId,
+                pixelsCount: tiles[0].pixels?.length || 0,
+                revision: tiles[0].revision
+            } : null
+        });
+        
+        try {
+            // ⚠️ URL 중복 방지: baseUrl에 이미 /api가 포함되어 있으므로 /api 제거
+            const response = await apiService.post(
+                `/territories/${territoryId}/pixels/tiles`,
+                { tiles }
+            );
+            
+            // 성공 시 이벤트 발행
+            if (response.success) {
+                eventBus.emit(EVENTS.PIXEL_DATA_SAVED, {
+                    territoryId,
+                    updatedTiles: response.updatedTiles,
+                    territoryRevision: response.territoryRevision
+                });
+            }
+            
+            return response;
+        } catch (error) {
+            // ⚠️ 409 Conflict 에러를 정상 응답으로 변환 (conflict 타일만 재시도하기 위해)
+            if (error.status === 409 && error.details) {
+                // error.details에 이미 파싱된 응답 데이터가 있을 수 있음
+                const conflictData = error.details;
+                if (conflictData.conflicts) {
+                    log.warn(`[PixelDataService] 409 Conflict detected for ${territoryId}, converting to response object (${conflictData.conflicts.length} conflicts)`);
+                    // Conflict 응답을 정상 응답 형태로 반환
+                    const conflictResponse = {
+                        success: false,
+                        conflicts: conflictData.conflicts,
+                        updatedTiles: conflictData.updatedTiles || [],
+                        territoryRevision: conflictData.territoryRevision
+                    };
+                    return conflictResponse;
+                }
+            }
+            // 409가 아니거나 파싱 실패한 경우 원래 에러 throw
+            throw error;
+        }
+    }
+    
+    /**
+     * 409 충돌 재동기화 처리
+     * ⚠️ 재동기화 플로우: metadata 재조회 → conflict tiles 재다운로드 → 편집 재적용
+     */
+    async _handleConflictResync(territoryId, conflictResponse) {
+        log.warn(`[PixelDataService] Conflict detected, starting resync for ${territoryId}`);
+        
+        try {
+            // 1. metadata 재조회
+            const metadata = await this.loadTerritoryMetadata(territoryId);
+            
+            // 2. conflict tiles 재다운로드 (서버에서 제공한 최신 데이터 사용)
+            if (conflictResponse.conflictTiles && conflictResponse.conflictTiles.length > 0) {
+                // 서버가 제공한 최신 타일 데이터로 타일 리비전 맵 업데이트
+                for (const tile of conflictResponse.conflictTiles) {
+                    // 클라이언트의 타일 리비전 맵 업데이트는 PixelCanvas3에서 처리
+                    log.debug(`[PixelDataService] Conflict tile ${tile.tileId} updated to revision ${tile.revision}`);
+                }
+            }
+            
+            // 3. 재동기화 이벤트 발행 (PixelCanvas3에서 처리)
+            eventBus.emit('pixel:tiles:conflict', {
+                territoryId,
+                conflicts: conflictResponse.conflicts,
+                conflictTiles: conflictResponse.conflictTiles,
+                metadata
+            });
+            
+            return conflictResponse;
+        } catch (error) {
+            log.error(`[PixelDataService] Failed to resync after conflict:`, error);
+            return conflictResponse;
+        }
     }
 }
 

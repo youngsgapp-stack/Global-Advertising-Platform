@@ -468,6 +468,22 @@ class AuctionSystem {
             throw new Error(`Cannot create auction: countryIso is required for territory ${finalTerritoryId}. Got: ${countryIso || 'null'}. Territory must have valid country information.`);
         }
         
+        // ⚠️ 중요: Protected 상태에서도 경매 시작 가능
+        // 보호 기간은 소유권 보호용이며, 경매는 보호 기간 중에도 누구나 시작 가능
+        // 소유자는 보호 기간 중에도 다른 사람이 경매를 시작할 수 있으므로, 입찰로 방어 가능
+        
+        // ⚠️ 중요: 영토 상태 확인 - ruled, protected, 또는 unconquered 상태에서 경매 시작 가능
+        // contested 상태는 이미 경매가 진행 중이므로 불가
+        if (territory.sovereignty === SOVEREIGNTY.CONTESTED) {
+            throw new Error('Auction already in progress');
+        }
+        
+        if (territory.sovereignty !== SOVEREIGNTY.RULED && 
+            territory.sovereignty !== SOVEREIGNTY.PROTECTED && 
+            territory.sovereignty !== SOVEREIGNTY.UNCONQUERED) {
+            throw new Error(`Territory must be in ruled, protected, or unconquered status to start auction. Current status: ${territory.sovereignty}`);
+        }
+        
         // 이미 진행 중인 옥션 확인 (로컬 캐시)
         if (territory.currentAuction) {
             throw new Error('Auction already in progress');
@@ -1321,18 +1337,25 @@ class AuctionSystem {
                                     protectionEndsAt = new Date(now.getTime() + (finalProtectionDays * 24 * 60 * 60 * 1000));
                                 }
                                 
+                                // ⚠️ 중요: market_base_price 갱신은 백엔드에서만 수행
+                                // 프론트엔드는 신뢰할 수 없으므로 (조작/끊김/중복 실행 위험)
+                                // 백엔드 cron job (/api/cron?job=end-auctions)이 자동으로 처리
+                                // 또는 백엔드 API를 통해 수동 종료 시에도 백엔드에서 EMA 계산 수행
+                                
                                 // 소유권 이전 및 보호 기간 설정
+                                // market_base_price는 백엔드에서 갱신되므로 여기서는 설정하지 않음
                                 transaction.update('territories', auction.territoryId, {
                                     ruler: currentAuction.highestBidder,
                                     rulerName: currentAuction.highestBidderName,
                                     sovereignty: SOVEREIGNTY.PROTECTED, // 구매 직후 보호 상태
                                     protectionEndsAt: Timestamp ? Timestamp.fromDate(protectionEndsAt) : protectionEndsAt,
                                     protectionDays: finalProtectionDays,
+                                    // market_base_price는 백엔드에서 EMA 계산 후 갱신됨
                                     currentAuction: null,
                                     updatedAt: Timestamp ? Timestamp.now() : new Date()
                                 });
                                 
-                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName} with ${finalProtectionDays === null ? 'lifetime' : finalProtectionDays + ' days'} protection`);
+                                log.info(`[AuctionSystem] 🔒 Transaction: Territory ${auction.territoryId} ownership transferred to ${currentAuction.highestBidderName} with ${finalProtectionDays === null ? 'lifetime' : finalProtectionDays + ' days'} protection. Market base price will be updated by backend.`);
                             }
                         } else {
                             log.warn(`[AuctionSystem] ⚠️ Territory ${auction.territoryId} not found in Firestore during auction end`);

@@ -7,6 +7,116 @@
 import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { pixelCanvas3, TOOLS } from '../core/PixelCanvas3.js';
+import { loadBg, subscribeBg, setBg } from '../stores/BackgroundStore.js';
+import { imageStampModal } from './ImageStampModal.js';
+
+/**
+ * ViewTransform - World ↔ Screen 좌표계 변환 통일 클래스
+ * 
+ * 정석 파이프라인:
+ * - World: 픽셀 그리드 좌표 (0..gridSize)
+ * - Screen: CSS 픽셀 좌표 (DOM overlay도 동일하게 사용)
+ * - Canvas buffer: CSS px × DPR (내부용, drawImage 계산에만 사용)
+ */
+class ViewTransform {
+    constructor(pixelSize = 4) {
+        this.scale = pixelSize;  // world -> screen 변환 스케일
+        this.tx = 0;              // screen px (pan offset)
+        this.ty = 0;
+    }
+    
+    /**
+     * World 좌표를 Screen 좌표로 변환
+     */
+    worldToScreen(x, y) {
+        return {
+            x: x * this.scale + this.tx,
+            y: y * this.scale + this.ty
+        };
+    }
+    
+    /**
+     * Screen 좌표를 World 좌표로 변환
+     */
+    screenToWorld(x, y) {
+        return {
+            x: (x - this.tx) / this.scale,
+            y: (y - this.ty) / this.scale
+        };
+    }
+    
+    /**
+     * World 사각형을 Screen 사각형으로 변환
+     */
+    rectWorldToScreen(rect) {
+        const p0 = this.worldToScreen(rect.x, rect.y);
+        return {
+            x: p0.x,
+            y: p0.y,
+            width: rect.width * this.scale,
+            height: rect.height * this.scale
+        };
+    }
+    
+    /**
+     * Screen 사각형을 World 사각형으로 변환
+     */
+    rectScreenToWorld(rect) {
+        const p0 = this.screenToWorld(rect.x, rect.y);
+        return {
+            x: p0.x,
+            y: p0.y,
+            width: rect.width / this.scale,
+            height: rect.height / this.scale
+        };
+    }
+}
+
+/**
+ * setupHiDPICanvas - 정석 DPR 처리 함수
+ * 
+ * 핵심 원칙:
+ * 1. 캔버스는 "CSS px 단위로 그리게" 만든다
+ * 2. DPR은 ctx에만 한 번 적용한다
+ * 3. 이후 drawImage(x,y,w,h)는 전부 CSS px로 넣으면 됨
+ * 
+ * ⚠️ 무한 루프 방지: 크기가 실제로 변경되었을 때만 버퍼 재설정
+ * 
+ * @param {HTMLCanvasElement} canvas
+ * @param {Object} lastSize - 이전 크기 {cssW, cssH, dpr} (선택사항)
+ * @returns {{ctx: CanvasRenderingContext2D, dpr: number, cssW: number, cssH: number, sizeChanged: boolean}}
+ */
+function setupHiDPICanvas(canvas, lastSize = null) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    
+    // CSS 크기 (표시 크기)
+    const cssW = Math.round(rect.width);
+    const cssH = Math.round(rect.height);
+    
+    // 크기 변경 감지 (무한 루프 방지)
+    const sizeChanged = !lastSize || 
+        lastSize.cssW !== cssW || 
+        lastSize.cssH !== cssH || 
+        lastSize.dpr !== dpr;
+    
+    // 크기가 실제로 변경되었을 때만 버퍼 재설정
+    if (sizeChanged) {
+        // 버퍼 크기 (실제 해상도)
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+    }
+    
+    const ctx = canvas.getContext('2d');
+    
+    // 크기가 변경되었거나 처음이면 transform 재설정
+    if (sizeChanged) {
+        // 이제부터 ctx 좌표계는 "CSS px"가 된다
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    
+    return { ctx, dpr, cssW, cssH, sizeChanged };
+}
 
 // 색상 팔레트 (16색으로 제한 - Wplace 스타일)
 const PALETTE = [
@@ -40,6 +150,26 @@ class PixelEditor3 {
         this.customColors = [];
         this.shortcutsModalVisible = false;
         this.keyboardHandler = null;
+        this.panModeFromSpace = false; // Space 키로 이동 모드 진입 여부
+        
+        // 배경 설정 (BackgroundStore에서 로드)
+        const bgState = loadBg();
+        this.backgroundMode = bgState.mode;
+        this.backgroundColor = bgState.color;
+        this.checkerSize = bgState.checkerSize;
+        
+        // BackgroundStore 구독 (배경 변경 시 동기화)
+        this.bgUnsubscribe = subscribeBg((bgState) => {
+            this.backgroundMode = bgState.mode;
+            this.backgroundColor = bgState.color;
+            this.checkerSize = bgState.checkerSize;
+            
+            // PixelCanvas3에 배경 설정 적용 (캔버스가 초기화된 경우에만)
+            if (pixelCanvas3 && pixelCanvas3.canvas) {
+                pixelCanvas3.setBackground(bgState.mode, bgState.color, bgState.checkerSize);
+                pixelCanvas3.render();
+            }
+        });
     }
     
     /**
@@ -48,6 +178,8 @@ class PixelEditor3 {
     initialize() {
         this.createModal();
         this.setupEvents();
+        // ImageStampModal 초기화
+        imageStampModal.initialize();
         log.info('[PixelEditor3] Initialized');
     }
     
@@ -107,6 +239,17 @@ class PixelEditor3 {
                 <div class="pixel-editor-3-body">
                     <!-- 좌측: 도구 -->
                     <div class="pixel-editor-3-sidebar pixel-editor-3-tools">
+                        <!-- 이미지 업로드 (눈에 띄는 위치) -->
+                        <div class="pixel-editor-3-section pixel-editor-3-image-upload-section">
+                            <button class="pixel-editor-3-btn pixel-editor-3-btn-image-upload" id="pixel-image-upload-3">
+                                <span>🖼️</span>
+                                <span>이미지로 그리기</span>
+                            </button>
+                            <div class="pixel-editor-3-image-upload-hint">
+                                <small>사진을 업로드하여 픽셀 아트로 변환하기</small>
+                            </div>
+                        </div>
+                        
                         <!-- 도구 (3개로 최소화 - Wplace 스타일) -->
                         <div class="pixel-editor-3-section">
                             <h3>도구</h3>
@@ -122,6 +265,10 @@ class PixelEditor3 {
                                 <button class="pixel-editor-3-tool-btn" data-tool="fill" title="채우기 (F)">
                                     <span class="tool-icon">🪣</span>
                                     <span>채우기</span>
+                                </button>
+                                <button class="pixel-editor-3-tool-btn" data-tool="pan" title="이동 (드래그로 화면 이동, 스페이스를 누른 채로도 이동 가능)">
+                                    <span class="tool-icon">✋</span>
+                                    <span>이동</span>
                                 </button>
                             </div>
                             <div class="pixel-editor-3-tool-hint">
@@ -157,6 +304,23 @@ class PixelEditor3 {
                             </div>
                             <div class="pixel-editor-3-palette-hint">
                                 <small>클릭하여 색상 선택</small>
+                            </div>
+                        </div>
+                        
+                        <!-- 배경 -->
+                        <div class="pixel-editor-3-section">
+                            <h3>배경</h3>
+                            <div class="pixel-editor-3-background-presets">
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#1a1a1a' ? 'active' : ''}" data-mode="solid" data-color="#1a1a1a" title="다크">다크</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#808080' ? 'active' : ''}" data-mode="solid" data-color="#808080" title="미드그레이">미드</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#c0c0c0' ? 'active' : ''}" data-mode="solid" data-color="#c0c0c0" title="라이트그레이">라이트</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#ffffff' ? 'active' : ''}" data-mode="solid" data-color="#ffffff" title="화이트">화이트</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'checker' ? 'active' : ''}" data-mode="checker" title="체커보드">체커</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'active' : ''}" data-mode="custom" title="사용자 지정">커스텀</button>
+                            </div>
+                            <div class="pixel-editor-3-background-custom" id="pixel-bg-custom-3" style="display: ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'flex' : 'none'}; gap: 8px; align-items: center; margin-top: 8px;">
+                                <input type="color" id="pixel-bg-color-input-3" value="${this.backgroundColor}" style="width: 60px; height: 30px;">
+                                <span style="font-size: 12px; color: #aaa;">색상 선택</span>
                             </div>
                         </div>
                     </div>
@@ -201,9 +365,9 @@ class PixelEditor3 {
                         </div>
                         
                         <div class="pixel-editor-3-section">
-                            <h3>🖼 내보내기</h3>
-                            <button class="pixel-editor-3-btn pixel-editor-3-btn-primary" id="pixel-export-3">
-                                PNG 다운로드
+                            <h3>💾 내보내기</h3>
+                            <button class="pixel-editor-3-btn" id="pixel-export-3">
+                                💾 PNG 다운로드
                             </button>
                         </div>
                     </div>
@@ -292,6 +456,9 @@ class PixelEditor3 {
             // UI 바인딩
             this.bindUI();
             
+            // 배경 설정 적용
+            pixelCanvas3.setBackground(this.backgroundMode, this.backgroundColor, this.checkerSize);
+            
             // 통계 업데이트
             this.updateStats({
                 filledPixels: pixelCanvas3.pixels.size,
@@ -340,6 +507,12 @@ class PixelEditor3 {
      * 닫기
      */
     async close() {
+        // BackgroundStore 구독 해제
+        if (this.bgUnsubscribe) {
+            this.bgUnsubscribe();
+            this.bgUnsubscribe = null;
+        }
+        
         // 저장 중이면 사용자에게 확인
         if (pixelCanvas3?.isSaving) {
             const confirmed = confirm(
@@ -475,6 +648,10 @@ class PixelEditor3 {
             btn.onclick = () => {
                 const tool = btn.dataset.tool;
                 this.setTool(tool);
+                // 이동 도구 버튼 클릭 시 Space 키 플래그 해제 (고정 이동 모드)
+                if (tool === 'pan') {
+                    this.panModeFromSpace = false;
+                }
                 this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             };
@@ -508,6 +685,36 @@ class PixelEditor3 {
             };
         });
         
+        // 배경 프리셋 버튼
+        this.container.querySelectorAll('.pixel-editor-3-bg-preset-btn').forEach(btn => {
+            btn.onclick = () => {
+                const mode = btn.dataset.mode;
+                const color = btn.dataset.color;
+                
+                if (mode === 'checker') {
+                    this.setBackground('checker', null);
+                } else if (mode === 'custom') {
+                    const customArea = this.container.querySelector('#pixel-bg-custom-3');
+                    if (customArea) customArea.style.display = 'flex';
+                    this.setBackground('solid', this.backgroundColor);
+                } else {
+                    this.setBackground('solid', color);
+                }
+                
+                // 활성 상태 업데이트
+                this.container.querySelectorAll('.pixel-editor-3-bg-preset-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            };
+        });
+        
+        // 배경 커스텀 색상
+        const bgColorInput = this.container.querySelector('#pixel-bg-color-input-3');
+        if (bgColorInput) {
+            bgColorInput.oninput = (e) => {
+                this.setBackground('solid', e.target.value);
+            };
+        }
+        
         // Undo/Redo
         const undoBtn = this.container.querySelector('#pixel-undo-3');
         if (undoBtn) undoBtn.onclick = () => pixelCanvas3.undo();
@@ -521,6 +728,16 @@ class PixelEditor3 {
             clearBtn.onclick = () => {
                 if (confirm('모든 픽셀을 지우시겠습니까?')) {
                     pixelCanvas3.clear();
+                }
+            };
+        }
+        
+        // 이미지 업로드 (좌측 사이드바에서)
+        const imageUploadBtn = this.container.querySelector('#pixel-image-upload-3');
+        if (imageUploadBtn) {
+            imageUploadBtn.onclick = () => {
+                if (this.currentTerritory) {
+                    imageStampModal.open(this.currentTerritory);
                 }
             };
         }
@@ -620,10 +837,12 @@ class PixelEditor3 {
                 return;
             }
             
-            // Space: 이동 도구 (캔버스에서만)
+            // Space: 이동 도구 (캔버스에서만, 누르는 동안만)
             if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
                 e.preventDefault();
                 if (!e.repeat) {
+                    // Space 키로 진입한 경우 플래그 설정
+                    this.panModeFromSpace = true;
                     this.setTool(TOOLS.PAN);
                     const panBtn = this.container.querySelector('[data-tool="pan"]');
                     if (panBtn) {
@@ -680,10 +899,11 @@ class PixelEditor3 {
         
         document.addEventListener('keydown', this.keyboardHandler);
         
-        // Space 키 up 시 브러시로 복귀
+        // Space 키 up 시 브러시로 복귀 (Space 키로 진입한 경우에만)
         document.addEventListener('keyup', (e) => {
             if (!this.isOpen) return;
-            if (e.key === ' ' && this.tool === TOOLS.PAN) {
+            if (e.key === ' ' && this.tool === TOOLS.PAN && this.panModeFromSpace) {
+                this.panModeFromSpace = false;
                 this.setTool(TOOLS.BRUSH);
                 const brushBtn = this.container.querySelector('[data-tool="brush"]');
                 if (brushBtn) {
@@ -726,6 +946,29 @@ class PixelEditor3 {
         
         const input = this.container?.querySelector('#pixel-color-input-3');
         if (input) input.value = color;
+    }
+    
+    /**
+     * 배경 설정 (BackgroundStore로 동기화)
+     */
+    setBackground(mode, color) {
+        this.backgroundMode = mode;
+        if (color) {
+            this.backgroundColor = color;
+        }
+        
+        // BackgroundStore에 저장 (모든 구독자에게 자동 알림)
+        setBg({
+            mode: mode,
+            color: color || this.backgroundColor,
+            checkerSize: this.checkerSize
+        });
+        
+        // PixelCanvas3에 배경 설정 전달 (구독 콜백에서도 처리되지만 명시적으로)
+        pixelCanvas3.setBackground(mode, color || this.backgroundColor, this.checkerSize);
+        
+        // 렌더링 업데이트
+        pixelCanvas3.render();
     }
     
     /**
@@ -921,7 +1164,9 @@ class PixelEditor3 {
             }
         }
     }
+    
 }
+
 
 export const pixelEditor3 = new PixelEditor3();
 export default pixelEditor3;

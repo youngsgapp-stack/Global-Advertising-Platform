@@ -165,22 +165,133 @@ class ApiService {
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                throw new Error(errorData.error || `HTTP ${response.status}`);
+                // HTTP 상태 코드에 따른 정확한 에러 메시지 매핑
+                const status = response.status;
+                let errorMessage = 'Unknown error';
+                let errorDetails = null;
+                
+                // ⚠️ 서버 응답 본문 읽기 시도 (에러 상세 정보 추출)
+                try {
+                    const responseText = await response.clone().text();
+                    console.log(`🔍 [ApiService] Server error response body:`, responseText);
+                    
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        console.log(`🔍 [ApiService] Parsed error data:`, errorData);
+                        
+                        // 다양한 에러 메시지 필드 확인
+                        errorMessage = errorData.error || 
+                                      errorData.message || 
+                                      errorData.detail || 
+                                      errorData.errorMessage ||
+                                      errorData.msg ||
+                                      `HTTP ${status}`;
+                        
+                        errorDetails = {
+                            ...errorData,
+                            rawResponse: responseText
+                        };
+                        
+                        // ⚠️ DB 스키마 에러 감지 및 특별 처리
+                        const errorText = (errorMessage + ' ' + responseText).toLowerCase();
+                        const isSchemaError = errorText.includes('does not exist') || 
+                                            (errorText.includes('column') && errorText.includes('relation')) ||
+                                            errorText.includes('missing column') ||
+                                            errorText.includes('unknown column') ||
+                                            errorText.includes('no such column');
+                        
+                        if (isSchemaError) {
+                            console.error(`🔴 [ApiService] ⚠️ DB SCHEMA MISMATCH DETECTED!`);
+                            console.error(`🔴 [ApiService] This is a backend database schema issue, not a frontend problem.`);
+                            console.error(`🔴 [ApiService] Error:`, errorMessage);
+                            console.error(`🔴 [ApiService] Full response:`, responseText);
+                            
+                            // DB 스키마 에러 플래그 추가
+                            errorDetails.isSchemaError = true;
+                            errorDetails.schemaError = {
+                                detected: true,
+                                message: 'Database schema mismatch detected. Backend is trying to access a column that does not exist in the database.',
+                                recommendation: 'Please check backend database migrations and ensure all required columns exist.',
+                                commonSolution: 'Run database migrations or add the missing column to the database.'
+                            };
+                        }
+                        
+                        // 서버가 제공한 상세 에러 정보가 있으면 로깅
+                        if (errorData.stack) {
+                            console.log(`🔍 [ApiService] Server error stack:`, errorData.stack);
+                        }
+                        if (errorData.details) {
+                            console.log(`🔍 [ApiService] Server error details:`, errorData.details);
+                        }
+                        if (errorData.cause) {
+                            console.log(`🔍 [ApiService] Server error cause:`, errorData.cause);
+                        }
+                    } catch (jsonError) {
+                        // JSON이 아니면 텍스트 그대로 사용
+                        console.log(`🔍 [ApiService] Error response is not JSON, using raw text`);
+                        errorMessage = responseText || `HTTP ${status}`;
+                        errorDetails = { rawResponse: responseText };
+                    }
+                } catch (readError) {
+                    // 응답 본문 읽기 실패 시 상태 코드 기반 메시지
+                    console.log(`🔍 [ApiService] Failed to read error response body:`, readError);
+                    if (status === 500) {
+                        errorMessage = 'Server error';
+                    } else if (status === 401 || status === 403) {
+                        errorMessage = status === 401 ? 'Authentication required' : 'Permission denied';
+                    } else if (status === 404) {
+                        errorMessage = 'Not found';
+                    } else {
+                        errorMessage = `HTTP ${status}`;
+                    }
+                }
+                
+                // 상태 코드별 에러 메시지 정확히 매핑
+                if (status === 500) {
+                    errorMessage = errorMessage || 'Server error';
+                } else if (status === 401) {
+                    errorMessage = 'Authentication required';
+                } else if (status === 403) {
+                    errorMessage = 'Permission denied';
+                } else if (status === 404) {
+                    errorMessage = 'Not found';
+                }
+                
+                // ⚠️ 500 에러 상세 로깅
+                if (status === 500) {
+                    log.error(`[ApiService] HTTP 500 error: ${url}`, {
+                        errorMessage,
+                        errorDetails,
+                        url
+                    });
+                }
+                
+                const httpError = new Error(errorMessage);
+                httpError.status = status;
+                httpError.details = errorDetails;
+                httpError.response = response; // 원본 응답 보관 (나중에 파싱 가능하도록)
+                throw httpError;
             }
             
             return await response.json();
         } catch (error) {
             clearTimeout(timeoutId);
             
-            // ?占쏀듃?占쏀겕 ?占쎈윭 泥섎━
+            // 이미 HTTP 상태 코드가 있는 에러는 그대로 전달
+            if (error.status) {
+                log.error(`[ApiService] HTTP ${error.status} error: ${endpoint}`, { url, error: error.message });
+                throw error;
+            }
+            
+            // 타임아웃 에러 처리
             if (error.name === 'AbortError') {
                 const timeoutError = new Error('Request timeout - server may be offline');
                 log.error(`[ApiService] Request timeout: ${endpoint}`, { url, timeout });
                 throw timeoutError;
             }
             
-            // ?占쎄껐 嫄곤옙? ?占쎈윭 泥섎━
+            // 네트워크 연결 에러만 "Connection refused"로 매핑
+            // (fetch 자체가 실패한 경우만, HTTP 500은 제외)
             if (error.message?.includes('Failed to fetch') || 
                 error.message?.includes('NetworkError') ||
                 error.message?.includes('ERR_CONNECTION_REFUSED') ||
@@ -315,16 +426,60 @@ class ApiService {
      * ?곹넗 援щℓ (?꾨Ц媛 議곗뼵: ?먯옄??蹂댁옣 - ?ъ씤??李④컧怨??뚯쑀沅?遺?щ? ?섎굹???몃옖??뀡?쇰줈)
      */
     async purchaseTerritory(territoryId, data) {
-        log.info(`[ApiService] ?썟 purchaseTerritory called:`, { territoryId, data });
+        // ⚠️ 요청 데이터 검증 및 로깅
+        console.log(`🔍 [ApiService] ========== purchaseTerritory START ==========`);
+        console.log(`🔍 [ApiService] Request data:`, {
+            territoryId,
+            price: data?.price,
+            protectionDays: data?.protectionDays,
+            purchasedByAdmin: data?.purchasedByAdmin,
+            dataKeys: Object.keys(data || {}),
+            fullData: JSON.stringify(data, null, 2)
+        });
+        
+        // 요청 데이터 검증
+        if (!territoryId) {
+            const error = new Error('Territory ID is required');
+            log.error(`[ApiService] ❌ purchaseTerritory validation failed:`, error);
+            throw error;
+        }
+        
+        if (!data || typeof data !== 'object') {
+            const error = new Error('Purchase data is required');
+            log.error(`[ApiService] ❌ purchaseTerritory validation failed:`, error);
+            throw error;
+        }
+        
+        if (data.price === undefined || data.price === null || isNaN(data.price)) {
+            const error = new Error('Price is required and must be a number');
+            log.error(`[ApiService] ❌ purchaseTerritory validation failed:`, error);
+            throw error;
+        }
+        
+        log.info(`[ApiService] 🛒 purchaseTerritory called:`, { territoryId, data });
+        
         try {
             const result = await this.post(`/territories/${territoryId}/purchase`, data);
-            log.info(`[ApiService] ??purchaseTerritory success:`, result);
+            console.log(`🔍 [ApiService] ✅ purchaseTerritory success:`, result);
+            log.info(`[ApiService] ✅ purchaseTerritory success:`, result);
             return result;
         } catch (error) {
-            log.error(`[ApiService] ??purchaseTerritory failed:`, {
+            // ⚠️ 에러 상세 로깅
+            console.log(`🔍 [ApiService] ❌ purchaseTerritory failed:`, {
                 territoryId,
                 data,
                 error: error.message,
+                errorStatus: error.status,
+                errorDetails: error.details,
+                errorStack: error.stack
+            });
+            
+            log.error(`[ApiService] ❌ purchaseTerritory failed:`, {
+                territoryId,
+                data,
+                error: error.message,
+                errorStatus: error.status,
+                errorDetails: error.details,
                 stack: error.stack
             });
             throw error;
@@ -333,8 +488,19 @@ class ApiService {
     
     /**
      * ?쎌? ?곗씠?????     */
-    async savePixelData(territoryId, pixelData) {
-        return await this.post(`/territories/${territoryId}/pixels`, pixelData);
+    /**
+     * 픽셀 데이터 저장
+     * @param {string} territoryId - Territory ID
+     * @param {object} pixelData - 픽셀 데이터
+     * @param {object} options - 옵션
+     * @param {string} options.saveRunId - 저장 실행 ID (진단용)
+     */
+    async savePixelData(territoryId, pixelData, options = {}) {
+        const headers = {};
+        if (options.saveRunId) {
+            headers['x-save-run-id'] = options.saveRunId;
+        }
+        return await this.post(`/territories/${territoryId}/pixels`, pixelData, { headers });
     }
     
     /**
@@ -382,6 +548,31 @@ class ApiService {
         if (season) url += `&season=${season}`;
         if (limit) url += `&limit=${limit}`;
         return await this.get(url);
+    }
+    
+    /**
+     * 경매 생성
+     * @param {Object} payload - 경매 생성 데이터
+     * @param {string} payload.territoryId - Territory ID
+     * @param {number} payload.startingBid - 시작 입찰가
+     * @param {number} payload.minBid - 최소 입찰가
+     * @param {string} payload.endTime - 종료 시간 (ISO 8601)
+     * @param {number|null} payload.protectionDays - 보호 기간 (선택)
+     * @param {string} payload.type - 경매 타입 (standard | protection_extension)
+     * @returns {Promise<Object>} 생성된 경매 정보
+     */
+    async createAuction(payload) {
+        return await this.post('/auctions', payload);
+    }
+    
+    /**
+     * 경매 업데이트
+     * @param {string} auctionId - 경매 ID
+     * @param {Object} data - 업데이트할 데이터
+     * @returns {Promise<Object>} 업데이트된 경매 정보
+     */
+    async updateAuction(auctionId, data) {
+        return await this.put(`/auctions/${auctionId}`, data);
     }
     
     // ============================================

@@ -200,13 +200,19 @@ class WebSocketService {
     handleMessage(message) {
         log.debug('[WebSocketService] 📨 Message received:', message.type);
         
+        // 타일 업데이트 메시지 특별 처리
+        if (message.type === 'pixel:tiles:updated') {
+            // PixelCanvas3에서 구독하는 이벤트로 직접 발행
+            eventBus.emit('pixel:tiles:updated', message.data);
+        }
+        
         // 등록된 핸들러 호출
         const handler = this.messageHandlers.get(message.type);
         if (handler) {
             handler(message.data);
         }
         
-        // 이벤트 버스로도 발행
+        // 이벤트 버스로도 발행 (일반 형식)
         eventBus.emit(`websocket:${message.type}`, message.data);
     }
     

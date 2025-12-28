@@ -268,6 +268,60 @@
     font-size: 11px;
 }
 
+/* === 이미지 업로드 섹션 === */
+.pixel-editor-3-image-upload-section {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15), rgba(78, 205, 196, 0.05));
+    border: 2px solid rgba(78, 205, 196, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.pixel-editor-3-btn-image-upload {
+    width: 100%;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.2), rgba(78, 205, 196, 0.1));
+    border: 2px solid rgba(78, 205, 196, 0.5);
+    border-radius: 8px;
+    color: #4ecdc4;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(78, 205, 196, 0.2);
+}
+
+.pixel-editor-3-btn-image-upload:hover {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.3), rgba(78, 205, 196, 0.2));
+    border-color: #4ecdc4;
+    box-shadow: 0 6px 20px rgba(78, 205, 196, 0.3);
+    transform: translateY(-2px);
+}
+
+.pixel-editor-3-btn-image-upload:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(78, 205, 196, 0.2);
+}
+
+.pixel-editor-3-btn-image-upload span:first-child {
+    font-size: 20px;
+}
+
+.pixel-editor-3-image-upload-hint {
+    margin-top: 10px;
+    text-align: center;
+}
+
+.pixel-editor-3-image-upload-hint small {
+    color: #888;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
 /* === 브러시 크기 === */
 .pixel-editor-3-brush-control {
     display: flex;

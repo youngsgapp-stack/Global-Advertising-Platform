@@ -1312,7 +1312,12 @@ class TerritoryPanel {
                 
             case VIEW_MODE.MINE_IDLE:
                 // 내가 소유, 경매 없음
-                const mineIdleHtml = `
+                // ⚠️ 중요: Protected 상태에서도 경매 시작 가능
+                // 보호 기간 중에도 누구나 경매를 시작할 수 있으며, 소유자는 입찰로 방어 가능
+                const isProtectedMine = territoryManager.isProtected(territory.id);
+                const protectionRemainingMine = isProtectedMine ? territoryManager.getProtectionRemaining(territory.id) : null;
+                
+                let mineIdleButtons = `
                     <button class="action-btn pixel-btn" id="open-pixel-editor">
                         🎨 Edit My Spot
                     </button>
@@ -1323,9 +1328,19 @@ class TerritoryPanel {
                         🏷️ Start Auction
                     </button>
                 `;
-                console.log('✅ [TerritoryPanel] VIEW_MODE.MINE_IDLE - Showing pixel edit button');
-                console.log('✅ [TerritoryPanel] MINE_IDLE HTML:', mineIdleHtml);
-                return mineIdleHtml;
+                
+                // Protected 상태면 안내 메시지 추가
+                if (isProtectedMine && protectionRemainingMine) {
+                    mineIdleButtons += `
+                        <div class="protected-info-notice">
+                            <span class="protected-icon">🛡️</span>
+                            <span>Your territory is protected (${protectionRemainingMine.days || 0}d ${protectionRemainingMine.hours || 0}h remaining). Others can start auctions, but you can bid to defend.</span>
+                        </div>
+                    `;
+                }
+                
+                console.log('✅ [TerritoryPanel] VIEW_MODE.MINE_IDLE - Showing pixel edit button', { isProtected: isProtectedMine });
+                return mineIdleButtons;
                 
             case VIEW_MODE.MINE_AUCTION:
                 // 내가 소유, 경매 중
@@ -1374,8 +1389,10 @@ class TerritoryPanel {
                 
             case VIEW_MODE.OTHER_IDLE:
                 // 남이 소유, 경매 없음
-                console.log('⚠️ [TerritoryPanel] VIEW_MODE.OTHER_IDLE - Showing auction start button (NOT owner)');
-                console.log('⚠️ [TerritoryPanel] Territory ruler:', territory.ruler, 'ruler_firebase_uid:', territory.ruler_firebase_uid, 'user.uid:', user?.uid);
+                // ⚠️ 중요: Protected 상태에서도 누구나 경매 시작 가능
+                // 보호 기간은 소유권 보호용이며, 경매는 보호 기간 중에도 가능
+                const isProtectedTerritory = territoryManager.isProtected(territory.id);
+                const protectionRemainingOther = isProtectedTerritory ? territoryManager.getProtectionRemaining(territory.id) : null;
                 const isAdminOwned = isAdmin && territory.purchasedByAdmin;
                 
                 if (isAdminOwned) {
@@ -1387,11 +1404,24 @@ class TerritoryPanel {
                     `;
                 }
                 
-                return `
+                // Protected 상태여도 경매 시작 가능 (보호 기간 중에도 누구나 경매 시작 가능)
+                let otherIdleButtons = `
                     <button class="action-btn auction-btn" id="start-territory-auction">
                         🏷️ Start Auction
                     </button>
                 `;
+                
+                // Protected 상태면 안내 메시지 추가 (경매는 가능하지만 보호 기간 정보 표시)
+                if (isProtectedTerritory && protectionRemainingOther) {
+                    otherIdleButtons += `
+                        <div class="protected-info-notice">
+                            <span class="protected-icon">🛡️</span>
+                            <span>Territory is protected (${protectionRemainingOther.days || 0}d ${protectionRemainingOther.hours || 0}h remaining). You can start an auction, but the owner can bid to defend.</span>
+                        </div>
+                    `;
+                }
+                
+                return otherIdleButtons;
                 
             case VIEW_MODE.OTHER_AUCTION:
                 // 남이 소유, 경매 중
@@ -1713,9 +1743,18 @@ class TerritoryPanel {
         }
         
         // 기본 가격 계산
-        let basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        // ⚠️ 중요: market_base_price 사용 (경매 낙찰가에 따라 갱신된 시장 기준가)
+        // market_base_price가 없으면 기본 가격 계산
+        let basePrice = this.currentTerritory.market_base_price || 
+                       this.currentTerritory.marketBasePrice ||
+                       territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
-        log.info('[TerritoryPanel] Base price calculated:', basePrice);
+        log.info('[TerritoryPanel] Market base price:', {
+            market_base_price: this.currentTerritory.market_base_price,
+            marketBasePrice: this.currentTerritory.marketBasePrice,
+            calculated: territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode),
+            final: basePrice
+        });
         
         // 경매 중일 때 Buy Now 가격 조정
         if (activeAuction && activeAuction.status === AUCTION_STATUS.ACTIVE) {
@@ -2046,122 +2085,201 @@ class TerritoryPanel {
             // 백엔드 구매 엔드포인트 호출 (포인트 차감과 소유권 부여를 하나의 트랜잭션으로 처리)
             const { apiService } = await import('../services/ApiService.js');
             
-            log.info(`[TerritoryPanel] 📡 Calling purchaseTerritory API...`);
-            const purchaseResult = await apiService.purchaseTerritory(this.currentTerritory.id, {
+            // ⚠️ 요청 데이터 검증 및 로깅
+            const purchaseData = {
                 price: price,
                 protectionDays: protectionDays,
                 purchasedByAdmin: false
+            };
+            
+            console.log(`🔍 [TerritoryPanel] ========== Purchase Request ==========`);
+            console.log(`🔍 [TerritoryPanel] Territory ID:`, this.currentTerritory.id);
+            console.log(`🔍 [TerritoryPanel] Purchase Data:`, {
+                price,
+                protectionDays,
+                purchasedByAdmin: false,
+                currentBalance,
+                territoryId: this.currentTerritory.id,
+                territoryName: this.currentTerritory.name
             });
             
-            log.info(`[TerritoryPanel] 📡 API response received:`, purchaseResult);
-            
-            // 응답 검증
-            if (!purchaseResult || typeof purchaseResult !== 'object') {
-                log.error(`[TerritoryPanel] ❌ Invalid API response:`, purchaseResult);
-                throw new Error('Invalid API response format');
+            // 요청 데이터 검증
+            if (!this.currentTerritory.id) {
+                const error = new Error('Territory ID is missing');
+                log.error(`[TerritoryPanel] ❌ Purchase validation failed:`, error);
+                throw error;
             }
             
-            // success 플래그 확인 (백엔드에서 반환)
-            if (purchaseResult.success !== true) {
-                log.error(`[TerritoryPanel] ❌ Purchase not successful:`, purchaseResult);
-                throw new Error(purchaseResult.message || 'Purchase failed on server');
+            if (!price || price <= 0 || isNaN(price)) {
+                const error = new Error(`Invalid price: ${price}`);
+                log.error(`[TerritoryPanel] ❌ Purchase validation failed:`, error);
+                throw error;
             }
             
-            // 구매 성공 - 백엔드에서 이미 포인트 차감과 소유권 부여 완료
-            log.info(`[TerritoryPanel] ✅ Purchase successful via API:`, purchaseResult);
-            
-            // ⚠️ 디버깅: 구매 응답 상세 로그
-            const purchaseTerritory = purchaseResult.territory || {};
-            console.log(`[TerritoryPanel] 🔍 Purchase API response (summary):`, {
-                success: purchaseResult.success,
-                territory: {
-                    id: purchaseTerritory.id,
-                    ruler_id: purchaseTerritory.ruler_id,
-                    ruler_id_type: typeof purchaseTerritory.ruler_id,
-                    ruler_id_value: purchaseTerritory.ruler_id,
-                    ruler_firebase_uid: purchaseTerritory.ruler_firebase_uid,
-                    ruler_nickname: purchaseTerritory.ruler_nickname,
-                    sovereignty: purchaseTerritory.sovereignty,
-                    status: purchaseTerritory.status
-                },
-                newBalance: purchaseResult.newBalance
-            });
-            console.log(`[TerritoryPanel] 🔍 Purchase API response (full territory object):`, JSON.stringify(purchaseTerritory, null, 2));
-            console.log(`[TerritoryPanel] 🔍 Purchase API response (full result):`, JSON.stringify(purchaseResult, null, 2));
-            
-            // 포인트 차감 및 소유권 확인
-            if (purchaseResult.newBalance === undefined || purchaseResult.newBalance === null) {
-                log.error(`[TerritoryPanel] ⚠️ WARNING: purchaseResult.newBalance is undefined/null!`, purchaseResult);
-                throw new Error('Purchase succeeded but balance information is missing');
-            } else {
-                log.info(`[TerritoryPanel] 💰 Balance updated: ${currentBalance} -> ${purchaseResult.newBalance}`);
+            if (protectionDays === undefined || protectionDays === null || isNaN(protectionDays)) {
+                const error = new Error(`Invalid protectionDays: ${protectionDays}`);
+                log.error(`[TerritoryPanel] ❌ Purchase validation failed:`, error);
+                throw error;
             }
             
-            if (!purchaseResult.territory) {
-                log.error(`[TerritoryPanel] ⚠️ WARNING: purchaseResult.territory is missing!`, purchaseResult);
-                throw new Error('Purchase succeeded but territory information is missing');
-            } else {
-                log.info(`[TerritoryPanel] 🏴 Territory ownership:`, {
-                    territoryId: purchaseResult.territory.id,
-                    rulerId: purchaseResult.territory.ruler_id,
-                    rulerFirebaseUid: purchaseResult.territory.ruler_firebase_uid,
-                    sovereignty: purchaseResult.territory.sovereignty,
-                    status: purchaseResult.territory.status
+            log.info(`[TerritoryPanel] 📡 Calling purchaseTerritory API...`);
+            
+            // ⚠️ 핵심 수정: purchaseResult를 try 블록 밖에서 선언하여 스코프 문제 해결
+            let purchaseResult = null;
+            
+            try {
+                purchaseResult = await apiService.purchaseTerritory(this.currentTerritory.id, purchaseData);
+                
+                console.log(`🔍 [TerritoryPanel] ✅ API response received:`, purchaseResult);
+                log.info(`[TerritoryPanel] 📡 API response received:`, purchaseResult);
+                
+                // 응답 검증
+                if (!purchaseResult || typeof purchaseResult !== 'object') {
+                    log.error(`[TerritoryPanel] ❌ Invalid API response:`, purchaseResult);
+                    throw new Error('Invalid API response format');
+                }
+                
+                // success 플래그 확인 (백엔드에서 반환)
+                if (purchaseResult.success !== true) {
+                    log.error(`[TerritoryPanel] ❌ Purchase not successful:`, purchaseResult);
+                    const errorMessage = purchaseResult.message || purchaseResult.error || 'Purchase failed on server';
+                    throw new Error(errorMessage);
+                }
+                
+                // ⚠️ 핵심: API 성공이면 즉시 성공 상태 고정 (UI 후처리 실패와 분리)
+                // 구매 성공 - 백엔드에서 이미 포인트 차감과 소유권 부여 완료
+                log.info(`[TerritoryPanel] ✅ Purchase successful via API:`, purchaseResult);
+                
+                // ⚠️ 디버깅: 구매 응답 상세 로그
+                const purchaseTerritory = purchaseResult.territory || {};
+                console.log(`[TerritoryPanel] 🔍 Purchase API response (summary):`, {
+                    success: purchaseResult.success,
+                    territory: {
+                        id: purchaseTerritory.id,
+                        ruler_id: purchaseTerritory.ruler_id,
+                        ruler_id_type: typeof purchaseTerritory.ruler_id,
+                        ruler_id_value: purchaseTerritory.ruler_id,
+                        ruler_firebase_uid: purchaseTerritory.ruler_firebase_uid,
+                        ruler_nickname: purchaseTerritory.ruler_nickname,
+                        sovereignty: purchaseTerritory.sovereignty,
+                        status: purchaseTerritory.status
+                    },
+                    newBalance: purchaseResult.newBalance
+                });
+                console.log(`[TerritoryPanel] 🔍 Purchase API response (full territory object):`, JSON.stringify(purchaseTerritory, null, 2));
+                console.log(`[TerritoryPanel] 🔍 Purchase API response (full result):`, JSON.stringify(purchaseResult, null, 2));
+                
+                // 포인트 차감 및 소유권 확인
+                if (purchaseResult.newBalance === undefined || purchaseResult.newBalance === null) {
+                    log.error(`[TerritoryPanel] ⚠️ WARNING: purchaseResult.newBalance is undefined/null!`, purchaseResult);
+                    throw new Error('Purchase succeeded but balance information is missing');
+                } else {
+                    log.info(`[TerritoryPanel] 💰 Balance updated: ${currentBalance} -> ${purchaseResult.newBalance}`);
+                }
+                
+                if (!purchaseResult.territory) {
+                    log.error(`[TerritoryPanel] ⚠️ WARNING: purchaseResult.territory is missing!`, purchaseResult);
+                    throw new Error('Purchase succeeded but territory information is missing');
+                } else {
+                    log.info(`[TerritoryPanel] 🏴 Territory ownership:`, {
+                        territoryId: purchaseResult.territory.id,
+                        rulerId: purchaseResult.territory.ruler_id,
+                        rulerFirebaseUid: purchaseResult.territory.ruler_firebase_uid,
+                        sovereignty: purchaseResult.territory.sovereignty,
+                        status: purchaseResult.territory.status
+                    });
+                }
+                
+            } catch (error) {
+                // ⚠️ 에러 상세 로깅
+                console.log(`🔍 [TerritoryPanel] ❌ Purchase API call failed:`, {
+                    territoryId: this.currentTerritory.id,
+                    purchaseData,
+                    error: error.message,
+                    errorStatus: error.status,
+                    errorDetails: error.details,
+                    errorStack: error.stack
                 });
                 
-                // 소유권 부여 확인 (getRealAuthUser()를 사용하여 실제 Firebase UID 가져오기)
-                const realAuthUser = firebaseService.getRealAuthUser();
-                const currentUserUid = realAuthUser?.uid;
-                if (!currentUserUid) {
-                    log.warn(`[TerritoryPanel] ⚠️ Could not get current user UID, skipping ownership verification`);
-                } else if (purchaseResult.territory.ruler_firebase_uid !== currentUserUid) {
-                    log.error(`[TerritoryPanel] ❌ Ownership mismatch! Expected: ${currentUserUid}, Got: ${purchaseResult.territory.ruler_firebase_uid}`);
-                    // ⚠️ 실제로 구매는 성공했으므로 에러를 던지지 않고 경고만 남김
-                    log.warn(`[TerritoryPanel] ⚠️ Ownership verification failed but purchase succeeded. This may be a timing issue.`);
-                } else {
-                    log.info(`[TerritoryPanel] ✅ Ownership verified: territory assigned to current user`);
-                }
-            }
-            
-            // 지갑 잔액 업데이트 (백엔드에서 반환된 잔액으로 동기화)
-            if (purchaseResult.newBalance !== undefined) {
-                walletService.currentBalance = purchaseResult.newBalance;
-                log.info(`[TerritoryPanel] 💰 WalletService balance updated to: ${purchaseResult.newBalance}`);
-                eventBus.emit('wallet:balance_updated', { balance: purchaseResult.newBalance });
-            } else {
-                log.error(`[TerritoryPanel] ❌ Failed to update balance - newBalance is undefined`);
-            }
-            
-            // ⚠️ Optimistic Update: 구매 성공 시 즉시 스토어에 반영 (UI가 바로 소유권을 보여줌)
-            const { territoryManager } = await import('../core/TerritoryManager.js');
-            const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
-            const optimisticTerritory = territoryAdapter.toStandardModel(purchaseResult.territory);
-            
-            // ⚠️ Optimistic 상태 표시: ownershipPending 플래그 추가
-            optimisticTerritory.ownershipPending = true;
-            
-            // 즉시 스토어에 반영
-            territoryManager.territories.set(optimisticTerritory.id, optimisticTerritory);
-            this.currentTerritory = optimisticTerritory;
-            
-            // 즉시 UI 업데이트
-            await this.render();
-            
-            log.info(`[TerritoryPanel] ✅ Optimistic update applied (pending):`, {
-                id: optimisticTerritory.id,
-                ruler: optimisticTerritory.ruler,
-                sovereignty: optimisticTerritory.sovereignty
-            });
-            
-            // ⚠️ Server Reconcile: 백그라운드에서 서버 최신값으로 reconcile
-            // ⚠️ 전문가 조언 반영: reconcile용 GET은 캐시를 절대 타지 않는 별도 경로로
-            // skipCache: true를 사용하여 캐시를 완전히 우회
-            try {
-                const { apiService } = await import('../services/ApiService.js');
+                log.error(`[TerritoryPanel] ❌ Purchase failed:`, {
+                    territoryId: this.currentTerritory.id,
+                    purchaseData,
+                    error: error.message,
+                    errorStatus: error.status,
+                    errorDetails: error.details,
+                    stack: error.stack
+                });
                 
-                // ⚠️ 전문가 조언: reconcile은 단일 endpoint만 믿게
-                // purchase 응답을 믿고 끝내지 말고, 바로 최신 ownership 조회 endpoint로 확정
-                log.info(`[TerritoryPanel] 🔄 Starting server reconcile for ${optimisticTerritory.id} (skipCache=true)`);
+                // ⚠️ DB 스키마 에러 특별 처리
+                const isSchemaError = error.details?.isSchemaError || 
+                                    (error.message && (
+                                        error.message.toLowerCase().includes('does not exist') ||
+                                        error.message.toLowerCase().includes('column') && error.message.toLowerCase().includes('relation')
+                                    ));
+                
+                let errorMessage;
+                if (isSchemaError) {
+                    console.error(`🔴 [TerritoryPanel] ⚠️ DB SCHEMA MISMATCH DETECTED!`);
+                    console.error(`🔴 [TerritoryPanel] This is a backend database schema issue.`);
+                    console.error(`🔴 [TerritoryPanel] Backend is trying to access a column that does not exist in the database.`);
+                    console.error(`🔴 [TerritoryPanel] Please check backend database migrations.`);
+                    
+                    errorMessage = '데이터베이스 스키마 불일치 오류가 발생했습니다. 백엔드 개발자에게 문의해주세요.';
+                } else if (error.status === 500) {
+                    errorMessage = '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+                } else {
+                    errorMessage = error.message || '구매 처리 중 오류가 발생했습니다.';
+                }
+                
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'error',
+                    message: `❌ ${errorMessage}`,
+                    duration: isSchemaError ? 10000 : 5000 // 스키마 에러는 더 길게 표시
+                });
+                
+                throw error;
+            }
+            
+                // ⚠️ UI 후처리 (에러가 나도 구매는 이미 성공했으므로 최대한 진행)
+                // 지갑 잔액 업데이트 (백엔드에서 반환된 잔액으로 동기화)
+                if (purchaseResult.newBalance !== undefined && purchaseResult.newBalance !== null) {
+                    walletService.currentBalance = purchaseResult.newBalance;
+                    log.info(`[TerritoryPanel] 💰 WalletService balance updated to: ${purchaseResult.newBalance}`);
+                    eventBus.emit('wallet:balance_updated', { balance: purchaseResult.newBalance });
+                } else {
+                    log.warn(`[TerritoryPanel] ⚠️ newBalance is missing, wallet not updated`);
+                }
+                
+                // ⚠️ Optimistic Update: 구매 성공 시 즉시 스토어에 반영 (UI가 바로 소유권을 보여줌)
+                const { territoryManager } = await import('../core/TerritoryManager.js');
+                const { territoryAdapter } = await import('../adapters/TerritoryAdapter.js');
+                const optimisticTerritory = territoryAdapter.toStandardModel(purchaseResult.territory);
+                
+                // ⚠️ Optimistic 상태 표시: ownershipPending 플래그 추가
+                optimisticTerritory.ownershipPending = true;
+                
+                // 즉시 스토어에 반영
+                territoryManager.territories.set(optimisticTerritory.id, optimisticTerritory);
+                this.currentTerritory = optimisticTerritory;
+                
+                // 즉시 UI 업데이트
+                await this.render();
+                
+                log.info(`[TerritoryPanel] ✅ Optimistic update applied (pending):`, {
+                    id: optimisticTerritory.id,
+                    ruler: optimisticTerritory.ruler,
+                    sovereignty: optimisticTerritory.sovereignty
+                });
+                
+                // ⚠️ Server Reconcile: 백그라운드에서 서버 최신값으로 reconcile
+                // ⚠️ 전문가 조언 반영: reconcile용 GET은 캐시를 절대 타지 않는 별도 경로로
+                // skipCache: true를 사용하여 캐시를 완전히 우회
+                try {
+                    const { apiService } = await import('../services/ApiService.js');
+                    
+                    // ⚠️ 전문가 조언: reconcile은 단일 endpoint만 믿게
+                    // purchase 응답을 믿고 끝내지 말고, 바로 최신 ownership 조회 endpoint로 확정
+                    log.info(`[TerritoryPanel] 🔄 Starting server reconcile for ${optimisticTerritory.id} (skipCache=true)`);
                 
                 // ⚠️ 타이밍 이슈 해결: 구매 후 DB 커밋이 완료될 때까지 약간의 지연
                 // PostgreSQL 트랜잭션 커밋이 완료되기 전에 reconcile이 실행되면 ruler_id가 null로 나올 수 있음
@@ -2294,13 +2412,13 @@ class TerritoryPanel {
                 });
             }
             
-            // ⚠️ 사용자 피드백: 성공
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'success',
-                message: `🎉 ${territoryName} 구매 완료! (잔액: ${purchaseResult.newBalance?.toLocaleString() || 'N/A'} pt)`
-            });
-            
-        } catch (error) {
+                // ⚠️ 사용자 피드백: 성공
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'success',
+                    message: `🎉 ${territoryName} 구매 완료! (잔액: ${purchaseResult.newBalance?.toLocaleString() || 'N/A'} pt)`
+                });
+                
+            } catch (error) {
             log.error('[TerritoryPanel] ❌ Purchase failed:', {
                 error,
                 message: error.message,
@@ -3289,7 +3407,10 @@ class TerritoryPanel {
         
         const countryCode = this.currentTerritory.country || this.currentTerritory.properties?.adm0_a3?.toLowerCase() || 'unknown';
         const territoryName = this.extractName(this.currentTerritory.name, countryCode) || this.currentTerritory.id;
-        const basePrice = territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
+        // ⚠️ 중요: market_base_price 사용 (경매 낙찰가에 따라 갱신된 시장 기준가)
+        const basePrice = this.currentTerritory.market_base_price || 
+                         this.currentTerritory.marketBasePrice ||
+                         territoryDataService.calculateTerritoryPrice(this.currentTerritory, countryCode);
         
         // 기간 옵션 정의
         const options = [

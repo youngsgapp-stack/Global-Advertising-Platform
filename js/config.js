@@ -72,7 +72,57 @@ export const CONFIG = {
         DEFAULT_TRIBUTE: 1000,  // 기본 조공 금액 (USD)
         MIN_TRIBUTE: 100,
         MAX_TRIBUTE: 100000,
-        PIXEL_GRID_SIZE: 64,     // 픽셀 캔버스 크기 (고정 해상도: 64×64)
+        PIXEL_GRID_SIZE: 128,    // 픽셀 캔버스 크기 (고정 해상도: 128×128)
+        PIXEL_GRID_SIZE_LEGACY: 64, // 레거시 64×64 지원
+        GRID_VERSION: 2,         // 그리드 버전 (1 = 64×64, 2 = 128×128)
+        TILE_SIZE: 16,           // 타일 크기 (128 / 16 = 8×8 타일)
+        
+        // ⚠️ 이미지 스탬프 정책 (프리뷰/적용 분리 구조)
+        IMAGE_STAMP: {
+            // 월드 셀 크기 정책 (명시적)
+            WORLD_CELL_SIZE: 128, // 월드 그리드 크기 (셀 단위)
+            
+            // 기본 스탬프 크기 정책 (월드 셀 기준)
+            DEFAULT_STAMP_SIZE_CELLS: {
+                width: 32,  // 기본 가로 32셀
+                height: 32  // 기본 세로 32셀 (비율 유지 시 자동 계산)
+            },
+            
+            // 프리뷰 캐시 크기 (표시용, 품질과 무관)
+            PREVIEW_CACHE_SIZE: 64, // 프리뷰용 작은 캐시 (빠른 피드백)
+            
+            // 최종 샘플링 방식 정책
+            SAMPLING: {
+                // 픽셀아트 느낌: nearest (또렷)
+                PIXEL_ART: {
+                    smoothing: false,
+                    quality: 'nearest'
+                },
+                // 사진/로고: high quality (부드럽지만 선명)
+                PHOTO_LOGO: {
+                    smoothing: true,
+                    quality: 'high'
+                }
+            }
+        },
+        
+        // ⚠️ 운영 안정성: 타일 시스템 가드레일
+        TILE_SYSTEM: {
+            // 타일 수 상한 (16×16 기준: 8×8 = 64개)
+            MAX_TILES_PER_TERRITORY: 64, // tilesX * tilesY = 8 * 8
+            // 타일 payload 크기 상한 (KB)
+            MAX_TILE_PAYLOAD_SIZE_KB: 50, // 타일당 최대 50KB
+            // 저장 요청당 최대 타일 수
+            MAX_TILES_PER_SAVE: 100,
+            // 저장 chunk 크기 (상한 초과 시 분할)
+            SAVE_CHUNK_SIZE: 50,
+            // 압축 payload 인코딩 버전
+            PAYLOAD_ENCODING_VERSION: 1,
+            // 빈 타일 표현 규칙
+            EMPTY_TILE_MARKER: null, // null = 빈 타일
+            // 단색 타일 최적화 임계값 (픽셀 수)
+            SOLID_COLOR_THRESHOLD: 200 // 200픽셀 이상 단색이면 최적화
+        },
         AUCTION_STARTING_BID_RATIO: 0.6  // 경매 시작가 = 즉시 구매가의 60% (0.5 = 50%, 0.7 = 70%)
     },
     

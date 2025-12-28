@@ -156,6 +156,7 @@ export const EVENTS = {
     PIXEL_CANVAS_SAVED: 'pixel:canvasSaved',
     PIXEL_DATA_SAVED: 'pixel:dataSaved',
     PIXEL_DATA_DELETED: 'pixel:dataDeleted',  // 소유권 변경 시 픽셀 아트 삭제
+    PIXEL_TILES_UPDATED: 'pixel:tiles:updated',  // 타일 업데이트 (128×128 시스템)
     
     // [NEW] 픽셀 메타데이터
     PIXEL_METADATA_LOADED: 'pixel:metadataLoaded',  // 픽셀 메타데이터 로드 완료

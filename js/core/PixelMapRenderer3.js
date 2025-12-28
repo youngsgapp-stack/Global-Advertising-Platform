@@ -813,9 +813,17 @@ class PixelMapRenderer3 {
                     territory.pixelCanvas.filledPixels = pixelData.filledPixels || pixelData.pixels.length;
                 }
                 
-                // 픽셀 아트 표시
-                await this.loadAndDisplayPixelArt(territory);
-                this.processedTerritories.add(territoryId);
+                // ⚠️ 소유권 체크 후 픽셀 아트 표시
+                const ruler = territory?.ruler || territory?.ruler_firebase_uid;
+                const hasOwner = ruler && ruler !== 'null' && ruler !== null && ruler !== undefined;
+                
+                if (hasOwner) {
+                    await this.loadAndDisplayPixelArt(territory);
+                    this.processedTerritories.add(territoryId);
+                } else {
+                    // 소유자가 없으면 기존 오버레이 제거
+                    await this.removePixelOverlay(territoryId);
+                }
             }
             
             log.info(`[PixelMapRenderer3] Processed ${territoriesToProcess.length} territories for layer ${sourceId}`);
@@ -909,9 +917,17 @@ class PixelMapRenderer3 {
                             territory.pixelCanvas.filledPixels = pixelData.filledPixels || pixelData.pixels.length;
                         }
                         
-                        // 픽셀 아트 표시
-                        await this.loadAndDisplayPixelArt(territory);
-                        this.processedTerritories.add(territoryId);
+                        // ⚠️ 소유권 체크 후 픽셀 아트 표시
+                        const ruler = territory?.ruler || territory?.ruler_firebase_uid;
+                        const hasOwner = ruler && ruler !== 'null' && ruler !== null && ruler !== undefined;
+                        
+                        if (hasOwner) {
+                            await this.loadAndDisplayPixelArt(territory);
+                            this.processedTerritories.add(territoryId);
+                        } else {
+                            // 소유자가 없으면 기존 오버레이 제거
+                            await this.removePixelOverlay(territoryId);
+                        }
                     }
                 } catch (error) {
                     log.warn(`[PixelMapRenderer3] Error processing source ${sourceId}:`, error);
@@ -939,6 +955,18 @@ class PixelMapRenderer3 {
             hasGeometry: !!territory?.geometry
         });
         
+        // ⚠️ 핵심: 소유권 체크 - 소유자가 없으면 픽셀아트 표시하지 않음
+        const ruler = territory?.ruler || territory?.ruler_firebase_uid;
+        const hasOwner = ruler && ruler !== 'null' && ruler !== null && ruler !== undefined;
+        
+        if (!hasOwner) {
+            console.log(`🔍 [PixelMapRenderer3] ⚠️ Territory ${territory.id} has no owner, skipping pixel art display`);
+            log.info(`[PixelMapRenderer3] Territory ${territory.id} has no owner, skipping pixel art display`);
+            // 기존 오버레이 제거
+            await this.removePixelOverlay(territory.id);
+            return;
+        }
+        
         try {
             // processedTerritories에서 제거하여 재처리 보장
             // 모바일에서 편집 후 저장했을 때 맵에 즉시 반영되도록 하는 핵심 로직
@@ -947,7 +975,7 @@ class PixelMapRenderer3 {
             
             // 픽셀 데이터 로드 (캐시 무효화 후 최신 데이터)
             console.log(`🔍 [PixelMapRenderer3] Loading pixel data for ${territory.id}`);
-            const pixelData = await pixelDataService.loadPixelData(territory.id);
+            const pixelData = await pixelDataService.loadPixelData(territory.id, territory);
             console.log(`🔍 [PixelMapRenderer3] Pixel data loaded:`, {
                 hasPixelData: !!pixelData,
                 hasPixels: !!(pixelData && pixelData.pixels),
@@ -1210,6 +1238,19 @@ class PixelMapRenderer3 {
                 pixelData = await pixelDataService.loadPixelData(territory.id);
             }
             
+            // ⚠️ 핵심: 소유권 체크 - 소유자가 없으면 픽셀아트 표시하지 않음
+            const ruler = territory?.ruler || territory?.ruler_firebase_uid;
+            const hasOwner = ruler && ruler !== 'null' && ruler !== null;
+            
+            if (!hasOwner) {
+                // 소유자가 없으면 기존 픽셀아트 오버레이 제거
+                log.info(`[PixelMapRenderer3] Territory ${territory.id} has no owner, removing pixel art overlay`);
+                await this.removePixelOverlay(territory.id);
+                this.pixelImageCache.delete(territory.id);
+                this.processedTerritories.delete(territory.id);
+                return; // 소유자가 없으면 더 이상 처리하지 않음
+            }
+            
             // TerritoryViewState 생성 (상태 계산)
             const viewState = new TerritoryViewState(territory.id, territory, pixelData);
             
@@ -1404,6 +1445,60 @@ class PixelMapRenderer3 {
             
         } catch (error) {
             log.error('[PixelMapRenderer3] Failed to update pixel overlay:', error);
+        }
+    }
+    
+    /**
+     * 픽셀아트 오버레이 제거 (소유권 삭제 시)
+     * @param {string} territoryId - 영토 ID
+     */
+    async removePixelOverlay(territoryId) {
+        if (!this.map || !territoryId) return;
+        
+        try {
+            const layerId = `pixel-overlay-${territoryId}`;
+            const sourceId = `pixel-source-${territoryId}`;
+            
+            // 레이어 제거
+            try {
+                if (this.map.getLayer(layerId)) {
+                    this.map.removeLayer(layerId);
+                    log.debug(`[PixelMapRenderer3] Removed pixel overlay layer for ${territoryId}`);
+                }
+            } catch (e) {
+                // 레이어가 없을 수 있음
+            }
+            
+            // 이미지 제거
+            try {
+                if (this.map.hasImage(layerId)) {
+                    this.map.removeImage(layerId);
+                    log.debug(`[PixelMapRenderer3] Removed pixel overlay image for ${territoryId}`);
+                }
+            } catch (e) {
+                // 이미지가 없을 수 있음
+            }
+            
+            // 소스 제거
+            try {
+                if (this.map.getSource(sourceId)) {
+                    this.map.removeSource(sourceId);
+                    log.debug(`[PixelMapRenderer3] Removed pixel overlay source for ${territoryId}`);
+                }
+            } catch (e) {
+                // 소스가 없을 수 있음
+            }
+            
+            // 캐시에서 제거
+            this.pixelImageCache.delete(territoryId);
+            this.processedTerritories.delete(territoryId);
+            
+            // 맵 강제 새로고침
+            this.map.triggerRepaint();
+            
+            log.info(`[PixelMapRenderer3] Removed pixel art overlay for ${territoryId}`);
+        } catch (error) {
+            log.error(`[PixelMapRenderer3] Failed to remove pixel overlay for ${territoryId}:`, error);
         }
     }
     
