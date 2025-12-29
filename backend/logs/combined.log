@@ -1392,3 +1392,172 @@ TypeError: redis.hset is not a function
 2025-12-29 07:34:28 [info]: 📡 WebSocket server ready
 2025-12-29 07:34:28 [info]: 🌍 Environment: development
 2025-12-29 07:34:28 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 08:38:43 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766965123645-kwdhsvjqs","territoryIdRaw":"adrar","territoryIdNormalized":"adrar","redisKey":"pixel_data:adrar","wasDisplayId":false}
+2025-12-29 08:38:43 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766965123681-zuaegiufu","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-29 08:38:43 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766965123645-kwdhsvjqs","territoryId":"adrar","redisKey":"pixel_data:adrar","hasData":true,"pixelsLength":385,"filledPixels":385,"revision":42,"dataType":"object"}
+2025-12-29 08:38:43 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766965123681-zuaegiufu","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-29 09:37:26 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766968646383-usvpmd1ga","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-29 09:37:26 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766968646389-izxo96fmy","territoryIdRaw":"adrar","territoryIdNormalized":"adrar","redisKey":"pixel_data:adrar","wasDisplayId":false}
+2025-12-29 09:37:26 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766968646383-usvpmd1ga","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-29 09:37:26 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766968646389-izxo96fmy","territoryId":"adrar","redisKey":"pixel_data:adrar","hasData":true,"pixelsLength":385,"filledPixels":385,"revision":42,"dataType":"object"}
+2025-12-29 09:39:00 [info]: ✅ Database connected
+2025-12-29 09:39:00 [info]: 🔄 Running database migrations...
+2025-12-29 09:39:00 [info]: ✅ Migrations completed
+2025-12-29 09:39:00 [info]: 🔍 Validating database schema...
+2025-12-29 09:39:00 [info]: ✅ Schema validation passed
+2025-12-29 09:39:00 [info]: ✅ Redis connected
+2025-12-29 09:39:00 [info]: 🚀 Server running on port 3000
+2025-12-29 09:39:00 [info]: 📡 WebSocket server ready
+2025-12-29 09:39:00 [info]: 🌍 Environment: development
+2025-12-29 09:39:00 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 09:39:34 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766968774656-epv9uexdz","territoryIdRaw":"adrar","territoryIdNormalized":"adrar","redisKey":"pixel_data:adrar","wasDisplayId":false}
+2025-12-29 09:39:34 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766968774739-rokdnj836","territoryIdRaw":"tamanghasset","territoryIdNormalized":"tamanghasset","redisKey":"pixel_data:tamanghasset","wasDisplayId":false}
+2025-12-29 09:39:34 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766968774656-epv9uexdz","territoryId":"adrar","redisKey":"pixel_data:adrar","hasData":true,"pixelsLength":385,"filledPixels":385,"revision":42,"dataType":"object"}
+2025-12-29 09:39:34 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766968774739-rokdnj836","territoryId":"tamanghasset","redisKey":"pixel_data:tamanghasset","hasData":true,"pixelsLength":522,"filledPixels":522,"revision":27,"dataType":"object"}
+2025-12-29 09:43:22 [info]: ✅ Database connected
+2025-12-29 09:43:22 [info]: 🔄 Running database migrations...
+2025-12-29 09:43:22 [info]: ✅ Migrations completed
+2025-12-29 09:43:22 [info]: 🔍 Validating database schema...
+2025-12-29 09:43:22 [info]: ✅ Schema validation passed
+2025-12-29 09:43:22 [info]: ✅ Redis connected
+2025-12-29 09:43:22 [info]: 🚀 Server running on port 3000
+2025-12-29 09:43:22 [info]: 📡 WebSocket server ready
+2025-12-29 09:43:22 [info]: 🌍 Environment: development
+2025-12-29 09:43:22 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 09:45:23 [info]: ✅ Database connected
+2025-12-29 09:45:23 [info]: 🔄 Running database migrations...
+2025-12-29 09:45:23 [info]: ✅ Migrations completed
+2025-12-29 09:45:23 [info]: 🔍 Validating database schema...
+2025-12-29 09:45:23 [info]: ✅ Schema validation passed
+2025-12-29 09:45:23 [info]: ✅ Redis connected
+2025-12-29 09:45:23 [info]: 🚀 Server running on port 3000
+2025-12-29 09:45:23 [info]: 📡 WebSocket server ready
+2025-12-29 09:45:23 [info]: 🌍 Environment: development
+2025-12-29 09:45:23 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 10:38:03 [info]: ✅ Database connected
+2025-12-29 10:38:03 [info]: 🔄 Running database migrations...
+2025-12-29 10:38:03 [info]: ✅ Migrations completed
+2025-12-29 10:38:03 [info]: 🔍 Validating database schema...
+2025-12-29 10:38:04 [info]: ✅ Schema validation passed
+2025-12-29 10:38:04 [info]: ✅ Redis connected
+2025-12-29 10:38:04 [info]: 🚀 Server running on port 3000
+2025-12-29 10:38:04 [info]: 📡 WebSocket server ready
+2025-12-29 10:38:04 [info]: 🌍 Environment: development
+2025-12-29 10:38:04 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 13:14:50 [info]: ✅ Database connected
+2025-12-29 13:14:50 [info]: 🔄 Running database migrations...
+2025-12-29 13:14:50 [info]: ✅ Migrations completed
+2025-12-29 13:14:50 [info]: 🔍 Validating database schema...
+2025-12-29 13:14:50 [info]: ✅ Schema validation passed
+2025-12-29 13:14:50 [info]: ✅ Redis connected
+2025-12-29 13:14:50 [info]: 🚀 Server running on port 3000
+2025-12-29 13:14:50 [info]: 📡 WebSocket server ready
+2025-12-29 13:14:50 [info]: 🌍 Environment: development
+2025-12-29 13:14:50 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 13:26:28 [info]: ✅ Database connected
+2025-12-29 13:26:28 [info]: 🔄 Running database migrations...
+2025-12-29 13:26:28 [info]: ✅ Migrations completed
+2025-12-29 13:26:28 [info]: 🔍 Validating database schema...
+2025-12-29 13:26:28 [info]: ✅ Schema validation passed
+2025-12-29 13:26:28 [info]: ✅ Redis connected
+2025-12-29 13:26:28 [info]: 🚀 Server running on port 3000
+2025-12-29 13:26:28 [info]: 📡 WebSocket server ready
+2025-12-29 13:26:28 [info]: 🌍 Environment: development
+2025-12-29 13:26:28 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 13:29:44 [info]: ✅ Database connected
+2025-12-29 13:29:44 [info]: 🔄 Running database migrations...
+2025-12-29 13:29:44 [info]: ✅ Migrations completed
+2025-12-29 13:29:44 [info]: 🔍 Validating database schema...
+2025-12-29 13:29:44 [info]: ✅ Schema validation passed
+2025-12-29 13:29:44 [info]: ✅ Redis connected
+2025-12-29 13:29:44 [info]: 🚀 Server running on port 3000
+2025-12-29 13:29:44 [info]: 📡 WebSocket server ready
+2025-12-29 13:29:44 [info]: 🌍 Environment: development
+2025-12-29 13:29:44 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 13:29:59 [error]: unhandledRejection: auctionId is not defined
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:894:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:894:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Mon Dec 29 2025 13:29:59 GMT+0900 (대한민국 표준시)","process":{"pid":11248,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":82677760,"heapTotal":32739328,"heapUsed":30471712,"external":3854335,"arrayBuffers":163019}},"os":{"loadavg":[0,0,0],"uptime":340199.906},"trace":[{"column":46,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js","function":null,"line":894,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-29 13:32:39 [info]: ✅ Database connected
+2025-12-29 13:32:39 [info]: 🔄 Running database migrations...
+2025-12-29 13:32:39 [info]: ✅ Migrations completed
+2025-12-29 13:32:39 [info]: 🔍 Validating database schema...
+2025-12-29 13:32:39 [info]: ✅ Schema validation passed
+2025-12-29 13:32:39 [info]: ✅ Redis connected
+2025-12-29 13:32:39 [info]: 🚀 Server running on port 3000
+2025-12-29 13:32:39 [info]: 📡 WebSocket server ready
+2025-12-29 13:32:39 [info]: 🌍 Environment: development
+2025-12-29 13:32:39 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 13:32:53 [error]: unhandledRejection: auctionId is not defined
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:893:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:893:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Mon Dec 29 2025 13:32:53 GMT+0900 (대한민국 표준시)","process":{"pid":28188,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":130277376,"heapTotal":85430272,"heapUsed":50391864,"external":3939215,"arrayBuffers":138671}},"os":{"loadavg":[0,0,0],"uptime":340374.062},"trace":[{"column":46,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js","function":null,"line":893,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-29 14:06:04 [info]: ✅ Database connected
+2025-12-29 14:06:04 [info]: 🔄 Running database migrations...
+2025-12-29 14:06:04 [info]: ✅ Migrations completed
+2025-12-29 14:06:04 [info]: 🔍 Validating database schema...
+2025-12-29 14:06:04 [info]: ✅ Schema validation passed
+2025-12-29 14:06:04 [info]: ✅ Redis connected
+2025-12-29 14:06:04 [info]: 🚀 Server running on port 3000
+2025-12-29 14:06:04 [info]: 📡 WebSocket server ready
+2025-12-29 14:06:04 [info]: 🌍 Environment: development
+2025-12-29 14:06:04 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 14:06:36 [error]: unhandledRejection: auctionId is not defined
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Mon Dec 29 2025 14:06:36 GMT+0900 (대한민국 표준시)","process":{"pid":17896,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":126685184,"heapTotal":80187392,"heapUsed":54111640,"external":3940556,"arrayBuffers":230563}},"os":{"loadavg":[0,0,0],"uptime":342396.437},"trace":[{"column":46,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js","function":null,"line":936,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-29 14:08:20 [info]: ✅ Database connected
+2025-12-29 14:08:20 [info]: 🔄 Running database migrations...
+2025-12-29 14:08:20 [info]: ✅ Migrations completed
+2025-12-29 14:08:20 [info]: 🔍 Validating database schema...
+2025-12-29 14:08:20 [info]: ✅ Schema validation passed
+2025-12-29 14:08:20 [info]: ✅ Redis connected
+2025-12-29 14:08:20 [info]: 🚀 Server running on port 3000
+2025-12-29 14:08:20 [info]: 📡 WebSocket server ready
+2025-12-29 14:08:20 [info]: 🌍 Environment: development
+2025-12-29 14:08:20 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 14:08:36 [error]: unhandledRejection: auctionId is not defined
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Mon Dec 29 2025 14:08:36 GMT+0900 (대한민국 표준시)","process":{"pid":18528,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":126156800,"heapTotal":80449536,"heapUsed":53997008,"external":3949579,"arrayBuffers":239586}},"os":{"loadavg":[0,0,0],"uptime":342516.5},"trace":[{"column":46,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js","function":null,"line":936,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-29 14:08:53 [info]: ✅ Database connected
+2025-12-29 14:08:53 [info]: 🔄 Running database migrations...
+2025-12-29 14:08:53 [info]: ✅ Migrations completed
+2025-12-29 14:08:53 [info]: 🔍 Validating database schema...
+2025-12-29 14:08:53 [info]: ✅ Schema validation passed
+2025-12-29 14:08:53 [info]: ✅ Redis connected
+2025-12-29 14:08:53 [info]: 🚀 Server running on port 3000
+2025-12-29 14:08:53 [info]: 📡 WebSocket server ready
+2025-12-29 14:08:53 [info]: 🌍 Environment: development
+2025-12-29 14:08:53 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 14:09:10 [error]: unhandledRejection: auctionId is not defined
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ReferenceError: auctionId is not defined
+    at file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js:936:46
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {"error":{},"rejection":true,"date":"Mon Dec 29 2025 14:09:10 GMT+0900 (대한민국 표준시)","process":{"pid":31136,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":126251008,"heapTotal":80187392,"heapUsed":53368416,"external":3930595,"arrayBuffers":220602}},"os":{"loadavg":[0,0,0],"uptime":342550.312},"trace":[{"column":46,"file":"file:///C:/Users/win/Downloads/Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343/backend/routes/admin.js","function":null,"line":936,"method":null,"native":false},{"column":5,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":105,"method":"processTicksAndRejections","native":false}]}
+2025-12-29 14:41:04 [info]: ✅ Database connected
+2025-12-29 14:41:04 [info]: 🔄 Running database migrations...
+2025-12-29 14:41:04 [info]: ✅ Migrations completed
+2025-12-29 14:41:04 [info]: 🔍 Validating database schema...
+2025-12-29 14:41:04 [info]: ✅ Schema validation passed
+2025-12-29 14:41:04 [info]: ✅ Redis connected
+2025-12-29 14:41:04 [info]: 🚀 Server running on port 3000
+2025-12-29 14:41:04 [info]: 📡 WebSocket server ready
+2025-12-29 14:41:04 [info]: 🌍 Environment: development
+2025-12-29 14:41:04 [info]: 🔗 Health check: http://0.0.0.0:3000/api/health
+2025-12-29 17:18:17 [info]: [Pixels] 🔍 GET START {"reqId":"get-1766996297406-9qqgal399","territoryIdRaw":"orientale","territoryIdNormalized":"orientale","redisKey":"pixel_data:orientale","wasDisplayId":false}
+2025-12-29 17:18:17 [info]: [Pixels] 🔍 GET retrieved {"reqId":"get-1766996297406-9qqgal399","territoryId":"orientale","redisKey":"pixel_data:orientale","hasData":false,"pixelsLength":0,"filledPixels":0,"revision":0,"dataType":"object"}

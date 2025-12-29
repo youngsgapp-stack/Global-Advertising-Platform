@@ -10,6 +10,7 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { invalidateAuctionCache, invalidateTerritoryCache } from '../redis/cache-utils.js';
 import { broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
+import { calculateProtectionEndsAt, logAuctionEndSuccess } from '../utils/auction-utils.js';
 
 const router = express.Router();
 
@@ -861,14 +862,13 @@ async function endExpiredAuctions() {
                         
                         logger.info(`[End Expired Auctions] 📊 Market base price update for ${auction.territory_id}: ${currentMarketBase} → ${newMarketBase} (finalBid: ${finalBid}, rawEMA: ${rawEMA.toFixed(2)}, capped: ${capped.toFixed(2)}, floored: ${floored.toFixed(2)}, final: ${newMarketBase})`);
                         
-                        // 보호 기간 계산
-                        const protectionDays = auction.protection_days !== null ? auction.protection_days : 7;
-                        const protectionEndsAt = protectionDays === null 
-                            ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000) // 평생
-                            : new Date(Date.now() + protectionDays * 24 * 60 * 60 * 1000);
+                        // ✅ 개선: 보호 기간 계산 통일 (유틸리티 함수 사용)
+                        // 모든 종료 로직(admin, cron, 복구)에서 동일한 계산 사용
+                        const protectionEndsAt = calculateProtectionEndsAt(7);
                         
                         // ⚠️ 중요: 상태 변경과 market_base_price 갱신을 같은 트랜잭션 안에서 처리
                         // 멀티 인스턴스 환경에서도 안전하게 동작하도록 보장
+                        // ✅ protection_days 컬럼 제거: protection_ends_at만 사용
                         await client.query(`
                             UPDATE territories 
                             SET ruler_id = $1,
@@ -876,28 +876,46 @@ async function endExpiredAuctions() {
                                 sovereignty = 'protected',
                                 status = 'protected',
                                 protection_ends_at = $3,
-                                protection_days = $4,
-                                market_base_price = $5,
+                                market_base_price = $4,
                                 current_auction_id = NULL,
                                 updated_at = NOW()
-                            WHERE id = $6
+                            WHERE id = $5
                         `, [
                             auction.current_bidder_id,
                             auction.bidder_nickname || 'Unknown',
                             protectionEndsAt,
-                            protectionDays,
                             newMarketBase,
                             auction.territory_id
                         ]);
                         
-                        // 소유권 이력 기록 (같은 트랜잭션 내)
+                        // ✅ 개선: 소유권 이력 기록 (멱등성 보장)
+                        // ownerships에 auction_id를 포함하고, 유니크 제약으로 중복 방지
                         await client.query(`
-                            INSERT INTO ownerships (territory_id, user_id, acquired_at, price)
-                            VALUES ($1, $2, NOW(), $3)
-                        `, [auction.territory_id, auction.current_bidder_id, finalBid]);
+                            INSERT INTO ownerships (territory_id, user_id, acquired_at, price, auction_id)
+                            VALUES ($1, $2, NOW(), $3, $4)
+                            ON CONFLICT (auction_id) DO NOTHING
+                        `, [auction.territory_id, auction.current_bidder_id, finalBid, auction.id]);
+                        
+                        // 소유권 이전 완료 표시
+                        await client.query(`
+                            UPDATE auctions 
+                            SET transferred_at = NOW(),
+                                updated_at = NOW()
+                            WHERE id = $1
+                        `, [auction.id]);
                         
                         // ⚠️ 중요: 트랜잭션 커밋 전에는 캐시/WS 브로드캐스트 하지 않음
                         // 커밋 후에만 실행하여 다른 인스턴스/클라이언트가 "아직 DB 반영 전" 상태를 받지 않도록 보장
+                        
+                        // ✅ 성공 로그 출력 (유틸리티 함수 사용)
+                        logAuctionEndSuccess({
+                            auctionId: auction.id,
+                            territoryId: auction.territory_id,
+                            winnerUserId: auction.current_bidder_id,
+                            protectionEndsAt,
+                            processingTimeMs: 0, // cron은 배치 처리이므로 개별 시간 측정 생략
+                            source: 'cron'
+                        });
                         
                         logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended. Winner: ${auction.bidder_nickname} (${auction.bidder_firebase_uid}), Bid: ${finalBid}, Market base: ${newMarketBase}`);
                         
