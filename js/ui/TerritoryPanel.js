@@ -36,6 +36,8 @@ class TerritoryPanel {
         // ⚠️ 전문가 조언 반영: 서버 재조회 남발 방지
         this._auctionRefreshInFlight = false; // 인플라이트 가드
         this._auctionRefreshDebounceTimer = null; // 디바운스 타이머
+        // ⚠️ 옥션 종료 중복 호출 방지 가드
+        this._endingInFlight = new Map(); // territoryId -> Promise (종료 중인 옥션 추적)
     }
     
     /**
@@ -476,6 +478,51 @@ class TerritoryPanel {
         this.currentTerritory = territory;
         this.render();
         this.bindActions();
+    }
+    
+    /**
+     * 옥션 종료 후 영토 상태 재로드 (중복 호출 방지 및 에러 처리)
+     */
+    async reloadTerritoryAfterAuctionEnd(territoryId, auction) {
+        if (!territoryId) {
+            log.warn('[TerritoryPanel] Cannot reload territory: territoryId is missing');
+            return;
+        }
+        
+        const updatedTerritory = territoryManager.getTerritory(territoryId);
+        if (updatedTerritory) {
+            // API에서 최신 데이터 로드
+            try {
+                const { apiService } = await import('../services/ApiService.js');
+                const latestData = await apiService.getTerritory(territoryId);
+                if (latestData) {
+                    // API 응답을 내부 형식으로 변환
+                    const normalizedData = territoryManager.normalizeTerritoryData 
+                        ? territoryManager.normalizeTerritoryData(latestData)
+                        : latestData;
+                    
+                    // 영토 데이터 업데이트
+                    Object.assign(updatedTerritory, normalizedData);
+                    territoryManager.territories.set(territoryId, updatedTerritory);
+                    
+                    // 옥션 상태를 즉시 'ended'로 마킹 (중복 트리거 방지)
+                    if (auction && auction.id) {
+                        const auctionSystem = (await import('../features/AuctionSystem.js')).default;
+                        const cachedAuction = auctionSystem.getAuction(auction.id);
+                        if (cachedAuction) {
+                            cachedAuction.status = 'ended';
+                            cachedAuction.endedAt = new Date().toISOString();
+                        }
+                    }
+                    
+                    // 패널 다시 렌더링
+                    this.render();
+                    log.info('[TerritoryPanel] Territory updated after auction end');
+                }
+            } catch (error) {
+                log.warn('[TerritoryPanel] Failed to reload territory after auction end:', error);
+            }
+        }
     }
     
     /**
@@ -1154,52 +1201,21 @@ class TerritoryPanel {
             }
         }
         
-        // 만료된 경매는 종료 처리
+        // 만료된 경매는 서버의 cron 작업에 맡기고, 사용자에게는 종료 중임을 표시
+        // ⚠️ 중요: 일반 사용자는 옥션을 종료할 권한이 없으므로 프론트엔드에서 종료 API를 호출하지 않음
         if (isExpired) {
-            // 옥션 종료 처리 (비동기)
-            const endPromise = auctionSystem.endAuction(auction.id).catch(err => {
-                log.error('[TerritoryPanel] Failed to end expired auction:', err);
-            });
-            
-            // 옥션 종료 후 영토 상태 업데이트 대기
-            endPromise.then(async () => {
-                // 영토 상태 다시 로드
-                const territory = territoryManager.getTerritory(territory.id);
-                if (territory) {
-                    // API에서 최신 데이터 로드
-                    try {
-                        const latestData = await apiService.getTerritory(territory.id);
-                        if (latestData) {
-                            // API 응답을 내부 형식으로 변환
-                            const normalizedData = territoryManager.normalizeTerritoryData 
-                                ? territoryManager.normalizeTerritoryData(latestData)
-                                : latestData;
-                            
-                            // 영토 데이터 업데이트
-                            Object.assign(territory, normalizedData);
-                            territoryManager.territories.set(territory.id, territory);
-                            
-                            // 패널 다시 렌더링
-                            this.render();
-                            log.info('[TerritoryPanel] Territory updated after auction end');
-                        }
-                    } catch (error) {
-                        log.warn('[TerritoryPanel] Failed to reload territory after auction end:', error);
-                    }
-                }
-            });
-            
-            // 종료 중임을 표시
+            // 서버의 cron 작업이 처리할 때까지 대기 중임을 표시
             return `
                 <div class="auction-section auction-ending">
                     <h3>Auction Ending...</h3>
                     <div class="auction-info">
                         <div class="auction-result">
-                            Processing auction results...
+                            <p>The auction has ended. Processing results...</p>
                             ${auction.highestBidder 
-                                ? `<br><small>Winner: ${auction.highestBidderName || 'Unknown'}</small>`
-                                : '<br><small>No bids placed</small>'
+                                ? `<p><strong>Leading Bid:</strong> ${auction.highestBidderName || 'Unknown'} - ${this.formatNumber(auction.currentBid)} pt</p>`
+                                : '<p>No bids were placed.</p>'
                             }
+                            <p class="auction-ending-note">Final results will be processed shortly by the server.</p>
                         </div>
                     </div>
                 </div>
