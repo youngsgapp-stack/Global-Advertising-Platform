@@ -8,7 +8,7 @@ import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateAuctionCache, invalidateTerritoryCache, invalidatePixelCache, invalidateCachePattern } from '../redis/cache-utils.js';
 import { broadcastBidUpdate, broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
 import { serializeAuction, serializeAuctions } from '../utils/auction-serializer.js';
-import { calculateProtectionEndsAt, logAuctionEndSuccess } from '../utils/auction-utils.js';
+import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd, calculateProtectionDays, calculateProtectionEndsAtFromBid } from '../utils/auction-utils.js';
 
 const router = express.Router();
 
@@ -82,11 +82,17 @@ router.get('/:id', async (req, res) => {
                 
                 console.debug(`[GET auction] Using cache with DB validation: currentBid=${finalCurrentBid}, minNextBid=${finalMinNextBid}`);
                 
+                // ⚠️ 전문가 조언 반영: 캐시된 데이터에도 예상 보호기간 계산
+                const expectedProtectionDays = calculateProtectionDays(finalCurrentBid);
+                const expectedProtectionEndsAt = calculateProtectionEndsAtFromBid(finalCurrentBid);
+                
                 return res.json({
                     ...parsedCache,
                     currentBid: finalCurrentBid,
                     minNextBid: finalMinNextBid,
-                    increment: increment
+                    increment: increment,
+                    expectedProtectionDays,
+                    expectedProtectionEndsAt: expectedProtectionEndsAt.toISOString()
                 });
             }
             }
@@ -159,6 +165,16 @@ router.get('/:id', async (req, res) => {
         auction.minNextBid = minNextBid;
         auction.increment = increment;
         
+        // ⚠️ 전문가 조언 반영: 현재 입찰가에 따른 예상 보호기간 계산 (서버에서만 계산)
+        if (effectiveCurrentBid > 0) {
+            auction.expectedProtectionDays = calculateProtectionDays(effectiveCurrentBid);
+            auction.expectedProtectionEndsAt = calculateProtectionEndsAtFromBid(effectiveCurrentBid).toISOString();
+        } else {
+            // 입찰이 없으면 시작가 기준으로 계산
+            auction.expectedProtectionDays = calculateProtectionDays(startingBid);
+            auction.expectedProtectionEndsAt = calculateProtectionEndsAtFromBid(startingBid).toISOString();
+        }
+        
         // Redis에 캐시 (변환된 형식으로, JSON 문자열로 저장)
         await redis.set(cacheKey, JSON.stringify(auction), CACHE_TTL.AUCTION);
         
@@ -207,9 +223,9 @@ router.post('/', async (req, res) => {
         // 트랜잭션 시작
         await client.query('BEGIN');
         
-        // 1. 영토 정보 조회
+        // 1. 영토 정보 조회 (last_winning_amount 포함)
         const territoryResult = await client.query(
-            `SELECT * FROM territories WHERE id = $1 FOR UPDATE`,
+            `SELECT *, last_winning_amount FROM territories WHERE id = $1 FOR UPDATE`,
             [territoryId]
         );
         
@@ -285,7 +301,18 @@ router.post('/', async (req, res) => {
         // 7. 소유자 확인 제거 - 보호 기간이 지나면 누구나 경매 시작 가능
         // (Protected 상태는 이미 위에서 체크했으므로, 여기까지 오면 보호 기간이 지난 상태)
         
-        // 8. 경매 종료 시간 결정
+        // 8. ⚠️ 전문가 조언 반영: 이전 낙찰가를 시작가로 사용
+        // last_winning_amount가 있으면 그것을 시작가로 사용, 없으면 요청 본문의 startingBid 사용
+        let finalStartingBid = startingBid;
+        if (territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
+            finalStartingBid = parseFloat(territory.last_winning_amount);
+            console.log(`[Auctions] Using last_winning_amount (${finalStartingBid}) as starting bid for territory ${territoryId}`);
+        }
+        
+        // 최소 입찰가는 시작가와 동일하게 설정
+        const finalMinBid = minBid || finalStartingBid;
+        
+        // 9. 경매 종료 시간 결정
         let auctionEndTime = endTime;
         if (!auctionEndTime) {
             // 기본값: 24시간 후
@@ -293,7 +320,7 @@ router.post('/', async (req, res) => {
             auctionEndTime = endDate.toISOString();
         }
         
-        // 9. 경매 생성
+        // 10. 경매 생성
         const auctionResult = await client.query(
             `INSERT INTO auctions (
                 territory_id, 
@@ -311,8 +338,8 @@ router.post('/', async (req, res) => {
             [
                 territoryId,
                 auctionEndTime,
-                minBid || startingBid,
-                startingBid,
+                finalMinBid,
+                finalStartingBid,
                 countryIso // ⚠️ 중요: countryIso 사용 (ISO 3166-1 alpha-3)
             ]
         );
@@ -721,6 +748,10 @@ router.post('/:id/bids', async (req, res) => {
         // ⚠️ 전문가 조언 반영: 응답에 minNextBid 포함 (프론트에서 계산하지 않도록)
         const newMinNextBid = amount + increment;
         
+        // ⚠️ 전문가 조언 반영: 입찰가에 따른 예상 보호기간 계산 (서버에서만 계산)
+        const expectedProtectionDays = calculateProtectionDays(amount);
+        const expectedProtectionEndsAt = calculateProtectionEndsAtFromBid(amount);
+        
         // ⚠️ 재발 방지: serializer를 통한 일관된 변환 + 추가 필드
         const serializedAuction = serializeAuction({
             ...auction,
@@ -731,11 +762,17 @@ router.post('/:id/bids', async (req, res) => {
         // minNextBid와 increment는 serializer에 없으므로 추가
         serializedAuction.minNextBid = newMinNextBid;
         serializedAuction.increment = increment;
+        // 예상 보호기간 정보 추가
+        serializedAuction.expectedProtectionDays = expectedProtectionDays;
+        serializedAuction.expectedProtectionEndsAt = expectedProtectionEndsAt.toISOString();
         
         res.json({
             success: true,
             bid: bidResult.rows[0],
-            auction: serializedAuction
+            auction: serializedAuction,
+            // 예상 보호기간 정보도 응답에 포함
+            expectedProtectionDays,
+            expectedProtectionEndsAt: expectedProtectionEndsAt.toISOString()
         });
         
     } catch (error) {
@@ -827,201 +864,30 @@ router.post('/:id/end', async (req, res) => {
             });
         }
         
-        // 4. 경매 종료 처리 (cron.js의 endExpiredAuctions 로직 참고)
-        // ⚠️ 레이스 방어: bids 테이블에서 최종 승자 재확인 (종료 직전 입찰 방어)
-        // 종료 시간 이전의 입찰만 유효 (DB 기준으로 확정)
-        // ✅ 개선: winning_bid_id도 함께 가져와서 원자적으로 승자 확정
-        const bidsResult = await client.query(
-            `SELECT 
-                id,
-                amount,
-                user_id,
-                created_at
-            FROM bids 
-            WHERE auction_id = $1 
-                AND created_at <= (SELECT end_time FROM auctions WHERE id = $1)
-            ORDER BY amount DESC, created_at ASC
-            LIMIT 1`,
-            [auctionId]
-        );
+        // 4. ⚠️ 전문가 조언 반영: 공통 종료 함수 사용
+        // 모든 종료 처리는 finalizeAuctionEnd 하나로만 처리
+        const endResult = await finalizeAuctionEnd({
+            client,
+            auctionId,
+            auction,
+            source: 'manual'
+        });
         
-        // 최종 승자 결정: bids 테이블의 최고 입찰 vs auctions 테이블의 current_bid
-        let finalBid = parseFloat(auction.current_bid || 0);
-        let finalBidderId = auction.current_bidder_id;
-        let finalBidderNickname = auction.bidder_nickname;
-        let winningBidId = null;
-        
-        if (bidsResult.rows.length > 0) {
-            const highestBidFromBids = parseFloat(bidsResult.rows[0].amount || 0);
-            if (highestBidFromBids > finalBid) {
-                // bids 테이블에 더 높은 입찰이 있으면 그것을 사용
-                finalBid = highestBidFromBids;
-                finalBidderId = bidsResult.rows[0].user_id;
-                winningBidId = bidsResult.rows[0].id;
-                
-                // 입찰자 정보 재조회
-                const bidderInfoResult = await client.query(
-                    `SELECT nickname, firebase_uid FROM users WHERE id = $1`,
-                    [finalBidderId]
-                );
-                if (bidderInfoResult.rows.length > 0) {
-                    finalBidderNickname = bidderInfoResult.rows[0].nickname || 'Unknown';
-                }
-            } else if (finalBid > 0) {
-                // current_bid가 더 높은 경우, 해당 입찰을 찾아서 winning_bid_id 설정
-                const currentBidResult = await client.query(
-                    `SELECT id FROM bids 
-                     WHERE auction_id = $1 AND amount = $2 AND user_id = $3
-                     ORDER BY created_at ASC
-                     LIMIT 1`,
-                    [auctionId, finalBid, finalBidderId]
-                );
-                if (currentBidResult.rows.length > 0) {
-                    winningBidId = currentBidResult.rows[0].id;
-                }
-            }
-        }
-        
-        const hasWinner = finalBidderId && finalBid > 0;
-        
-        // ✅ 개선: 승자 확정값을 원자적으로 저장 (winning_bid_id, winner_user_id, winning_amount)
-        // 경매 상태를 ended로 업데이트하고 승자 확정값 저장
-        await client.query(
-            `UPDATE auctions 
-             SET status = 'ended', 
-                 ended_at = NOW(),
-                 updated_at = NOW(),
-                 current_bid = $1,
-                 current_bidder_id = $2,
-                 winning_bid_id = $3,
-                 winner_user_id = $4,
-                 winning_amount = $5
-             WHERE id = $6`,
-            [finalBid, finalBidderId, winningBidId, hasWinner ? finalBidderId : null, hasWinner ? finalBid : null, auctionId]
-        );
-        
-        // 5. 영토 소유권 이전 전에 territories 테이블 락 (동시성 보장)
-        if (hasWinner && auction.territory_id) {
-            const territoryLockResult = await client.query(
-                `SELECT * FROM territories WHERE id = $1 FOR UPDATE`,
-                [auction.territory_id]
-            );
-            
-            if (territoryLockResult.rows.length === 0) {
-                await client.query('ROLLBACK');
-                console.error(`[Auctions] Territory ${auction.territory_id} not found for auction ${auctionId}`);
-                return res.status(404).json({ 
-                    error: 'Territory not found',
-                    territoryId: auction.territory_id
-                });
-            }
-        }
-        
-        if (hasWinner) {
-            // 낙찰자가 있는 경우: 소유권 이전 및 market_base_price 갱신
-            let currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 0);
-            
-            if (!currentMarketBase || currentMarketBase <= 0) {
-                currentMarketBase = parseFloat(auction.base_price || finalBid || 100);
-            }
-            
-            // EMA 계산
-            const EMA_WEIGHT_OLD = 0.7;
-            const EMA_WEIGHT_NEW = 0.3;
-            const rawEMA = currentMarketBase * EMA_WEIGHT_OLD + finalBid * EMA_WEIGHT_NEW;
-            const CAP_MULTIPLIER = 3.0;
-            const capped = Math.min(rawEMA, currentMarketBase * CAP_MULTIPLIER);
-            const FLOOR_MULTIPLIER = 0.7;
-            const floored = Math.max(capped, currentMarketBase * FLOOR_MULTIPLIER);
-            const newMarketBase = Math.ceil(floored);
-            
-            // ✅ 개선: 보호 기간 계산 통일 (유틸리티 함수 사용)
-            // 모든 종료 로직(admin, cron, 복구)에서 동일한 계산 사용
-            const protectionEndsAt = calculateProtectionEndsAt(7);
-            
-            // ✅ 개선: 영토 소유권 이전 (멱등성 보장)
-            // 이미 동일 ruler_id면 스킵 (멱등성)
-            // protection_days 컬럼 제거: protection_ends_at만 사용
-            const territoryUpdateResult = await client.query(
-                `UPDATE territories 
-                 SET ruler_id = $1,
-                     ruler_name = $2,
-                     sovereignty = 'protected',
-                     status = 'protected',
-                     protection_ends_at = $3,
-                     market_base_price = $4,
-                     current_auction_id = NULL,
-                     updated_at = NOW()
-                 WHERE id = $5
-                   AND (ruler_id IS DISTINCT FROM $1 OR ruler_id IS NULL)`,
-                [
-                    finalBidderId,
-                    finalBidderNickname || 'Unknown',
-                    protectionEndsAt,
-                    newMarketBase,
-                    auction.territory_id
-                ]
-            );
-            
-            // 소유권이 실제로 변경되었는지 확인
-            if (territoryUpdateResult.rowCount === 0) {
-                console.log(`[Auctions] Territory ${auction.territory_id} already has ruler ${finalBidderId}, skipping update (idempotent)`);
-            }
-            
-            // ✅ 개선: 소유권 이력 기록 (멱등성 보장)
-            // ownerships에 auction_id를 포함하고, 유니크 제약으로 중복 방지
-            // ON CONFLICT로 이미 존재하면 스킵 (멱등성)
-            await client.query(
-                `INSERT INTO ownerships (territory_id, user_id, acquired_at, price, auction_id)
-                 VALUES ($1, $2, NOW(), $3, $4)
-                 ON CONFLICT (auction_id) DO NOTHING`,
-                [auction.territory_id, finalBidderId, finalBid, auctionId]
-            );
-            
-            // 소유권 이전 완료 표시
-            await client.query(
-                `UPDATE auctions 
-                 SET transferred_at = NOW(),
-                     updated_at = NOW()
-                 WHERE id = $1`,
-                [auctionId]
-            );
-        } else {
-            // 낙찰자 없음: 영토 상태 복구 (락 필요)
-            if (auction.territory_id) {
-                await client.query(
-                    `SELECT * FROM territories WHERE id = $1 FOR UPDATE`,
-                    [auction.territory_id]
-                );
-            }
-            
-            if (auction.current_owner_id) {
-                await client.query(
-                    `UPDATE territories 
-                     SET sovereignty = 'ruled',
-                         status = 'ruled',
-                         current_auction_id = NULL,
-                         updated_at = NOW()
-                     WHERE id = $1`,
-                    [auction.territory_id]
-                );
-            } else {
-                await client.query(
-                    `UPDATE territories 
-                     SET sovereignty = 'unconquered',
-                     status = 'unconquered',
-                     ruler_id = NULL,
-                     ruler_name = NULL,
-                     current_auction_id = NULL,
-                     updated_at = NOW()
-                     WHERE id = $1`,
-                    [auction.territory_id]
-                );
-            }
-        }
+        const { hasWinner, finalBid, finalBidderId, finalBidderNickname, protectionEndsAt } = endResult;
         
         // 트랜잭션 커밋
         await client.query('COMMIT');
+        
+        // ✅ 성공 로그 출력
+        const processingTimeMs = Date.now() - startTime;
+        logAuctionEndSuccess({
+            auctionId,
+            territoryId: auction.territory_id,
+            winnerUserId: finalBidderId || null,
+            protectionEndsAt: protectionEndsAt || null,
+            processingTimeMs,
+            source: 'manual'
+        });
         
         // 캐시 무효화 (소유권 변경 시 모든 관련 캐시 무효화)
         await invalidateAuctionCache(auctionId, auction.territory_id);

@@ -10,7 +10,7 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { invalidateAuctionCache, invalidateTerritoryCache } from '../redis/cache-utils.js';
 import { broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
-import { calculateProtectionEndsAt, logAuctionEndSuccess } from '../utils/auction-utils.js';
+import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd } from '../utils/auction-utils.js';
 
 const router = express.Router();
 
@@ -817,141 +817,47 @@ async function endExpiredAuctions() {
                         continue;
                     }
                     
-                    const finalBid = parseFloat(auction.current_bid || 0);
-                    const hasWinner = auction.current_bidder_id && finalBid > 0;
+                    // ⚠️ 전문가 조언 반영: 공통 종료 함수 사용
+                    // auction 객체 구조 맞추기 (finalizeAuctionEnd가 필요로 하는 필드)
+                    const auctionForFinalize = {
+                        ...auction,
+                        status: 'active', // 아직 처리 전이므로 active로 설정 (finalizeAuctionEnd 내부에서 ended로 변경)
+                        market_base_price: auction.market_base_price,
+                        base_price: auction.base_price
+                    };
+                    
+                    const endResult = await finalizeAuctionEnd({
+                        client,
+                        auctionId: auction.id,
+                        auction: auctionForFinalize,
+                        source: 'cron'
+                    });
+                    
+                    const { hasWinner, finalBid, finalBidderId, finalBidderNickname, protectionEndsAt, newMarketBase } = endResult;
+                    
+                    // ✅ 성공 로그 출력
+                    logAuctionEndSuccess({
+                        auctionId: auction.id,
+                        territoryId: auction.territory_id,
+                        winnerUserId: finalBidderId || null,
+                        protectionEndsAt: protectionEndsAt || null,
+                        processingTimeMs: 0, // cron은 배치 처리이므로 개별 시간 측정 생략
+                        source: 'cron'
+                    });
                     
                     if (hasWinner) {
-                        // ⚠️ EMA 계산 (백엔드에서만 수행)
-                        // ⚠️ 중요: 적용 순서를 명시적으로 고정 (디버깅 용이성)
-                        // ⚠️ null/0 가드: oldMarketBase가 null/0이면 static_base_price 또는 finalBid로 대체
-                        let currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 0);
-                        
-                        // 가드: currentMarketBase가 0이거나 null이면 base_price 우선 사용
-                        // ⚠️ 대체 규칙: base_price 우선 (가장 안정적), 없으면 finalBid, 둘 다 없으면 100
-                        if (!currentMarketBase || currentMarketBase <= 0) {
-                            // 우선순위: base_price > finalBid > 100 (기본값)
-                            currentMarketBase = parseFloat(auction.base_price || finalBid || 100);
-                            logger.warn(`[End Expired Auctions] ⚠️ market_base_price is null/0 for ${auction.territory_id}, using base_price (${auction.base_price}) or finalBid (${finalBid}) or default (100): ${currentMarketBase} [runId: ${runId}]`);
-                        }
-                        
-                        // 가드: finalBid가 비정상이면 갱신 스킵
-                        if (!finalBid || finalBid <= 0) {
-                            logger.error(`[End Expired Auctions] ❌ Invalid finalBid (${finalBid}) for auction ${auction.id}, skipping market_base_price update`);
-                            // market_base_price 갱신 없이 소유권만 이전
-                            currentMarketBase = parseFloat(auction.market_base_price || auction.base_price || 100);
-                        } else {
-                            const EMA_WEIGHT_OLD = 0.7;
-                            const EMA_WEIGHT_NEW = 0.3;
-                            
-                            // 1단계: raw EMA 계산
-                            const rawEMA = currentMarketBase * EMA_WEIGHT_OLD + finalBid * EMA_WEIGHT_NEW;
-                            
-                            // 2단계: 캡 적용 (최대 3배 상승)
-                            const CAP_MULTIPLIER = 3.0;
-                            const capped = Math.min(rawEMA, currentMarketBase * CAP_MULTIPLIER);
-                            
-                            // 3단계: 바닥 적용 (최소 70% 하락)
-                            const FLOOR_MULTIPLIER = 0.7;
-                            const floored = Math.max(capped, currentMarketBase * FLOOR_MULTIPLIER);
-                            
-                            // 4단계: 최종 rounding
-                            currentMarketBase = Math.ceil(floored);
-                        }
-                        
-                        const newMarketBase = currentMarketBase;
-                        
-                        logger.info(`[End Expired Auctions] 📊 Market base price update for ${auction.territory_id}: ${currentMarketBase} → ${newMarketBase} (finalBid: ${finalBid}, rawEMA: ${rawEMA.toFixed(2)}, capped: ${capped.toFixed(2)}, floored: ${floored.toFixed(2)}, final: ${newMarketBase})`);
-                        
-                        // ✅ 개선: 보호 기간 계산 통일 (유틸리티 함수 사용)
-                        // 모든 종료 로직(admin, cron, 복구)에서 동일한 계산 사용
-                        const protectionEndsAt = calculateProtectionEndsAt(7);
-                        
-                        // ⚠️ 중요: 상태 변경과 market_base_price 갱신을 같은 트랜잭션 안에서 처리
-                        // 멀티 인스턴스 환경에서도 안전하게 동작하도록 보장
-                        // ✅ protection_days 컬럼 제거: protection_ends_at만 사용
-                        await client.query(`
-                            UPDATE territories 
-                            SET ruler_id = $1,
-                                ruler_name = $2,
-                                sovereignty = 'protected',
-                                status = 'protected',
-                                protection_ends_at = $3,
-                                market_base_price = $4,
-                                current_auction_id = NULL,
-                                updated_at = NOW()
-                            WHERE id = $5
-                        `, [
-                            auction.current_bidder_id,
-                            auction.bidder_nickname || 'Unknown',
-                            protectionEndsAt,
-                            newMarketBase,
-                            auction.territory_id
-                        ]);
-                        
-                        // ✅ 개선: 소유권 이력 기록 (멱등성 보장)
-                        // ownerships에 auction_id를 포함하고, 유니크 제약으로 중복 방지
-                        await client.query(`
-                            INSERT INTO ownerships (territory_id, user_id, acquired_at, price, auction_id)
-                            VALUES ($1, $2, NOW(), $3, $4)
-                            ON CONFLICT (auction_id) DO NOTHING
-                        `, [auction.territory_id, auction.current_bidder_id, finalBid, auction.id]);
-                        
-                        // 소유권 이전 완료 표시
-                        await client.query(`
-                            UPDATE auctions 
-                            SET transferred_at = NOW(),
-                                updated_at = NOW()
-                            WHERE id = $1
-                        `, [auction.id]);
-                        
-                        // ⚠️ 중요: 트랜잭션 커밋 전에는 캐시/WS 브로드캐스트 하지 않음
-                        // 커밋 후에만 실행하여 다른 인스턴스/클라이언트가 "아직 DB 반영 전" 상태를 받지 않도록 보장
-                        
-                        // ✅ 성공 로그 출력 (유틸리티 함수 사용)
-                        logAuctionEndSuccess({
-                            auctionId: auction.id,
-                            territoryId: auction.territory_id,
-                            winnerUserId: auction.current_bidder_id,
-                            protectionEndsAt,
-                            processingTimeMs: 0, // cron은 배치 처리이므로 개별 시간 측정 생략
-                            source: 'cron'
-                        });
-                        
-                        logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended. Winner: ${auction.bidder_nickname} (${auction.bidder_firebase_uid}), Bid: ${finalBid}, Market base: ${newMarketBase}`);
+                        logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended. Winner: ${finalBidderNickname} (${finalBidderId}), Bid: ${finalBid}, Market base: ${newMarketBase}`);
                         
                         // ⚠️ idempotency 로그: 시장가 갱신된 territory ID 기록
                         if (updatedTerritoryIds.length < MAX_LOG_IDS) {
                             updatedTerritoryIds.push(auction.territory_id);
                         }
-                        
-                        // 큐에서 제거 (처리 완료)
-                        await redis.srem('auctions:pending-end', auction.id);
                     } else {
-                        // 낙찰자 없음: 영토 상태 복구
-                        if (auction.current_owner_id) {
-                            await client.query(`
-                                UPDATE territories 
-                                SET sovereignty = 'ruled',
-                                    status = 'ruled',
-                                    current_auction_id = NULL,
-                                    updated_at = NOW()
-                                WHERE id = $1
-                            `, [auction.territory_id]);
-                        } else {
-                            await client.query(`
-                                UPDATE territories 
-                                SET sovereignty = 'unconquered',
-                                    status = 'unconquered',
-                                    ruler_id = NULL,
-                                    ruler_name = NULL,
-                                    current_auction_id = NULL,
-                                    updated_at = NOW()
-                                WHERE id = $1
-                            `, [auction.territory_id]);
-                        }
-                        
                         logger.info(`[End Expired Auctions] ✅ Auction ${auction.id} ended with no winner. Territory ${auction.territory_id} restored.`);
                     }
+                    
+                    // 큐에서 제거 (처리 완료)
+                    await redis.srem('auctions:pending-end', auction.id);
                     
                     await client.query('COMMIT');
                     endedCount++;

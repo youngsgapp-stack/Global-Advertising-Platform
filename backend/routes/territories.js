@@ -221,6 +221,8 @@ router.get('/', async (req, res) => {
                     email: row.ruler_email
                 } : null;
                 territory.basePrice = parseFloat(row.base_price || 0);
+                // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
+                territory.last_winning_amount = row.last_winning_amount ? parseFloat(row.last_winning_amount) : null;
                 territory.hasAuction = !!row.auction_id;
                 territory.auction = row.auction_id ? {
                     id: row.auction_id,
@@ -263,6 +265,8 @@ router.get('/', async (req, res) => {
                     'updatedAt': () => { territory.updatedAt = row.updated_at; },
                     'protectionEndsAt': () => { territory.protectionEndsAt = row.protection_ends_at; },
                     'basePrice': () => { territory.basePrice = parseFloat(row.base_price || 0); },
+                    // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
+                    'last_winning_amount': () => { territory.last_winning_amount = row.last_winning_amount ? parseFloat(row.last_winning_amount) : null; },
                     // ⚠️ 중요: countryIso 필수 필드로 포함 (경매 생성에 필수)
                     'countryIso': () => { territory.countryIso = row.country_iso || null; },
                     // 선택적 필드 (초기 로딩에 불필요)
