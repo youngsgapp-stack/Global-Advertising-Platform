@@ -135,6 +135,8 @@ class TerritoryAdapter {
             protectionDays: apiResponse.protection_days || null,
 
             // === 가격 정보 ===
+            // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
+            last_winning_amount: apiResponse.last_winning_amount ? parseFloat(apiResponse.last_winning_amount) : null,
             basePrice: parseFloat(apiResponse.base_price || apiResponse.price || 0),
             purchasedPrice: apiResponse.purchased_price ? parseFloat(apiResponse.purchased_price) : null,
 

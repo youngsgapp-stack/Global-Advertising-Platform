@@ -110,6 +110,12 @@ class TerritoryPanel {
                 territory = data.territory;
                 log.info(`[TerritoryPanel] ✅ Using fully hydrated territory from event: id=${territory.id}, sovereignty=${territory.sovereignty}, ruler=${territory.ruler || 'null'}`);
                 
+                // ⚠️ 전문가 조언 반영: 이벤트 territory에 last_winning_amount가 없으면 TerritoryManager에서 확인
+                if (territory.last_winning_amount === undefined && territoryManagerData && territoryManagerData.last_winning_amount !== undefined) {
+                    territory.last_winning_amount = territoryManagerData.last_winning_amount;
+                    console.log(`[TerritoryPanel] ✅ Updated last_winning_amount from TerritoryManager (event territory): ${territory.last_winning_amount} pt`);
+                }
+                
                 // 소유주 정보가 없으면 TerritoryManager 또는 API에서 최신 데이터 가져오기
                 if (!territory.ruler || territory.ruler.trim() === '') {
                     // 먼저 TerritoryManager에서 확인
@@ -119,6 +125,11 @@ class TerritoryPanel {
                         territory.rulerName = territoryManagerData.rulerName;
                         territory.sovereignty = territoryManagerData.sovereignty || territory.sovereignty;
                         territory.rulerId = territoryManagerData.rulerId;
+                        // ⚠️ 전문가 조언 반영: last_winning_amount도 복사 (Price 표시에 필요)
+                        if (territoryManagerData.last_winning_amount !== undefined) {
+                            territory.last_winning_amount = territoryManagerData.last_winning_amount;
+                            console.log(`[TerritoryPanel] ✅ Updated last_winning_amount from TerritoryManager: ${territory.last_winning_amount} pt`);
+                        }
                     } else {
                         // TerritoryManager에도 없으면 API에서 가져오기
                         log.warn(`[TerritoryPanel] ⚠️ Territory from event has no ruler, fetching from API`);
@@ -134,6 +145,11 @@ class TerritoryPanel {
                                     territory.sovereignty = standardTerritory.sovereignty || territory.sovereignty;
                                     territory.rulerId = standardTerritory.rulerId;
                                     log.info(`[TerritoryPanel] ✅ Updated territory from API: ruler=${territory.ruler}, rulerName=${territory.rulerName}, sovereignty=${territory.sovereignty}`);
+                                }
+                                // ⚠️ 전문가 조언 반영: last_winning_amount도 복사 (Price 표시에 필요)
+                                if (standardTerritory.last_winning_amount !== undefined) {
+                                    territory.last_winning_amount = standardTerritory.last_winning_amount;
+                                    console.log(`[TerritoryPanel] ✅ Updated last_winning_amount from API: ${territory.last_winning_amount} pt`);
                                 }
                             }
                         } catch (apiError) {
@@ -869,8 +885,36 @@ class TerritoryPanel {
         // 픽셀 수 계산 (면적 기반)
         const pixelCount = territoryDataService.calculatePixelCount(territory, countryCode);
         
-        // 가격 계산 (픽셀 수 기반)
-        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        // ⚠️ 전문가 조언 반영: 낙찰된 지역은 last_winning_amount를 가격으로 표시
+        // last_winning_amount가 있으면 우선 사용, 없으면 기본 가격 계산
+        let realPrice;
+        
+        // ⚠️ 디버깅: territory 객체에 last_winning_amount 포함 여부 확인 (상세 로그)
+        console.log(`[TerritoryPanel] 🔍 Price 계산 시작 - territory ID: ${territory.id}`);
+        console.log(`[TerritoryPanel] 🔍 territory.last_winning_amount:`, territory.last_winning_amount, `(type: ${typeof territory.last_winning_amount})`);
+        console.log(`[TerritoryPanel] 🔍 territory 객체 키 (winning/price 관련):`, Object.keys(territory).filter(k => k.includes('winning') || k.includes('price') || k.includes('Price')));
+        
+        if (territory.last_winning_amount !== undefined) {
+            console.log(`[TerritoryPanel] ✅ territory.last_winning_amount found: ${territory.last_winning_amount} (type: ${typeof territory.last_winning_amount})`);
+        } else {
+            console.warn(`[TerritoryPanel] ⚠️ territory.last_winning_amount is undefined!`);
+            console.warn(`[TerritoryPanel] ⚠️ Territory keys:`, Object.keys(territory));
+            console.warn(`[TerritoryPanel] ⚠️ 전체 territory 객체:`, territory);
+        }
+        
+        if (territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
+            realPrice = parseFloat(territory.last_winning_amount);
+            console.log(`[TerritoryPanel] ✅ Using last_winning_amount as price: ${realPrice} pt`);
+            log.info(`[TerritoryPanel] ✅ Using last_winning_amount as price: ${realPrice} pt`);
+        } else {
+            // 기본 가격 계산 (픽셀 수 기반)
+            // ⚠️ 참고: last_winning_amount가 없으면 기본 가격 사용
+            realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+            console.warn(`[TerritoryPanel] ⚠️ Using calculated base price: ${realPrice} pt (last_winning_amount: ${territory.last_winning_amount || 'null'})`);
+            log.debug(`[TerritoryPanel] Using calculated base price: ${realPrice} pt (last_winning_amount: ${territory.last_winning_amount || 'null'})`);
+        }
+        
+        console.log(`[TerritoryPanel] 🔍 최종 realPrice: ${realPrice} pt`);
         
         // 국가명: CONFIG에서 가져오거나, 없으면 countryCode를 그대로 사용 (절대 properties.admin 사용 안 함)
         const countryName = countryInfo.name || countryInfo.nameKo || countryCode || 'Unknown';
@@ -1147,12 +1191,18 @@ class TerritoryPanel {
         let realTerritoryPrice = null;
         
         if (territory) {
-            // 영토의 실제 가격 계산
-            const countryCode = territory.country || 
-                              territory.properties?.country || 
-                              territory.properties?.adm0_a3?.toLowerCase() || 
-                              'unknown';
-            realTerritoryPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+            // ⚠️ 전문가 조언 반영: 낙찰된 지역은 last_winning_amount를 가격으로 표시
+            if (territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
+                realTerritoryPrice = parseFloat(territory.last_winning_amount);
+                log.debug(`[TerritoryPanel] Using last_winning_amount as price in renderAuction: ${realTerritoryPrice} pt`);
+            } else {
+                // 영토의 실제 가격 계산
+                const countryCode = territory.country || 
+                                  territory.properties?.country || 
+                                  territory.properties?.adm0_a3?.toLowerCase() || 
+                                  'unknown';
+                realTerritoryPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+            }
         }
         
         // 경매가 종료되었는지 확인
@@ -1275,6 +1325,15 @@ class TerritoryPanel {
                         <span class="time-label">Time Left</span>
                         <span class="time-value">${this.getTimeRemaining(auction.endTime)}</span>
                     </div>
+                    ${auction.expectedProtectionDays ? `
+                        <div class="expected-protection">
+                            <span class="protection-label">Expected Protection</span>
+                            <span class="protection-value">${auction.expectedProtectionDays} days</span>
+                            ${auction.expectedProtectionEndsAt ? `
+                                <small class="protection-note">(If you win at current bid: ${new Date(auction.expectedProtectionEndsAt).toLocaleDateString()})</small>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="bid-input-group">
                     <input type="number" id="bid-amount-input" 
@@ -1349,12 +1408,19 @@ class TerritoryPanel {
     getAuctionStartingPrice(auction, territory) {
         if (!auction || !territory) return null;
         
-        // 영토 실제 가격 계산
+        // ⚠️ 전문가 조언 반영: 낙찰된 지역은 last_winning_amount를 시작가로 사용
         const countryCode = territory.country || 
                           territory.properties?.country || 
                           territory.properties?.adm0_a3?.toLowerCase() || 
                           'unknown';
-        const realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        let realPrice;
+        if (territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
+            realPrice = parseFloat(territory.last_winning_amount);
+            log.debug(`[TerritoryPanel] Using last_winning_amount as starting price: ${realPrice} pt`);
+        } else {
+            // 영토 실제 가격 계산
+            realPrice = territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        }
         const correctStartingBid = realPrice ? realPrice + 1 : 10;
         
         // 경매에 startingBid가 있으면 검증 후 사용

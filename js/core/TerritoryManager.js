@@ -1453,6 +1453,8 @@ class TerritoryManager {
                             sovereignty: standardTerritory.sovereignty,
                             status: standardTerritory.status,
                             price: standardTerritory.basePrice,
+                            // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
+                            last_winning_amount: standardTerritory.last_winning_amount,
                         };
                         
                         // ⚡ 캐시 업데이트: fetch 시간 기록
@@ -1818,6 +1820,10 @@ class TerritoryManager {
         }
         if (apiData.ruler_since || apiData.rulerSince) {
             territory.rulerSince = apiData.ruler_since || apiData.rulerSince;
+        }
+        // ⚠️ 전문가 조언 반영: last_winning_amount도 병합 (Price 표시에 필요)
+        if (apiData.last_winning_amount !== undefined) {
+            territory.last_winning_amount = apiData.last_winning_amount ? parseFloat(apiData.last_winning_amount) : null;
         }
         
         // ⚠️ 중요: displayName을 다시 생성 (API 데이터 병합 후)

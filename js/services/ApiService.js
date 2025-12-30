@@ -412,13 +412,15 @@ class ApiService {
             headers
         });
         
-        // ⚠️ 디버깅: API 응답에 countryIso가 포함되어 있는지 확인
+        // ⚠️ 디버깅: API 응답에 countryIso와 last_winning_amount 포함 여부 확인
         console.log(`[ApiService] 🔍 Territory response for ${id}:`, {
             id: territory?.id,
             country: territory?.country,
             countryIso: territory?.countryIso,
             country_iso: territory?.country_iso,
             hasCountryIso: !!territory?.countryIso,
+            last_winning_amount: territory?.last_winning_amount,
+            hasLastWinningAmount: territory?.last_winning_amount !== undefined,
             keys: Object.keys(territory || {}).slice(0, 20) // 처음 20개 키만
         });
         

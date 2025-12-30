@@ -1139,6 +1139,9 @@ class AuctionSystem {
                     minNextBid: updatedAuction.minNextBid, // 서버가 계산한 최소 입찰가
                     increment: updatedAuction.increment, // 서버가 정의한 증가액
                     updatedAt: updatedAuction.updatedAt || new Date().toISOString(),
+                    // ⚠️ 전문가 조언 반영: 서버에서 계산한 예상 보호기간 정보 포함
+                    expectedProtectionDays: bidResult.expectedProtectionDays || updatedAuction.expectedProtectionDays,
+                    expectedProtectionEndsAt: bidResult.expectedProtectionEndsAt || updatedAuction.expectedProtectionEndsAt,
                     // ⚠️ 중요: territoryId 보장 (getAuctionByTerritory가 작동하도록)
                     territoryId: updatedAuction.territoryId || auction.territoryId,
                     status: updatedAuction.status || auction.status, // status 보장
@@ -1167,7 +1170,10 @@ class AuctionSystem {
                         ...auction,
                         ...latestAuction,
                         id: auctionId, // ID 명시적으로 보장
-                        territoryId: latestAuction.territoryId || auction.territoryId // territoryId 보장
+                        territoryId: latestAuction.territoryId || auction.territoryId, // territoryId 보장
+                        // ⚠️ 전문가 조언 반영: 서버에서 계산한 예상 보호기간 정보 포함
+                        expectedProtectionDays: latestAuction.expectedProtectionDays,
+                        expectedProtectionEndsAt: latestAuction.expectedProtectionEndsAt
                     });
                     log.debug(`[AuctionSystem] Updated local cache from getAuction API:`, {
                         auctionId,
