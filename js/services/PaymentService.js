@@ -390,7 +390,8 @@ class PaymentService {
                     <div class="payment-methods">
                         <h4>💳 Payment Method</h4>
                         
-                        <!-- 카드 결제 버튼 (메인) -->
+                        <!-- 카드 결제 버튼 (보류 중 - 아직 제공되지 않음) -->
+                        <!--
                         <div class="payment-button-group">
                             <button id="card-payment-btn" class="payment-btn payment-btn-primary payment-btn-card" disabled>
                                 <span class="payment-btn-icon">💳</span>
@@ -405,8 +406,9 @@ class PaymentService {
                         <div class="payment-divider">
                             <span>또는</span>
                         </div>
+                        -->
                         
-                        <!-- PayPal 버튼 (서브) -->
+                        <!-- PayPal 버튼 (메인) -->
                         <div class="payment-button-group">
                             <div id="paypal-button-container"></div>
                         </div>
@@ -414,7 +416,7 @@ class PaymentService {
                     
                     <div class="payment-notice">
                         <small>
-                            🔒 Secure payment via Payoneer Checkout & PayPal. 
+                            🔒 Secure payment via PayPal. 
                             <a href="pages/refund-policy.html" target="_blank" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">
                                 환불 정책
                             </a>을 확인하세요. 포인트는 사용 전 7일 이내에만 환불 가능합니다.
@@ -598,7 +600,15 @@ class PaymentService {
         // PayPal SDK가 로드되지 않았으면 백그라운드에서 로드 시도
         if (!this.paypalLoaded && typeof paypal === 'undefined') {
             log.info('Loading PayPal SDK on demand...');
-            this.loadPayPalSDK().catch(error => {
+            this.loadPayPalSDK().then(() => {
+                // PayPal SDK 로드 완료 후, 선택된 패키지나 커스텀 금액이 있으면 버튼 렌더링
+                if (this.selectedPackage || this.customAmount) {
+                    log.info('PayPal SDK loaded, rendering button for selected package/amount');
+                    setTimeout(() => {
+                        this.renderPayPalButton();
+                    }, 500); // SDK 안정화 대기
+                }
+            }).catch(error => {
                 log.error('Failed to load PayPal SDK:', error);
                 // PayPal 버튼 컨테이너에 오류 메시지 표시
                 const container = document.getElementById('paypal-button-container');
@@ -619,6 +629,14 @@ class PaymentService {
                     `;
                 }
             });
+        } else if (this.paypalLoaded || typeof paypal !== 'undefined') {
+            // PayPal SDK가 이미 로드되어 있으면, 선택된 패키지나 커스텀 금액이 있을 때 버튼 렌더링
+            if (this.selectedPackage || this.customAmount) {
+                log.info('PayPal SDK already loaded, rendering button for selected package/amount');
+                setTimeout(() => {
+                    this.renderPayPalButton();
+                }, 100);
+            }
         }
     }
     
