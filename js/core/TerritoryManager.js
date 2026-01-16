@@ -1640,7 +1640,14 @@ class TerritoryManager {
             // 국가 코드와 지오메트리 추가
             territory.country = finalCountry;
             territory.geometry = geometry;
-            territory.properties = properties; // properties도 저장
+            // properties 병합 (색상 정보 보존)
+            territory.properties = {
+                ...territory.properties,
+                ...properties,
+                // 색상 정보가 없으면 기존 값 보존
+                countryColor: properties.countryColor || territory.properties?.countryColor,
+                hashColor: properties.hashColor || territory.properties?.hashColor
+            };
             
             // Feature ID와 Source ID도 저장 (맵 업데이트 시 사용)
             territory.featureId = featureId;
@@ -1732,6 +1739,24 @@ class TerritoryManager {
         // 현지어 결정 (우선순위: GeoJSON의 name_local > 매핑 테이블 > 영어 이름)
         const localName = props.name_local || localNameFromMapping || englishName;
         
+        // 색상 생성 (MapController의 stringToColor와 동일한 로직)
+        const stringToColor = (str) => {
+            if (!str) return '#4ecdc4';
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const h = Math.abs(hash) % 360;
+            const s = 50 + (Math.abs(hash >> 8) % 30);
+            const l = 40 + (Math.abs(hash >> 16) % 20);
+            return `hsl(${h}, ${s}%, ${l}%)`;
+        };
+        
+        // 색상 정보 생성 (기존 값이 있으면 유지, 없으면 생성)
+        const finalCountryCode = countryCode || properties.country || properties.country_code || 'unknown';
+        const countryColor = props.countryColor || stringToColor(finalCountryCode);
+        const hashColor = props.hashColor || stringToColor(englishName);
+        
         const territory = {
             id: territoryId,
             name: {
@@ -1754,6 +1779,13 @@ class TerritoryManager {
             
             // displayName 추가 (표시용 이름: 영어 + 현지어)
             displayName: null, // 나중에 createDisplayName으로 설정
+            
+            // properties에 색상 정보 포함
+            properties: {
+                ...properties,
+                countryColor: countryColor,
+                hashColor: hashColor
+            },
             
             // 픽셀 캔버스
             pixelCanvas: {

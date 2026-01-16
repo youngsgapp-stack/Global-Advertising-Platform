@@ -161,11 +161,25 @@ class TerritoryPanel {
                 // 이벤트 데이터의 추가 정보로 보완 (geometry, properties 등)
                 if (data.geometry) territory.geometry = data.geometry;
                 if (data.properties) {
-                    territory.properties = { ...territory.properties, ...data.properties };
+                    // 색상 정보 보존 (countryColor, hashColor는 덮어쓰지 않음)
+                    const preservedColors = {
+                        countryColor: territory.properties?.countryColor,
+                        hashColor: territory.properties?.hashColor
+                    };
+                    territory.properties = { 
+                        ...territory.properties, 
+                        ...data.properties,
+                        // 색상 정보가 없으면 보존된 값 사용, 있으면 유지
+                        countryColor: data.properties.countryColor || preservedColors.countryColor,
+                        hashColor: data.properties.hashColor || preservedColors.hashColor
+                    };
                 }
                 if (data.sourceId) territory.sourceId = data.sourceId;
                 if (data.featureId) territory.featureId = data.featureId;
-                if (data.country) territory.country = data.country;
+                // country가 null이 아니고 기존 country가 없을 때만 업데이트
+                if (data.country && data.country !== 'null' && data.country !== null) {
+                    territory.country = data.country;
+                }
             } else {
                 // 이벤트에 territory 객체가 없으면 API에서 최신 데이터 가져오기
                 log.warn(`[TerritoryPanel] ⚠️ TERRITORY_SELECTED event missing territory object, fetching from API`);

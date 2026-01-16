@@ -41,10 +41,16 @@ export const CONFIG = {
         TRACK_USER_ACTIONS: true
     },
     
-    // PayPal 설정 (Sandbox - World Map Advertising 앱)
-    // ⚠️ 테스트용 Sandbox 모드 - 프로덕션 배포 전에 Live Client ID로 변경 필요
+    // PayPal 설정 (Live - 프로덕션 모드)
+    // ⚠️ 프로덕션 모드: 실제 결제가 처리됩니다
+    // Live Client ID는 PayPal Developer Dashboard에서 가져와야 합니다:
+    // 1. https://developer.paypal.com/dashboard 접속
+    // 2. 상단에서 "Live" 모드 선택 (Sandbox 아님!)
+    // 3. "My Apps & Credentials" 클릭
+    // 4. "World Map Advertising" 앱 선택
+    // 5. Client ID 복사하여 아래에 입력
     PAYPAL: {
-        CLIENT_ID: 'ASSXMliYJQwdhXBONsRFuvA2ZsOQSfcG0v-ed3WgmG_KG8kQYyivPSOBsEy3KkDVXr2FS1uooo7urAIn', // Sandbox Client ID
+        CLIENT_ID: 'AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp', // Live Client ID (프로덕션 모드)
         CURRENCY: 'USD',
         INTENT: 'capture' // 즉시 결제 캡처 모드
     },

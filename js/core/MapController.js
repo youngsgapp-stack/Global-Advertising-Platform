@@ -735,7 +735,12 @@ class MapController {
                                                     0.75, '#ffd700',
                                                     1, '#90ee90'
                                                 ],
-                                                ['coalesce', ['get', 'hashColor'], CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED]
+                                                // 미점유 & 경매중: 해당 지역 고유 색상 사용 (countryColor 우선, 없으면 hashColor, 그것도 없으면 기본 색상)
+                                                ['coalesce', 
+                                                    ['get', 'countryColor'], 
+                                                    ['get', 'hashColor'], 
+                                                    CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
+                                                ]
                                             ],
                                             'fill-opacity': [
                                                 'case',
@@ -1185,6 +1190,12 @@ class MapController {
                     legacyId = territoryId; // 기존 방식은 legacy ID와 동일
                 }
                 
+                // 색상 생성 (지역 이름 및 국가 코드 기반)
+                const finalName = name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`;
+                const countryCode = countryIso || country || 'unknown';
+                const hashColor = this.stringToColor(finalName);
+                const countryColor = this.stringToColor(countryCode);
+                
                 return {
                     ...feature,
                     id: feature.id ?? index,
@@ -1193,8 +1204,11 @@ class MapController {
                         territoryId: territoryId,  // 새로운 Territory ID (COUNTRY_ISO3::ADMIN_CODE)
                         id: legacyId || territoryId,  // 하위 호환을 위한 기존 ID (legacy)
                         originalId: rawId, // 원본 ID 보존
-                        name: name || feature.properties?.NAME || feature.properties?.name_en || `Region ${index + 1}`,
+                        name: finalName,
                         country: country,
+                        countryCode: countryCode,
+                        hashColor: hashColor,  // 지역 이름 기반 색상
+                        countryColor: countryColor,  // 국가 코드 기반 색상
                         sovereignty: feature.properties?.sovereignty || 'unconquered'
                     }
                 };
@@ -1413,12 +1427,19 @@ class MapController {
                 // 4. feature.id도 설정 (Mapbox 매칭용)
                 feature.id = featureId;
                 
-                // 5. 해시 색상 설정
+                // 5. 색상 설정 (지역 이름 및 국가 코드 기반)
                 const name = feature.properties.name || 
                              feature.properties.NAME_1 || 
                              feature.properties.NAME_2 ||
                              finalTerritoryId;
+                const countryCode = feature.properties?.country || 
+                                   feature.properties?.countryCode || 
+                                   feature.properties?.country_iso || 
+                                   'unknown';
+                
+                // hashColor와 countryColor 모두 설정 (이중 폴백 보장)
                 feature.properties.hashColor = this.stringToColor(name);
+                feature.properties.countryColor = this.stringToColor(countryCode);
                 
                 // 6. TerritoryManager에 매핑 확립 (핵심!)
                 let territory = territoryManager.getTerritory(finalTerritoryId);
@@ -1544,8 +1565,12 @@ class MapController {
                         0.75, '#ffd700',
                         1, '#90ee90'
                     ],
-                    // 미점유 & 경매중: 해당 지역 고유 색상 사용
-                    ['coalesce', ['get', 'hashColor'], CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED]
+                    // 미점유 & 경매중: 해당 지역 고유 색상 사용 (countryColor 우선, 없으면 hashColor, 그것도 없으면 기본 색상)
+                    ['coalesce', 
+                        ['get', 'countryColor'], 
+                        ['get', 'hashColor'], 
+                        CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
+                    ]
                 ],
                 'fill-opacity': [
                     'case',
@@ -2814,7 +2839,13 @@ class MapController {
             const worldData = {
                 type: 'FeatureCollection',
                 features: this.globalAdminData.features.map((feature, index) => {
-                    const countryCode = feature.properties.sov_a3 || feature.properties.admin || 'unknown';
+                    // countryCode 추출 (여러 속성 시도)
+                    const countryCode = feature.properties.sov_a3 || 
+                                      feature.properties.admin || 
+                                      feature.properties.iso_a2 ||
+                                      feature.properties.iso_3166_2?.split('-')[0] ||
+                                      feature.properties.adm0_a3 ||
+                                      'unknown';
                     
                     // Get or generate color for this country
                     if (!countryColors.has(countryCode)) {
@@ -2847,6 +2878,12 @@ class MapController {
                     territory.sourceId = 'world-territories';
                     territory.featureId = featureId;
                     territory.geometry = feature.geometry;
+                    
+                    // countryColor가 항상 설정되도록 보장
+                    const countryColor = countryColors.get(countryCode) || this.stringToColor(countryCode);
+                    const hashColor = this.stringToColor(name);
+                    
+                    // properties 설정 시 색상 속성을 마지막에 덮어쓰도록 보장
                     territory.properties = {
                         ...feature.properties,
                         id: territoryId,
@@ -2854,8 +2891,10 @@ class MapController {
                         name: name,
                         country: countryCode,
                         countryCode: countryCode,
-                        countryColor: countryColors.get(countryCode),
-                        sovereignty: 'unconquered'
+                        sovereignty: 'unconquered',
+                        // 색상 속성은 마지막에 설정하여 덮어쓰기 보장
+                        hashColor: hashColor,
+                        countryColor: countryColor
                     };
                     
                     return {
@@ -2869,15 +2908,28 @@ class MapController {
             log.info(`Generated colors for ${countryColors.size} countries`);
             
             // Add world layer
-            if (this.map.getSource('world-territories')) {
+            const sourceExists = this.map.getSource('world-territories');
+            
+            if (sourceExists) {
+                // 기존 소스가 있으면 데이터 업데이트
                 this.map.getSource('world-territories').setData(worldData);
+                // 레이어 강제 업데이트를 위해 레이어 제거 후 다시 추가
+                if (this.map.getLayer('world-territories-fill')) {
+                    this.map.removeLayer('world-territories-fill');
+                }
+                if (this.map.getLayer('world-territories-line')) {
+                    this.map.removeLayer('world-territories-line');
+                }
             } else {
                 this.map.addSource('world-territories', {
                     type: 'geojson',
                     data: worldData,
                     generateId: true
                 });
-                
+            }
+            
+            // 레이어 추가 (소스가 이미 있어도 레이어는 새로 추가)
+            if (!this.map.getLayer('world-territories-fill')) {
                 // 월드뷰 영토 레이어 - 위성 배경이 비치도록 투명도 조정
                 // 배경색 숨김 조건을 hasPixelArt 하나로 단순화
                 // sovereignty에 따라 색상 변경: 소유한 영토는 빨간색, 미정복은 국가 색상
@@ -2893,8 +2945,12 @@ class MapController {
                             ['==', ['get', 'sovereignty'], 'protected'], CONFIG.COLORS.SOVEREIGNTY.RULED,
                             // 경매 중인 영토는 주황색
                             ['==', ['get', 'sovereignty'], 'contested'], CONFIG.COLORS.SOVEREIGNTY.CONTESTED,
-                            // 미정복 영토는 국가 색상
-                            ['get', 'countryColor']
+                            // 미정복 영토는 국가 색상 (countryColor가 없으면 hashColor, 그것도 없으면 기본 색상 사용)
+                            ['coalesce', 
+                                ['get', 'countryColor'], 
+                                ['get', 'hashColor'], 
+                                CONFIG.COLORS.SOVEREIGNTY.UNCONQUERED
+                            ]
                         ],
                         'fill-opacity': [
                             'case',

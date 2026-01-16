@@ -65,3 +65,4 @@ export function subscribeBg(callback) {
 // 초기 로드
 loadBg();
 
+
