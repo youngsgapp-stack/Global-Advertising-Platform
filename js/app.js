@@ -132,9 +132,18 @@ class BillionaireApp {
             // ⚡ 성능 최적화: Progressive Loading - 지도 먼저 표시, 데이터 백그라운드 로드
             this.updateLoadingProgress('Initializing map...', 30);
             
+            // ⚡ 2.5. Territory localNames 먼저 로드 (지도와 병렬)
+            // localNames는 다른 컴포넌트에서 즉시 필요하므로 먼저 로딩
+            const localNamesPromise = territoryManager.loadLocalNames().catch(err => {
+                log.warn('[App] Failed to load local names:', err);
+            });
+            
             // 3. Initialize Map (우선 로드)
             await mapController.initialize('map');
             this.updateLoadingProgress('Map loaded', 40);
+            
+            // localNames 로딩 완료 대기 (빠름, 대부분 이미 완료)
+            await localNamesPromise;
             
             // ⚡ 핵심 최적화: Territory Manager를 백그라운드에서 로드
             // 지도는 이미 표시되고, 데이터는 도착하는 대로 렌더링

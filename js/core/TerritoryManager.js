@@ -404,19 +404,19 @@ class TerritoryManager {
             
             // ⚠️ CRITICAL: this.localNames 상태 확인
             if (!this.localNames) {
-                log.error(`[TerritoryManager] ❌ this.localNames is null or undefined! local-names.json may not be loaded yet.`);
+                log.debug(`[TerritoryManager] ⚠️ this.localNames not loaded yet, will use fallback names`);
             } else if (Object.keys(this.localNames).length === 0) {
-                log.error(`[TerritoryManager] ❌ this.localNames is empty object! local-names.json may have failed to load.`);
+                log.warn(`[TerritoryManager] ⚠️ this.localNames is empty, local-names.json may have failed to load`);
             } else {
                 log.debug(`[TerritoryManager] this.localNames has ${Object.keys(this.localNames).length} countries`);
             }
             
             if (!localName) {
-                // 디버그 레벨로 변경하여 로그 감소 (에러만 유지)
+                // 디버그 레벨로 변경하여 로그 감소
                 if (!this.localNames) {
-                    log.error(`[TerritoryManager] ❌ this.localNames is null or undefined! local-names.json may not be loaded yet.`);
+                    log.debug(`[TerritoryManager] localNames not loaded yet, using fallback`);
                 } else if (Object.keys(this.localNames).length === 0) {
-                    log.error(`[TerritoryManager] ❌ this.localNames is empty object! local-names.json may have failed to load.`);
+                    log.debug(`[TerritoryManager] localNames empty, using fallback`);
                 } else {
                     log.debug(`[TerritoryManager] localName is null for ${normalizedTerritoryId} in ${countryCode}`);
                 }
@@ -536,9 +536,9 @@ class TerritoryManager {
         if (!countryMapping) {
             // 디버깅: 왜 매핑을 찾지 못했는지 확인
             if (!this.localNames) {
-                log.error(`[TerritoryManager] getLocalName: ❌ this.localNames is null or undefined!`);
+                log.debug(`[TerritoryManager] getLocalName: localNames not loaded yet`);
             } else if (Object.keys(this.localNames).length === 0) {
-                log.error(`[TerritoryManager] getLocalName: ❌ this.localNames is empty object! local-names.json may have failed to load.`);
+                log.debug(`[TerritoryManager] getLocalName: localNames empty`);
             } else {
                 // 디버그 레벨로 변경하여 로그 감소
                 log.debug(`[TerritoryManager] getLocalName: No country mapping found for "${normalizedCountryCode}"`);
