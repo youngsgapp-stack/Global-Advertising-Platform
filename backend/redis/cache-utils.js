@@ -12,10 +12,10 @@ export const CACHE_TTL = {
     USER_WALLET: 10,          // 사용자 지갑: 10초
     
     // 중간 TTL
-    TERRITORY_LIST: 300,      // 영토 목록: 5분
-    PIXEL_META: 300,          // 픽셀 메타데이터: 5분
+    TERRITORY_LIST: 1800,     // 영토 목록: 30분 (반복 방문자 빠른 로딩)
+    PIXEL_META: 1800,         // 픽셀 메타데이터: 30분
     RANKING: 300,             // 랭킹: 5분
-    MAP_SNAPSHOT: 300,        // 맵 스냅샷: 5분
+    MAP_SNAPSHOT: 1800,       // 맵 스냅샷: 30분
     
     // 긴 TTL (자주 변경되지 않는 데이터)
     TERRITORY_DETAIL: 3600,   // 영토 상세: 1시간
