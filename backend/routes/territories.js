@@ -156,38 +156,37 @@ router.get('/', async (req, res) => {
         let pixelMetaMap = new Map();
         if (pixelMetaRequested && result.rows.length > 0) {
             console.log('[Territories] 🔍 Starting pixel metadata lookup from Redis...');
+            const t1 = performance.now();
             try {
-                // 모든 territory ID에 대해 픽셀 메타 조회 (병렬 처리)
+                // ⚡ 성능 최적화: MGET으로 일괄 조회 (개별 GET보다 훨씬 빠름)
                 const territoryIds = result.rows.map(row => row.id);
-                const pixelMetaPromises = territoryIds.map(async (territoryId) => {
-                    try {
-                        const pixelData = await redis.get(`pixel_data:${territoryId}`);
-                        if (pixelData && pixelData.pixels && Array.isArray(pixelData.pixels) && pixelData.pixels.length > 0) {
-                            const pixelCount = pixelData.pixels.length;
-                            const width = pixelData.width || 64;
-                            const height = pixelData.height || 64;
-                            const totalPixels = width * height;
-                            const fillRatio = totalPixels > 0 ? pixelCount / totalPixels : 0;
-                            return {
-                                territoryId,
-                                hasPixelArt: true,
-                                pixelCount,
-                                fillRatio,
-                                updatedAt: pixelData.updatedAt || pixelData.lastUpdated || null
-                            };
-                        }
-                    } catch (err) {
-                        // 개별 조회 실패는 무시
+                const redisKeys = territoryIds.map(id => `pixel_data:${id}`);
+                
+                // MGET으로 한 번에 조회
+                const pixelDataArray = await redis.mget(redisKeys);
+                
+                // 결과 처리
+                pixelDataArray.forEach((pixelData, index) => {
+                    if (pixelData && pixelData.pixels && Array.isArray(pixelData.pixels) && pixelData.pixels.length > 0) {
+                        const territoryId = territoryIds[index];
+                        const pixelCount = pixelData.pixels.length;
+                        const width = pixelData.width || 64;
+                        const height = pixelData.height || 64;
+                        const totalPixels = width * height;
+                        const fillRatio = totalPixels > 0 ? pixelCount / totalPixels : 0;
+                        
+                        pixelMetaMap.set(territoryId, {
+                            territoryId,
+                            hasPixelArt: true,
+                            pixelCount,
+                            fillRatio,
+                            updatedAt: pixelData.updatedAt || pixelData.lastUpdated || null
+                        });
                     }
-                    return null;
                 });
                 
-                const pixelMetaResults = await Promise.all(pixelMetaPromises);
-                pixelMetaResults.forEach(meta => {
-                    if (meta) {
-                        pixelMetaMap.set(meta.territoryId, meta);
-                    }
-                });
+                const t2 = performance.now();
+                console.log(`[Territories] ⚡ MGET pixel metadata time: ${Math.round(t2 - t1)}ms (${pixelMetaMap.size} territories with pixel art)`);
             } catch (error) {
                 console.warn('[Territories] ⚠️ Failed to load pixel metadata from Redis:', error.message);
             }

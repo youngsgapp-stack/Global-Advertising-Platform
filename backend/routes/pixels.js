@@ -160,13 +160,23 @@ topLevelRouter.get('/territories', async (req, res) => {
             console.log(`[Pixels] Processing ${territoryIds.length} territories from Set`);
         }
         
-        // 각 territoryId에 대해 픽셀 데이터 조회 (병렬 처리)
-        const pixelDataPromises = territoryIds.map(async (territoryId) => {
+        // ⚡ 성능 최적화: MGET으로 일괄 조회 (개별 GET보다 훨씬 빠름)
+        const t1 = Date.now();
+        const pixelCacheKeys = territoryIds.map(id => `pixel_data:${id}`);
+        const pixelDataArray = await redis.mget(pixelCacheKeys);
+        const t2 = Date.now();
+        
+        console.log(`[Pixels] ⚡ MGET pixel data time: ${t2 - t1}ms for ${territoryIds.length} territories`);
+        
+        // 결과 처리 및 Set 정리
+        const validTerritories = [];
+        const territoriesToRemove = [];
+        
+        for (let i = 0; i < territoryIds.length; i++) {
+            const territoryId = territoryIds[i];
+            const pixelData = pixelDataArray[i];
+            
             try {
-                // pixel_data:${territoryId} 키로 픽셀 데이터 조회
-                const pixelCacheKey = `pixel_data:${territoryId}`;
-                const pixelData = await redis.get(pixelCacheKey);
-                
                 // ⚡ 디버깅: pixelData 조회 결과 로그
                 console.log(`[Pixels] Checking ${territoryId}:`, {
                     hasData: !!pixelData,
@@ -175,7 +185,6 @@ topLevelRouter.get('/territories', async (req, res) => {
                 });
                 
                 if (pixelData) {
-                    // ⚠️ 핵심 수정: redis.get()이 이미 파싱된 객체를 반환하므로 중복 파싱 제거
                     // 픽셀이 실제로 있는 경우만 포함
                     if (pixelData.pixels && Array.isArray(pixelData.pixels) && pixelData.pixels.length > 0) {
                         const pixelCount = pixelData.pixels.length;
@@ -184,34 +193,37 @@ topLevelRouter.get('/territories', async (req, res) => {
                         
                         console.log(`[Pixels] ✅ ${territoryId}: valid pixel data (${pixelCount} pixels)`);
                         
-                        return {
+                        validTerritories.push({
                             territoryId: territoryId,
                             pixelCount: pixelCount,
                             hasPixelArt: true,
                             fillRatio: fillRatio,
                             updatedAt: pixelData.updatedAt || pixelData.lastUpdated || null,
                             hasOwner: !!pixelData.ownerId
-                        };
+                        });
                     } else {
-                        // Set에는 있지만 실제 픽셀 데이터가 없는 경우, Set에서 제거 (정리)
-                        console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but has no pixel data, removing from Set`);
-                        await redis.srem(territoriesSetKey, territoryId);
+                        // Set에는 있지만 실제 픽셀 데이터가 없는 경우
+                        console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but has no pixel data, marking for removal`);
+                        territoriesToRemove.push(territoryId);
                     }
                 } else {
-                    // Set에는 있지만 Redis에 데이터가 없는 경우, Set에서 제거 (정리)
-                    console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but no data in Redis, removing from Set`);
-                    await redis.srem(territoriesSetKey, territoryId);
+                    // Set에는 있지만 Redis에 데이터가 없는 경우
+                    console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but no data in Redis, marking for removal`);
+                    territoriesToRemove.push(territoryId);
                 }
             } catch (err) {
-                // ⚠️ 중요: 네트워크/서버 오류 시에는 Set에서 제거하지 않음 (데이터 손실 방지)
-                // 개별 키 조회 실패는 무시 (로깅만)
-                console.error(`[Pixels] ❌ Failed to get pixel data for ${territoryId}:`, err.message);
+                // 개별 처리 실패는 무시 (로깅만)
+                console.error(`[Pixels] ❌ Failed to process pixel data for ${territoryId}:`, err.message);
             }
-            return null;
-        });
+        }
         
-        const results = await Promise.all(pixelDataPromises);
-        const validTerritories = results.filter(t => t !== null);
+        // Set 정리 (비동기로 실행하여 응답 지연 방지)
+        if (territoriesToRemove.length > 0) {
+            console.log(`[Pixels] Removing ${territoriesToRemove.length} invalid entries from Set`);
+            redis.srem(territoriesSetKey, ...territoriesToRemove).catch(err => {
+                console.warn('[Pixels] Failed to remove invalid entries from Set:', err.message);
+            });
+        }
         
         territoriesWithPixels.push(...validTerritories);
         

@@ -153,6 +153,67 @@ const redisObject = {
     },
     
     /**
+     * Redis에서 여러 키 한 번에 가져오기 (MGET)
+     * 실패 시 빈 배열 반환 (에러 throw 안 함)
+     * @param {string[]} keys - 조회할 키 배열
+     * @returns {Promise<Array>} - 각 키에 대한 값 배열 (없으면 null)
+     */
+    mget: async (keys) => {
+        try {
+            const client = getRedis();
+            
+            // Redis가 비활성화된 경우
+            if (client._type === 'disabled') {
+                return keys.map(() => null);
+            }
+            
+            if (!keys || keys.length === 0) {
+                return [];
+            }
+            
+            let values;
+            
+            if (client instanceof Redis) {
+                // Upstash Redis SDK
+                values = await client.mget(...keys);
+            } else {
+                // 일반 Redis
+                values = await client.mGet(keys);
+            }
+            
+            // 각 값을 파싱
+            return values.map((value, index) => {
+                // 값이 없으면 null 반환
+                if (value === null || value === undefined) {
+                    return null;
+                }
+                
+                // 이미 객체면 그대로 반환
+                if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+                    return value;
+                }
+                
+                // 문자열인 경우 JSON.parse 시도
+                if (typeof value === 'string') {
+                    try {
+                        return JSON.parse(value);
+                    } catch (parseError) {
+                        console.warn(`[Redis] ⚠️ JSON parse error for key "${keys[index]}":`, parseError.message);
+                        return null;
+                    }
+                }
+                
+                // 기타 타입은 그대로 반환
+                return value;
+            });
+        } catch (error) {
+            // Redis 실패는 로그만 남기고 빈 배열 반환
+            console.warn('[Redis] ⚠️ mget error (non-critical):', error.message);
+            return keys.map(() => null);
+        }
+    },
+    
+    /**
      * Redis에 값 저장하기
      * 핵심: 실패해도 throw하지 않고 로그만 남김 (API는 정상 응답)
      */
