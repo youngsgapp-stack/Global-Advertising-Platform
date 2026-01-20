@@ -129,20 +129,29 @@ class BillionaireApp {
             await walletService.initialize();
             await paymentService.initialize();
             
-            // ⚠️ Step 6-5: 순차 로딩 전략 - 맵은 먼저, 나머지는 순차적으로
+            // ⚡ 성능 최적화: Progressive Loading - 지도 먼저 표시, 데이터 백그라운드 로드
             this.updateLoadingProgress('Initializing map...', 30);
             
             // 3. Initialize Map (우선 로드)
             await mapController.initialize('map');
             this.updateLoadingProgress('Map loaded', 40);
             
-            // 4. Initialize Territory Manager
-            await territoryManager.initialize();
-            this.updateLoadingProgress('Territory system ready', 50);
+            // ⚡ 핵심 최적화: Territory Manager를 백그라운드에서 로드
+            // 지도는 이미 표시되고, 데이터는 도착하는 대로 렌더링
+            const territoryLoadPromise = territoryManager.initialize().then(() => {
+                this.updateLoadingProgress('Territory system ready', 50);
+                log.info('[App] Territory data loaded in background');
+            }).catch(err => {
+                log.error('[App] Territory loading failed:', err);
+                this.showError('Failed to load territory data');
+            });
             
-            // 5. Initialize Core Features (우선 로드)
-            await auctionSystem.initialize();
-            this.updateLoadingProgress('Auction system ready', 60);
+            // ⚡ 5. Core Features도 병렬 로드 (Territory 데이터 기다리지 않음)
+            const auctionLoadPromise = auctionSystem.initialize().then(() => {
+                this.updateLoadingProgress('Auction system ready', 60);
+            }).catch(err => {
+                log.error('[App] Auction system loading failed:', err);
+            });
             
             // 6. Initialize UI (기본 UI 먼저)
             territoryPanel.initialize();
@@ -154,40 +163,56 @@ class BillionaireApp {
             this.setupEventListeners();
             this.setupGlobalErrorHandlers();
             
-            // 8. Load Initial Data (맵과 기본 기능 로드 완료 후)
-            this.updateLoadingProgress('Loading initial data...', 80);
-            await this.loadInitialData();
-            this.updateLoadingProgress('Initial data loaded', 90);
+            // ⚡ 8. 지도 즉시 표시 (로딩 화면 제거)
+            this.updateLoadingProgress('Map ready!', 80);
             
-            // 9. Initialize Secondary Features (백그라운드에서 순차 로드)
-            // ⚠️ Step 6-5: 나머지 기능들은 병렬로 로드하되, UI는 즉시 표시
+            // 로딩 화면 즉시 숨김 (데이터는 백그라운드에서 계속 로드)
+            setTimeout(() => {
+                this.hideLoading();
+                log.info('[App] Map displayed, loading data in background...');
+            }, 300);
+            
+            // 8-1. Initial Data는 백그라운드에서 로드 (blocking 제거)
+            const initialDataPromise = this.loadInitialData().then(() => {
+                this.updateLoadingProgress('Initial data loaded', 90);
+            }).catch(err => {
+                log.error('[App] Initial data loading failed:', err);
+            });
+            
+            // 9. Initialize Secondary Features (백그라운드에서 완전 비동기)
+            // ⚡ Territory, Auction, Initial Data 로딩 완료 후 나머지 기능 초기화
             Promise.all([
-                rankingSystem.initialize(),
-                buffSystem.initialize(),
-                collaborationHub.initialize(),
-                historyLogger.initialize(),
-                recommendationSystem.initialize(),
-                contestSystem.initialize(),
-                seasonSystem.initialize(),
-                pixelEditor3.initialize(),
-                rankingBoard.initialize(),
-                timelineWidget.initialize(),
-                recommendationPanel.initialize(),
-                onboardingGuide.initialize(),
-                galleryView.initialize(),
-                contestPanel.initialize(),
-                this.initializeFeedbackButton()
+                territoryLoadPromise,
+                auctionLoadPromise,
+                initialDataPromise
             ]).then(() => {
-                this.updateLoadingProgress('All features loaded', 95);
+                log.info('[App] Core data loaded, initializing secondary features...');
+                this.updateLoadingProgress('Core features loaded', 95);
+                
+                // Secondary features는 완전 백그라운드 (UI 표시에 영향 없음)
+                return Promise.all([
+                    rankingSystem.initialize(),
+                    buffSystem.initialize(),
+                    collaborationHub.initialize(),
+                    historyLogger.initialize(),
+                    recommendationSystem.initialize(),
+                    contestSystem.initialize(),
+                    seasonSystem.initialize(),
+                    pixelEditor3.initialize(),
+                    rankingBoard.initialize(),
+                    timelineWidget.initialize(),
+                    recommendationPanel.initialize(),
+                    onboardingGuide.initialize(),
+                    galleryView.initialize(),
+                    contestPanel.initialize(),
+                    this.initializeFeedbackButton()
+                ]);
+            }).then(() => {
+                this.updateLoadingProgress('All features loaded', 100);
+                log.info('[App] All features loaded successfully');
             }).catch(err => {
                 log.warn('[BillionaireApp] Some features failed to load:', err);
             });
-            
-            // 10. Hide loading (맵과 기본 기능 로드 완료 후)
-            this.updateLoadingProgress('Ready!', 100);
-            setTimeout(() => {
-                this.hideLoading();
-            }, 500);
             
             this.initialized = true;
             log.info('App initialized successfully!');

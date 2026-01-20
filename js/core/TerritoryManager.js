@@ -39,7 +39,7 @@ class TerritoryManager {
         // ⚡ 성능 최적화: getTerritories API 응답 캐시 (중복 호출 방지)
         this._territoriesApiCache = null; // 캐시된 territories 배열
         this._territoriesApiCacheTime = null; // 캐시 시간
-        this._territoriesApiCacheTTL = 10 * 1000; // 10초 캐시 (초기 로딩 중 중복 호출 방지)
+        this._territoriesApiCacheTTL = 5 * 60 * 1000; // 5분 캐시 (두 번째 방문부터 빠른 로딩)
         this._territoriesApiCachePromise = null; // ⚡ Promise 캐시 (동시 호출 완전 합치기)
         
         // ⚡ 성능 최적화: overlay 중복 실행 방지
