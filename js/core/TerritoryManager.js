@@ -805,7 +805,7 @@ class TerritoryManager {
                 
                 // ⚡ 성능 최적화: 초기 로딩 시 필드 축소 (1731KB → 300~500KB 목표)
                 // 초기 화면에 필요한 최소 필드만 요청
-                // ⚡ 게스트 지원: 픽셀 메타 필드 포함 (hasPixelArt, pixelCount, fillRatio)
+                // ⚠️ 픽셀 메타 필드 제외: 4446개 territory에 대한 Redis 조회가 6.75초 걸리므로 별도 로드
                 const initialFields = [
                     'id',
                     'sovereignty',
@@ -813,11 +813,8 @@ class TerritoryManager {
                     'ruler_firebase_uid',
                     'hasAuction',
                     'updatedAt',
-                    'protectionEndsAt',
-                    'hasPixelArt',      // ⚡ 픽셀 메타: 픽셀 아트 존재 여부
-                    'pixelCount',       // ⚡ 픽셀 메타: 픽셀 개수
-                    'fillRatio',       // ⚡ 픽셀 메타: 채움 비율
-                    'pixelUpdatedAt'   // ⚡ 픽셀 메타: 픽셀 업데이트 시간
+                    'protectionEndsAt'
+                    // hasPixelArt, pixelCount, fillRatio, pixelUpdatedAt는 별도 API로 로드
                 ];
                 
                 // ⚡ 성능 최적화: 초기 로딩은 경량 필드만 요청
