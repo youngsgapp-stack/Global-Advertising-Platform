@@ -200,7 +200,10 @@ app.use(cors({
     exposedHeaders: ['Content-Range', 'X-Content-Range', 'ETag', 'Cache-Control'],
     maxAge: 86400 // 24시간
 }));
-app.use(express.json());
+// ⚠️ Body size limit 설정 (레거시 저장 방지용 안전장치)
+// 타일 저장만 사용하므로 큰 payload는 필요 없지만, 안전장치로 2MB 설정
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // 루트 경로 (기본 응답)
 app.get('/', (req, res) => {

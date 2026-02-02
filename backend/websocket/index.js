@@ -246,4 +246,3 @@ export function broadcastPixelTilesUpdate(territoryId, data) {
     
     console.log(`📢 Broadcasted pixel tiles update to ${sentCount} connections (${data.updatedTiles?.length || 0} tiles)`);
 }
-

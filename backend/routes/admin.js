@@ -170,6 +170,119 @@ router.get('/users', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/users/:userId/points
+ * 사용자에게 포인트 지급
+ * ⚠️ 중요: 이 라우트는 /users/:id보다 먼저 등록되어야 함 (라우트 순서)
+ */
+router.post('/users/:userId/points', async (req, res) => {
+    const client = await getPool().connect();
+    
+    try {
+        const { userId } = req.params;
+        const { amount, reason } = req.body;
+        const adminEmail = req.user?.email || 'admin';
+        
+        // 유효성 검사
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid amount. Amount must be greater than 0' });
+        }
+        
+        await client.query('BEGIN');
+        
+        // 사용자 확인 (UUID와 VARCHAR 타입 불일치 해결을 위해 타입 캐스팅 사용)
+        const userResult = await client.query(
+            'SELECT id FROM users WHERE id::text = $1 OR firebase_uid = $1',
+            [userId]
+        );
+        
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const actualUserId = userResult.rows[0].id;
+        
+        // 지갑 확인 또는 생성
+        let walletResult = await client.query(
+            'SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
+            [actualUserId]
+        );
+        
+        let walletId;
+        let currentBalance = 0;
+        
+        if (walletResult.rows.length === 0) {
+            // 지갑이 없으면 생성
+            const insertResult = await client.query(
+                `INSERT INTO wallets (user_id, balance, created_at, updated_at)
+                 VALUES ($1, 0, NOW(), NOW())
+                 RETURNING id, balance`,
+                [actualUserId]
+            );
+            walletId = insertResult.rows[0].id;
+            currentBalance = 0;
+        } else {
+            walletId = walletResult.rows[0].id;
+            currentBalance = parseFloat(walletResult.rows[0].balance || 0);
+        }
+        
+        // 잔액 업데이트
+        const newBalance = currentBalance + parseFloat(amount);
+        await client.query(
+            'UPDATE wallets SET balance = $1, updated_at = NOW() WHERE id = $2',
+            [newBalance, walletId]
+        );
+        
+        // 거래 내역 추가
+        await client.query(
+            `INSERT INTO wallet_transactions 
+             (wallet_id, type, amount, description, created_at)
+             VALUES ($1, 'admin_grant', $2, $3, NOW())`,
+            [
+                walletId,
+                parseFloat(amount),
+                reason || `관리자(${adminEmail})에 의해 지급됨`
+            ]
+        );
+        
+        // 관리자 로그 기록
+        await client.query(
+            `INSERT INTO admin_logs (admin_email, action, details, created_at)
+             VALUES ($1, 'ADD_POINTS', $2, NOW())`,
+            [
+                adminEmail,
+                JSON.stringify({
+                    userId: actualUserId,
+                    amount: parseFloat(amount),
+                    reason: reason || null,
+                    newBalance: newBalance
+                })
+            ]
+        );
+        
+        await client.query('COMMIT');
+        
+        // 캐시 무효화
+        await invalidateCachePattern(`user:${actualUserId}:*`);
+        await invalidateCachePattern(`wallet:${actualUserId}:*`);
+        
+        res.json({
+            success: true,
+            userId: actualUserId,
+            amount: parseFloat(amount),
+            previousBalance: currentBalance,
+            newBalance: newBalance
+        });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Admin] Add points error:', error);
+        res.status(500).json({ error: 'Failed to add points' });
+    } finally {
+        client.release();
+    }
+});
+
+/**
  * GET /api/admin/users/:id
  * 사용자 상세 정보 조회
  */

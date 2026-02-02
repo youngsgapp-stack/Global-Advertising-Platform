@@ -1091,3 +1091,1136 @@ Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
     at listenInCluster (node:net:1994:12)
     at node:net:2203:7
     at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Sat Dec 27 2025 05:16:29 GMT+0900 (대한민국 표준시)","process":{"pid":26372,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":113852416,"heapTotal":72708096,"heapUsed":42744232,"external":4628696,"arrayBuffers":937188}},"os":{"loadavg":[0,0,0],"uptime":137789.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-20 23:31:22 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Tue Jan 20 2026 23:31:22 GMT+0900 (대한민국 표준시)","process":{"pid":11272,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":112549888,"heapTotal":76115968,"heapUsed":25413952,"external":4638118,"arrayBuffers":946610}},"os":{"loadavg":[0,0,0],"uptime":2277084.328},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-22 01:25:41 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Thu Jan 22 2026 01:25:41 GMT+0900 (대한민국 표준시)","process":{"pid":23936,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":118956032,"heapTotal":76640256,"heapUsed":25454576,"external":4638118,"arrayBuffers":946610}},"os":{"loadavg":[0,0,0],"uptime":35562.734},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 00:49:35 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 00:49:35 GMT+0900 (대한민국 표준시)","process":{"pid":7504,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122363904,"heapTotal":73494528,"heapUsed":47152464,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":99283.609},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 00:50:23 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 00:50:23 GMT+0900 (대한민국 표준시)","process":{"pid":10492,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121712640,"heapTotal":73494528,"heapUsed":46074704,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":99330.875},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 00:50:33 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 00:50:33 GMT+0900 (대한민국 표준시)","process":{"pid":29168,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121708544,"heapTotal":73756672,"heapUsed":46908536,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":99341.078},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:02:58 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:02:58 GMT+0900 (대한민국 표준시)","process":{"pid":19788,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122892288,"heapTotal":74018816,"heapUsed":45527696,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100086.156},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:02:58 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:02:58 GMT+0900 (대한민국 표준시)","process":{"pid":25348,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122843136,"heapTotal":74018816,"heapUsed":45612656,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100086.156},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:03:06 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:03:06 GMT+0900 (대한민국 표준시)","process":{"pid":20260,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122425344,"heapTotal":73756672,"heapUsed":46796160,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":100094.125},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:06:00 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:06:00 GMT+0900 (대한민국 표준시)","process":{"pid":24732,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122462208,"heapTotal":73232384,"heapUsed":47234384,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100267.968},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:06:00 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:06:00 GMT+0900 (대한민국 표준시)","process":{"pid":29764,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122540032,"heapTotal":74280960,"heapUsed":46519432,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100267.984},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:06:00 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:06:00 GMT+0900 (대한민국 표준시)","process":{"pid":25592,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":120184832,"heapTotal":71659520,"heapUsed":47914056,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100268.015},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:06:03 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:06:03 GMT+0900 (대한민국 표준시)","process":{"pid":21064,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121282560,"heapTotal":73232384,"heapUsed":47065984,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":100270.859},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:39 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:39 GMT+0900 (대한민국 표준시)","process":{"pid":9292,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122535936,"heapTotal":73756672,"heapUsed":45286840,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101087.343},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:39 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:39 GMT+0900 (대한민국 표준시)","process":{"pid":12332,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122961920,"heapTotal":74018816,"heapUsed":45431440,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101087.359},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:39 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:39 GMT+0900 (대한민국 표준시)","process":{"pid":30240,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123117568,"heapTotal":74280960,"heapUsed":45298448,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101087.359},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:39 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:39 GMT+0900 (대한민국 표준시)","process":{"pid":23484,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122920960,"heapTotal":74280960,"heapUsed":44322768,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101087.359},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:43 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:43 GMT+0900 (대한민국 표준시)","process":{"pid":27340,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122331136,"heapTotal":74018816,"heapUsed":45547296,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101091.171},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:43 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:43 GMT+0900 (대한민국 표준시)","process":{"pid":1232,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121724928,"heapTotal":72970240,"heapUsed":47373488,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101091.171},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:43 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:43 GMT+0900 (대한민국 표준시)","process":{"pid":3636,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122609664,"heapTotal":74018816,"heapUsed":46637224,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101091.187},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:43 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:43 GMT+0900 (대한민국 표준시)","process":{"pid":18472,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122617856,"heapTotal":74018816,"heapUsed":45536840,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101091.203},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:50 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:50 GMT+0900 (대한민국 표준시)","process":{"pid":3648,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123207680,"heapTotal":74280960,"heapUsed":46216864,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101098.625},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:50 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:50 GMT+0900 (대한민국 표준시)","process":{"pid":28828,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122564608,"heapTotal":73494528,"heapUsed":46145760,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101098.64},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:50 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:50 GMT+0900 (대한민국 표준시)","process":{"pid":26528,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123142144,"heapTotal":74280960,"heapUsed":44943888,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101098.64},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:50 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:50 GMT+0900 (대한민국 표준시)","process":{"pid":9836,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122843136,"heapTotal":73756672,"heapUsed":46829384,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101098.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:56 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:56 GMT+0900 (대한민국 표준시)","process":{"pid":10744,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122830848,"heapTotal":74018816,"heapUsed":44827888,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101104.703},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:56 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:56 GMT+0900 (대한민국 표준시)","process":{"pid":10484,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123400192,"heapTotal":74280960,"heapUsed":45504976,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101104.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:56 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:56 GMT+0900 (대한민국 표준시)","process":{"pid":30176,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122466304,"heapTotal":73756672,"heapUsed":45890560,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101104.734},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:19:56 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:19:56 GMT+0900 (대한민국 표준시)","process":{"pid":26720,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122544128,"heapTotal":74018816,"heapUsed":46453168,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101104.734},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:03 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:03 GMT+0900 (대한민국 표준시)","process":{"pid":11276,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121892864,"heapTotal":74018816,"heapUsed":46561176,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101110.906},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:03 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:03 GMT+0900 (대한민국 표준시)","process":{"pid":16068,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121794560,"heapTotal":73232384,"heapUsed":47232848,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101110.937},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:03 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:03 GMT+0900 (대한민국 표준시)","process":{"pid":24468,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122716160,"heapTotal":74018816,"heapUsed":45528032,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101110.953},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:03 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:03 GMT+0900 (대한민국 표준시)","process":{"pid":21352,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121188352,"heapTotal":72708096,"heapUsed":47460648,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101110.953},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:08 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:08 GMT+0900 (대한민국 표준시)","process":{"pid":29156,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122232832,"heapTotal":73494528,"heapUsed":46154864,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101116.437},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:08 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:08 GMT+0900 (대한민국 표준시)","process":{"pid":21852,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122359808,"heapTotal":74280960,"heapUsed":46619680,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101116.468},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:08 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:08 GMT+0900 (대한민국 표준시)","process":{"pid":3212,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123125760,"heapTotal":74280960,"heapUsed":45045672,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101116.468},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:08 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:08 GMT+0900 (대한민국 표준시)","process":{"pid":19300,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122208256,"heapTotal":73232384,"heapUsed":42582224,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":101116.468},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:26 GMT+0900 (대한민국 표준시)","process":{"pid":14516,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121573376,"heapTotal":73232384,"heapUsed":47057264,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101134.625},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:26 GMT+0900 (대한민국 표준시)","process":{"pid":27620,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122306560,"heapTotal":74018816,"heapUsed":45840328,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101134.625},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:26 GMT+0900 (대한민국 표준시)","process":{"pid":19332,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122331136,"heapTotal":73232384,"heapUsed":42423920,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":101134.64},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:26 GMT+0900 (대한민국 표준시)","process":{"pid":24584,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123215872,"heapTotal":74018816,"heapUsed":45437496,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101134.656},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:30 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:30 GMT+0900 (대한민국 표준시)","process":{"pid":17884,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122413056,"heapTotal":74280960,"heapUsed":46436776,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101138.671},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:30 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:30 GMT+0900 (대한민국 표준시)","process":{"pid":28972,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122384384,"heapTotal":74280960,"heapUsed":45122608,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101138.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:30 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:30 GMT+0900 (대한민국 표준시)","process":{"pid":9644,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122408960,"heapTotal":74280960,"heapUsed":44763232,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101138.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:30 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:30 GMT+0900 (대한민국 표준시)","process":{"pid":3636,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122499072,"heapTotal":74018816,"heapUsed":45465864,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101138.703},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:36 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:36 GMT+0900 (대한민국 표준시)","process":{"pid":10780,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122675200,"heapTotal":74018816,"heapUsed":47034448,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101143.812},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:36 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:36 GMT+0900 (대한민국 표준시)","process":{"pid":8820,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123342848,"heapTotal":74280960,"heapUsed":44981384,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101143.812},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:36 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:36 GMT+0900 (대한민국 표준시)","process":{"pid":10816,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123260928,"heapTotal":74280960,"heapUsed":45061720,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101143.828},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:36 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:36 GMT+0900 (대한민국 표준시)","process":{"pid":10200,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122720256,"heapTotal":74280960,"heapUsed":46060352,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101143.843},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:49 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:49 GMT+0900 (대한민국 표준시)","process":{"pid":26144,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123490304,"heapTotal":74420224,"heapUsed":44218000,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101157},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:49 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:49 GMT+0900 (대한민국 표준시)","process":{"pid":26596,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123006976,"heapTotal":74420224,"heapUsed":45548824,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101157},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:49 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:49 GMT+0900 (대한민국 표준시)","process":{"pid":8200,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122159104,"heapTotal":73633792,"heapUsed":45412464,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101157},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:49 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:49 GMT+0900 (대한민국 표준시)","process":{"pid":21464,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123441152,"heapTotal":74420224,"heapUsed":46302344,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101157.015},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:57 GMT+0900 (대한민국 표준시)","process":{"pid":20164,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121479168,"heapTotal":73113600,"heapUsed":42217528,"external":4663331,"arrayBuffers":946785}},"os":{"loadavg":[0,0,0],"uptime":101164.937},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:57 GMT+0900 (대한민국 표준시)","process":{"pid":25804,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123330560,"heapTotal":74162176,"heapUsed":44283704,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101164.937},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:57 GMT+0900 (대한민국 표준시)","process":{"pid":11312,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123138048,"heapTotal":74162176,"heapUsed":46689768,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101164.953},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:20:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:20:57 GMT+0900 (대한민국 표준시)","process":{"pid":21812,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122990592,"heapTotal":74162176,"heapUsed":44981072,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101164.968},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:09 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:09 GMT+0900 (대한민국 표준시)","process":{"pid":22952,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122486784,"heapTotal":73375744,"heapUsed":46862984,"external":4663478,"arrayBuffers":946932}},"os":{"loadavg":[0,0,0],"uptime":101176.984},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:09 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:09 GMT+0900 (대한민국 표준시)","process":{"pid":27676,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123121664,"heapTotal":73900032,"heapUsed":45374896,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101176.984},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:09 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:09 GMT+0900 (대한민국 표준시)","process":{"pid":1844,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122986496,"heapTotal":73900032,"heapUsed":45283224,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101177},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:09 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:09 GMT+0900 (대한민국 표준시)","process":{"pid":2736,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122372096,"heapTotal":73900032,"heapUsed":44979552,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101177},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:11 GMT+0900 (대한민국 표준시)","process":{"pid":13212,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122286080,"heapTotal":74162176,"heapUsed":45231584,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101179.671},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:11 GMT+0900 (대한민국 표준시)","process":{"pid":23324,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123068416,"heapTotal":74162176,"heapUsed":44654248,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101179.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:11 GMT+0900 (대한민국 표준시)","process":{"pid":20004,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122265600,"heapTotal":73900032,"heapUsed":46636712,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101179.703},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:11 GMT+0900 (대한민국 표준시)","process":{"pid":26712,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123203584,"heapTotal":74424320,"heapUsed":46594520,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101179.734},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:21:23 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:21:23 GMT+0900 (대한민국 표준시)","process":{"pid":27492,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122564608,"heapTotal":73637888,"heapUsed":45907544,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101190.843},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:27:22 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:27:22 GMT+0900 (대한민국 표준시)","process":{"pid":28220,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123531264,"heapTotal":74686464,"heapUsed":46158024,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101550.625},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":18892,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122732544,"heapTotal":73904128,"heapUsed":46859776,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101674.546},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":24424,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122892288,"heapTotal":74166272,"heapUsed":44914896,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101674.562},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":20968,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122548224,"heapTotal":73904128,"heapUsed":45602288,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101674.578},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":27596,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121597952,"heapTotal":72331264,"heapUsed":41776744,"external":4663331,"arrayBuffers":946785}},"os":{"loadavg":[0,0,0],"uptime":101674.609},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":21024,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123936768,"heapTotal":74166272,"heapUsed":45329128,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101674.609},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:29:26 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:29:26 GMT+0900 (대한민국 표준시)","process":{"pid":20440,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123392000,"heapTotal":74690560,"heapUsed":45907648,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":101674.625},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":24120,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":124096512,"heapTotal":74952704,"heapUsed":44003192,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":101839.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":30056,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123531264,"heapTotal":73904128,"heapUsed":45368808,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101839.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":21156,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122843136,"heapTotal":73904128,"heapUsed":45289816,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":101839.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":20808,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122724352,"heapTotal":73904128,"heapUsed":44898840,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":101839.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":16068,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122953728,"heapTotal":74428416,"heapUsed":44326672,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101839.718},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:11 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:11 GMT+0900 (대한민국 표준시)","process":{"pid":29360,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122646528,"heapTotal":74166272,"heapUsed":45256528,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101839.734},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":16040,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122822656,"heapTotal":73908224,"heapUsed":46650704,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.609},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":12936,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123576320,"heapTotal":74432512,"heapUsed":46231384,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.656},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":22380,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122884096,"heapTotal":73646080,"heapUsed":46963888,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.671},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":13868,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122175488,"heapTotal":73908224,"heapUsed":46663216,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.671},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":28848,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121442304,"heapTotal":72335360,"heapUsed":47643648,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:16 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:16 GMT+0900 (대한민국 표준시)","process":{"pid":15716,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122621952,"heapTotal":74170368,"heapUsed":46980048,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101844.687},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:19 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:19 GMT+0900 (대한민국 표준시)","process":{"pid":13560,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123191296,"heapTotal":73908224,"heapUsed":47052104,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101847.312},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":20928,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122482688,"heapTotal":73646080,"heapUsed":46961488,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101876.343},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":30560,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123027456,"heapTotal":74432512,"heapUsed":46476144,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101876.39},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":12792,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123146240,"heapTotal":73908224,"heapUsed":44956528,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101876.421},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":2464,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":121245696,"heapTotal":72335360,"heapUsed":41479112,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":101876.453},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":13872,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123215872,"heapTotal":74170368,"heapUsed":44829976,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101876.453},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":28764,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123043840,"heapTotal":74170368,"heapUsed":44920928,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":101876.468},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:32:48 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:32:48 GMT+0900 (대한민국 표준시)","process":{"pid":25868,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123486208,"heapTotal":74432512,"heapUsed":43893464,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":101876.468},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":25748,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122097664,"heapTotal":73908224,"heapUsed":45246024,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102063.078},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":14960,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123166720,"heapTotal":73908224,"heapUsed":45506024,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102063.125},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":16136,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122400768,"heapTotal":74170368,"heapUsed":44866384,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102063.125},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":19000,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122535936,"heapTotal":74170368,"heapUsed":44475384,"external":4663479,"arrayBuffers":946933}},"os":{"loadavg":[0,0,0],"uptime":102063.125},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":16608,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":124407808,"heapTotal":75218944,"heapUsed":44087728,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":102063.14},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":27476,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122818560,"heapTotal":74170368,"heapUsed":44150480,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102063.171},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:55 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:55 GMT+0900 (대한민국 표준시)","process":{"pid":24400,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":123727872,"heapTotal":74432512,"heapUsed":44097640,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102063.187},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:35:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:35:57 GMT+0900 (대한민국 표준시)","process":{"pid":13528,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":122126336,"heapTotal":73908224,"heapUsed":46743776,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102064.875},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:38:57 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:38:57 GMT+0900 (대한민국 표준시)","process":{"pid":26848,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":117194752,"heapTotal":72859648,"heapUsed":41976440,"external":4663331,"arrayBuffers":946785}},"os":{"loadavg":[0,0,0],"uptime":102245.109},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:39:36 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:39:36 GMT+0900 (대한민국 표준시)","process":{"pid":15128,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":117817344,"heapTotal":74170368,"heapUsed":45127152,"external":4663480,"arrayBuffers":946934}},"os":{"loadavg":[0,0,0],"uptime":102283.859},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}
+2026-01-28 01:42:12 [error]: uncaughtException: listen EADDRINUSE: address already in use 0.0.0.0:3000
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {"error":{"code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3000},"exception":true,"date":"Wed Jan 28 2026 01:42:12 GMT+0900 (대한민국 표준시)","process":{"pid":10744,"uid":null,"gid":null,"cwd":"C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend","execPath":"C:\\Program Files\\nodejs\\node.exe","version":"v22.13.1","argv":["C:\\Program Files\\nodejs\\node.exe","C:\\Users\\win\\Downloads\\Global-Advertising-Platform-d9586aca12844d7c7dbe1a70fb43f4a241df4343\\backend\\server.js"],"memoryUsage":{"rss":117633024,"heapTotal":73121792,"heapUsed":42318832,"external":4663332,"arrayBuffers":946786}},"os":{"loadavg":[0,0,0],"uptime":102440},"trace":[{"column":16,"file":"node:net","function":"Server.setupListenHandle [as _listen2]","line":1937,"method":"setupListenHandle [as _listen2]","native":false},{"column":12,"file":"node:net","function":"listenInCluster","line":1994,"method":null,"native":false},{"column":7,"file":"node:net","function":null,"line":2203,"method":null,"native":false},{"column":21,"file":"node:internal/process/task_queues","function":"process.processTicksAndRejections","line":90,"method":"processTicksAndRejections","native":false}]}

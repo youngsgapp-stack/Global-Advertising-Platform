@@ -485,8 +485,9 @@ const redisObject = {
     
     /**
      * Hash 필드 설정 (HSET)
-     * node-redis v4는 hSet, Upstash/다른 클라이언트는 hset 사용
-     * 호환성: (key, field, value) 형태만 지원 (가장 호환성 좋음)
+     * ⚠️ CRITICAL: Upstash Redis SDK는 객체를 받습니다: hset(key, {field: value})
+     * node-redis v4는 hSet(key, field, value) 형태
+     * 호환성: (key, field, value) 형태로 호출하되, Upstash에서는 객체로 변환
      */
     hset: async (key, field, value) => {
         try {
@@ -497,8 +498,11 @@ const redisObject = {
             }
             
             if (client instanceof Redis) {
-                // Upstash Redis SDK
-                return await client.hset(key, field, value);
+                // ⚠️ Upstash Redis SDK: 객체 형태로 전달해야 함
+                // hset(key, {field: value}) 형태
+                const fieldValueObj = {};
+                fieldValueObj[String(field)] = String(value);
+                return await client.hset(key, fieldValueObj);
             } else {
                 // 일반 Redis (node-redis v4는 hSet 사용)
                 if (typeof client.hSet === 'function') {
