@@ -108,7 +108,7 @@ class RateLimiter {
         const config = RATE_LIMIT_CONFIG[type];
         if (!config) {
             log.warn(`[RateLimiter] Unknown rate limit type: ${type}`);
-            return { allowed: true }; // 알 수 없는 타입은 허용
+            return { allowed: true }; // Allow unknown types
         }
         
         // 신규 계정 보호 규칙: 1시간 이내 계정은 50% 제한

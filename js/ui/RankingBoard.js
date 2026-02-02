@@ -82,8 +82,8 @@ class RankingBoard {
             <div class="ranking-header">
                 <h3 class="ranking-title" id="ranking-title" style="cursor: pointer;">🌟 Top Spaces</h3>
                 <div class="ranking-header-buttons">
-                    <button class="ranking-refresh-btn" id="ranking-refresh" title="새로고침">🔄</button>
-                    <button class="ranking-close-btn" id="ranking-close" title="닫기">×</button>
+                    <button class="ranking-refresh-btn" id="ranking-refresh" title="Refresh">🔄</button>
+                    <button class="ranking-close-btn" id="ranking-close" title="Close">×</button>
                 </div>
             </div>
             

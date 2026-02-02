@@ -166,30 +166,30 @@ class PaymentService {
                         container.innerHTML = `
                             <div class="paypal-error-message" style="padding: 20px; text-align: center; border: 2px dashed #e74c3c; border-radius: 8px; background: #fff5f5;">
                                 <div style="font-size: 32px; margin-bottom: 15px;">⚠️</div>
-                                <div style="font-weight: bold; color: #e74c3c; margin-bottom: 15px; font-size: 16px;">PayPal 결제 시스템을 로드할 수 없습니다</div>
+                                <div style="font-weight: bold; color: #e74c3c; margin-bottom: 15px; font-size: 16px;">Unable to load PayPal payment system</div>
                                 <div style="font-size: 13px; color: #7f8c8d; margin-bottom: 20px; line-height: 1.6; text-align: left; background: white; padding: 15px; border-radius: 6px;">
-                                    <strong style="color: #2c3e50;">오류 원인:</strong><br>
-                                    • Client ID가 잘못되었거나<br>
-                                    • PayPal 앱이 비활성화되었거나<br>
-                                    • Live/Sandbox 모드 불일치
+                                    <strong style="color: #2c3e50;">Possible causes:</strong><br>
+                                    • Invalid Client ID<br>
+                                    • PayPal app is disabled<br>
+                                    • Live/Sandbox mode mismatch
                                 </div>
                                 <div style="font-size: 11px; color: #95a5a6; font-family: monospace; word-break: break-all; padding: 12px; background: #f8f9fa; border-radius: 4px; margin-bottom: 15px; border: 1px solid #e0e0e0;">
-                                    <strong style="color: #7f8c8d;">현재 Client ID:</strong><br>
+                                    <strong style="color: #7f8c8d;">Current Client ID:</strong><br>
                                     ${clientId.substring(0, 40)}...<br>
                                     ...${clientId.substring(clientId.length - 15)}
                                 </div>
                                 <div style="font-size: 12px; color: #2c3e50; background: #e8f4f8; padding: 15px; border-radius: 6px; text-align: left; line-height: 1.8;">
-                                    <strong style="color: #2980b9;">💡 해결 방법:</strong><br>
-                                    1. <a href="https://developer.paypal.com/dashboard" target="_blank" style="color: #2980b9; text-decoration: underline;">PayPal Developer Dashboard</a> 접속<br>
-                                    2. 상단에서 <strong>"Live"</strong> 모드 선택 (Sandbox 아님!)<br>
-                                    3. "My Apps & Credentials" 클릭<br>
-                                    4. "World Map Advertising" 앱 선택<br>
-                                    5. Client ID 복사 (전체 문자열)<br>
-                                    6. <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">js/config.js</code> 파일의 <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">PAYPAL.CLIENT_ID</code> 업데이트<br>
-                                    7. 페이지 새로고침
+                                    <strong style="color: #2980b9;">💡 Solution:</strong><br>
+                                    1. Go to <a href="https://developer.paypal.com/dashboard" target="_blank" style="color: #2980b9; text-decoration: underline;">PayPal Developer Dashboard</a><br>
+                                    2. Select <strong>"Live"</strong> mode at the top (not Sandbox!)<br>
+                                    3. Click "My Apps & Credentials"<br>
+                                    4. Select "World Map Advertising" app<br>
+                                    5. Copy Client ID (full string)<br>
+                                    6. Update <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">PAYPAL.CLIENT_ID</code> in <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">js/config.js</code><br>
+                                    7. Refresh the page
                                 </div>
                                 <div style="margin-top: 15px; font-size: 11px; color: #95a5a6;">
-                                    ⚠️ Client ID는 Live 모드와 Sandbox 모드가 다릅니다!
+                                    ⚠️ Client ID differs between Live and Sandbox modes!
                                 </div>
                             </div>
                         `;
@@ -198,7 +198,7 @@ class PaymentService {
                 
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
-                    message: 'PayPal 결제 시스템을 로드할 수 없습니다. Client ID를 확인해주세요.'
+                    message: 'Unable to load PayPal payment system. Please check the Client ID.'
                 });
                 reject(error);
             };
@@ -236,7 +236,7 @@ class PaymentService {
                         log.error('4. Client ID mismatch between Live/Sandbox mode');
                         eventBus.emit(EVENTS.UI_NOTIFICATION, {
                             type: 'error',
-                            message: 'PayPal 결제 시스템을 로드할 수 없습니다. Client ID를 확인해주세요. (브라우저 콘솔 확인)'
+                            message: 'Unable to load PayPal payment system. Please check the Client ID. (Check browser console)'
                         });
                     }
                 }
@@ -377,7 +377,7 @@ class PaymentService {
                                     min="${CUSTOM_AMOUNT_CONFIG.MIN_AMOUNT}"
                                     max="${CUSTOM_AMOUNT_CONFIG.MAX_AMOUNT}"
                                     step="1"
-                                    placeholder="원하는 금액 입력"
+                                    placeholder="Enter amount"
                                 />
                             </div>
                             <div class="custom-amount-info" id="custom-amount-info">
@@ -760,7 +760,7 @@ class PaymentService {
         if (value < minAmount) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: `최소 금액은 $${minAmount}입니다.`
+                message: `Minimum amount is $${minAmount}.`
             });
             return;
         }
@@ -768,7 +768,7 @@ class PaymentService {
         if (value > maxAmount) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: `최대 금액은 $${maxAmount}입니다.`
+                message: `Maximum amount is $${maxAmount}.`
             });
             return;
         }
@@ -1272,10 +1272,10 @@ class PaymentService {
                         } catch (backendError) {
                             log.error('[PayPal] Failed to add points via backend API:', backendError);
                             // 백엔드 API 실패해도 계속 진행 (Firestore에는 이미 추가됨)
-                            // 사용자에게 경고 메시지 표시
+                            // Display warning message to user
                             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                                 type: 'warning',
-                                message: '포인트가 추가되었지만 일시적인 동기화 문제가 있을 수 있습니다. 잠시 후 새로고침해주세요.'
+                                message: 'Points have been added but there may be a temporary synchronization issue. Please refresh in a moment.'
                             });
                         }
                         
@@ -1409,7 +1409,7 @@ class PaymentService {
                     });
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'error',
-                        message: `PayPal 결제 오류: ${err.message || '알 수 없는 오류가 발생했습니다.'}`
+                        message: `PayPal payment error: ${err.message || 'An unknown error occurred.'}`
                     });
                     this.handlePaymentError(err);
                 }
@@ -1496,10 +1496,10 @@ class PaymentService {
                 if (container) {
                     container.innerHTML = `
                         <div style="padding: 20px; text-align: center; color: #e74c3c; border: 2px dashed #e74c3c; border-radius: 8px;">
-                            <p style="font-weight: bold; margin-bottom: 10px;">PayPal 버튼을 렌더링할 수 없습니다</p>
-                            <p style="font-size: 12px; margin-bottom: 10px;">${error.message || '알 수 없는 오류'}</p>
+                            <p style="font-weight: bold; margin-bottom: 10px;">Unable to render PayPal button</p>
+                            <p style="font-size: 12px; margin-bottom: 10px;">${error.message || 'Unknown error'}</p>
                             <p style="font-size: 11px; color: #7f8c8d; margin-top: 10px;">
-                                브라우저 콘솔을 확인하여 상세 오류 정보를 확인하세요.
+                                Check the browser console for detailed error information.
                             </p>
                         </div>
                     `;
@@ -1519,8 +1519,8 @@ class PaymentService {
             if (container) {
                 container.innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #e74c3c;">
-                        <p>PayPal 버튼 생성 중 오류가 발생했습니다.</p>
-                        <p style="font-size: 12px;">${error.message || '알 수 없는 오류'}</p>
+                        <p>An error occurred while creating the PayPal button.</p>
+                        <p style="font-size: 12px;">${error.message || 'Unknown error'}</p>
                     </div>
                 `;
             }
@@ -1632,8 +1632,8 @@ class PaymentService {
                 status: paymentRecord.status
             });
         } catch (transactionError) {
-            if (transactionError.message && transactionError.message.includes('이미 처리된')) {
-                // 중복 결제 - 사용자에게 명확한 메시지
+            if (transactionError.message && transactionError.message.includes('already processed')) {
+                // Duplicate payment - clear message to user
                 throw transactionError;
             }
             
@@ -1947,12 +1947,12 @@ class PaymentService {
         let isPartialSuccess = false; // 결제는 됐지만 포인트 반영 실패
         
         if (error.message) {
-            // 결제는 완료되었지만 포인트 반영 실패한 경우
-            if (error.message.includes('결제는 완료되었지만') || 
-                error.message.includes('결제가 완료되었지만') ||
-                error.message.includes('주문번호')) {
+            // Payment completed but points reflection failed
+            if (error.message.includes('Payment was completed but') || 
+                error.message.includes('payment completed but') ||
+                error.message.includes('Order ID')) {
                 isPartialSuccess = true;
-                errorMessage = error.message; // 전문가 조언대로 orderID 포함 메시지 그대로 사용
+                errorMessage = error.message; // Use message including orderID as advised
             } else if (error.message.includes('network') || error.message.includes('Network')) {
                 errorMessage = 'Network error. Please check your connection and try again.';
             } else if (error.message.includes('permission') || error.message.includes('Permission')) {

@@ -393,13 +393,13 @@ class CollaborationHub {
             let badgeName, badgeIcon;
             
             if (contribution >= 0.3) {
-                badgeName = '핵심 기여자';
+                badgeName = 'Core Contributor';
                 badgeIcon = '🌟';
             } else if (contribution >= 0.1) {
-                badgeName = '주요 기여자';
+                badgeName = 'Major Contributor';
                 badgeIcon = '⭐';
             } else {
-                badgeName = '참여자';
+                badgeName = 'Participant';
                 badgeIcon = '✨';
             }
             

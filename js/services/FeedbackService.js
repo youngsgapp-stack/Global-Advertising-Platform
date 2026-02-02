@@ -42,7 +42,7 @@ class FeedbackService {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: '피드백이 제출되었습니다. 감사합니다!'
+                message: 'Feedback submitted. Thank you!'
             });
             
             return true;
@@ -50,7 +50,7 @@ class FeedbackService {
             log.error('[FeedbackService] Failed to submit feedback:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '피드백 제출에 실패했습니다. 다시 시도해주세요.'
+                message: 'Failed to submit feedback. Please try again.'
             });
             return false;
         }
@@ -137,11 +137,11 @@ class FeedbackService {
                     </div>
                     <div class="form-group">
                         <label for="feedback-title">제목</label>
-                        <input type="text" id="feedback-title" name="title" placeholder="간단한 제목을 입력하세요" required>
+                        <input type="text" id="feedback-title" name="title" placeholder="Enter a brief title" required>
                     </div>
                     <div class="form-group">
                         <label for="feedback-message">내용</label>
-                        <textarea id="feedback-message" name="message" rows="6" placeholder="자세한 내용을 입력하세요" required></textarea>
+                        <textarea id="feedback-message" name="message" rows="6" placeholder="Please enter details" required></textarea>
                     </div>
                     <div class="form-group">
                         <label for="feedback-rating">만족도</label>

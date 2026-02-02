@@ -58,20 +58,20 @@
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
     
-    <!-- Firebase SDK (compat 버전) - 전문가 조언: 정적 script 태그로 로드하여 CORS 문제 방지 -->
-    <!-- 동적 import 대신 정적 script 태그 사용으로 브라우저가 CORS를 자동 처리 -->
+    <!-- Firebase SDK (compat version) - Static script tag to prevent CORS issues -->
+    <!-- Using static script tag instead of dynamic import for automatic CORS handling -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script>
-        // Firebase SDK가 로드되었는지 확인하고 전역 객체에 저장
+        // Check if Firebase SDK is loaded and save to global object
         (function() {
             if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length === 0) {
-                // Firebase compat 버전이 로드됨
+                // Firebase compat version loaded
                 window.firebaseCompat = firebase;
                 console.log('[Firebase] SDK loaded successfully (compat version)');
             } else if (typeof firebase !== 'undefined') {
-                // 이미 초기화된 경우
+                // Already initialized
                 window.firebaseCompat = firebase;
                 console.log('[Firebase] SDK already loaded (compat version)');
             } else {
@@ -82,9 +82,9 @@
         })();
     </script>
     
-    <!-- Territory Seed Script (브라우저에서 실행 가능) -->
-    <!-- 프로덕션에서는 제거: 개발/시드용 스크립트 -->
-    <!-- ⚠️ 완전 제거: seed-territories.js는 Node.js 환경에서만 실행 -->
+    <!-- Territory Seed Script (browser executable) -->
+    <!-- Remove in production: development/seed script only -->
+    <!-- ⚠️ Completely removed: seed-territories.js runs in Node.js environment only -->
     
     <!-- Mapbox GL JS -->
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
@@ -258,7 +258,7 @@
         
         <!-- Ranking Board -->
         <aside class="ranking-board" id="ranking-board">
-            <!-- RankingBoard.js에서 동적 렌더링 -->
+            <!-- Dynamically rendered by RankingBoard.js -->
         </aside>
         
         <!-- Mobile Ranking Button -->
@@ -287,33 +287,33 @@
             <div class="modal-content admin-modal">
                 <button class="modal-close" id="close-admin-modal">&times;</button>
                 <div class="modal-header">
-                    <h2>🔐 관리자 로그인</h2>
-                    <p>Firebase 계정으로 로그인</p>
+                    <h2>🔐 Admin Login</h2>
+                    <p>Login with Firebase Account</p>
                 </div>
                 <form id="admin-login-form-main">
                     <div class="form-group">
-                        <label for="admin-email">이메일</label>
+                        <label for="admin-email">Email</label>
                         <input type="email" id="admin-email" placeholder="admin@example.com" required>
                     </div>
                     <div class="form-group">
-                        <label for="admin-pwd">비밀번호</label>
+                        <label for="admin-pwd">Password</label>
                         <input type="password" id="admin-pwd" placeholder="••••••••" required>
                     </div>
                     <button type="submit" class="btn-primary btn-full">
-                        🔓 로그인
+                        🔓 Login
                     </button>
                     <div id="admin-login-error" class="error-message hidden"></div>
                 </form>
                 <div class="modal-footer">
-                    <small>💡 P키 5번 연타로 이 모달을 열 수 있습니다</small>
+                    <small>💡 Press P key 5 times to open this modal</small>
                 </div>
             </div>
         </div>
         
-        <!-- 관리자 사용자 모드 배너 -->
+        <!-- Admin User Mode Banner -->
         <div id="admin-user-mode-banner" class="admin-user-mode-banner hidden">
-            <span>🎭 관리자로 사용자 체험 중</span>
-            <button id="back-to-admin" class="btn-back-admin">관리자 페이지로 돌아가기</button>
+            <span>🎭 Admin viewing as user</span>
+            <button id="back-to-admin" class="btn-back-admin">Back to Admin Dashboard</button>
         </div>
         
         <!-- Onboarding Welcome Modal -->
@@ -331,13 +331,13 @@
                             <h1>Welcome to <span class="brand">Own a Piece of Earth</span></h1>
                             <p class="slide-subtitle">Own Piece</p>
                             <p class="slide-description">
-                                전 세계 지도에서 나만의 픽셀 아트를 만들고<br>
-                                창작물을 세상에 표현하세요!
+                                Create your own pixel art on the world map<br>
+                                and express your creativity to the world!
                             </p>
                             <div class="slide-features">
-                                <span>🎨 픽셀 아트 창작</span>
-                                <span>👥 커뮤니티 소통</span>
-                                <span>🏆 작품 랭킹</span>
+                                <span>🎨 Pixel Art Creation</span>
+                                <span>👥 Community Engagement</span>
+                                <span>🏆 Artwork Ranking</span>
                             </div>
                         </div>
                     </div>
@@ -346,27 +346,27 @@
                     <div class="onboarding-slide" data-slide="1">
                         <div class="slide-content">
                             <div class="slide-icon">🗺️</div>
-                            <h2>어떻게 작동하나요?</h2>
+                            <h2>How does it work?</h2>
                             <div class="how-it-works">
                                 <div class="step">
                                     <div class="step-number">1</div>
                                     <div class="step-info">
-                                        <h4>캔버스 선택</h4>
-                                        <p>지도에서 원하는 지역을 선택하세요</p>
+                                        <h4>Choose a Canvas</h4>
+                                        <p>Select your desired territory on the map</p>
                                     </div>
                                 </div>
                                 <div class="step">
                                     <div class="step-number">2</div>
                                     <div class="step-info">
-                                        <h4>픽셀 아트 그리기</h4>
-                                        <p>100x100 픽셀 캔버스에 작품을 그리세요</p>
+                                        <h4>Draw Pixel Art</h4>
+                                        <p>Create your artwork on a 100x100 pixel canvas</p>
                                     </div>
                                 </div>
                                 <div class="step">
                                     <div class="step-number">3</div>
                                     <div class="step-info">
-                                        <h4>작품 공유하기</h4>
-                                        <p>좋아요와 댓글로 커뮤니티와 소통하세요!</p>
+                                        <h4>Share Your Art</h4>
+                                        <p>Engage with the community through likes and comments!</p>
                                     </div>
                                 </div>
                             </div>
@@ -377,22 +377,22 @@
                     <div class="onboarding-slide" data-slide="2">
                         <div class="slide-content">
                             <div class="slide-icon">✨</div>
-                            <h2>무엇을 할 수 있나요?</h2>
+                            <h2>What can you do?</h2>
                             <div class="feature-cards">
                                 <div class="feature-card">
                                     <span class="feature-icon">🎨</span>
-                                    <h4>픽셀 아트 꾸미기</h4>
-                                    <p>내 영토를 100x100 픽셀 캔버스로 꾸미세요</p>
+                                    <h4>Create Pixel Art</h4>
+                                    <p>Decorate your territory on a 100x100 pixel canvas</p>
                                 </div>
                                 <div class="feature-card">
                                     <span class="feature-icon">⚔️</span>
-                                    <h4>경매 참여</h4>
-                                    <p>다른 영토에 입찰하여 영토를 확장하세요</p>
+                                    <h4>Join Auctions</h4>
+                                    <p>Bid on territories to expand your empire</p>
                                 </div>
                                 <div class="feature-card">
                                     <span class="feature-icon">👥</span>
-                                    <h4>협업 모드</h4>
-                                    <p>친구들과 함께 픽셀 아트를 그리세요</p>
+                                    <h4>Collaboration Mode</h4>
+                                    <p>Draw pixel art together with friends</p>
                                 </div>
                             </div>
                         </div>
@@ -402,17 +402,17 @@
                     <div class="onboarding-slide" data-slide="3">
                         <div class="slide-content">
                             <div class="slide-icon">💰</div>
-                            <h2>영토 가격은 어떻게 되나요?</h2>
+                            <h2>How much does it cost?</h2>
                             <div class="pricing-info">
                                 <div class="pricing-card">
                                     <div class="price-range">100 pt ~ 100K+ pt</div>
-                                    <p>영토마다 가격이 다릅니다</p>
+                                    <p>Each territory has different pricing</p>
                                 </div>
                                 <ul class="pricing-factors">
-                                    <li>🎁 회원가입 시 400pt 무료 지급</li>
-                                    <li>💰 첫 작품을 무료로 만들어보세요</li>
-                                    <li>📜 당신의 창작 활동은 영구히 기록됩니다</li>
-                                    <li>👥 좋아요와 댓글로 커뮤니티와 소통하세요</li>
+                                    <li>🎁 Get 400pt free upon sign-up</li>
+                                    <li>💰 Create your first artwork for free</li>
+                                    <li>📜 Your creative works are permanently recorded</li>
+                                    <li>👥 Engage with community through likes and comments</li>
                                 </ul>
                             </div>
                         </div>
@@ -422,20 +422,20 @@
                     <div class="onboarding-slide" data-slide="4">
                         <div class="slide-content">
                             <div class="slide-icon">🚀</div>
-                            <h2>시작할 준비가 되셨나요?</h2>
+                            <h2>Ready to get started?</h2>
                             <p class="slide-description">
-                                Google 계정으로 간편하게 로그인하고<br>
-                                나만의 픽셀 아트 작품을 만들어보세요!
+                                Sign in easily with your Google account<br>
+                                and start creating your own pixel art masterpiece!
                             </p>
                             <div class="cta-buttons">
                                 <button class="cta-primary" id="onboarding-login">
-                                    🔐 로그인하고 시작하기
+                                    🔐 Login & Get Started
                                 </button>
                                 <button class="cta-secondary" id="onboarding-explore">
-                                    🗺️ 먼저 둘러보기
+                                    🗺️ Explore First
                                 </button>
                             </div>
-                            <p class="cta-hint">* 둘러보기는 로그인 없이도 가능합니다</p>
+                            <p class="cta-hint">* You can explore without logging in</p>
                         </div>
                     </div>
                 </div>
@@ -443,7 +443,7 @@
                 <!-- Navigation -->
                 <div class="onboarding-nav">
                     <button class="nav-btn prev" id="onboarding-prev" disabled>
-                        ← 이전
+                        ← Previous
                     </button>
                     <div class="nav-dots" id="onboarding-dots">
                         <span class="dot active" data-slide="0"></span>
@@ -453,7 +453,7 @@
                         <span class="dot" data-slide="4"></span>
                     </div>
                     <button class="nav-btn next" id="onboarding-next">
-                        다음 →
+                        Next →
                     </button>
                 </div>
             </div>
@@ -463,7 +463,7 @@
     <!-- Mapbox GL JS -->
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
     
-    <!-- PayPal SDK는 PaymentService에서 동적으로 로드됩니다 -->
+    <!-- PayPal SDK is dynamically loaded by PaymentService -->
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.json">
@@ -472,7 +472,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Own Piece">
     
-    <!-- v2 App Module - 캐시 무효화를 위한 버전 추가 -->
+    <!-- v2 App Module - Version added for cache invalidation -->
     <script type="module" src="js/app.js?v=20251203-13"></script>
     
     <!-- Service Worker Registration -->

@@ -1040,10 +1040,10 @@ class TerritoryPanel {
                                 <button class="share-btn share-facebook" data-platform="facebook" title="Facebook 공유">
                                     <span>📘</span>
                                 </button>
-                                <button class="share-btn share-kakao" data-platform="kakao" title="카카오톡 공유">
+                                <button class="share-btn share-kakao" data-platform="kakao" title="Share on KakaoTalk">
                                     <span>💬</span>
                                 </button>
-                                <button class="share-btn share-copy" data-platform="copy" title="링크 복사">
+                                <button class="share-btn share-copy" data-platform="copy" title="Copy Link">
                                     <span>📋</span>
                                 </button>
                             </div>
@@ -1922,7 +1922,7 @@ class TerritoryPanel {
                     this.copyToClipboard(shareUrl);
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'success',
-                        message: '링크가 클립보드에 복사되었습니다!'
+                        message: 'Link copied to clipboard!'
                     });
                     return;
                 }
@@ -1930,7 +1930,7 @@ class TerritoryPanel {
                 this.copyToClipboard(shareUrl);
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'success',
-                    message: '링크가 클립보드에 복사되었습니다!'
+                    message: 'Link copied to clipboard!'
                 });
                 return;
             default:
@@ -1964,7 +1964,7 @@ class TerritoryPanel {
             log.error('Failed to copy to clipboard:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '클립보드 복사에 실패했습니다.'
+                message: 'Failed to copy to clipboard.'
             });
         }
     }
@@ -1993,7 +1993,7 @@ class TerritoryPanel {
             log.error('[TerritoryPanel] No territory selected');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '선택된 영토가 없습니다'
+                message: 'No territory selected'
             });
             return;
         }
@@ -2514,11 +2514,11 @@ class TerritoryPanel {
                     console.error(`🔴 [TerritoryPanel] Backend is trying to access a column that does not exist in the database.`);
                     console.error(`🔴 [TerritoryPanel] Please check backend database migrations.`);
                     
-                    errorMessage = '데이터베이스 스키마 불일치 오류가 발생했습니다. 백엔드 개발자에게 문의해주세요.';
+                    errorMessage = 'Database schema mismatch error occurred. Please contact backend developer.';
                 } else if (error.status === 500) {
-                    errorMessage = '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+                    errorMessage = 'Server error occurred. Please try again later.';
                 } else {
-                    errorMessage = error.message || '구매 처리 중 오류가 발생했습니다.';
+                    errorMessage = error.message || 'Error occurred during purchase process.';
                 }
                 
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
@@ -2718,18 +2718,18 @@ class TerritoryPanel {
                 protectionDays
             });
             
-            // ⚠️ 사용자 친화적 에러 메시지
-            let errorMessage = '구매 처리에 실패했습니다.';
+            // ⚠️ User-friendly error message
+            let errorMessage = 'Purchase failed.';
             let errorType = 'error';
             
             if (error.message?.includes('Insufficient balance')) {
-                errorMessage = `❌ 잔액이 부족합니다. ${this.formatNumber(price)} pt가 필요합니다.`;
+                errorMessage = `❌ Insufficient balance. ${this.formatNumber(price)} pt required.`;
                 errorType = 'error';
             } else if (error.message?.includes('already owned') || error.message?.includes('already ruled')) {
-                errorMessage = '⚠️ 이 영토는 이미 다른 사용자가 구매했습니다.';
+                errorMessage = '⚠️ This territory has already been purchased by another user.';
                 errorType = 'warning';
             } else if (error.message?.includes('Auction in progress')) {
-                errorMessage = '⚠️ 이 영토는 현재 경매 중입니다.';
+                errorMessage = '⚠️ This territory is currently in auction.';
                 errorType = 'warning';
             } else if (error.message?.includes('network') || error.message?.includes('offline')) {
                 errorMessage = '🌐 네트워크 연결을 확인하고 다시 시도해주세요.';
@@ -2821,7 +2821,7 @@ class TerritoryPanel {
         if (!user) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: '경매를 시작하려면 로그인이 필요합니다'
+                message: 'Login required to start an auction'
             });
             eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
             return;
@@ -2830,7 +2830,7 @@ class TerritoryPanel {
         if (!this.currentTerritory) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '선택된 영토가 없습니다'
+                message: 'No territory selected'
             });
             return;
         }
@@ -2842,7 +2842,7 @@ class TerritoryPanel {
         if (!rulerFirebaseUid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '이 영토에는 소유자가 없습니다'
+                message: 'This territory has no owner'
             });
             return;
         }
@@ -2851,7 +2851,7 @@ class TerritoryPanel {
         if (rulerFirebaseUid === user.uid) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: '이미 소유하고 있는 영토입니다'
+                message: 'You already own this territory'
             });
             return;
         }
@@ -2865,7 +2865,7 @@ class TerritoryPanel {
                              this.currentTerritory.id;
         const ownerName = this.currentTerritory.rulerName || 'Unknown';
         
-        if (!confirm(`이 영토(${territoryName})의 소유자(${ownerName})에게 도전하시겠습니까?\n\n경매가 시작되며, 최고 입찰자가 새로운 소유자가 됩니다.`)) {
+        if (!confirm(`Challenge the owner (${ownerName}) of this territory (${territoryName})?\n\nAn auction will start, and the highest bidder becomes the new owner.`)) {
             return;
         }
         
@@ -2875,7 +2875,7 @@ class TerritoryPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: '경매가 시작되었습니다!'
+                message: 'Auction started!'
             });
             
             // 패널 갱신
@@ -2885,14 +2885,14 @@ class TerritoryPanel {
         } catch (error) {
             log.error('Challenge owner failed:', error);
             
-            // 사용자 친화적 에러 메시지
-            let errorMessage = '경매 시작에 실패했습니다';
+            // User-friendly error message
+            let errorMessage = 'Failed to start auction';
             if (error.message.includes('Authentication')) {
-                errorMessage = '먼저 로그인해주세요';
+                errorMessage = 'Please login first';
             } else if (error.message.includes('not found')) {
-                errorMessage = '영토를 찾을 수 없습니다';
+                errorMessage = 'Territory not found';
             } else if (error.message.includes('in progress') || error.message.includes('already exists')) {
-                errorMessage = '이미 진행 중인 경매가 있습니다';
+                errorMessage = 'Auction already in progress';
                 // 경매 정보를 다시 로드하여 표시
                 this.render();
                 this.bindActions();
@@ -3056,7 +3056,7 @@ class TerritoryPanel {
         if (serviceModeManager.currentMode === SERVICE_MODE.READ_ONLY) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: '현재는 입찰이 제한된 상태입니다. 다시 시도해주세요.',
+                message: 'Bidding is currently restricted. Please try again later.',
                 duration: 5000
             });
             return;
@@ -3307,7 +3307,7 @@ class TerritoryPanel {
                                     log.error('[TerritoryPanel] Retry bid failed:', err);
                                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                                         type: 'error',
-                                        message: `재입찰 실패: ${err.message}`
+                                        message: `Rebid failed: ${err.message}`
                                     });
                                 });
                             }
@@ -3537,7 +3537,7 @@ class TerritoryPanel {
         
         // 문자열인 경우 JSON 형식인지 확인
         if (typeof name === 'string') {
-            // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+            // Check if it's a JSON format string (e.g. '{"ko":"Texas","en":"Texas"}')
             if (name.trim().startsWith('{') && name.trim().endsWith('}')) {
                 try {
                     const parsed = JSON.parse(name);
@@ -3704,12 +3704,12 @@ class TerritoryPanel {
         const now = new Date();
         const diff = end.getTime() - now.getTime();
         
-        if (diff <= 0) return '종료됨';
+        if (diff <= 0) return 'Ended';
         
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         
-        return `${hours}시간 ${minutes}분`;
+        return `${hours}h ${minutes}m`;
     }
     
     /**

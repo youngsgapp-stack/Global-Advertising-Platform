@@ -780,7 +780,7 @@ class TerritoryListPanel {
         
         // 문자열인 경우 JSON 형식인지 확인
         if (typeof name === 'string') {
-            // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+            // Check if it's a JSON format string (e.g. '{"ko":"Texas","en":"Texas"}')
             if (name.trim().startsWith('{') && name.trim().endsWith('}')) {
                 try {
                     const parsed = JSON.parse(name);

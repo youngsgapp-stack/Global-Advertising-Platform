@@ -677,7 +677,7 @@ class FirebaseService {
                 // 사용자에게 안내
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'info',
-                    message: '로그인 페이지로 이동합니다...',
+                    message: 'Redirecting to login page...',
                     duration: 2000
                 });
                 
@@ -775,7 +775,7 @@ class FirebaseService {
                     // 사용자에게 안내
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'info',
-                        message: '팝업이 차단되었습니다. 리다이렉트 방식으로 로그인합니다...',
+                        message: 'Popup was blocked. Attempting redirect login...',
                         duration: 2000
                     });
                     

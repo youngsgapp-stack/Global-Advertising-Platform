@@ -151,6 +151,7 @@ class PixelEditor3 {
         this.shortcutsModalVisible = false;
         this.keyboardHandler = null;
         this.panModeFromSpace = false; // Space 키로 이동 모드 진입 여부
+        this.lang = 'en'; // English default
         
         // 배경 설정 (BackgroundStore에서 로드)
         const bgState = loadBg();
@@ -202,33 +203,34 @@ class PixelEditor3 {
      * HTML 생성
      */
     getHTML() {
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         return `
             <div class="pixel-editor-3-overlay"></div>
             <div class="pixel-editor-3-content">
                 <!-- 헤더 (Wplace 스타일 - 간결하게) -->
                 <div class="pixel-editor-3-header">
                     <div class="pixel-editor-3-header-left">
-                        <h2>🎨 픽셀 아트 편집</h2>
+                        <h2>🎨 ${vocab.pixelArtEditor}</h2>
                         <div class="pixel-editor-3-territory-info" id="pixel-territory-info-3">
-                            <span class="territory-name">영토 선택됨</span>
+                            <span class="territory-name">${vocab.territorySelected}</span>
                         </div>
                     </div>
                     <div class="pixel-editor-3-actions">
-                        <button class="pixel-editor-3-btn pixel-editor-3-btn-save" id="pixel-save-btn-3" title="저장 (Ctrl+S)">
+                        <button class="pixel-editor-3-btn pixel-editor-3-btn-save" id="pixel-save-btn-3" title="Save (Ctrl+S)">
                             <span>💾</span>
-                            <span>저장</span>
+                            <span>Save</span>
                         </button>
                         <div class="pixel-editor-3-save-status" id="pixel-save-status-3">
                             <span>✅</span>
-                            <span>저장됨</span>
+                            <span>Saved</span>
                         </div>
-                        <button class="pixel-editor-3-btn" id="pixel-undo-3" title="실행 취소 (Ctrl+Z)">
+                        <button class="pixel-editor-3-btn" id="pixel-undo-3" title="Undo (Ctrl+Z)">
                             <span>↩</span>
                         </button>
-                        <button class="pixel-editor-3-btn" id="pixel-redo-3" title="다시 실행 (Ctrl+Y)">
+                        <button class="pixel-editor-3-btn" id="pixel-redo-3" title="Redo (Ctrl+Y)">
                             <span>↪</span>
                         </button>
-                        <button class="pixel-editor-3-btn" id="pixel-clear-3" title="전체 지우기">
+                        <button class="pixel-editor-3-btn" id="pixel-clear-3" title="Clear All">
                             <span>🗑</span>
                         </button>
                         <button class="pixel-editor-3-close" id="pixel-close-3">×</button>
@@ -243,42 +245,42 @@ class PixelEditor3 {
                         <div class="pixel-editor-3-section pixel-editor-3-image-upload-section">
                             <button class="pixel-editor-3-btn pixel-editor-3-btn-image-upload" id="pixel-image-upload-3">
                                 <span>🖼️</span>
-                                <span>이미지로 그리기</span>
+                                <span>Draw from Image</span>
                             </button>
                             <div class="pixel-editor-3-image-upload-hint">
-                                <small>사진을 업로드하여 픽셀 아트로 변환하기</small>
+                                <small>Upload a photo to convert to pixel art</small>
                             </div>
                         </div>
                         
                         <!-- 도구 (3개로 최소화 - Wplace 스타일) -->
                         <div class="pixel-editor-3-section">
-                            <h3>도구</h3>
+                            <h3>Tools</h3>
                             <div class="pixel-editor-3-tool-grid">
-                                <button class="pixel-editor-3-tool-btn active" data-tool="brush" title="브러시 (B)">
+                                <button class="pixel-editor-3-tool-btn active" data-tool="brush" title="Brush (B)">
                                     <span class="tool-icon">✏</span>
-                                    <span>브러시</span>
+                                    <span>Brush</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="eraser" title="지우개 (E)">
+                                <button class="pixel-editor-3-tool-btn" data-tool="eraser" title="Eraser (E)">
                                     <span class="tool-icon">🧹</span>
-                                    <span>지우개</span>
+                                    <span>Eraser</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="fill" title="채우기 (F)">
+                                <button class="pixel-editor-3-tool-btn" data-tool="fill" title="Fill (F)">
                                     <span class="tool-icon">🪣</span>
-                                    <span>채우기</span>
+                                    <span>Fill</span>
                                 </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="pan" title="이동 (드래그로 화면 이동, 스페이스를 누른 채로도 이동 가능)">
+                                <button class="pixel-editor-3-tool-btn" data-tool="pan" title="Pan (drag to move screen, or hold Space)">
                                     <span class="tool-icon">✋</span>
-                                    <span>이동</span>
+                                    <span>Pan</span>
                                 </button>
                             </div>
                             <div class="pixel-editor-3-tool-hint">
-                                <small>Space: 이동 | I: 스포이드</small>
+                                <small>Space: Pan | I: Eyedropper</small>
                             </div>
                         </div>
                         
                         <!-- 브러시 크기 -->
                         <div class="pixel-editor-3-section">
-                            <h3>브러시 크기</h3>
+                            <h3>Brush Size</h3>
                             <div class="pixel-editor-3-brush-control">
                                 <input type="range" id="pixel-brush-size-3" min="1" max="10" value="1">
                                 <span id="pixel-brush-size-value-3">1px</span>
@@ -287,7 +289,7 @@ class PixelEditor3 {
                         
                         <!-- 색상 -->
                         <div class="pixel-editor-3-section">
-                            <h3>색상</h3>
+                            <h3>Color</h3>
                             <div class="pixel-editor-3-color-picker">
                                 <div class="pixel-editor-3-color-preview" id="pixel-color-preview-3" style="background: ${this.color}"></div>
                                 <input type="color" id="pixel-color-input-3" value="${this.color}">
@@ -296,31 +298,31 @@ class PixelEditor3 {
                         
                         <!-- 팔레트 (16색) -->
                         <div class="pixel-editor-3-section">
-                            <h3>팔레트 (16색)</h3>
+                            <h3>Palette (16 colors)</h3>
                             <div class="pixel-editor-3-palette">
                                 ${PALETTE.map(color => `
                                     <div class="pixel-editor-3-palette-color" data-color="${color}" style="background: ${color}" title="${color}"></div>
                                 `).join('')}
                             </div>
                             <div class="pixel-editor-3-palette-hint">
-                                <small>클릭하여 색상 선택</small>
+                                <small>Click to select color</small>
                             </div>
                         </div>
                         
                         <!-- 배경 -->
                         <div class="pixel-editor-3-section">
-                            <h3>배경</h3>
+                            <h3>Background</h3>
                             <div class="pixel-editor-3-background-presets">
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#1a1a1a' ? 'active' : ''}" data-mode="solid" data-color="#1a1a1a" title="다크">다크</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#808080' ? 'active' : ''}" data-mode="solid" data-color="#808080" title="미드그레이">미드</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#c0c0c0' ? 'active' : ''}" data-mode="solid" data-color="#c0c0c0" title="라이트그레이">라이트</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#ffffff' ? 'active' : ''}" data-mode="solid" data-color="#ffffff" title="화이트">화이트</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'checker' ? 'active' : ''}" data-mode="checker" title="체커보드">체커</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'active' : ''}" data-mode="custom" title="사용자 지정">커스텀</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#1a1a1a' ? 'active' : ''}" data-mode="solid" data-color="#1a1a1a" title="Dark">Dark</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#808080' ? 'active' : ''}" data-mode="solid" data-color="#808080" title="Mid Gray">Mid</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#c0c0c0' ? 'active' : ''}" data-mode="solid" data-color="#c0c0c0" title="Light Gray">Light</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#ffffff' ? 'active' : ''}" data-mode="solid" data-color="#ffffff" title="White">White</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'checker' ? 'active' : ''}" data-mode="checker" title="Checkerboard">Checker</button>
+                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'active' : ''}" data-mode="custom" title="Custom">Custom</button>
                             </div>
                             <div class="pixel-editor-3-background-custom" id="pixel-bg-custom-3" style="display: ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'flex' : 'none'}; gap: 8px; align-items: center; margin-top: 8px;">
                                 <input type="color" id="pixel-bg-color-input-3" value="${this.backgroundColor}" style="width: 60px; height: 30px;">
-                                <span style="font-size: 12px; color: #aaa;">색상 선택</span>
+                                <span style="font-size: 12px; color: #aaa;">Select color</span>
                             </div>
                         </div>
                     </div>
@@ -329,21 +331,21 @@ class PixelEditor3 {
                     <div class="pixel-editor-3-main">
                         <div class="pixel-editor-3-loading-overlay" id="pixel-loading-3" style="display: none;">
                             <div class="pixel-editor-3-loading-spinner"></div>
-                            <p>픽셀 아트 로딩 중...</p>
+                            <p>Loading pixel art...</p>
                         </div>
                         <div class="pixel-editor-3-canvas-wrapper">
                             <canvas id="pixel-canvas-3"></canvas>
                             <!-- 줌 컨트롤 -->
                             <div class="pixel-editor-3-zoom-controls">
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-in-3" title="줌 인 (+ / 휠 업)">+</button>
+                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-in-3" title="Zoom In (+ / Wheel Up)">+</button>
                                 <div class="pixel-editor-3-zoom-display" id="pixel-zoom-value-3">100%</div>
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-out-3" title="줌 아웃 (- / 휠 다운)">−</button>
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-fit-3" title="전체 보기 (F)">⌂</button>
-                                <div class="pixel-editor-3-zoom-hint">Shift+드래그: 이동</div>
+                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-out-3" title="Zoom Out (- / Wheel Down)">−</button>
+                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-fit-3" title="Fit View (F)">⌂</button>
+                                <div class="pixel-editor-3-zoom-hint">Shift+Drag: Pan</div>
                             </div>
                         </div>
                         <div class="pixel-editor-3-canvas-info">
-                            <span id="pixel-count-3">0 / ${(CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE).toLocaleString()} 픽셀</span>
+                            <span id="pixel-count-3">0 / ${(CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE).toLocaleString()} ${vocab.pixel}</span>
                             <span id="pixel-coords-3">X: 0, Y: 0</span>
                         </div>
                     </div>
@@ -351,23 +353,23 @@ class PixelEditor3 {
                     <!-- 우측: 통계 -->
                     <div class="pixel-editor-3-sidebar pixel-editor-3-stats">
                         <div class="pixel-editor-3-section">
-                            <h3>📊 통계</h3>
+                            <h3>📊 ${vocab.statistics}</h3>
                             <div class="pixel-editor-3-stat-list">
                                 <div class="pixel-editor-3-stat-item">
-                                    <span>총 픽셀</span>
+                                    <span>${vocab.totalPixels}</span>
                                     <span id="pixel-total-3">0</span>
                                 </div>
                                 <div class="pixel-editor-3-stat-item">
-                                    <span>영토 가치</span>
+                                    <span>${vocab.territoryValue}</span>
                                     <span id="pixel-value-3">0</span>
                                 </div>
                             </div>
                         </div>
                         
                         <div class="pixel-editor-3-section">
-                            <h3>💾 내보내기</h3>
+                            <h3>💾 ${vocab.export}</h3>
                             <button class="pixel-editor-3-btn" id="pixel-export-3">
-                                💾 PNG 다운로드
+                                💾 ${vocab.downloadPNG}
                             </button>
                         </div>
                     </div>
@@ -413,13 +415,13 @@ class PixelEditor3 {
                 // 저장 중이면 경고
                 if (pixelCanvas3.isSaving) {
                     e.preventDefault();
-                    e.returnValue = '저장 중입니다. 나가면 최근 변경이 일부 사라질 수 있습니다.';
+                    e.returnValue = 'Saving in progress. Recent changes may be lost if you leave.';
                     return e.returnValue;
                 }
                 
-                // 저장되지 않은 변경사항이 있으면 경고
+                // Warn if there are unsaved changes
                 e.preventDefault();
-                e.returnValue = '저장되지 않은 변경사항이 있습니다. 정말로 나가시겠습니까?';
+                e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
                 return e.returnValue;
             }
         };
@@ -435,12 +437,13 @@ class PixelEditor3 {
             log.error('[PixelEditor3] Invalid territory');
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '영토 정보를 찾을 수 없습니다.'
+                message: 'Territory information not found.'
             });
             return;
         }
         
-        this.showLoading('영토 정보 로딩 중...');
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+        this.showLoading(vocab.loadingTerritoryInfo);
         this.currentTerritory = territory;
         this.isOpen = true;
         this.container?.classList.remove('hidden');
@@ -449,7 +452,7 @@ class PixelEditor3 {
             // 캔버스 초기화 (territory 객체도 전달)
             const canvas = document.getElementById('pixel-canvas-3');
             if (canvas) {
-                this.showLoading('픽셀 아트 로딩 중...');
+                this.showLoading(vocab.loadingPixelArt);
                 await pixelCanvas3.initialize(territory.id, canvas, territory);
             }
             
@@ -473,7 +476,7 @@ class PixelEditor3 {
             log.error('[PixelEditor3] Failed to open:', error);
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '픽셀 편집기를 열 수 없습니다. 잠시 후 다시 시도해주세요.'
+                message: 'Unable to open pixel editor. Please try again later.'
             });
             await this.close();
         } finally {
@@ -484,11 +487,12 @@ class PixelEditor3 {
     /**
      * 로딩 표시
      */
-    showLoading(message = '로딩 중...') {
+    showLoading(message = null) {
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const loadingEl = this.container?.querySelector('#pixel-loading-3');
         if (loadingEl) {
             const pEl = loadingEl.querySelector('p');
-            if (pEl) pEl.textContent = message;
+            if (pEl) pEl.textContent = message || vocab.loadingPixelArt;
             loadingEl.style.display = 'flex';
         }
     }
@@ -514,11 +518,10 @@ class PixelEditor3 {
         }
         
         // 저장 중이면 사용자에게 확인
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         if (pixelCanvas3?.isSaving) {
             const confirmed = confirm(
-                '저장 중입니다.\n\n' +
-                '저장을 취소하고 편집기를 닫으시겠습니까?\n' +
-                '(확인: 저장 취소 후 닫기, 취소: 저장 완료 대기)'
+                `${vocab.savingInProgress}\n\n${vocab.cancelSaveAndClose}\n${vocab.confirmCancel}`
             );
             if (confirmed) {
                 // 저장 취소하고 즉시 닫기
@@ -557,9 +560,7 @@ class PixelEditor3 {
         
         if (pixelCanvas3?.hasUnsavedChanges && pixelCanvas3.hasUnsavedChanges()) {
             const confirmed = confirm(
-                '저장되지 않은 변경사항이 있습니다.\n\n' +
-                '정말로 편집기를 닫으시겠습니까?\n' +
-                '(변경사항은 자동으로 저장됩니다)'
+                `${vocab.unsavedChanges}\n\n${vocab.reallyClose}\n${vocab.autoSave}`
             );
             if (!confirmed) return;
         }
@@ -726,7 +727,8 @@ class PixelEditor3 {
         const clearBtn = this.container.querySelector('#pixel-clear-3');
         if (clearBtn) {
             clearBtn.onclick = () => {
-                if (confirm('모든 픽셀을 지우시겠습니까?')) {
+                const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+                if (confirm(vocab.clearAll)) {
                     pixelCanvas3.clear();
                 }
             };
@@ -975,11 +977,12 @@ class PixelEditor3 {
      * 통계 업데이트
      */
     updateStats(data) {
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const total = CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE;
         
         const countEl = this.container?.querySelector('#pixel-count-3');
         if (countEl) {
-            countEl.textContent = `${data.filledPixels?.toLocaleString() || 0} / ${total.toLocaleString()} 픽셀`;
+            countEl.textContent = `${data.filledPixels?.toLocaleString() || 0} / ${total.toLocaleString()} ${vocab.pixel}`;
         }
         
         const totalEl = this.container?.querySelector('#pixel-total-3');
@@ -1008,7 +1011,7 @@ class PixelEditor3 {
         
         if (status === 'saving') {
             icon.textContent = '💾';
-            text.textContent = message || '저장 중...';
+            text.textContent = message || 'Saving...';
             statusEl.classList.add('saving');
         } else if (status === 'saved') {
             icon.textContent = '✅';
@@ -1018,36 +1021,36 @@ class PixelEditor3 {
                     minute: '2-digit', 
                     second: '2-digit' 
                 });
-                text.textContent = message || `저장됨 · ${timeStr}`;
+                text.textContent = message || `Saved · ${timeStr}`;
             } else {
-                text.textContent = message || '저장됨';
+                text.textContent = message || 'Saved';
             }
             statusEl.classList.add('saved');
-            // 3초 후 약하게 표시
+            // Show faded after 3 seconds
             setTimeout(() => {
                 if (this.container?.querySelector('#pixel-save-status-3')) {
                     icon.textContent = '💾';
                     if (saveTime) {
-                        const timeStr = new Date(saveTime).toLocaleTimeString('ko-KR', { 
+                        const timeStr = new Date(saveTime).toLocaleTimeString('en-US', { 
                             hour: '2-digit', 
                             minute: '2-digit', 
                             second: '2-digit' 
                         });
-                        text.textContent = `저장됨 · ${timeStr}`;
+                        text.textContent = `Saved · ${timeStr}`;
                     } else {
-                        text.textContent = '저장됨';
+                        text.textContent = 'Saved';
                     }
                 }
             }, 3000);
         } else if (status === 'pending') {
             icon.textContent = '⏳';
-            text.textContent = message || '저장 예정...';
+            text.textContent = message || 'Pending...';
             statusEl.classList.add('pending');
         } else if (status === 'error') {
             icon.textContent = '⚠️';
-            text.textContent = message || '저장 실패';
+            text.textContent = message || 'Save failed';
             statusEl.classList.add('error');
-            statusEl.title = error || '저장 중 오류가 발생했습니다. 다시 시도해주세요.';
+            statusEl.title = error || 'An error occurred while saving. Please try again.';
             // 5초 후 자동으로 다시 저장 시도
             setTimeout(() => {
                 if (pixelCanvas3 && this.isOpen && !pixelCanvas3.isSaving) {
@@ -1066,54 +1069,55 @@ class PixelEditor3 {
             return;
         }
         
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const modal = document.createElement('div');
         modal.className = 'pixel-shortcuts-modal';
         modal.innerHTML = `
             <div class="pixel-shortcuts-content">
                 <div class="pixel-shortcuts-header">
-                    <h3>⌨️ 키보드 단축키</h3>
+                    <h3>⌨️ ${vocab.keyboardShortcuts}</h3>
                     <button class="pixel-shortcuts-close" onclick="this.closest('.pixel-shortcuts-modal').remove()">×</button>
                 </div>
                 <div class="pixel-shortcuts-list">
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></div>
-                        <div class="shortcut-desc">실행 취소</div>
+                        <div class="shortcut-desc">${vocab.undo}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Y</kbd></div>
-                        <div class="shortcut-desc">다시 실행</div>
+                        <div class="shortcut-desc">${vocab.redo}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>S</kbd></div>
-                        <div class="shortcut-desc">수동 저장</div>
+                        <div class="shortcut-desc">${vocab.manualSave}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>Space</kbd></div>
-                        <div class="shortcut-desc">이동 도구 (누르는 동안)</div>
+                        <div class="shortcut-desc">${vocab.panTool}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>B</kbd></div>
-                        <div class="shortcut-desc">브러시 도구</div>
+                        <div class="shortcut-desc">${vocab.brushTool}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>E</kbd></div>
-                        <div class="shortcut-desc">지우개</div>
+                        <div class="shortcut-desc">${vocab.eraserTool}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>I</kbd></div>
-                        <div class="shortcut-desc">스포이드</div>
+                        <div class="shortcut-desc">${vocab.eyedropperTool}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>+</kbd> / <kbd>-</kbd></div>
-                        <div class="shortcut-desc">줌 인/아웃</div>
+                        <div class="shortcut-desc">${vocab.zoomInOut}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>F</kbd></div>
-                        <div class="shortcut-desc">전체 보기</div>
+                        <div class="shortcut-desc">${vocab.fitView}</div>
                     </div>
                     <div class="shortcut-item">
                         <div class="shortcut-keys"><kbd>ESC</kbd></div>
-                        <div class="shortcut-desc">모달 닫기</div>
+                        <div class="shortcut-desc">${vocab.closeModal}</div>
                     </div>
                 </div>
             </div>

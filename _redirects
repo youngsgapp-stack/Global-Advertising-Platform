@@ -1,6 +1,9 @@
-# Cloudflare Pages redirects
-# API 경로는 Functions로 라우팅, 나머지는 SPA 라우팅
+# Cloudflare Pages Redirects
+# API 요청은 Railway 백엔드로 프록시
+/api/*  https://global-advertising-platform-production.up.railway.app/api/:splat  200
 
-/api/*    200
-/*    /index.html   200
+# SPA: 모든 요청을 index.html로 (404 방지)
+/*  /index.html  200
+
+
 

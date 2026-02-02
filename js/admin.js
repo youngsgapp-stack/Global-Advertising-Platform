@@ -2059,29 +2059,19 @@ class AdminDashboard {
      */
     async addPoints(userId) {
         try {
-            // 사용자 정보 가져오기
-            const userDoc = await this.db.collection('users').doc(userId).get();
-            if (!userDoc.exists) {
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const userData = await apiService.get(`/admin/users/${userId}`);
+            
+            if (!userData) {
                 alert('사용자를 찾을 수 없습니다.');
                 return;
             }
             
-            const userData = userDoc.data();
-            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
+            const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
             const email = userData.email || userId;
             
-            // 지갑 정보 가져오기
-            let walletData = null;
-            let currentBalance = 0;
-            try {
-                const walletDoc = await this.db.collection('wallets').doc(userId).get();
-                if (walletDoc.exists) {
-                    walletData = walletDoc.data();
-                    currentBalance = walletData.balance || 0;
-                }
-            } catch (walletError) {
-                console.warn('Failed to load wallet:', walletError);
-            }
+            // 지갑 정보 (사용자 정보에 포함됨)
+            const currentBalance = userData.balance || 0;
             
             const modalHtml = `
                 <div class="modal-overlay" id="points-modal-overlay" onclick="adminDashboard.closePointsModal()">
@@ -2200,53 +2190,23 @@ class AdminDashboard {
         }
         
         try {
-            // 지갑 문서 가져오기 또는 생성
-            const walletRef = this.db.collection('wallets').doc(userId);
-            const walletDoc = await walletRef.get();
-            
-            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            const currentBalance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
-            const newBalance = currentBalance + amount;
-            const totalCharged = walletDoc.exists ? (walletDoc.data().totalCharged || 0) : 0;
-            const newTotalCharged = totalCharged + amount;
-            
-            if (walletDoc.exists) {
-                // 기존 지갑 업데이트
-                await walletRef.update({
-                    balance: newBalance,
-                    totalCharged: newTotalCharged,
-                    updatedAt: Timestamp
-                });
-            } else {
-                // 새 지갑 생성
-                await walletRef.set({
-                    userId: userId,
-                    balance: newBalance,
-                    totalCharged: newTotalCharged,
-                    totalSpent: 0,
-                    createdAt: Timestamp,
-                    updatedAt: Timestamp
-                });
-            }
-            
-            // 거래 내역 추가
-            const transactionRef = this.db.collection('wallets').doc(userId).collection('transactions').doc();
-            await transactionRef.set({
-                type: 'admin_grant',
+            // ✅ 마이그레이션 완료: 백엔드 API 사용
+            const result = await apiService.post(`/admin/users/${userId}/points`, {
                 amount: amount,
-                balance: newBalance,
-                reason: reason || '관리자에 의해 지급됨',
-                createdBy: this.currentUser?.email || 'admin',
-                createdAt: Timestamp
+                reason: reason || null
             });
             
-            this.logAdminAction('ADD_POINTS', { userId, amount, reason });
-            this.closePointsModal();
-            this.loadUsersTable(); // Refresh
-            alert(`✅ 포인트가 지급되었습니다.\n\n지급액: ${amount.toLocaleString()} pt\n새 잔액: ${newBalance.toLocaleString()} pt`);
+            if (result && result.success) {
+                this.logAdminAction('ADD_POINTS', { userId, amount, reason });
+                this.closePointsModal();
+                this.loadUsersTable(); // Refresh
+                alert(`✅ 포인트가 지급되었습니다.\n\n지급액: ${amount.toLocaleString()} pt\n새 잔액: ${result.newBalance.toLocaleString()} pt`);
+            } else {
+                throw new Error(result?.error || '포인트 지급에 실패했습니다.');
+            }
         } catch (error) {
             console.error('Failed to add points:', error);
-            this.handleFirestoreError(error, '포인트 지급');
+            alert(`❌ 포인트 지급에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
         }
     }
     

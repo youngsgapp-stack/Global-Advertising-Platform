@@ -261,9 +261,9 @@ class OnboardingGuide {
         
         if (nextBtn) {
             if (this.currentSlide === this.totalSlides - 1) {
-                nextBtn.textContent = '시작하기 →';
+                nextBtn.textContent = 'Get Started →';
             } else {
-                nextBtn.textContent = '다음 →';
+                nextBtn.textContent = 'Next →';
             }
         }
     }

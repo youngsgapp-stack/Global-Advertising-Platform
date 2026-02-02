@@ -103,7 +103,7 @@ class PixelDataService {
                 eventBus.emit(EVENTS.PIXEL_UPDATE, {
                     type: 'saveStatus',
                     status: 'saved',
-                    message: '오프라인 저장이 동기화되었습니다.'
+                    message: 'Offline save synchronized.'
                 });
             } catch (error) {
                 log.warn(`[PixelDataService] Offline recovery retry failed for ${territoryId}:`, error);
@@ -473,7 +473,7 @@ class PixelDataService {
                 // 사용자에게 알림
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'warning',
-                    message: `픽셀 편집이 너무 빠릅니다. ${rateLimitCheck.retryAfter}초 후 다시 시도해주세요.`,
+                    message: `Pixel editing is too fast. Please try again after ${rateLimitCheck.retryAfter} seconds.`,
                     duration: 3000
                 });
                 
@@ -637,8 +637,8 @@ class PixelDataService {
                 console.log(`🔍 [PixelDataService] ✅ Pixel data saved to API successfully`);
                 log.info(`[PixelDataService] ✅ Saved pixel data to API for ${territoryId} (${payloadSizeKB} KB)`);
             } catch (apiError) {
-                // ⚠️ 전문가 조언: Firestore fallback 제거 (장애 은폐 방지)
-                // API 실패 시 재시도 가능한 형태로 에러 처리
+                // ⚠️ CRITICAL: 413 Payload Too Large 에러는 타일 저장으로 전환해야 함
+                // 하지만 레거시 저장 경로는 더 이상 사용하지 않으므로 에러를 그대로 전파
                 
                 // ⚠️ 에러 상세 정보 로깅
                 const errorDetails = {
@@ -646,11 +646,18 @@ class PixelDataService {
                     errorMessage: apiError.message,
                     errorStatus: apiError.status,
                     pixelsCount: dataToSave.pixels?.length || 0,
-                    payloadSize: JSON.stringify(dataToSave).length
+                    payloadSize: JSON.stringify(dataToSave).length,
+                    payloadSizeKB: `${(JSON.stringify(dataToSave).length / 1024).toFixed(2)} KB`
                 };
                 
-                log.error(`[PixelDataService] ❌ Failed to save to API for ${territoryId}:`, apiError);
-                log.error(`[PixelDataService] Error details:`, errorDetails);
+                // 413 에러인 경우 특별한 로깅
+                if (apiError.status === 413 || apiError.message?.includes('Payload Too Large') || apiError.message?.includes('entity too large')) {
+                    log.error(`[PixelDataService] ❌ 413 Payload Too Large for ${territoryId}`, errorDetails);
+                    log.error(`[PixelDataService] ⚠️ CRITICAL: Legacy save endpoint rejected payload. Use tile-based save instead.`);
+                } else {
+                    log.error(`[PixelDataService] ❌ Failed to save to API for ${territoryId}:`, apiError);
+                    log.error(`[PixelDataService] Error details:`, errorDetails);
+                }
                 
                 // 서버 응답 본문이 있으면 로깅
                 if (apiError.response) {
@@ -668,7 +675,7 @@ class PixelDataService {
                 // 사용자에게 재시도 가능한 에러 알림
                 const userMessage = apiError.status === 500 
                     ? '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
-                    : `픽셀 저장 실패: ${apiError.message || '네트워크 오류'}. 재시도 중...`;
+                    : `Pixel save failed: ${apiError.message || 'Network error'}. Retrying...`;
                 
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
@@ -732,7 +739,7 @@ class PixelDataService {
                     eventBus.emit(EVENTS.PIXEL_UPDATE, {
                         type: 'saveStatus',
                         status: 'offline',
-                        message: '오프라인 모드: 로컬에 저장되었습니다. 연결되면 자동으로 동기화됩니다.'
+                        message: 'Offline mode: Saved locally. Will sync automatically when connected.'
                     });
                     
                     // 네트워크 복구 시 자동 재시도

@@ -102,7 +102,7 @@ class CreatorProfile {
             if (!currentUser) {
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'warning',
-                    message: '로그인이 필요합니다.'
+                    message: 'Login required.'
                 });
                 return;
             }

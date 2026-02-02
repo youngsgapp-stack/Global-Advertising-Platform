@@ -187,7 +187,7 @@ class ContestPanel {
             
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'success',
-                message: '투표가 완료되었습니다!'
+                message: 'Vote submitted!'
             });
             
             // 목록 새로고침
@@ -195,7 +195,7 @@ class ContestPanel {
         } catch (error) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: error.message || '투표에 실패했습니다.'
+                message: error.message || 'Vote failed.'
             });
         }
     }

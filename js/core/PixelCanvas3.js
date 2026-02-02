@@ -325,7 +325,7 @@ class PixelCanvas3 {
                         type: 'saveStatus', 
                         status: 'error',
                         error: 'Ownership changed',
-                        message: '소유권이 변경되어 편집할 수 없습니다'
+                        message: 'Ownership has changed, unable to edit'
                     });
                     
                     // 원래 소유자 ID 업데이트
@@ -1234,11 +1234,11 @@ class PixelCanvas3 {
      */
     async showRestoreDialog(session) {
         return new Promise((resolve) => {
-            const sessionTime = new Date(session.lastModified).toLocaleString('ko-KR');
-            const message = `마지막 미완성 작업을 발견했습니다.\n\n` +
-                          `작업 시간: ${sessionTime}\n` +
-                          `채워진 픽셀: ${session.pixels?.length || 0}개\n\n` +
-                          `이 작업을 이어서 불러오시겠습니까?`;
+            const sessionTime = new Date(session.lastModified).toLocaleString('en-US');
+            const message = `Unfinished work was found.\n\n` +
+                          `Work time: ${sessionTime}\n` +
+                          `Filled pixels: ${session.pixels?.length || 0}\n\n` +
+                          `Would you like to continue this work?`;
             
             const confirmed = confirm(message);
             resolve(confirmed);
@@ -1849,7 +1849,7 @@ class PixelCanvas3 {
         eventBus.emit(EVENTS.PIXEL_UPDATE, { 
             type: 'saveStatus', 
             status: 'pending',
-            message: '저장 예정...'
+            message: 'Pending...'
         });
         
         this.saveTimeout = setTimeout(() => {
@@ -1905,7 +1905,7 @@ class PixelCanvas3 {
                                 type: 'saveStatus', 
                                 status: 'error',
                                 error: 'Ownership changed',
-                                message: '소유권이 변경되어 저장할 수 없습니다'
+                                message: 'Ownership has changed, unable to save'
                             });
                             throw new Error('Territory ownership changed during editing');
                         }
@@ -1939,7 +1939,7 @@ class PixelCanvas3 {
             eventBus.emit(EVENTS.PIXEL_UPDATE, { 
                 type: 'saveStatus', 
                 status: 'saving',
-                message: '저장 중...'
+                message: 'Saving...'
             });
             
             let pixelData;
@@ -2067,21 +2067,18 @@ class PixelCanvas3 {
                 return;
             }
             
-            // ⚠️ 저장 경로 분리: 레거시 모드면 타일 저장 시도하지 않음
-            if (this.isLegacyMode) {
-                // 레거시 저장만 사용
-                // ⚠️ 안전장치: payload가 비어있으면 백업 데이터 사용
-                const finalPixelData = (pixelData.pixels?.length || 0) > 0 ? pixelData : backupPixelData;
-                await pixelDataService.savePixelDataImmediate(this.territoryId, finalPixelData);
-            } else {
-                // 타일 기반 저장 (128×128 아키텍처)
-                try {
-            // ⚠️ 최적화: 실시간 추적된 dirtyTiles 사용 (전체 비교 최소화)
-            const dirtyTiles = this.dirtyTiles.size > 0 
-                ? new Set(this.dirtyTiles) 
-                : this.calculateDirtyTiles();
-                    
-                    if (dirtyTiles.size > 0) {
+            // ⚠️ CRITICAL: 레거시 저장 경로 제거 - 타일 저장만 사용
+            // 레거시 저장은 413 Payload Too Large 에러를 발생시키므로 사용하지 않음
+            // 모든 저장은 타일 기반으로만 수행
+            
+            // 타일 기반 저장 (128×128 아키텍처)
+            try {
+                // ⚠️ 최적화: 실시간 추적된 dirtyTiles 사용 (전체 비교 최소화)
+                const dirtyTiles = this.dirtyTiles.size > 0 
+                    ? new Set(this.dirtyTiles) 
+                    : this.calculateDirtyTiles();
+                
+                if (dirtyTiles.size > 0) {
                     // 2. 타일 추출
                     const tiles = this.extractTiles(dirtyTiles);
                     
@@ -2160,12 +2157,12 @@ class PixelCanvas3 {
                         // Conflict가 없으면 모든 dirty tiles 클리어
                         this.dirtyTiles.clear();
                     }
-                    } else {
-                        // 변경이 없으면 저장하지 않음
-                        log.debug('[PixelCanvas3] No dirty tiles, skipping save');
-                    }
+                } else {
+                    // 변경이 없으면 저장하지 않음
+                    log.debug('[PixelCanvas3] No dirty tiles, skipping save');
+                }
                 } catch (error) {
-                    // 타일 저장 실패 시 레거시 방식으로 fallback
+                    // 타일 저장 실패 처리
                     // 단, revision conflict 에러는 이미 위의 conflict 처리 로직에서 처리했으므로 스킵
                     const isConflictError = error.message && (
                         error.message.includes('Revision conflicts') || 
@@ -2173,53 +2170,35 @@ class PixelCanvas3 {
                     );
                     
                     if (isConflictError) {
-                        log.warn('[PixelCanvas3] Conflict error caught, but already handled above. Skipping legacy fallback.');
+                        log.warn('[PixelCanvas3] Conflict error caught, but already handled above.');
                         return; // Conflict는 이미 처리되었으므로 성공으로 간주
                     }
                     
-                    log.warn('[PixelCanvas3] Tile save failed, falling back to legacy save:', error);
+                    // ⚠️ CRITICAL: 레거시 저장으로 fallback하지 않음 (413 에러 방지)
+                    // 타일 저장 실패는 에러로 처리하고 사용자에게 알림
+                    log.error('[PixelCanvas3] ❌ Tile save failed:', error);
                     
-                    // ⚠️ 핵심 안전장치: tiles 실패 시 백업된 전체 데이터로 저장
-                    // pixelData가 Delta 모드이고 비어있을 수 있으므로, 항상 백업 데이터 사용
-                    const fallbackPixelData = backupPixelData;
-                    
-                    // ⚠️ 빈 payload로 덮어쓰기 방지: 백업 데이터도 비어있으면 저장하지 않음
-                    if (fallbackPixelData.pixels.length === 0 && this.pixels.size > 0) {
-                        // 백업 데이터가 비어있지만 캔버스에는 픽셀이 있는 경우
-                        // encodePixels()가 제대로 동작하지 않은 것일 수 있음
-                        log.error('[PixelCanvas3] ❌ CRITICAL: Backup pixel data is empty but canvas has pixels! Refusing to save to prevent data loss.');
-                        eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                            type: 'error',
-                            message: '❌ 저장 실패: 데이터 손실 방지를 위해 저장을 중단했습니다. 페이지를 새로고침하고 다시 시도해주세요.',
-                            duration: 10000
-                        });
-                        throw new Error('Backup pixel data is empty but canvas has pixels - refusing to save to prevent data loss');
+                    // 에러 메시지 생성
+                    let errorMessage = '❌ 저장 실패: ';
+                    if (error.status === 413 || error.message?.includes('Payload Too Large') || error.message?.includes('entity too large')) {
+                        errorMessage += '데이터가 너무 큽니다. 타일 저장을 시도했지만 실패했습니다.';
+                    } else if (error.status === 401 || error.message?.includes('Authentication')) {
+                        errorMessage += '인증이 필요합니다. 다시 로그인해주세요.';
+                    } else if (error.status === 403 || error.message?.includes('own')) {
+                        errorMessage += '이 영토를 소유하고 있지 않습니다.';
+                    } else {
+                        errorMessage += error.message || '알 수 없는 오류가 발생했습니다.';
                     }
                     
-                    if (fallbackPixelData.pixels.length === 0) {
-                        // 백업 데이터와 캔버스 모두 비어있으면 저장하지 않음
-                        log.warn('[PixelCanvas3] ⚠️ Refusing to save: backup data and canvas are both empty');
-                        eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                            type: 'warning',
-                            message: '⚠️ 저장할 픽셀이 없습니다.'
-                        });
-                        return;
-                    }
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                        type: 'error',
+                        message: errorMessage,
+                        duration: 10000
+                    });
                     
-                    // ⚠️ 레거시 모드로 전환하여 이후 저장도 레거시 경로 사용
-                    this.isLegacyMode = true;
-                    try {
-                        await pixelDataService.savePixelDataImmediate(this.territoryId, fallbackPixelData, { saveRunId });
-                        log.info(`[PixelCanvas3] ✅ Legacy save successful after tiles failure (${fallbackPixelData.pixels.length} pixels)`, {
-                            saveRunId,
-                            territoryId: this.territoryId
-                        });
-                    } catch (fallbackError) {
-                        log.error('[PixelCanvas3] ❌ Legacy fallback save also failed:', fallbackError);
-                        throw fallbackError; // 전체 저장도 실패하면 에러 전파
-                    }
+                    // 에러를 다시 throw하여 호출자가 처리할 수 있도록 함
+                    throw error;
                 }
-            }
             
             const metadata = {
                 pixelCanvas: {
@@ -2304,7 +2283,7 @@ class PixelCanvas3 {
             eventBus.emit(EVENTS.PIXEL_UPDATE, { 
                 type: 'saveStatus', 
                 status: 'saved',
-                message: `저장됨 · ${saveTime}`,
+                message: `Saved · ${saveTime}`,
                 saveTime: this.lastSaveTime
             });
             // ⚠️ 핵심 수정: territoryId를 포함하여 이벤트 발행
@@ -2320,13 +2299,13 @@ class PixelCanvas3 {
                 type: 'saveStatus', 
                 status: 'error',
                 error: error.message,
-                message: '저장 실패'
+                message: 'Save failed'
             });
             
             // 사용자에게 알림
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'error',
-                message: '저장에 실패했습니다. 인터넷 연결을 확인하고 다시 시도해주세요.'
+                message: 'Save failed. Please check your internet connection and try again.'
             });
             
             throw error;

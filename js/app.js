@@ -809,39 +809,39 @@ class BillionaireApp {
         
         // AUTH_ERROR 이벤트 처리
         eventBus.on(EVENTS.AUTH_ERROR, ({ error }) => {
-            let message = '로그인에 실패했습니다.';
+            let message = 'Login failed.';
             let actionButton = null;
             
             if (error.code === 'auth/unauthorized-domain') {
                 const domain = error.domain || window.location.hostname;
-                message = `현재 도메인(${domain})이 Firebase에 등록되지 않았습니다.`;
+                message = `Current domain (${domain}) is not registered in Firebase.`;
                 
-                // Firebase 콘솔 링크 버튼 추가
+                // Add Firebase console link button
                 if (error.consoleLink) {
                     actionButton = {
-                        text: 'Firebase 콘솔 열기',
+                        text: 'Open Firebase Console',
                         action: () => {
                             window.open(error.consoleLink, '_blank');
                         }
                     };
                 }
                 
-                // 상세 안내 메시지 표시
+                // Show detailed message
                 setTimeout(() => {
-                    const detailMessage = error.message || `Firebase 콘솔에서 "${domain}" 도메인을 추가해주세요.`;
-                    if (confirm(`${message}\n\n${detailMessage}\n\nFirebase 콘솔을 열까요?`)) {
+                    const detailMessage = error.message || `Please add "${domain}" domain in Firebase Console.`;
+                    if (confirm(`${message}\n\n${detailMessage}\n\nOpen Firebase Console?`)) {
                         if (error.consoleLink) {
                             window.open(error.consoleLink, '_blank');
                         }
                     }
                 }, 100);
             } else if (error.code === 'auth/popup-closed-by-user') {
-                message = '로그인 창이 닫혔습니다. 다시 시도해주세요.';
+                message = 'Login window was closed. Please try again.';
             } else if (error.code === 'auth/popup-blocked') {
-                message = '팝업이 차단되었습니다. 리다이렉트 방식으로 로그인을 시도합니다...';
-                // 리다이렉트는 이미 signInWithGoogle에서 처리됨
+                message = 'Popup was blocked. Attempting redirect login...';
+                // Redirect is already handled in signInWithGoogle
             } else if (error.message?.includes('Cross-Origin-Opener-Policy')) {
-                message = '브라우저 보안 정책으로 인해 팝업이 차단되었습니다. 리다이렉트 방식으로 로그인을 시도합니다...';
+                message = 'Popup was blocked by browser security policy. Attempting redirect login...';
             } else if (error.message) {
                 message = error.message;
             }
@@ -868,11 +868,11 @@ class BillionaireApp {
                 error: event.error
             });
             
-            // 사용자 친화적 메시지 표시
+            // Show user-friendly message
             if (!event.error || !event.error.isUserFriendly) {
                 this.showNotification({
                     type: 'error',
-                    message: '예기치 않은 오류가 발생했습니다. 페이지를 새로고침해주세요.',
+                    message: 'An unexpected error occurred. Please refresh the page.',
                     duration: 5000
                 });
             }
@@ -888,7 +888,7 @@ class BillionaireApp {
         window.addEventListener('unhandledrejection', (event) => {
             log.error('[GlobalError] Unhandled Promise Rejection:', event.reason);
             
-            // 네트워크 오류인 경우
+            // Network error case
             if (event.reason && (
                 event.reason.message?.includes('network') ||
                 event.reason.message?.includes('fetch') ||
@@ -896,13 +896,13 @@ class BillionaireApp {
             )) {
                 this.showNotification({
                     type: 'error',
-                    message: '네트워크 연결을 확인해주세요.',
+                    message: 'Please check your network connection.',
                     duration: 5000
                 });
             } else {
                 this.showNotification({
                     type: 'error',
-                    message: '작업을 완료할 수 없습니다. 다시 시도해주세요.',
+                    message: 'Unable to complete the operation. Please try again.',
                     duration: 5000
                 });
             }
@@ -914,14 +914,14 @@ class BillionaireApp {
         eventBus.on(EVENTS.APP_ERROR, ({ error, type }) => {
             log.error(`[AppError] ${type || 'Unknown'} Error:`, error);
             
-            let message = '오류가 발생했습니다.';
+            let message = 'An error occurred.';
             
             if (type === 'firebase') {
-                message = '데이터베이스 연결 오류입니다. 인터넷 연결을 확인해주세요.';
+                message = 'Database connection error. Please check your internet connection.';
             } else if (type === 'map') {
-                message = '지도를 불러올 수 없습니다. 페이지를 새로고침해주세요.';
+                message = 'Unable to load the map. Please refresh the page.';
             } else if (type === 'payment') {
-                message = '결제 처리 중 오류가 발생했습니다. 다시 시도해주세요.';
+                message = 'An error occurred during payment processing. Please try again.';
             }
             
             this.showNotification({
@@ -936,7 +936,7 @@ class BillionaireApp {
             window.addEventListener('online', () => {
                 this.showNotification({
                     type: 'success',
-                    message: '인터넷 연결이 복구되었습니다.',
+                    message: 'Internet connection restored.',
                     duration: 3000
                 });
             });
@@ -944,7 +944,7 @@ class BillionaireApp {
             window.addEventListener('offline', () => {
                 this.showNotification({
                     type: 'warning',
-                    message: '인터넷 연결이 끊겼습니다.',
+                    message: 'Internet connection lost.',
                     duration: 5000
                 });
             });

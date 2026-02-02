@@ -99,6 +99,7 @@ class ImageStampModal {
         this.isOpen = false;
         this.territory = null;
         this.territoryMask = null;
+        this.lang = 'en'; // English default
         
         // 상태 머신
         this.state = 'initializing'; // initializing | ready | userControlled
@@ -163,12 +164,13 @@ class ImageStampModal {
      * HTML 생성
      */
     getHTML() {
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         return `
             <div class="image-stamp-modal-overlay"></div>
             <div class="image-stamp-modal-content">
                 <!-- 헤더 -->
                 <div class="image-stamp-modal-header">
-                    <h2>🖼️ 이미지 업로드</h2>
+                    <h2>🖼️ ${vocab.imageUpload}</h2>
                     <div class="image-stamp-modal-actions">
                         <button class="image-stamp-btn" id="image-stamp-fit-btn" title="Fit">Fit</button>
                         <button class="image-stamp-btn" id="image-stamp-center-btn" title="Center">Center</button>
@@ -195,20 +197,20 @@ class ImageStampModal {
                     <div class="image-stamp-tool-panel">
                         <!-- 파일 업로드 -->
                         <div class="image-stamp-section">
-                            <h3>이미지 선택</h3>
+                            <h3>${vocab.selectImage}</h3>
                             <input type="file" id="image-stamp-file-input" accept="image/*" style="display: none;">
                             <button class="image-stamp-btn image-stamp-btn-primary" id="image-stamp-upload-btn">
-                                📁 이미지 선택
+                                📁 ${vocab.selectImageButton}
                             </button>
                         </div>
                         
                         <!-- 투명도 기준 -->
                         <div class="image-stamp-section">
-                            <h3>투명도 기준</h3>
+                            <h3>${vocab.alphaThreshold}</h3>
                             <div class="image-stamp-presets">
-                                <button class="image-stamp-preset-btn" data-threshold="64">낮음 (64)</button>
-                                <button class="image-stamp-preset-btn" data-threshold="128">보통 (128)</button>
-                                <button class="image-stamp-preset-btn" data-threshold="192">높음 (192)</button>
+                                <button class="image-stamp-preset-btn" data-threshold="64">${vocab.low} (64)</button>
+                                <button class="image-stamp-preset-btn" data-threshold="128">${vocab.medium} (128)</button>
+                                <button class="image-stamp-preset-btn" data-threshold="192">${vocab.high} (192)</button>
                             </div>
                             <input type="range" id="image-stamp-alpha-slider" min="0" max="255" value="128">
                             <span id="image-stamp-alpha-value">128</span>
@@ -216,24 +218,27 @@ class ImageStampModal {
                         
                         <!-- 옵션 -->
                         <div class="image-stamp-section">
-                            <h3>옵션</h3>
+                            <h3>${vocab.options}</h3>
                             <label>
                                 <input type="checkbox" id="image-stamp-snap" checked>
-                                스냅 (셀 단위 정렬)
+                                ${vocab.snap}
                             </label>
                             <label>
                                 <input type="checkbox" id="image-stamp-clamp" checked>
-                                클램프 (영토 경계 내로 제한)
+                                ${vocab.clamp}
                             </label>
+                            <div class="image-stamp-info" style="margin-top: 8px; font-size: 12px; color: #888;">
+                                💡 Fit 버튼은 이미지를 영토 경계 안에 맞춥니다
+                            </div>
                         </div>
                         
                         <!-- 적용/취소 -->
                         <div class="image-stamp-section">
                             <button class="image-stamp-btn image-stamp-btn-primary" id="image-stamp-apply-btn" disabled>
-                                ✅ 적용
+                                ✅ ${vocab.apply}
                             </button>
                             <button class="image-stamp-btn" id="image-stamp-cancel-btn">
-                                ❌ 취소
+                                ❌ ${vocab.cancel}
                             </button>
                         </div>
                     </div>
@@ -477,7 +482,8 @@ class ImageStampModal {
         
         // 파일 크기 체크 (10MB)
         if (file.size > 10 * 1024 * 1024) {
-            alert('파일 크기가 너무 큽니다. (최대 10MB)');
+            const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+            alert(vocab.fileTooLarge);
             return;
         }
         
@@ -486,7 +492,9 @@ class ImageStampModal {
             const img = new Image();
             img.onload = () => {
                 this.image = img;
-                this.loadImageData();
+                // ⚠️ CRITICAL: loadImageData 제거 - 원본 이미지를 직접 사용
+                // 미리보기와 동일하게 원본 이미지를 그대로 사용하여 품질 보존
+                this.imageData = null; // 더 이상 사용하지 않음
                 this.fitToView();
                 this.renderStatic();
                 this.renderDynamic();
@@ -496,7 +504,8 @@ class ImageStampModal {
                 if (applyBtn) applyBtn.disabled = false;
             };
             img.onerror = () => {
-                alert('이미지를 불러올 수 없습니다.');
+                const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+                alert(vocab.cannotLoadImage);
             };
             img.src = e.target.result;
         };
@@ -504,37 +513,131 @@ class ImageStampModal {
     }
     
     /**
-     * ImageData 로드 (고품질 스케일링 적용)
-     * 이미지를 더 큰 해상도로 스케일링하여 디테일 보존
+     * ImageData 로드 (완전히 새로운 방식)
+     * ⚠️ CRITICAL: 기존 샘플링 방식 버리고 완전히 새로운 접근
+     * 1. 이미지를 128x128로 고품질 리사이즈 (Lanczos 알고리즘 시뮬레이션)
+     * 2. 리사이즈된 이미지를 그대로 사용 (셀 = 픽셀 1:1 매핑)
+     * 3. 각 픽셀의 색상을 그대로 사용하여 품질 최대화
      */
     loadImageData() {
         if (!this.image) return;
         
-        // 고품질 스케일링: 이미지를 최대 4배까지 확대하여 샘플링 정밀도 향상
-        // 단, 너무 크면 성능 문제가 있으므로 최대 크기 제한
-        const maxScale = 4;
-        const targetWidth = Math.min(this.image.width * maxScale, 2048);
-        const targetHeight = Math.min(this.image.height * maxScale, 2048);
+        // ⚠️ 새로운 방식: 이미지를 정확히 128x128로 고품질 리사이즈
+        // 이렇게 하면 셀과 픽셀이 1:1로 매핑되어 샘플링 손실이 없음
+        const targetSize = CONFIG.TERRITORY.PIXEL_GRID_SIZE; // 128
         
+        // 이미지 비율 유지하면서 128x128 안에 맞추기
+        const imageAspect = this.image.width / this.image.height;
+        let targetWidth, targetHeight;
+        
+        if (imageAspect > 1) {
+            // 가로가 더 긴 경우
+            targetWidth = targetSize;
+            targetHeight = Math.round(targetSize / imageAspect);
+        } else {
+            // 세로가 더 긴 경우
+            targetWidth = Math.round(targetSize * imageAspect);
+            targetHeight = targetSize;
+        }
+        
+        // 고품질 리사이즈를 위한 임시 캔버스 (더 큰 해상도로 먼저 확대 후 축소)
+        // 이렇게 하면 브라우저의 고품질 스케일링 알고리즘 활용
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = targetWidth;
-        tempCanvas.height = targetHeight;
         const tempCtx = tempCanvas.getContext('2d');
         
-        // 고품질 이미지 스케일링 설정
+        // 1단계: 원본을 더 큰 해상도로 확대 (고품질 스케일링)
+        const upscaleFactor = 4;
+        const upscaledWidth = targetWidth * upscaleFactor;
+        const upscaledHeight = targetHeight * upscaleFactor;
+        
+        tempCanvas.width = upscaledWidth;
+        tempCanvas.height = upscaledHeight;
         tempCtx.imageSmoothingEnabled = true;
         tempCtx.imageSmoothingQuality = 'high';
+        tempCtx.drawImage(this.image, 0, 0, upscaledWidth, upscaledHeight);
         
-        // 이미지를 더 큰 해상도로 스케일링
-        tempCtx.drawImage(this.image, 0, 0, targetWidth, targetHeight);
+        // 2단계: 확대된 이미지를 목표 크기로 축소 (고품질 다운샘플링)
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = targetWidth;
+        finalCanvas.height = targetHeight;
+        const finalCtx = finalCanvas.getContext('2d');
+        finalCtx.imageSmoothingEnabled = true;
+        finalCtx.imageSmoothingQuality = 'high';
+        finalCtx.drawImage(tempCanvas, 0, 0, targetWidth, targetHeight);
         
-        this.imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
+        // 최종 ImageData 추출
+        this.imageData = finalCtx.getImageData(0, 0, targetWidth, targetHeight);
         
-        log.info(`[ImageStampModal] Image scaled to ${targetWidth}×${targetHeight} for better quality`);
+        // ⚠️ 선명도 향상 적용 (선택적)
+        this.imageData = this.applySharpening(this.imageData, 0.3); // 강도 낮춤 (과도한 선명화 방지)
+        
+        log.info(`[ImageStampModal] Image resized to ${targetWidth}×${targetHeight} using high-quality resize (new method)`);
     }
     
     /**
-     * Fit to View (초기 fit, 1회만)
+     * 선명도 향상 (Unsharp Mask)
+     * @param {ImageData} imageData - 원본 이미지 데이터
+     * @param {number} strength - 선명도 강도 (0.0 ~ 1.0)
+     * @returns {ImageData} - 선명도가 향상된 이미지 데이터
+     */
+    applySharpening(imageData, strength = 0.5) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const output = new ImageData(width, height);
+        const outputData = output.data;
+        
+        // Unsharp Mask 커널 (간단한 라플라시안)
+        const kernel = [
+            0, -1, 0,
+            -1, 5, -1,
+            0, -1, 0
+        ];
+        
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                for (let c = 0; c < 3; c++) { // RGB만 (Alpha는 그대로)
+                    let sum = 0;
+                    let kernelIndex = 0;
+                    
+                    for (let ky = -1; ky <= 1; ky++) {
+                        for (let kx = -1; kx <= 1; kx++) {
+                            const idx = ((y + ky) * width + (x + kx)) * 4 + c;
+                            sum += data[idx] * kernel[kernelIndex];
+                            kernelIndex++;
+                        }
+                    }
+                    
+                    const originalIdx = (y * width + x) * 4 + c;
+                    const original = data[originalIdx];
+                    const sharpened = original + (sum - original) * strength;
+                    outputData[originalIdx] = Math.max(0, Math.min(255, sharpened));
+                }
+                
+                // Alpha 채널은 그대로 복사
+                outputData[(y * width + x) * 4 + 3] = data[(y * width + x) * 4 + 3];
+            }
+        }
+        
+        // 경계 처리 (가장자리는 원본 그대로)
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (y === 0 || y === height - 1 || x === 0 || x === width - 1) {
+                    const idx = (y * width + x) * 4;
+                    outputData[idx] = data[idx];
+                    outputData[idx + 1] = data[idx + 1];
+                    outputData[idx + 2] = data[idx + 2];
+                    outputData[idx + 3] = data[idx + 3];
+                }
+            }
+        }
+        
+        return output;
+    }
+    
+    /**
+     * Fit to View (완전히 새로운 방식)
+     * ⚠️ CRITICAL: 원본 이미지를 직접 사용하여 미리보기와 동일하게 처리
      */
     fitToView() {
         if (!this.image) return;
@@ -549,19 +652,28 @@ class ImageStampModal {
         const worldWidth = bounds.maxX - bounds.minX + 1;
         const worldHeight = bounds.maxY - bounds.minY + 1;
         
-        // 이미지 비율 유지하면서 영토에 맞게 조정
-        const imageAspect = this.image.width / this.image.height;
-        const worldAspect = worldWidth / worldHeight;
+        // ⚠️ 새로운 방식: 원본 이미지 크기와 비율 사용
+        const imageWidth = this.image.width;
+        const imageHeight = this.image.height;
+        
+        // 영토 경계 안에 맞추기 (95% 사용)
+        const safetyMargin = 0.95;
+        const availableWidth = worldWidth * safetyMargin;
+        const availableHeight = worldHeight * safetyMargin;
+        
+        // 이미지 비율 유지하면서 사용 가능한 공간에 맞추기
+        const imageAspect = imageWidth / imageHeight;
+        const availableAspect = availableWidth / availableHeight;
         
         let stampWidth, stampHeight;
-        if (imageAspect > worldAspect) {
+        if (imageAspect > availableAspect) {
             // 이미지가 더 넓음
-            stampWidth = worldWidth;
-            stampHeight = worldWidth / imageAspect;
+            stampWidth = availableWidth;
+            stampHeight = availableWidth / imageAspect;
         } else {
             // 이미지가 더 높음
-            stampWidth = worldHeight * imageAspect;
-            stampHeight = worldHeight;
+            stampWidth = availableHeight * imageAspect;
+            stampHeight = availableHeight;
         }
         
         // 중앙 배치
@@ -580,17 +692,20 @@ class ImageStampModal {
             this.snapRectWorld();
         }
         
-        // 클램프 적용
+        // Clamp 적용 (위치만 조정)
         if (this.options.clamp && this.territoryMask) {
-            this.rectWorld = this.territoryMask.clampRect(this.rectWorld);
+            this.rectWorld.x = Math.max(bounds.minX, Math.min(this.rectWorld.x, bounds.maxX - this.rectWorld.width + 1));
+            this.rectWorld.y = Math.max(bounds.minY, Math.min(this.rectWorld.y, bounds.maxY - this.rectWorld.height + 1));
         }
         
-        // ViewTransform 설정 (월드 전체가 보이도록)
+        // ViewTransform 설정
         this.fitViewTransform();
         
         this.state = 'ready';
         this.renderStatic();
         this.renderDynamic();
+        
+        log.info(`[ImageStampModal] Fit: Original image ${imageWidth}×${imageHeight} mapped to rect ${this.rectWorld.width.toFixed(1)}×${this.rectWorld.height.toFixed(1)} (preview = final)`);
     }
     
     /**
@@ -943,6 +1058,170 @@ class ImageStampModal {
     }
     
     /**
+     * Bilinear Interpolation 샘플링 (Raw 데이터 반환)
+     * 주변 4개 픽셀의 가중 평균을 계산하여 더 부드러운 색상 전환
+     * @param {number} x - 이미지 X 좌표 (부동소수점)
+     * @param {number} y - 이미지 Y 좌표 (부동소수점)
+     * @returns {{r: number, g: number, b: number, a: number}|null} - 색상 객체 또는 null
+     */
+    sampleBilinearRaw(x, y) {
+        const width = this.imageData.width;
+        const height = this.imageData.height;
+        const data = this.imageData.data;
+        
+        // 경계 체크
+        if (x < 0 || x >= width - 1 || y < 0 || y >= height - 1) {
+            return null;
+        }
+        
+        // 주변 4개 픽셀 위치
+        const x1 = Math.floor(x);
+        const y1 = Math.floor(y);
+        const x2 = Math.min(x1 + 1, width - 1);
+        const y2 = Math.min(y1 + 1, height - 1);
+        
+        // 가중치 계산
+        const fx = x - x1;
+        const fy = y - y1;
+        const w1 = (1 - fx) * (1 - fy); // 왼쪽 위
+        const w2 = fx * (1 - fy);       // 오른쪽 위
+        const w3 = (1 - fx) * fy;       // 왼쪽 아래
+        const w4 = fx * fy;              // 오른쪽 아래
+        
+        // 4개 픽셀의 색상 가져오기
+        const getPixel = (px, py) => {
+            const idx = (py * width + px) * 4;
+            return {
+                r: data[idx],
+                g: data[idx + 1],
+                b: data[idx + 2],
+                a: data[idx + 3]
+            };
+        };
+        
+        const p1 = getPixel(x1, y1);
+        const p2 = getPixel(x2, y1);
+        const p3 = getPixel(x1, y2);
+        const p4 = getPixel(x2, y2);
+        
+        // 가중 평균 계산
+        const r = Math.round(p1.r * w1 + p2.r * w2 + p3.r * w3 + p4.r * w4);
+        const g = Math.round(p1.g * w1 + p2.g * w2 + p3.g * w3 + p4.g * w4);
+        const b = Math.round(p1.b * w1 + p2.b * w2 + p3.b * w3 + p4.b * w4);
+        const a = Math.round(p1.a * w1 + p2.a * w2 + p3.a * w3 + p4.a * w4);
+        
+        return { r, g, b, a };
+    }
+    
+    /**
+     * Floyd-Steinberg 디더링 적용
+     * 색상 전환을 더 부드럽게 만들기 위해 에러 확산 디더링 적용
+     * @param {Map} pixelMap - 픽셀 맵 ("x,y" -> "#RRGGBB")
+     * @param {Object} rect - 영역 ({x, y, width, height})
+     */
+    applyFloydSteinbergDithering(pixelMap, rect) {
+        if (!this.territoryMask) return;
+        
+        // 픽셀 맵을 2D 배열로 변환 (에러 확산을 위해)
+        const startX = Math.floor(rect.x);
+        const startY = Math.floor(rect.y);
+        const endX = Math.ceil(rect.x + rect.width);
+        const endY = Math.ceil(rect.y + rect.height);
+        
+        const width = endX - startX;
+        const height = endY - startY;
+        
+        // 원본 색상 저장 (RGB 값)
+        const originalColors = [];
+        for (let y = 0; y < height; y++) {
+            originalColors[y] = [];
+            for (let x = 0; x < width; x++) {
+                const worldX = startX + x;
+                const worldY = startY + y;
+                const key = `${worldX},${worldY}`;
+                
+                if (pixelMap.has(key) && this.territoryMask.isInside(worldX, worldY)) {
+                    const colorStr = pixelMap.get(key);
+                    // #RRGGBB를 RGB로 변환
+                    const r = parseInt(colorStr.substr(1, 2), 16);
+                    const g = parseInt(colorStr.substr(3, 2), 16);
+                    const b = parseInt(colorStr.substr(5, 2), 16);
+                    originalColors[y][x] = { r, g, b, x: worldX, y: worldY };
+                } else {
+                    originalColors[y][x] = null;
+                }
+            }
+        }
+        
+        // 에러 확산을 위한 버퍼
+        const errorBuffer = [];
+        for (let y = 0; y < height; y++) {
+            errorBuffer[y] = [];
+            for (let x = 0; x < width; x++) {
+                errorBuffer[y][x] = { r: 0, g: 0, b: 0 };
+            }
+        }
+        
+        // Floyd-Steinberg 디더링 적용
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const orig = originalColors[y][x];
+                if (!orig) continue;
+                
+                // 현재 픽셀 색상 + 에러
+                let r = orig.r + errorBuffer[y][x].r;
+                let g = orig.g + errorBuffer[y][x].g;
+                let b = orig.b + errorBuffer[y][x].b;
+                
+                // 양자화 (0-255 범위로 클램핑)
+                r = Math.max(0, Math.min(255, Math.round(r)));
+                g = Math.max(0, Math.min(255, Math.round(g)));
+                b = Math.max(0, Math.min(255, Math.round(b)));
+                
+                // 양자화 에러 계산
+                const errorR = orig.r - r;
+                const errorG = orig.g - g;
+                const errorB = orig.b - b;
+                
+                // 에러를 주변 픽셀에 분산 (Floyd-Steinberg 패턴)
+                //      X   7/16
+                // 3/16 5/16 1/16
+                if (x + 1 < width && originalColors[y][x + 1]) {
+                    errorBuffer[y][x + 1].r += errorR * (7 / 16);
+                    errorBuffer[y][x + 1].g += errorG * (7 / 16);
+                    errorBuffer[y][x + 1].b += errorB * (7 / 16);
+                }
+                
+                if (y + 1 < height) {
+                    if (x > 0 && originalColors[y + 1][x - 1]) {
+                        errorBuffer[y + 1][x - 1].r += errorR * (3 / 16);
+                        errorBuffer[y + 1][x - 1].g += errorG * (3 / 16);
+                        errorBuffer[y + 1][x - 1].b += errorB * (3 / 16);
+                    }
+                    
+                    if (originalColors[y + 1][x]) {
+                        errorBuffer[y + 1][x].r += errorR * (5 / 16);
+                        errorBuffer[y + 1][x].g += errorG * (5 / 16);
+                        errorBuffer[y + 1][x].b += errorB * (5 / 16);
+                    }
+                    
+                    if (x + 1 < width && originalColors[y + 1][x + 1]) {
+                        errorBuffer[y + 1][x + 1].r += errorR * (1 / 16);
+                        errorBuffer[y + 1][x + 1].g += errorG * (1 / 16);
+                        errorBuffer[y + 1][x + 1].b += errorB * (1 / 16);
+                    }
+                }
+                
+                // 양자화된 색상으로 업데이트
+                const color = `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+                pixelMap.set(`${orig.x},${orig.y}`, color);
+            }
+        }
+        
+        log.info(`[ImageStampModal] Applied Floyd-Steinberg dithering to ${pixelMap.size} pixels`);
+    }
+    
+    /**
      * UI 바인딩
      */
     bindUI() {
@@ -951,52 +1230,68 @@ class ImageStampModal {
     
     /**
      * 적용 (PixelCanvas3에 픽셀 적용)
+     * ⚠️ CRITICAL: 미리보기와 동일한 방식으로 적용
+     * 미리보기는 drawImage로 선명하게 보이므로, 동일한 방식으로 캔버스에 그린 후 셀 색상 추출
      */
     async apply() {
-        if (!this.imageData || !this.rectWorld || !this.territoryMask) return;
+        if (!this.image || !this.rectWorld || !this.territoryMask) return;
         
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         try {
-            // 픽셀 데이터 생성 (셀 단위 샘플링)
+            // ⚠️ 완전히 새로운 방식: 미리보기와 동일하게 이미지를 캔버스에 그린 후 셀 색상 추출
+            // 1. 128x128 캔버스 생성
+            // 2. 이미지를 rectWorld 크기로 그리기 (미리보기와 동일)
+            // 3. 각 셀 영역의 평균 색상 추출
+            
+            const gridSize = CONFIG.TERRITORY.PIXEL_GRID_SIZE; // 128
+            
+            // 임시 캔버스 생성 (128x128)
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = gridSize;
+            tempCanvas.height = gridSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // ⚠️ 핵심: 미리보기와 동일한 방식으로 이미지 그리기
+            // imageSmoothing을 끄면 픽셀아트 스타일이 되지만, 켜면 더 부드러움
+            // 미리보기가 선명하게 보이므로 smoothing을 켜서 동일하게 처리
+            tempCtx.imageSmoothingEnabled = true;
+            tempCtx.imageSmoothingQuality = 'high';
+            
+            // 배경을 투명하게
+            tempCtx.clearRect(0, 0, gridSize, gridSize);
+            
+            // ⚠️ 이미지를 rectWorld 위치와 크기로 그리기 (미리보기와 정확히 동일)
+            tempCtx.drawImage(
+                this.image,
+                this.rectWorld.x,
+                this.rectWorld.y,
+                this.rectWorld.width,
+                this.rectWorld.height
+            );
+            
+            // 캔버스에서 ImageData 추출
+            const canvasImageData = tempCtx.getImageData(0, 0, gridSize, gridSize);
+            
+            // 픽셀 데이터 생성 (셀 단위로 색상 추출)
             const pixelMap = new Map(); // "x,y" -> "#RRGGBB"
             
-            let intersectRect = this.rectWorld;
-            if (this.territoryMask && typeof this.territoryMask.intersectRect === 'function') {
-                intersectRect = this.territoryMask.intersectRect(this.rectWorld);
-                if (!intersectRect) {
-                    alert('영토 경계와 교집합이 없습니다.');
-                    return;
-                }
-            }
-            
-            // 고품질 샘플링: 셀 중심점에서 정밀하게 샘플링 (이미지가 스케일링되어 있어 더 정확함)
-            for (let y = Math.floor(intersectRect.y); y < Math.ceil(intersectRect.y + intersectRect.height); y++) {
-                for (let x = Math.floor(intersectRect.x); x < Math.ceil(intersectRect.x + intersectRect.width); x++) {
+            // 각 셀(픽셀)의 색상 추출
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    // 영토 마스크 체크
                     if (this.territoryMask && !this.territoryMask.isInside(x, y)) continue;
                     
-                    // 셀 중심점의 이미지 좌표 계산 (부동소수점 정밀도)
-                    const cellCenterX = x + 0.5;
-                    const cellCenterY = y + 0.5;
+                    // ImageData에서 픽셀 색상 읽기
+                    const idx = (y * gridSize + x) * 4;
+                    const r = canvasImageData.data[idx];
+                    const g = canvasImageData.data[idx + 1];
+                    const b = canvasImageData.data[idx + 2];
+                    const a = canvasImageData.data[idx + 3];
                     
-                    const imageX = ((cellCenterX - this.rectWorld.x) / this.rectWorld.width) * this.imageData.width;
-                    const imageY = ((cellCenterY - this.rectWorld.y) / this.rectWorld.height) * this.imageData.height;
-                    
-                    // 가장 가까운 픽셀 위치 (반올림으로 가장 정확한 픽셀 선택)
-                    const px = Math.round(imageX);
-                    const py = Math.round(imageY);
-                    
-                    // 경계 체크
-                    if (px >= 0 && px < this.imageData.width && py >= 0 && py < this.imageData.height) {
-                        const idx = (py * this.imageData.width + px) * 4;
-                        const r = this.imageData.data[idx];
-                        const g = this.imageData.data[idx + 1];
-                        const b = this.imageData.data[idx + 2];
-                        const a = this.imageData.data[idx + 3];
-                        
-                        // 투명도 체크
-                        if (a >= this.options.alphaThreshold) {
-                            const color = `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
-                            pixelMap.set(`${x},${y}`, color);
-                        }
+                    // 투명도 체크
+                    if (a >= this.options.alphaThreshold) {
+                        const color = `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+                        pixelMap.set(`${x},${y}`, color);
                     }
                 }
             }
@@ -1018,7 +1313,7 @@ class ImageStampModal {
                 setTimeout(() => {
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'info',
-                        message: '✨ 이미지가 적용되었습니다! 부족한 부분은 브러시 도구로 직접 점을 찍어 보완할 수 있습니다.',
+                        message: vocab.imageApplied,
                         duration: 5000
                     });
                 }, 300);
@@ -1028,7 +1323,8 @@ class ImageStampModal {
             this.close();
         } catch (error) {
             log.error('[ImageStampModal] Failed to apply:', error);
-            alert('이미지 적용 중 오류가 발생했습니다.');
+            const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+            alert(vocab.imageApplyError);
         }
     }
 }

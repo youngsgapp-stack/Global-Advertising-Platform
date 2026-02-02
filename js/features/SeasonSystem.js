@@ -127,7 +127,7 @@ class SeasonSystem {
                 
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'warning',
-                    message: `소유 제한에 도달했습니다. (최대 ${this.MAX_TERRITORIES_PER_USER}개)`
+                    message: `Ownership limit reached. (Max ${this.MAX_TERRITORIES_PER_USER})`
                 });
             }
             

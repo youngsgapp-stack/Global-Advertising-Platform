@@ -723,7 +723,7 @@ class AuctionSystem {
                 const trimmed = name.trim();
                 if (trimmed === '') return null;
                 
-                // JSON 형식의 문자열인지 확인 (예: '{"ko":"텍사스","en":"Texas"}')
+                // Check if it's a JSON format string (e.g. '{"ko":"Texas","en":"Texas"}')
                 if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
                     try {
                         const parsed = JSON.parse(trimmed);
