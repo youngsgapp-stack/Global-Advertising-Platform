@@ -1066,6 +1066,7 @@ class TerritoryPanel {
                 
                 <div id="territory-market-section" class="territory-market-section"></div>
                 <div id="territory-ad-section" class="territory-ad-section"></div>
+                <div id="territory-hd-section" class="territory-hd-section"></div>
                 
                 <!-- Pixel Info -->
                 <div class="pixel-info-card">
@@ -1780,6 +1781,7 @@ class TerritoryPanel {
         
         this.loadAdSection();
         this.loadMarketSection();
+        this.loadHdSection();
         
         // 기존 리스너 제거 (중복 방지)
         if (this._actionClickHandler) {
@@ -1817,6 +1819,12 @@ class TerritoryPanel {
             if (id === 'extend-protection') {
                 e.preventDefault();
                 this.extendProtection();
+                return;
+            }
+            
+            if (id === 'hd-upload' || id === 'hd-unlock' || id === 'hd-remove') {
+                e.preventDefault();
+                this.handleHdAction(id);
                 return;
             }
             
@@ -4063,6 +4071,102 @@ class TerritoryPanel {
         } catch (error) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Booking failed' });
         }
+    }
+    
+    /**
+     * HD 사진 영역 (주인에게만 표시): 무료 여부, 유료 해제, 올리기/바꾸기/지우기
+     */
+    async loadHdSection({ refresh = false } = {}) {
+        const section = this.container?.querySelector('#territory-hd-section');
+        const territory = this.currentTerritory;
+        const user = firebaseService.getCurrentUser();
+        if (!section || !territory?.id) return;
+        if (!user || territory.ruler !== user.uid) {
+            section.innerHTML = '';
+            return;
+        }
+        this.hdCache = this.hdCache || new Map();
+        let info = this.hdCache.get(territory.id);
+        if (refresh || !info || Date.now() - info.fetchedAt > 30000) {
+            try {
+                info = { ...(await apiService.get(`/hd/territories/${encodeURIComponent(territory.id)}`)), fetchedAt: Date.now() };
+                this.hdCache.set(territory.id, info);
+            } catch (error) {
+                log.debug('[TerritoryPanel] HD status unavailable:', error.message);
+                return;
+            }
+        }
+        if (this.currentTerritory?.id !== territory.id || !section.isConnected || !info.isOwner) return;
+        this.currentHd = info;
+        const freeLabels = { lifetime: 'included with lifetime ownership', month_or_longer: 'included because you bought 1 month or more', billboard: 'included with your billboard week' };
+        const note = info.freeReason
+            ? `✨ HD photo ${freeLabels[info.freeReason]}.`
+            : info.unlocked ? '✨ HD photo unlocked for this spot.' : `Show a sharp photo on the map instead of pixels. Free with 1-month or longer plans, or unlock for ${this.formatNumber(info.unlockPrice)} pt (${this.formatUsd(info.unlockPrice)}).`;
+        const buttons = info.entitled
+            ? `<button class="action-btn" id="hd-upload" style="margin-top:8px;width:100%;">🖼️ ${info.hasImage ? 'Change HD photo' : 'Upload HD photo'}</button>
+               ${info.hasImage ? '<button id="hd-remove" style="margin-top:6px;background:none;border:none;color:#9fb0c3;font-size:12px;cursor:pointer;text-decoration:underline;">Remove HD photo</button>' : ''}`
+            : `<button class="action-btn" id="hd-unlock" style="margin-top:8px;width:100%;">🔓 Unlock HD photo (${this.formatNumber(info.unlockPrice)} pt)</button>`;
+        section.innerHTML = `
+            <div style="margin-top:10px;padding:10px 12px;border:1px dashed rgba(78,205,196,0.4);border-radius:10px;font-size:13px;">
+                <div>${note}</div>
+                ${buttons}
+            </div>
+        `;
+    }
+    
+    async handleHdAction(action) {
+        const territory = this.currentTerritory;
+        if (!territory?.id || !this.currentHd) return;
+        const notify = (type, message) => eventBus.emit(EVENTS.UI_NOTIFICATION, { type, message });
+        try {
+            if (action === 'hd-unlock') {
+                const price = this.currentHd.unlockPrice;
+                const choice = await showDialog({
+                    title: '🔓 Unlock HD photo',
+                    lines: [`${this.formatNumber(price)} pt (${this.formatUsd(price)}) for as long as you own this spot.`, `Your balance: ${this.formatNumber(walletService.getBalance())} pt`],
+                    buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'ok', label: 'Unlock', primary: true }]
+                });
+                if (choice !== 'ok') return;
+                await apiService.post(`/hd/territories/${encodeURIComponent(territory.id)}/unlock`, {});
+                walletService.refreshBalance?.().catch(() => {});
+                notify('success', '✨ HD photo unlocked. Upload your photo now!');
+            } else if (action === 'hd-remove') {
+                const choice = await showDialog({
+                    title: 'Remove HD photo?',
+                    lines: ['Your pixel art (if any) will show again.'],
+                    buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'ok', label: 'Remove', primary: true }]
+                });
+                if (choice !== 'ok') return;
+                await apiService.delete(`/hd/territories/${encodeURIComponent(territory.id)}/image`);
+                const { hdImageLayer } = await import('../core/HdImageLayer.js');
+                hdImageLayer.setImage(territory.id, null);
+                notify('info', 'HD photo removed.');
+            } else if (action === 'hd-upload') {
+                const geometry = territory.geometry ||
+                    mapController.map?.getSource('world-territories')?._data?.features?.find(f => f.properties?.id === territory.id)?.geometry;
+                const countryCode = territory.country || 'unknown';
+                const { openHdPhotoUploader } = await import('./HdPhotoUploader.js');
+                const result = await openHdPhotoUploader({
+                    territoryId: territory.id,
+                    territoryName: this.extractName(territory.name, countryCode) || territory.id,
+                    geometry
+                });
+                if (!result) return;
+                const { hdImageLayer } = await import('../core/HdImageLayer.js');
+                hdImageLayer.setImage(territory.id, result.url);
+                notify('success', '🖼️ HD photo is live on the map!');
+            }
+        } catch (error) {
+            if (error.status === 402) {
+                notify('warning', 'Not enough points. Top up to continue.');
+                const { paymentService } = await import('../services/PaymentService.js');
+                paymentService.openChargeModal();
+                return;
+            }
+            notify('error', error.message || 'Something went wrong');
+            return;
+        }
+        await this.loadHdSection({ refresh: true });
     }
     
     /**

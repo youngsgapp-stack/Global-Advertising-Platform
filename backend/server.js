@@ -116,6 +116,7 @@ import { pixelsRouter, pixelsTopLevelRouter } from './routes/pixels.js';
 import { adminRouter } from './routes/admin.js';
 import { shareRouter } from './routes/share.js';
 import { marketRouter, processMarketJobs } from './routes/market.js';
+import { hdRouter } from './routes/hd.js';
 import cronRouter, { endExpiredAuctions, expireProtections } from './routes/cron.js';
 
 /**
@@ -283,6 +284,7 @@ app.use([
     '/api/market/territories/:id/offers',
     '/api/market/offers',
     '/api/market/territories/:id/billboard/bookings',
+    '/api/hd/territories/:id/unlock',
     '/api/auctions/:id/bids',
     '/api/users/me/wallet/paypal-capture'
 ], moneyRateLimit);
@@ -293,6 +295,9 @@ app.use('/api/share', shareRouter);
 
 // 영토 거래 (관심 등록, 대기 예약, 구매 제안, 광고판)
 app.use('/api/market', optionalAuthenticateToken, marketRouter);
+
+// HD 사진 (영토 모양으로 잘린 고화질 사진)
+app.use('/api/hd', optionalAuthenticateToken, hdRouter);
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);

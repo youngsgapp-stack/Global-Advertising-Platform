@@ -2237,6 +2237,8 @@ router.post('/reports/:id/resolve', async (req, res) => {
         
         if (action === 'remove_art' || action === 'remove_all') {
             await deleteTerritoryPixels(territoryId);
+            const { removeTerritoryHdImage } = await import('./hd.js');
+            await removeTerritoryHdImage(territoryId).catch(error => console.warn('[Admin] HD image removal failed:', error.message));
         }
         if (action === 'remove_link' || action === 'block_link' || action === 'remove_all') {
             await query(
