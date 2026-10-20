@@ -12,6 +12,7 @@ import { firebaseService } from '../services/FirebaseService.js';
 import mapController from './MapController.js';
 import TerritoryUpdatePipeline from './TerritoryUpdatePipeline.js';
 import { TerritoryViewState } from './TerritoryViewState.js';
+import { getPixelGridBounds } from './PixelGridProjection.js';
 
 class PixelMapRenderer3 {
     constructor(mapController) {
@@ -998,7 +999,8 @@ class PixelMapRenderer3 {
                     console.log(`🔍 [PixelMapRenderer3] ⚠️ No geometry available, returning`);
                     return;
                 }
-                bounds = this.calculateBounds(geometry);
+                // 에디터(PixelCanvas3)와 같은 그리드 영역 (Mercator 기준 정사각형)
+                bounds = getPixelGridBounds(this.calculateBounds(geometry));
                 console.log(`🔍 [PixelMapRenderer3] ✅ Bounds calculated from geometry:`, bounds);
             } else {
                 console.log(`🔍 [PixelMapRenderer3] ✅ Using bounds from pixelData:`, bounds);
@@ -1421,7 +1423,8 @@ class PixelMapRenderer3 {
                         source: sourceId,
                         paint: {
                             'raster-opacity': 1.0,
-                            'raster-fade-duration': 0
+                            'raster-fade-duration': 0,
+                            'raster-resampling': 'nearest' // 확대해도 픽셀이 흐려지지 않도록
                         }
                     });
                 } else {
@@ -1432,7 +1435,8 @@ class PixelMapRenderer3 {
                         source: sourceId,
                         paint: {
                             'raster-opacity': 1.0,
-                            'raster-fade-duration': 0
+                            'raster-fade-duration': 0,
+                            'raster-resampling': 'nearest' // 확대해도 픽셀이 흐려지지 않도록
                         }
                     }, beforeLayer);
                 }

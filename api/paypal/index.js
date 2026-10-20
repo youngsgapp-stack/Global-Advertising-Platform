@@ -67,7 +67,11 @@ export default async function handler(req, res) {
         if (action === 'create-order') {
             return await handleCreateOrder(req, res, params);
         } else if (action === 'capture-order') {
-            return await handleCaptureOrder(req, res, params);
+            // 캡처와 포인트 충전은 백엔드 POST /api/users/me/wallet/paypal-capture 에서만 처리
+            return res.status(410).json({
+                success: false,
+                error: 'This payment flow has moved. Please refresh the page and try again.'
+            });
         } else {
             return res.status(400).json({
                 success: false,

@@ -1188,30 +1188,25 @@ class PaymentService {
                             throw new Error('User not authenticated');
                         }
                         
-                        // 서버 API로 Capture 요청 (통합 API 사용)
-                        const captureResponse = await fetch('/api/paypal', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                action: 'capture-order',
-                                orderID: data.orderID,
-                                userId: user.uid,
-                                amount: amount,
-                                points: points
-                            })
+                        // 백엔드가 PayPal 주문을 캡처/검증하고 실제 결제 금액 기준으로 포인트 충전
+                        const { apiService } = await import('./ApiService.js');
+                        const captureResult = await apiService.post('/users/me/wallet/paypal-capture', {
+                            orderID: data.orderID
                         });
                         
-                        if (!captureResponse.ok) {
-                            const errorData = await captureResponse.json();
-                            throw new Error(errorData.error || 'Failed to capture PayPal order');
+                        if (!captureResult?.success) {
+                            throw new Error(captureResult?.error || 'Capture failed');
                         }
                         
-                        const captureResult = await captureResponse.json();
-                        
-                        if (!captureResult.success) {
-                            throw new Error(captureResult.error || 'Capture failed');
+                        if (!captureResult.alreadyProcessed) {
+                            points = captureResult.points;
+                            amount = captureResult.amount;
+                        }
+                        if (captureResult.referralBonus > 0) {
+                            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                                type: 'success',
+                                message: `🎁 Invite bonus: +${captureResult.referralBonus} pt for joining with a friend's link!`
+                            });
                         }
                         
                         const step2SuccessLog = {
@@ -1230,54 +1225,6 @@ class PaymentService {
                             console.log('🔵 [PayPal] ============================================');
                         }
                         log.info('[PayPal] Step 2/3: Capture successful via server API', step2SuccessLog);
-                        
-                        // ============================================
-                        // 단계 3: 백엔드 API로 포인트 충전 (PostgreSQL 동기화)
-                        // ============================================
-                        const step3Log = {
-                            step: '3/4',
-                            stage: '백엔드 API로 포인트 충전',
-                            orderID: captureResult.orderID,
-                            amount: amount,
-                            points: points,
-                            timestamp: new Date().toISOString()
-                        };
-                        
-                        if (CONFIG.DEBUG.PAYMENT_VERBOSE) {
-                            console.log('🔵 [PayPal] ============================================');
-                            console.log('🔵 [PayPal] 단계 3/4: 백엔드 API로 포인트 충전 시작');
-                            console.log('🔵 [PayPal]', step3Log);
-                            console.log('🔵 [PayPal] ============================================');
-                        }
-                        log.info('[PayPal] Step 3/4: Adding points via backend API', step3Log);
-                        
-                        // 백엔드 API를 통해 PostgreSQL에 포인트 추가
-                        try {
-                            const { apiService } = await import('./ApiService.js');
-                            const currentWallet = await apiService.getWallet();
-                            const currentBalance = currentWallet?.balance || 0;
-                            const newBalance = currentBalance + points;
-                            
-                            await apiService.updateWallet(newBalance, {
-                                type: 'charge',
-                                amount: points,
-                                description: `PayPal charge: $${amount}`,
-                                referenceId: data.orderID
-                            });
-                            
-                            log.info('[PayPal] Step 3/4: Points added via backend API', {
-                                points: points,
-                                newBalance: newBalance
-                            });
-                        } catch (backendError) {
-                            log.error('[PayPal] Failed to add points via backend API:', backendError);
-                            // 백엔드 API 실패해도 계속 진행 (Firestore에는 이미 추가됨)
-                            // Display warning message to user
-                            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                                type: 'warning',
-                                message: 'Points have been added but there may be a temporary synchronization issue. Please refresh in a moment.'
-                            });
-                        }
                         
                         // ============================================
                         // 단계 4: UI 업데이트 및 완료 처리

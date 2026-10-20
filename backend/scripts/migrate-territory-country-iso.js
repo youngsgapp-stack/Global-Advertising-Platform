@@ -6,7 +6,8 @@
  * - country 필드나 다른 소스에서 countryIso를 추출하여 저장
  * 
  * 실행 방법:
- *   node backend/scripts/migrate-territory-country-iso.js
+ *   node backend/scripts/migrate-territory-country-iso.js            (실제 업데이트)
+ *   node backend/scripts/migrate-territory-country-iso.js --dry-run  (미리보기, DB 변경 없음)
  */
 
 import dotenv from 'dotenv';
@@ -56,6 +57,10 @@ const COUNTRY_TO_ISO = {
     'kenya': 'KEN',
     'morocco': 'MAR',
     'tunisia': 'TUN',
+    'mauritania': 'MRT',
+    'mali': 'MLI',
+    'niger': 'NER',
+    'united-states-of-america': 'USA',
     // 추가 국가들...
 };
 
@@ -75,16 +80,14 @@ function convertToISO(countryName) {
     // 정규화: 소문자, 공백을 하이픈으로
     const normalized = countryName.toLowerCase().trim().replace(/\s+/g, '-');
     
-    // 직접 매핑 확인
+    // 직접 매핑 확인 (부분 문자열 매칭은 'and'(안도라)→'thailand' 같은 오매핑을 만들어 사용하지 않음)
     if (COUNTRY_TO_ISO[normalized]) {
         return COUNTRY_TO_ISO[normalized];
     }
     
-    // 부분 매칭 시도
-    for (const [key, iso] of Object.entries(COUNTRY_TO_ISO)) {
-        if (normalized.includes(key) || key.includes(normalized)) {
-            return iso;
-        }
+    // country 컬럼에 이미 3자리 국가 코드(Natural Earth adm0_a3, 소문자)가 저장된 경우
+    if (/^[a-z]{3}$/.test(normalized)) {
+        return normalized.toUpperCase();
     }
     
     return null;
@@ -114,26 +117,27 @@ function inferCountryFromLegacyId(territoryId) {
 /**
  * territory의 countryIso 추출 및 업데이트
  */
-async function migrateTerritoryCountryIso() {
-    console.log('[Migration] Starting countryIso migration for legacy territories...');
+async function migrateTerritoryCountryIso({ dryRun = false } = {}) {
+    console.log(`[Migration] Starting countryIso migration for legacy territories...${dryRun ? ' (DRY RUN: no changes)' : ''}`);
+    const plannedByIso = new Map();
+    const skippedByCountry = new Map();
     
     try {
         // DB 초기화
         await initDatabase();
         console.log('[Migration] ✅ Database initialized');
-        // country_iso가 NULL인 모든 territory 조회
+        // 전체 territory를 조회해서, countryIso가 없거나 country 값과 맞지 않게 잘못 저장된 것을 수정
         const result = await query(`
-            SELECT id, country, name, name_en
+            SELECT id, country, country_iso, name, name_en
             FROM territories
-            WHERE country_iso IS NULL
             ORDER BY id
         `);
         
-        console.log(`[Migration] Found ${result.rows.length} territories without countryIso`);
-        
         let updated = 0;
+        let corrected = 0;
         let skipped = 0;
         const errors = [];
+        const corrections = [];
         
         for (const row of result.rows) {
             const territoryId = row.id;
@@ -158,8 +162,9 @@ async function migrateTerritoryCountryIso() {
                 // name_en이 국가명을 포함할 수 있음 (예: "Algeria - Tamanrasset")
                 const nameParts = row.name_en.split(/[-–—]/);
                 for (const part of nameParts) {
-                    const trimmed = part.trim();
-                    const iso = convertToISO(trimmed);
+                    const trimmed = part.trim().toLowerCase().replace(/\s+/g, '-');
+                    // 지역명은 3글자 코드 규칙을 적용하지 않고 국가명 정확 일치만 사용
+                    const iso = COUNTRY_TO_ISO[trimmed];
                     if (iso) {
                         countryIso = iso;
                         break;
@@ -167,7 +172,22 @@ async function migrateTerritoryCountryIso() {
                 }
             }
             
-            if (countryIso) {
+            // 이미 올바른 값이면 건너뜀, 판단 불가인데 기존 값이 있으면 기존 값 유지
+            if (countryIso && countryIso === row.country_iso) {
+                continue;
+            }
+            if (!countryIso && row.country_iso) {
+                continue;
+            }
+            if (countryIso && row.country_iso) {
+                corrected++;
+                corrections.push(`${territoryId}(${country}: ${row.country_iso}→${countryIso})`);
+            }
+            
+            if (countryIso && dryRun) {
+                plannedByIso.set(countryIso, (plannedByIso.get(countryIso) || 0) + 1);
+                updated++;
+            } else if (countryIso) {
                 try {
                     await query(`
                         UPDATE territories
@@ -175,21 +195,35 @@ async function migrateTerritoryCountryIso() {
                         WHERE id = $2
                     `, [countryIso, territoryId]);
                     
-                    console.log(`[Migration] ✅ Updated ${territoryId}: countryIso = ${countryIso}`);
                     updated++;
                 } catch (error) {
                     console.error(`[Migration] ❌ Failed to update ${territoryId}:`, error.message);
                     errors.push({ territoryId, error: error.message });
                 }
             } else {
-                console.warn(`[Migration] ⚠️  Skipped ${territoryId}: Could not determine countryIso (country: ${country || 'null'})`);
+                if (dryRun) {
+                    const key = country || 'null';
+                    skippedByCountry.set(key, (skippedByCountry.get(key) || 0) + 1);
+                } else {
+                    console.warn(`[Migration] ⚠️  Skipped ${territoryId}: Could not determine countryIso (country: ${country || 'null'})`);
+                }
                 skipped++;
             }
         }
         
+        if (dryRun) {
+            const top = (map) => [...map].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k}=${v}`).join(', ');
+            console.log(`\n[Migration] Would update by countryIso: ${top(plannedByIso)}`);
+            console.log(`[Migration] Would skip by country value (top 25): ${top(skippedByCountry)}`);
+        }
+        
+        if (corrections.length > 0) {
+            console.log(`\n[Migration] ${dryRun ? 'Would correct' : 'Corrected'} wrong values: ${corrections.join(', ')}`);
+        }
+        
         console.log('\n[Migration] Summary:');
-        console.log(`  - Updated: ${updated}`);
-        console.log(`  - Skipped: ${skipped}`);
+        console.log(`  - ${dryRun ? 'Would update' : 'Updated'}: ${updated} (of which corrections: ${corrected})`);
+        console.log(`  - Skipped (could not determine): ${skipped}`);
         console.log(`  - Errors: ${errors.length}`);
         
         if (errors.length > 0) {
@@ -213,7 +247,7 @@ const isMainModule = import.meta.url === `file://${process.argv[1]}` ||
                      import.meta.url.replace(/\\/g, '/').endsWith(process.argv[1].replace(/\\/g, '/'));
 
 if (isMainModule || process.argv[1]?.includes('migrate-territory-country-iso')) {
-    migrateTerritoryCountryIso()
+    migrateTerritoryCountryIso({ dryRun: process.argv.includes('--dry-run') })
         .then(() => {
             console.log('[Migration] Script completed successfully');
             process.exit(0);

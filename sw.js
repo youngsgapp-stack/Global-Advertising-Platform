@@ -4,8 +4,9 @@
  */
 
 const CACHE_NAME = 'own-piece-v2';
-const STATIC_CACHE_VERSION = '1.0.6'; // 버전 업데이트로 Service Worker 강제 갱신 (seed-territories.js 캐시 제거)
-const DYNAMIC_CACHE_VERSION = '1.0.6';
+// ⚠️ CSS는 cache-first라 CSS를 수정하면 반드시 버전을 올려야 방문자에게 반영됨
+const STATIC_CACHE_VERSION = '1.0.10'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
+const DYNAMIC_CACHE_VERSION = '1.0.10';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
@@ -114,6 +115,11 @@ self.addEventListener('fetch', (event) => {
     
     // GET 요청만 처리
     if (request.method !== 'GET') {
+        return;
+    }
+    
+    // 지도 데이터(수 MB)는 브라우저 HTTP 캐시에 맡김 (networkFirst의 5초 타임아웃에 걸리지 않도록)
+    if (url.pathname.startsWith('/data/')) {
         return;
     }
     

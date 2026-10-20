@@ -11,6 +11,8 @@ import { CACHE_TTL, invalidatePixelCache } from '../redis/cache-utils.js';
 import { broadcastPixelUpdate } from '../websocket/index.js';
 import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 import logger from '../utils/logger.js';
+import { isAdminUser } from '../middleware/admin.js';
+import { deleteTerritoryPixels } from '../utils/pixel-cleanup.js';
 
 // ES 모듈에서 __filename 사용을 위한 헬퍼
 const __filename = fileURLToPath(import.meta.url);
@@ -1162,24 +1164,14 @@ router.delete('/', async (req, res, next) => {
             return res.status(404).json({ error: 'Territory not found' });
         }
         
-        // Redis에서 픽셀 데이터 삭제
-        const pixelCacheKey = `pixel_data:${territoryId}`;
-        const metaCacheKey = `pixels:${territoryId}`;
-        
-        await redis.del(pixelCacheKey);
-        await redis.del(metaCacheKey);
-        
-        // ⚡ 핵심 수정: Set에서도 territoryId 제거
-        const territoriesSetKey = 'pixels:territories:set';
-        try {
-            await redis.srem(territoriesSetKey, territoryId);
-            console.log(`[Pixels] Removed ${territoryId} from territories set`);
-        } catch (error) {
-            console.warn(`[Pixels] Failed to remove ${territoryId} from territories set:`, error.message);
+        // 현재 소유자(새로 산 사람이 이전 그림을 지우는 경우 포함) 또는 관리자만 삭제 가능
+        const isOwner = String(territoryResult.rows[0].ruler_id || '') === String(userId);
+        if (!isOwner && !isAdminUser(req.user)) {
+            return res.status(403).json({ error: 'Only the territory owner can delete its pixel art' });
         }
         
-        // 목록 캐시 무효화
-        await redis.del('pixels:territories:list');
+        // Redis에서 픽셀 데이터 삭제 (레거시 + 타일 + 목록 캐시)
+        await deleteTerritoryPixels(territoryId);
         
         // WebSocket으로 픽셀 삭제 브로드캐스트
         broadcastPixelUpdate(territoryId, {

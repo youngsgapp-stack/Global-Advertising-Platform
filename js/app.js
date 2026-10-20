@@ -16,6 +16,19 @@ import { buffSystem } from './features/BuffSystem.js';
 import { collaborationHub } from './features/CollaborationHub.js';
 import { historyLogger } from './features/HistoryLogger.js';
 import { territoryPanel } from './ui/TerritoryPanel.js';
+import { takePendingIntent } from './utils/PendingIntent.js';
+import { showDialog } from './ui/ConfirmDialog.js';
+
+// 친구 초대 링크(?ref=CODE)로 들어오면 로그인할 때까지 코드를 보관 (30일)
+const REFERRAL_STORAGE_KEY = 'pendingReferral';
+const REFERRAL_STORAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+(() => {
+    const code = new URLSearchParams(window.location.search).get('ref');
+    if (code && /^[A-Za-z0-9]{4,16}$/.test(code)) {
+        localStorage.setItem(REFERRAL_STORAGE_KEY, JSON.stringify({ code: code.toUpperCase(), at: Date.now() }));
+    }
+})();
+import { openTerritoryById } from './utils/TerritoryNavigator.js';
 import { territoryListPanel } from './ui/TerritoryListPanel.js';
 import { pixelEditor3 } from './ui/PixelEditor3.js';
 import { rankingBoard } from './ui/RankingBoard.js';
@@ -226,6 +239,13 @@ class BillionaireApp {
             this.initialized = true;
             log.info('App initialized successfully!');
             eventBus.emit(EVENTS.APP_READY, {});
+            
+            // 공유 링크(?territory=<id>)로 들어오면 해당 영토로 이동해 패널 열기
+            const sharedTerritoryId = new URLSearchParams(window.location.search).get('territory');
+            if (sharedTerritoryId) {
+                document.querySelector('#onboarding-skip, .onboarding-skip')?.click();
+                openTerritoryById(sharedTerritoryId.toLowerCase().trim());
+            }
             
         } catch (error) {
             log.error('App initialization failed:', error);
@@ -619,12 +639,141 @@ class BillionaireApp {
     }
     
     /**
+     * 보관해 둔 초대 코드를 로그인한 계정에 연결 (성공하거나 거절되면 삭제, 일시 오류면 다음 로그인 때 재시도)
+     */
+    async applyPendingReferral() {
+        let pending = null;
+        try {
+            pending = JSON.parse(localStorage.getItem(REFERRAL_STORAGE_KEY) || 'null');
+        } catch (error) {
+            pending = null;
+        }
+        if (!pending?.code || Date.now() - pending.at > REFERRAL_STORAGE_TTL_MS) {
+            localStorage.removeItem(REFERRAL_STORAGE_KEY);
+            return;
+        }
+        try {
+            const result = await apiService.post('/users/me/referral', { code: pending.code });
+            localStorage.removeItem(REFERRAL_STORAGE_KEY);
+            if (result?.success && !result.alreadyLinked) {
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'success',
+                    message: `🎁 Invite applied! You'll get +${result.rewardFriend || 50} pt extra on your first top-up.`
+                });
+            }
+        } catch (error) {
+            const rejected = error.status === 400 || (error.status === 404 && /invite code/i.test(error.message || ''));
+            if (rejected) {
+                localStorage.removeItem(REFERRAL_STORAGE_KEY);
+            }
+        }
+    }
+    
+    /**
+     * 로그인 알림: 내 땅에 온 구매 제안, 예약 차례, 관심 영토가 열림 (세션당 1번)
+     */
+    async showMarketNotices() {
+        if (sessionStorage.getItem('marketNoticesShown')) return;
+        let notices;
+        try {
+            notices = await apiService.get('/market/me/notices');
+        } catch (error) {
+            return;
+        }
+        const lines = [];
+        let target = null;
+        for (const turn of notices.reservationTurns || []) {
+            lines.push(`🎟️ It's your turn to buy ${turn.name || turn.territoryId} (until ${new Date(turn.offeredUntil).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}).`);
+            target = target || turn.territoryId;
+        }
+        for (const offer of notices.offersReceived || []) {
+            lines.push(`💬 ${offer.count} offer${offer.count > 1 ? 's' : ''} for ${offer.name || offer.territoryId} (best ${Math.round(offer.best).toLocaleString()} pt).`);
+            target = target || offer.territoryId;
+        }
+        const eventText = { available: 'is available now', open: 'is open for bids', auction: 'is on auction' };
+        for (const alert of notices.watchAlerts || []) {
+            lines.push(`👀 ${alert.name || alert.territoryId} ${eventText[alert.event] || 'has news'}.`);
+            target = target || alert.territoryId;
+        }
+        if (lines.length === 0) return;
+        sessionStorage.setItem('marketNoticesShown', '1');
+        const choice = await showDialog({
+            title: '🔔 While you were away',
+            lines: lines.slice(0, 6),
+            buttons: [{ id: 'later', label: 'Later' }, { id: 'open', label: 'Show me', primary: true }]
+        });
+        if (choice === 'open' && target) {
+            openTerritoryById(target);
+        }
+    }
+    
+    /**
+     * 친구 초대 창: 내 초대 링크 + 보상 안내 + 초대 현황
+     */
+    async showInviteDialog() {
+        if (!firebaseService.getCurrentUser()) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'info', message: 'Sign in to get your invite link.' });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        let info;
+        try {
+            info = await apiService.get('/users/me/referral');
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: 'Could not load your invite link. Please try again.' });
+            return;
+        }
+        const canShare = typeof navigator.share === 'function';
+        const choice = await showDialog({
+            title: '🎁 Invite friends',
+            lines: [
+                `When a friend joins with your link and makes their first top-up, you get +${info.rewardReferrer} pt and they get +${info.rewardFriend} pt.`,
+                info.link,
+                `Friends joined: ${info.invited} · Rewards earned: ${info.rewarded}`
+            ],
+            buttons: [
+                { id: 'close', label: 'Close' },
+                ...(canShare ? [{ id: 'share', label: 'Share' }] : []),
+                { id: 'copy', label: 'Copy link', primary: true }
+            ]
+        });
+        if (choice === 'copy') {
+            try {
+                await navigator.clipboard.writeText(info.link);
+                eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'success', message: '🔗 Invite link copied!' });
+            } catch (error) {
+                window.prompt('Copy your invite link:', info.link);
+            }
+        } else if (choice === 'share') {
+            navigator.share({
+                title: 'Own a Piece of Earth',
+                text: 'Claim your own spot on the world map and put your art or ad on it!',
+                url: info.link
+            }).catch(() => {});
+        }
+    }
+    
+    /**
      * Setup Event Listeners
      */
     setupEventListeners() {
         // Auth state change
         eventBus.on(EVENTS.AUTH_STATE_CHANGED, async ({ user }) => {
             console.log('[BillionaireApp] 🔐 AUTH_STATE_CHANGED event received, user:', user ? user.email : 'null');
+            
+            // 로그인 전에 고르던 영토가 있으면 다시 열고 구매 화면으로 이어가기
+            if (user) {
+                const intent = takePendingIntent('openTerritory');
+                if (intent) {
+                    openTerritoryById(intent.territoryId).then(opened => {
+                        if (opened) territoryPanel.resumeOpenTerritory(intent);
+                    });
+                } else {
+                    setTimeout(() => territoryPanel.remindExpiringProtection(), 6000);
+                }
+                setTimeout(() => this.applyPendingReferral(), 3000);
+                setTimeout(() => this.showMarketNotices(), 9000);
+            }
             
             // 사용자가 로그인하면 WebSocket 연결
             if (user) {
@@ -711,6 +860,22 @@ class BillionaireApp {
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
             log.info(`[BillionaireApp] 💰 PAYMENT_SUCCESS event received:`, data);
             const user = firebaseService.getCurrentUser();
+            
+            // 포인트 충전 성공: 잔액 부족으로 멈췄던 구매가 있으면 이어서 진행
+            if (data.type === 'points') {
+                const intent = takePendingIntent('purchase');
+                if (intent) {
+                    setTimeout(async () => {
+                        paymentService.closeModal();
+                        if (!territoryPanel.isOpen || territoryPanel.currentTerritory?.id !== intent.territoryId) {
+                            await openTerritoryById(intent.territoryId);
+                        }
+                        await territoryPanel.resumePendingPurchase(intent);
+                    }, 1200);
+                }
+                return;
+            }
+            
             if (user && data.territoryId) {
                 log.info(`[BillionaireApp] 🎯 Calling instantConquest for territory: ${data.territoryId}, user: ${user.uid}, protectionDays: ${data.protectionDays || null}`);
                 try {
@@ -758,8 +923,13 @@ class BillionaireApp {
             }
         });
         
+        document.getElementById('side-invite-btn')?.addEventListener('click', () => {
+            document.getElementById('side-menu')?.classList.add('hidden');
+            this.showInviteDialog();
+        });
+        
         document.getElementById('side-my-territories-btn')?.addEventListener('click', () => {
-            territoryListPanel.open();
+            territoryListPanel.openWithFilter('mine');
             // 사이드 메뉴 닫기
             const sideMenu = document.getElementById('side-menu');
             if (sideMenu) {
@@ -1065,7 +1235,7 @@ class BillionaireApp {
                             <li>🔥 Competitive auction system with strategic buffs</li>
                             <li>🎨 Pixel art editor for territory customization</li>
                             <li>🏆 Global rankings and achievements</li>
-                            <li>🤝 Collaboration features for team artwork</li>
+                            <li>🔗 Add your website link and see how many people click it</li>
                         </ul>
                     </div>
                     
@@ -1106,10 +1276,77 @@ class BillionaireApp {
     /**
      * WebSocket 이벤트 핸들러 설정
      */
+    /**
+     * 서버에서 영토 최신 상태를 받아 저장소/지도/열린 패널에 반영 (경매 종료, 소유자 변경 실시간 알림용)
+     */
+    async refreshTerritoryFromServer(territoryId) {
+        if (!territoryId) return;
+        try {
+            const data = await apiService.getTerritory(territoryId, { skipCache: true });
+            if (!data) return;
+            const { territoryAdapter } = await import('./adapters/TerritoryAdapter.js');
+            const fresh = territoryAdapter.toStandardModel(data);
+            const territory = territoryManager.getTerritory(territoryId);
+            if (territory) {
+                for (const field of ['ruler', 'rulerId', 'rulerName', 'sovereignty', 'status', 'protectionEndsAt', 'last_winning_amount', 'basePrice']) {
+                    territory[field] = fresh[field];
+                }
+                territory.currentAuction = undefined;
+            }
+            eventBus.emit(EVENTS.TERRITORY_UPDATE, { territoryId, territory: territory || fresh });
+            if (territoryPanel.isOpen && territoryPanel.currentTerritory?.id === territoryId) {
+                await territoryPanel.render();
+                territoryPanel.bindActions();
+            }
+        } catch (error) {
+            log.warn(`[BillionaireApp] Failed to refresh territory ${territoryId}:`, error.message);
+        }
+    }
+    
     setupWebSocketHandlers() {
+        // 서버 메시지 이름: backend/websocket/index.js (bid:created, auction:updated, territory:updated)
+        // 경매 종료/취소: 지도 표시 정리 + 영토 최신 상태 반영 + 잔액 갱신(낙찰 실패자 환불)
+        webSocketService.on('auction:updated', (data) => {
+            if (data?.status !== 'ended' && data?.status !== 'cancelled') return;
+            const auctionId = data.auctionId || data.id;
+            const cached = auctionSystem.activeAuctions?.get(auctionId);
+            const territoryId = data.territoryId || cached?.territoryId;
+            if (cached) {
+                cached.status = data.status;
+                auctionSystem.activeAuctions.delete(auctionId);
+            }
+            eventBus.emit(EVENTS.AUCTION_END, { auction: { id: auctionId, territoryId, status: data.status } });
+            this.refreshTerritoryFromServer(territoryId);
+            if (firebaseService.getCurrentUser()) {
+                walletService.refreshBalance().catch(() => {});
+            }
+        });
+        
+        // 다른 사용자의 구매 등으로 소유자가 바뀐 경우 (같은 영토 연속 알림은 묶어서 1번만 조회)
+        this._territoryRefreshTimers = new Map();
+        webSocketService.on('territory:updated', (data) => {
+            const territoryId = data?.territoryId || data?.id;
+            if (!territoryId) return;
+            clearTimeout(this._territoryRefreshTimers.get(territoryId));
+            this._territoryRefreshTimers.set(territoryId, setTimeout(() => {
+                this._territoryRefreshTimers.delete(territoryId);
+                this.refreshTerritoryFromServer(territoryId);
+            }, 800));
+        });
+        
         // 입찰 업데이트 이벤트
-        webSocketService.on('bidUpdate', async (data) => {
+        webSocketService.on('bid:created', async (data) => {
             log.info('[BillionaireApp] 📨 WebSocket bidUpdate received:', data);
+            
+            // 상위 입찰이 들어오면 이전 입찰자에게 예치금이 환불되므로 잔액 갱신 (중복 이벤트 묶음 처리)
+            if (firebaseService.getCurrentUser()) {
+                clearTimeout(this._bidBalanceRefreshTimer);
+                this._bidBalanceRefreshTimer = setTimeout(() => {
+                    walletService.refreshBalance().catch(err => {
+                        log.warn('[BillionaireApp] Failed to refresh balance after bid update:', err);
+                    });
+                }, 1000);
+            }
             
             // EventBus로 발행하여 기존 시스템과 통합
             eventBus.emit(EVENTS.AUCTION_BID, {
@@ -1121,6 +1358,12 @@ class BillionaireApp {
                 timestamp: data.timestamp
             });
             
+            // 마감 직전 입찰로 연장된 마감 시간 반영
+            const cachedAuction = data.endTime && auctionSystem.activeAuctions?.get(data.auctionId);
+            if (cachedAuction) {
+                cachedAuction.endTime = data.endTime;
+            }
+            
             // 경매 업데이트 이벤트도 발행 (UI 새로고침용)
             eventBus.emit(EVENTS.AUCTION_UPDATE, {
                 auction: {
@@ -1128,28 +1371,10 @@ class BillionaireApp {
                     territoryId: data.territoryId,
                     currentBid: data.amount,
                     currentBidderId: data.bidderId,
-                    currentBidderNickname: data.bidderNickname
+                    currentBidderNickname: data.bidderNickname,
+                    ...(data.endTime ? { endTime: data.endTime } : {})
                 }
             });
-        });
-        
-        // 영토 업데이트 이벤트
-        webSocketService.on('territoryUpdate', async (data) => {
-            log.info('[BillionaireApp] 📨 WebSocket territoryUpdate received:', data);
-            
-            // EventBus로 발행하여 기존 시스템과 통합
-            eventBus.emit(EVENTS.TERRITORY_UPDATE, {
-                territory: data
-            });
-            
-            // 영토 정복 이벤트 (필요한 경우)
-            if (data.status === 'occupied' && data.previousStatus !== 'occupied') {
-                eventBus.emit(EVENTS.TERRITORY_CONQUERED, {
-                    territoryId: data.territoryId || data.id,
-                    userId: data.rulerId,
-                    userName: data.rulerNickname
-                });
-            }
         });
         
         // 연결 상태 이벤트

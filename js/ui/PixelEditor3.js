@@ -459,6 +459,11 @@ class PixelEditor3 {
             // UI 바인딩
             this.bindUI();
             
+            // 화면에 선택돼 보이는 색과 실제 그리기 색을 일치시킴
+            this.setColor(this.color);
+            // 초기 화면 맞춤(fitToView)은 bindUI 전에 실행되므로 줌 표시를 다시 알림
+            pixelCanvas3.emitZoomChange();
+            
             // 배경 설정 적용
             pixelCanvas3.setBackground(this.backgroundMode, this.backgroundColor, this.checkerSize);
             
@@ -511,12 +516,6 @@ class PixelEditor3 {
      * 닫기
      */
     async close() {
-        // BackgroundStore 구독 해제
-        if (this.bgUnsubscribe) {
-            this.bgUnsubscribe();
-            this.bgUnsubscribe = null;
-        }
-        
         // 저장 중이면 사용자에게 확인
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         if (pixelCanvas3?.isSaving) {
@@ -565,6 +564,8 @@ class PixelEditor3 {
             if (!confirmed) return;
         }
         
+        // BackgroundStore 구독은 생성자에서 한 번만 하므로 닫을 때 해제하지 않음 (해제하면 다시 열었을 때 배경 설정이 동작하지 않음)
+        
         // 편집기를 닫기 전에 현재 영토 ID 저장
         const territoryId = this.currentTerritory?.id;
         
@@ -576,11 +577,7 @@ class PixelEditor3 {
         this.currentTerritory = null;
         this.hideShortcutsModal();
         
-        // beforeunload 이벤트 리스너 제거
-        if (this.beforeUnloadHandler) {
-            window.removeEventListener('beforeunload', this.beforeUnloadHandler);
-            this.beforeUnloadHandler = null;
-        }
+        // beforeunload 리스너는 유지 (핸들러가 isOpen을 확인하므로 닫힌 상태에서는 아무 동작 안 함)
         
         // 편집기를 닫은 후 맵에 픽셀 아트가 즉시 반영되도록 영토 새로고침
         // 모바일에서 편집 후 저장했을 때 맵에 즉시 보이도록 하는 핵심 로직
@@ -1009,11 +1006,16 @@ class PixelEditor3 {
         // 기존 클래스 제거
         statusEl.classList.remove('saving', 'saved', 'error', 'pending');
         
-        if (status === 'saving') {
+        if (status === 'unsaved') {
+            icon.textContent = '✏️';
+            text.textContent = message || 'Unsaved changes';
+            statusEl.classList.add('pending');
+        } else if (status === 'saving') {
             icon.textContent = '💾';
             text.textContent = message || 'Saving...';
             statusEl.classList.add('saving');
         } else if (status === 'saved') {
+            this.saveRetryCount = 0;
             icon.textContent = '✅';
             if (saveTime) {
                 const timeStr = new Date(saveTime).toLocaleTimeString('ko-KR', { 
@@ -1026,9 +1028,9 @@ class PixelEditor3 {
                 text.textContent = message || 'Saved';
             }
             statusEl.classList.add('saved');
-            // Show faded after 3 seconds
+            // Show faded after 3 seconds (그 사이 새로 그렸으면 'Unsaved' 표시 유지)
             setTimeout(() => {
-                if (this.container?.querySelector('#pixel-save-status-3')) {
+                if (this.container?.querySelector('#pixel-save-status-3') && !pixelCanvas3?.hasUnsavedChangesFlag) {
                     icon.textContent = '💾';
                     if (saveTime) {
                         const timeStr = new Date(saveTime).toLocaleTimeString('en-US', { 
@@ -1051,12 +1053,15 @@ class PixelEditor3 {
             text.textContent = message || 'Save failed';
             statusEl.classList.add('error');
             statusEl.title = error || 'An error occurred while saving. Please try again.';
-            // 5초 후 자동으로 다시 저장 시도
-            setTimeout(() => {
-                if (pixelCanvas3 && this.isOpen && !pixelCanvas3.isSaving) {
-                    pixelCanvas3.save();
-                }
-            }, 5000);
+            // 5초 후 자동으로 다시 저장 시도 (권한 문제 등으로 계속 실패하면 무한 반복하지 않도록 최대 3회)
+            this.saveRetryCount = (this.saveRetryCount || 0) + 1;
+            if (this.saveRetryCount <= 3) {
+                setTimeout(() => {
+                    if (pixelCanvas3 && this.isOpen && !pixelCanvas3.isSaving) {
+                        pixelCanvas3.save().catch(() => {});
+                    }
+                }, 5000);
+            }
         }
     }
     

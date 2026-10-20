@@ -120,7 +120,7 @@ class WalletService {
             let walletData = await apiService.getWallet();
             
             // API 응답 형식: { balance: number, updatedAt: timestamp }
-            const balance = walletData?.balance ?? 400; // 없으면 기본값 400 (스타터 포인트)
+            const balance = walletData?.balance ?? 0;
             
             // balance가 명시적으로 설정되어 있는지 확인
             this.currentBalance = (typeof balance === 'number' && !isNaN(balance)) ? balance : 400;
@@ -161,8 +161,8 @@ class WalletService {
             
         } catch (error) {
             log.error('Failed to load wallet:', error);
-            // 에러 발생 시 기본값 설정 (400pt 스타터 포인트)
-            this.currentBalance = 400;
+            // 잔액을 불러오지 못하면 0으로 표시 (실제 잔액은 서버가 구매 시 검증)
+            this.currentBalance = 0;
             log.warn(`[WalletService] ⚠️ Using default balance: ${this.currentBalance} pt`);
             
             // 이벤트 발행하여 UI 업데이트

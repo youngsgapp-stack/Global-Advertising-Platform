@@ -878,13 +878,19 @@ class PixelDataService {
      */
     async loadTiles(territoryId, tileIds, clientRevisions = {}) {
         try {
-            const tilesParam = tileIds.join(',');
-            const revisionsParam = JSON.stringify(clientRevisions);
+            // apiService.get()은 쿼리 객체를 받지 않으므로 URL에 직접 붙여야 함
+            // (빠지면 서버가 요청 타일 0개로 처리해 기존 그림이 빈 캔버스로 열림)
+            const params = new URLSearchParams({ tiles: tileIds.join(',') });
+            const nonZeroRevisions = Object.fromEntries(
+                Object.entries(clientRevisions).filter(([, revision]) => revision)
+            );
+            if (Object.keys(nonZeroRevisions).length > 0) {
+                params.set('revisions', JSON.stringify(nonZeroRevisions));
+            }
             
             // ⚠️ URL 중복 방지: baseUrl에 이미 /api가 포함되어 있으므로 /api 제거
             const response = await apiService.get(
-                `/territories/${territoryId}/pixels/tiles`,
-                { tiles: tilesParam, revisions: revisionsParam }
+                `/territories/${territoryId}/pixels/tiles?${params.toString()}`
             );
             
             return response;

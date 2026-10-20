@@ -65,6 +65,12 @@
                     <button class="nav-item" data-section="users">
                         👥 사용자 관리
                     </button>
+                    <button class="nav-item" data-section="payments">
+                        💳 결제 내역
+                    </button>
+                    <button class="nav-item" data-section="reports">
+                        🚩 신고
+                    </button>
                     <button class="nav-item" data-section="territories">
                         🗺️ 영토 관리
                     </button>
@@ -144,6 +150,21 @@
                             </div>
                         </div>
                         
+                        <div class="dashboard-card" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3>💵 매출 요약</h3>
+                                <select id="revenue-days" onchange="adminDashboard.loadRevenueSummary()">
+                                    <option value="7">최근 7일</option>
+                                    <option value="30" selected>최근 30일</option>
+                                    <option value="90">최근 90일</option>
+                                </select>
+                            </div>
+                            <div id="revenue-kpis" class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 12px 0;"></div>
+                            <div style="position: relative; height: 260px;">
+                                <canvas id="revenue-daily-chart"></canvas>
+                            </div>
+                        </div>
+                        
                         <div class="dashboard-grid">
                             <div class="dashboard-card">
                                 <h3>📈 최근 활동</h3>
@@ -164,24 +185,87 @@
                     <section id="section-users" class="admin-section">
                         <div class="section-header">
                             <div class="search-box">
-                                <input type="text" id="user-search" placeholder="사용자 검색...">
-                            </div>
-                            <div class="filter-buttons">
-                                <button class="filter-btn active" data-filter="all">전체</button>
-                                <button class="filter-btn" data-filter="active">활성</button>
-                                <button class="filter-btn" data-filter="banned">차단됨</button>
+                                <input type="text" id="user-search" placeholder="닉네임 또는 이메일 검색...">
                             </div>
                         </div>
                         <div class="data-table-wrapper">
                             <table class="data-table" id="users-table">
                                 <thead>
                                     <tr>
-                                        <th>사용자</th>
+                                        <th>닉네임</th>
                                         <th>이메일</th>
                                         <th>영토 수</th>
+                                        <th>잔액</th>
                                         <th>가입일</th>
-                                        <th>상태</th>
                                         <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="text-align: center; margin-top: 12px;">
+                            <button id="users-load-more" class="btn btn-secondary" style="display: none;" onclick="adminDashboard.loadUsersTable({ append: true })">더 보기</button>
+                        </div>
+                    </section>
+                    
+                    <!-- 결제 내역 섹션 -->
+                    <section id="section-payments" class="admin-section">
+                        <div id="payments-summary" class="stats-grid" style="margin-bottom: 16px;"></div>
+                        <div class="section-header">
+                            <div class="search-box">
+                                <input type="text" id="payment-search" placeholder="주문번호 / 이메일 / 닉네임 검색...">
+                            </div>
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-filter="all">전체</button>
+                                <button class="filter-btn" data-filter="credited">충전 완료</button>
+                                <button class="filter-btn" data-filter="credit_failed">포인트 미지급</button>
+                                <button class="filter-btn" data-filter="failed">결제 실패</button>
+                            </div>
+                        </div>
+                        <p style="color: #888; font-size: 13px; margin: 0 0 10px 0;">"포인트 미지급"은 PayPal 결제는 됐지만 포인트 지급이 실패한 건입니다. [포인트 지급] 버튼으로 바로 처리할 수 있습니다. 돈 환불은 PayPal 사이트에서 하고, 여기서는 포인트를 차감하세요.</p>
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="payments-table">
+                                <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>사용자</th>
+                                        <th>금액</th>
+                                        <th>포인트</th>
+                                        <th>상태</th>
+                                        <th>주문번호 / 오류</th>
+                                        <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- 신고 섹션 -->
+                    <section id="section-reports" class="admin-section">
+                        <div class="section-header">
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-filter="open">처리 대기</button>
+                                <button class="filter-btn" data-filter="resolved">조치함</button>
+                                <button class="filter-btn" data-filter="dismissed">문제 없음</button>
+                                <button class="filter-btn" data-filter="all">전체</button>
+                            </div>
+                        </div>
+                        <p style="color: #888; font-size: 13px; margin: 0 0 10px 0;">처리하면 같은 영토의 대기 중인 신고가 함께 정리됩니다. "링크 차단"은 링크를 지우고 다시 못 달게 막습니다 (주인이 바뀌면 풀림).</p>
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="reports-table">
+                                <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>영토</th>
+                                        <th>사유</th>
+                                        <th>신고자</th>
+                                        <th>현재 링크</th>
+                                        <th>처리</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -213,10 +297,20 @@
                                 <select id="country-filter">
                                     <option value="">전체 국가</option>
                                 </select>
-                                <button class="btn btn-danger" onclick="adminDashboard.showResetAllTerritoriesModal()" style="margin-left: auto;">
-                                    🔄 모든 영토 초기화
+                                <button class="btn btn-primary" onclick="adminDashboard.showBulkPriceModal()" style="margin-left: auto;">
+                                    💲 가격 일괄 조정
                                 </button>
                             </div>
+                        </div>
+                        <div class="dashboard-card" style="margin-bottom: 16px;">
+                            <h3>📅 광고판 (주 단위 예약 영토)</h3>
+                            <p style="color: #888; font-size: 13px; margin: 6px 0 10px 0;">인기 지역을 광고판으로 지정하면 소유 대신 주 단위(월요일 00:00 UTC 시작)로 예약됩니다. 주인이 없는 영토만 지정할 수 있고, 예약이 남아 있으면 해제할 수 없습니다.</p>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <input type="text" id="billboard-territory-id" placeholder="영토 ID (예: seoul)" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
+                                <button class="btn btn-primary" onclick="adminDashboard.setBillboard(true)">광고판으로 지정</button>
+                                <button class="btn btn-secondary" onclick="adminDashboard.setBillboard(false)">광고판 해제</button>
+                            </div>
+                            <div id="billboard-list" style="margin-top: 12px;"></div>
                         </div>
                         <div class="data-table-wrapper">
                             <table class="data-table" id="territories-table">
@@ -245,9 +339,6 @@
                                 <button class="filter-btn" data-filter="ended">종료됨</button>
                                 <button class="filter-btn" data-filter="all">전체</button>
                             </div>
-                            <button class="btn btn-primary" onclick="adminDashboard.processAllEndedAuctions()" style="margin-left: 10px;">
-                                🔄 종료된 옥션 소유권 일괄 처리
-                            </button>
                         </div>
                         <div class="data-table-wrapper">
                             <table class="data-table" id="auctions-table">
@@ -317,12 +408,6 @@
                     <section id="section-logs" class="admin-section">
                         <div class="section-header">
                             <h3>📝 관리자 활동 로그</h3>
-                            <div class="filter-buttons">
-                                <button class="filter-btn active" data-filter="all">전체</button>
-                                <button class="filter-btn" data-filter="user">사용자</button>
-                                <button class="filter-btn" data-filter="territory">영토</button>
-                                <button class="filter-btn" data-filter="auction">옥션</button>
-                            </div>
                         </div>
                         <div id="admin-logs" class="logs-container">
                             <div class="loading">로그 로딩 중...</div>
@@ -333,61 +418,17 @@
                     <section id="section-settings" class="admin-section">
                         <div class="settings-grid">
                             <div class="settings-card">
-                                <h3>⚙️ 일반 설정</h3>
-                                <div class="settings-form">
-                                    <div class="form-group">
-                                        <label>사이트명</label>
-                                        <input type="text" value="Own a Piece of Earth" id="setting-site-name">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>기본 통화</label>
-                                        <select id="setting-currency">
-                                            <option value="USD">USD ($)</option>
-                                            <option value="EUR">EUR (€)</option>
-                                            <option value="KRW">KRW (₩)</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>최소 입찰 증가율 (%)</label>
-                                        <input type="number" value="5" id="setting-bid-increment">
-                                    </div>
-                                    <button class="btn btn-primary">설정 저장</button>
-                                </div>
-                            </div>
-                            
-                            <div class="settings-card">
                                 <h3>🔐 관리자 계정</h3>
                                 <div style="background: #f0f7ff; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #0066cc;">
-                                    <p style="margin: 0 0 10px 0; color: #0066cc; font-weight: 600; font-size: 14px;">📋 관리자 계정 안내</p>
                                     <ul style="margin: 0; padding-left: 20px; color: #333; font-size: 13px; line-height: 1.8;">
-                                        <li><strong>관리자 계정</strong>은 관리자 대시보드에 접근할 수 있는 계정입니다</li>
-                                        <li><strong>최고 관리자</strong>는 모든 권한을 가진 최상위 관리자입니다</li>
-                                        <li>관리자 추가/삭제는 <strong>코드 수정</strong>이 필요하며, 서버 재시작 후 적용됩니다</li>
-                                        <li>현재 <strong id="admin-count">4</strong>개의 관리자 계정이 등록되어 있습니다</li>
+                                        <li>관리자 권한은 <strong>서버(Railway) 환경변수 ADMIN_EMAILS</strong>로 결정됩니다 (쉼표로 구분)</li>
+                                        <li>추가하려면: Firebase Authentication에 계정 생성 → ADMIN_EMAILS에 이메일 추가 → 백엔드 재시작</li>
+                                        <li>비밀번호는 Firebase에서만 관리합니다 (이 화면에서 저장하지 않음)</li>
                                     </ul>
                                 </div>
                                 <div id="admin-list" class="admin-list">
                                     <div class="loading">관리자 목록 로딩 중...</div>
                                 </div>
-                                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                                    <button class="btn btn-secondary" onclick="adminDashboard.showAddAdminModal()">➕ 관리자 추가</button>
-                                    <button class="btn btn-outline" onclick="adminDashboard.showRemoveAdminModal()" style="display: none;">➖ 관리자 삭제</button>
-                                </div>
-                            </div>
-                            
-                            <div class="settings-card">
-                                <h3>💾 데이터 관리</h3>
-                                <p class="card-description">Firestore 데이터 백업 및 복원</p>
-                                <div class="data-actions">
-                                    <button id="backup-btn" class="btn btn-secondary" onclick="adminDashboard.backupData()">
-                                        📥 데이터 백업
-                                    </button>
-                                    <button id="restore-btn" class="btn btn-secondary" onclick="adminDashboard.restoreData()">
-                                        📤 데이터 복원
-                                    </button>
-                                    <button class="btn btn-danger">🗑️ 캐시 삭제</button>
-                                </div>
-                                <p class="data-warning">⚠️ 복원 시 기존 데이터가 덮어쓰기 됩니다. 주의하세요.</p>
                             </div>
                         </div>
                     </section>

@@ -8,6 +8,7 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 import territoryManager, { SOVEREIGNTY } from '../core/TerritoryManager.js';
 import { mapController } from '../core/MapController.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
+import { firebaseService } from '../services/FirebaseService.js';
 
 class TerritoryListPanel {
     constructor() {
@@ -110,7 +111,8 @@ class TerritoryListPanel {
             'all': '🗺️ All Territories',
             'available': '🏴 Available Territories',
             'auction': '🔥 Territories in Auction',
-            'owned': '🏰 Owned Territories'
+            'owned': '🏰 Owned Territories',
+            'mine': '📍 My Spots'
         };
         
         const titleEl = document.getElementById('territory-list-title');
@@ -130,9 +132,9 @@ class TerritoryListPanel {
         // 다른 패널들 닫기
         this.closeOtherPanels();
         
-        this.updateList();
         this.container.classList.remove('hidden');
         this.isOpen = true;
+        this.updateList();
         
         // 사이드 메뉴 닫기
         const sideMenu = document.getElementById('side-menu');
@@ -247,27 +249,30 @@ class TerritoryListPanel {
         
         // 검색 필터
         if (this.searchQuery) {
-            filtered = filtered.filter(t => {
-                const name = this.extractName(t.name) || t.id;
-                return name.toLowerCase().includes(this.searchQuery);
-            });
+            filtered = filtered.filter(t => this.displayNameOf(t).toLowerCase().includes(this.searchQuery));
         }
         
         // 정렬: 가격 순
-        filtered.sort((a, b) => (b.tribute || 0) - (a.tribute || 0));
+        filtered.sort((a, b) => this.getPrice(b) - this.getPrice(a));
         
         // 카운트 업데이트
         const countEl = document.getElementById('territory-list-count');
         if (countEl) {
-            countEl.textContent = `${filtered.length} territories`;
+            countEl.textContent = `${filtered.length.toLocaleString()} ${filtered.length === 1 ? 'territory' : 'territories'}`;
         }
         
         // 빈 상태
         if (filtered.length === 0) {
+            const signedIn = !!firebaseService.getCurrentUser();
+            const message = this.currentFilter !== 'mine'
+                ? 'No territories found'
+                : signedIn
+                    ? "You don't own any spots yet. Pick an available territory on the map to claim it."
+                    : 'Sign in to see the spots you own.';
             this.contentContainer.innerHTML = `
                 <div class="territory-list-empty">
-                    <div class="empty-icon">🏜️</div>
-                    <p>No territories found</p>
+                    <div class="empty-icon">${this.currentFilter === 'mine' ? '📍' : '🏜️'}</div>
+                    <p>${message}</p>
                 </div>
             `;
             return;
@@ -302,6 +307,10 @@ class TerritoryListPanel {
                 return this.territories.filter(t => 
                     t.sovereignty === SOVEREIGNTY.RULED || t.sovereignty === SOVEREIGNTY.PROTECTED
                 );
+            case 'mine': {
+                const uid = firebaseService.getCurrentUser()?.uid;
+                return uid ? this.territories.filter(t => t.ruler === uid) : [];
+            }
             default:
                 return this.territories;
         }
@@ -311,9 +320,8 @@ class TerritoryListPanel {
      * 아이템 렌더링
      */
     renderItem(territory) {
-        const name = this.extractName(territory.name) || territory.id;
-        const status = this.getStatus(territory);
-        const price = this.formatPrice(territory.tribute || CONFIG.TERRITORY.DEFAULT_TRIBUTE);
+        const name = this.displayNameOf(territory);
+        const price = this.formatPrice(this.getPrice(territory));
         
         let icon = '🏴';
         let statusClass = 'available';
@@ -773,6 +781,24 @@ class TerritoryListPanel {
     }
     
     /**
+     * 목록에 표시할 이름 (DB 이름이 ID 슬러그뿐이면 지도 데이터의 이름 사용)
+     */
+    displayNameOf(territory) {
+        const name = this.extractName(territory.name);
+        if (name && name !== territory.id) return name;
+        return this.getMapName(territory.id) || name || territory.id;
+    }
+    
+    getMapName(territoryId) {
+        if (!this.mapNames) {
+            const features = mapController.map?.getSource?.('world-territories')?._data?.features;
+            if (!features) return null;
+            this.mapNames = new Map(features.map(f => [f.properties?.id, f.properties?.name || f.properties?.name_en]));
+        }
+        return this.mapNames.get(territoryId) || null;
+    }
+    
+    /**
      * 이름 추출
      */
     extractName(name) {
@@ -818,6 +844,17 @@ class TerritoryListPanel {
             return 'owned';
         }
         return 'available';
+    }
+    
+    /**
+     * 표시 가격 (소유된 영토는 마지막 거래가, 아니면 주당 기본가)
+     */
+    getPrice(territory) {
+        return Number(territory.last_winning_amount) ||
+            Number(territory.purchasedPrice) ||
+            Number(territory.basePrice) ||
+            CONFIG.TERRITORY.DEFAULT_TRIBUTE ||
+            0;
     }
     
     /**

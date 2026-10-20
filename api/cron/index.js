@@ -28,12 +28,11 @@ module.exports = async function handler(req, res) {
     }
     
     // ⚠️ 마이그레이션 완료: Firestore 비활성화, 백엔드 API로 리다이렉트
-    const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:3001';
+    const BACKEND_API_URL = process.env.BACKEND_API_URL || 'https://global-advertising-platform-production.up.railway.app';
+    const jobType = (req.query && req.query.job) || (req.body && req.body.job) || 'all';
+    const backendUrl = `${BACKEND_API_URL}/api/cron?job=${encodeURIComponent(jobType)}`;
     
     try {
-        // 백엔드 API로 리다이렉트
-        const jobType = req.query.job || req.body.job || 'all';
-        const backendUrl = `${BACKEND_API_URL}/api/cron?job=${jobType}`;
         
         // ⚠️ 로그 추가: Vercel Cron Job 실행 확인용
         console.log(`[Cron] ⚡ Vercel Cron Job triggered: job=${jobType}, time=${new Date().toISOString()}`);
@@ -50,7 +49,8 @@ module.exports = async function handler(req, res) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+                    ...(req.headers.authorization && { 'Authorization': req.headers.authorization }),
+                    ...(cronSecret && { 'X-Cron-Secret': cronSecret })
                 },
                 body: JSON.stringify(req.body || {}),
                 signal: controller.signal

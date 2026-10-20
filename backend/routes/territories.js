@@ -9,8 +9,32 @@ import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateTerritoryCache } from '../redis/cache-utils.js';
 import { broadcastTerritoryUpdate } from '../websocket/index.js';
 import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
+import { isAdminUser } from '../middleware/admin.js';
+import { releaseAuctionHolds, adjustWalletBalance } from '../utils/wallet-utils.js';
 
 const router = express.Router();
+
+// 영토 최소 가격 (pt). 프론트엔드 calculateTerritoryPrice의 최소 시작가와 동일
+export const MIN_TERRITORY_PRICE = 50;
+
+// js/ui/TerritoryPanel.js showPurchaseOptionsModal()의 purchaseOptions와 동일하게 유지
+export const PURCHASE_PROTECTION_MULTIPLIERS = {
+    7: 1.0,
+    30: 3.5,
+    365: 30.0,
+    lifetime: 100.0
+};
+
+/**
+ * 서버가 인정하는 영토 기준가 (1주일 가격, 클라이언트 계산값이 이보다 낮으면 거부)
+ * base_price: scripts/compute-territory-prices.js로 계산한 정가 (구매 후에는 1주일 기준가)
+ * market_base_price: 경매 낙찰가로 갱신되는 시장 기준가 (있으면 우선, TerritoryPanel과 동일한 우선순위)
+ */
+export function getServerBasePrice(territory) {
+    const marketBase = parseFloat(territory.market_base_price || 0) || 0;
+    const listBase = parseFloat(territory.base_price || 0) || 0;
+    return Math.max(MIN_TERRITORY_PRICE, marketBase > 0 ? marketBase : listBase);
+}
 
 /**
  * ⚡ 성능 최적화: ETag 생성 헬퍼 함수
@@ -216,8 +240,7 @@ router.get('/', async (req, res) => {
                 territory.ruler = row.ruler_id ? {
                     id: row.ruler_id,
                     firebase_uid: row.ruler_firebase_uid,
-                    name: row.ruler_name || row.ruler_nickname,
-                    email: row.ruler_email
+                    name: row.ruler_name || row.ruler_nickname
                 } : null;
                 territory.basePrice = parseFloat(row.base_price || 0);
                 // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
@@ -280,8 +303,7 @@ router.get('/', async (req, res) => {
                         territory.ruler = row.ruler_id ? {
                             id: row.ruler_id,
                             firebase_uid: row.ruler_firebase_uid,
-                            name: row.ruler_name || row.ruler_nickname,
-                            email: row.ruler_email
+                            name: row.ruler_name || row.ruler_nickname
                         } : null;
                     },
                     'auction': () => {
@@ -391,6 +413,67 @@ router.get('/:id/auctions/active', async (req, res) => {
 });
 
 /**
+ * GET /api/territories/activity/recent
+ * 사이트 전체 최근 활동 (구매/입찰/경매 시작). 공개 API라 닉네임만 노출
+ */
+router.get('/activity/recent', async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const cacheKey = `activity:recent:${limit}`;
+    try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+            return res.json(cached);
+        }
+        const result = await query(
+            `SELECT * FROM (
+                SELECT 'claim' AS type, o.territory_id, t.name AS territory_name, u.nickname, o.price AS amount, o.acquired_at AS at
+                FROM ownerships o
+                JOIN territories t ON t.id = o.territory_id
+                LEFT JOIN users u ON u.id = o.user_id
+                UNION ALL
+                SELECT 'bid', a.territory_id, t.name, u.nickname, b.amount, b.created_at
+                FROM bids b
+                JOIN auctions a ON a.id = b.auction_id
+                JOIN territories t ON t.id = a.territory_id
+                LEFT JOIN users u ON u.id = b.user_id
+                UNION ALL
+                SELECT 'auction_start', a.territory_id, t.name, NULL, a.min_bid, a.created_at
+                FROM auctions a
+                JOIN territories t ON t.id = a.territory_id
+            ) events
+            WHERE at IS NOT NULL
+            ORDER BY at DESC
+            LIMIT $1`,
+            [limit]
+        );
+        const events = result.rows.map(row => {
+            let name = row.territory_name || row.territory_id;
+            if (typeof name === 'string' && name.trim().startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(name);
+                    name = parsed.en || parsed.local || row.territory_id;
+                } catch {
+                    // 일반 문자열 이름
+                }
+            }
+            return {
+                type: row.type,
+                territoryId: row.territory_id,
+                territoryName: name,
+                user: row.nickname || null,
+                amount: row.amount !== null ? parseFloat(row.amount) : null,
+                at: row.at
+            };
+        });
+        await redis.set(cacheKey, events, 30);
+        res.json(events);
+    } catch (error) {
+        console.error('[Territories] Recent activity error:', error);
+        res.status(500).json({ error: 'Failed to fetch recent activity' });
+    }
+});
+
+/**
  * POST /api/territories/:id/view
  * 영토 조회수 증가
  */
@@ -418,14 +501,10 @@ router.post('/:id/view', async (req, res) => {
         try {
             await query(
                 `UPDATE territories 
-                 SET view_count = COALESCE(view_count, 0) + 1,
-                     updated_at = NOW()
+                 SET view_count = COALESCE(view_count, 0) + 1
                  WHERE id = $1`,
                 [territoryId]
             );
-            
-            // Redis 캐시 무효화
-            await invalidateTerritoryCache(territoryId);
         } catch (updateError) {
             // 조회수 업데이트 실패는 무시 (로그만 기록)
             console.warn(`[Territories] Failed to increment view count for ${territoryId}:`, updateError.message);
@@ -452,12 +531,23 @@ router.post('/:id/purchase', async (req, res) => {
     
     try {
         const { id: territoryIdParam } = req.params;
-        const { 
-            price,
-            protectionDays,
-            purchasedByAdmin = false
-        } = req.body;
+        const { price, protectionDays: rawProtectionDays } = req.body;
+        const purchasedByAdmin = isAdminUser(req.user) && req.body.purchasedByAdmin === true;
         const firebaseUid = req.user.uid;
+        
+        // 보호 기간: 7/30/365일 또는 null(평생)만 허용
+        const protectionDays = rawProtectionDays === null || rawProtectionDays === undefined || rawProtectionDays === 'lifetime'
+            ? null
+            : Number(rawProtectionDays);
+        const protectionKey = protectionDays === null ? 'lifetime' : protectionDays;
+        const protectionMultiplier = PURCHASE_PROTECTION_MULTIPLIERS[protectionKey];
+        
+        if (!protectionMultiplier) {
+            return res.status(400).json({
+                error: 'Invalid protection period',
+                allowed: [7, 30, 365, null]
+            });
+        }
         
         // ID 검증 및 Canonical ID 변환 (트랜잭션 시작 전에 수행)
         const idValidation = validateTerritoryIdParam(territoryIdParam, {
@@ -467,7 +557,6 @@ router.post('/:id/purchase', async (req, res) => {
         });
         
         if (!idValidation || !idValidation.canonicalId) {
-            client.release();
             return res.status(400).json({ 
                 error: idValidation?.error || 'Invalid territory ID format',
                 received: territoryIdParam
@@ -488,7 +577,6 @@ router.post('/:id/purchase', async (req, res) => {
             
             if (userResult.rows.length === 0) {
                 await client.query('ROLLBACK');
-                client.release();
                 return res.status(404).json({ error: 'User not found' });
             }
             
@@ -502,7 +590,6 @@ router.post('/:id/purchase', async (req, res) => {
             // UUID를 string으로 변환하여 저장 (PostgreSQL UUID 타입은 string으로 처리)
             if (userId === null || userId === undefined) {
                 await client.query('ROLLBACK');
-                client.release();
                 console.error(`[Territories] Purchase: userId is null or undefined`);
                 return res.status(500).json({ error: 'User ID is missing' });
             }
@@ -539,7 +626,6 @@ router.post('/:id/purchase', async (req, res) => {
             
             if (territoryResult.rows.length === 0) {
                 await client.query('ROLLBACK');
-                client.release();
                 return res.status(404).json({ error: 'Territory not found' });
             }
             
@@ -548,34 +634,54 @@ router.post('/:id/purchase', async (req, res) => {
             // 3. 이미 소유자가 있는지 확인
             if (territory.ruler_id && territory.ruler_id !== userId) {
                 await client.query('ROLLBACK');
-                client.release();
                 return res.status(409).json({ 
                     error: 'Territory already owned by another user',
                     currentOwner: territory.ruler_id
                 });
             }
-            
-            // 4. 가격 확인
-            const purchasePrice = price || parseFloat(territory.base_price || 0);
-            if (purchasePrice <= 0) {
+            if (territory.is_billboard) {
                 await client.query('ROLLBACK');
-                client.release();
-                return res.status(400).json({ error: 'Invalid purchase price' });
+                return res.status(409).json({ error: 'This spot is a billboard. Book a weekly slot instead.', code: 'BILLBOARD' });
             }
             
+            // 3-1. 진행 중인 경매가 있으면 즉시 구매가는 최고 입찰가보다 높아야 함
+            const activeAuctionResult = await client.query(
+                `SELECT a.id, COALESCE(MAX(b.amount), 0) AS highest_bid
+                 FROM auctions a
+                 LEFT JOIN bids b ON b.auction_id = a.id
+                 WHERE a.territory_id = $1 AND a.status = 'active'
+                 GROUP BY a.id`,
+                [territoryId]
+            );
+            const highestActiveBid = Math.max(0, ...activeAuctionResult.rows.map(r => parseFloat(r.highest_bid) || 0));
+            
+            // 4. 가격 확인 (서버 기준 최저가 미만이면 거부)
+            const priceBase = Math.max(getServerBasePrice(territory), highestActiveBid + 1);
+            const requiredPrice = Math.ceil(priceBase * protectionMultiplier);
+            const requestedPrice = parseFloat(price);
+            if (!Number.isFinite(requestedPrice) || requestedPrice < requiredPrice) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Invalid purchase price',
+                    message: `Minimum price for this option is ${requiredPrice} pt`,
+                    requiredPrice
+                });
+            }
+            const purchasePrice = requestedPrice;
+            // 기준가는 1주일 가격 기준으로 저장 (1년/평생 구매 총액이 다음 구매자의 기준가가 되지 않도록)
+            const weeklyBasePrice = Math.ceil(purchasePrice / protectionMultiplier);
+            
             // ⚠️ 중요: market_base_price 계산 (초기 구매 시)
-            // 기존 market_base_price가 있으면 유지, 없으면 base_price와 purchasePrice 중 큰 값 사용
+            // 기존 market_base_price가 있으면 유지, 없으면 이번 구매의 1주일 기준가 사용
             let marketBasePrice = parseFloat(territory.market_base_price || 0);
             if (!marketBasePrice || marketBasePrice <= 0) {
-                const basePrice = parseFloat(territory.base_price || 0);
-                marketBasePrice = Math.max(basePrice, purchasePrice);
-                console.log(`[Territories] Purchase: Setting initial market_base_price: ${marketBasePrice} (basePrice: ${basePrice}, purchasePrice: ${purchasePrice})`);
+                marketBasePrice = weeklyBasePrice;
+                console.log(`[Territories] Purchase: Setting initial market_base_price: ${marketBasePrice} (purchasePrice: ${purchasePrice}, multiplier: ${protectionMultiplier})`);
             }
             
             // 5. 잔액 확인
             if (currentBalance < purchasePrice) {
                 await client.query('ROLLBACK');
-                client.release();
                 return res.status(402).json({ 
                     error: 'Insufficient balance',
                     required: purchasePrice,
@@ -602,6 +708,15 @@ router.post('/:id/purchase', async (req, res) => {
                     `INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, description, reference_id)
                      VALUES ($1, $2, $3, $4, $5, $6)`,
                     [walletId, userId, 'purchase', -purchasePrice, `Territory purchase: ${territoryId}`, territoryId]
+                );
+            }
+            
+            // 즉시 구매로 진행 중인 경매 취소 (입찰 예치금 환불)
+            for (const row of activeAuctionResult.rows) {
+                await releaseAuctionHolds(client, row.id, { reason: `Auction cancelled by instant purchase: ${territoryId}` });
+                await client.query(
+                    `UPDATE auctions SET status = 'cancelled', ended_at = NOW(), updated_at = NOW() WHERE id = $1`,
+                    [row.id]
                 );
             }
             
@@ -645,10 +760,11 @@ router.post('/:id/purchase', async (req, res) => {
                     base_price = $3,
                     market_base_price = $4,
                     purchased_by_admin = $5,
+                    current_auction_id = NULL,
                     updated_at = NOW()
                 WHERE id = $6
                 RETURNING *`,
-                [userIdString, protectionEndsAt, purchasePrice, marketBasePrice, purchasedByAdmin, territoryId]
+                [userIdString, protectionEndsAt, weeklyBasePrice, marketBasePrice, purchasedByAdmin, territoryId]
             );
             
             // ⚠️ 디버깅: 업데이트 결과 확인
@@ -866,7 +982,7 @@ router.post('/:id/purchase', async (req, res) => {
                     rulerName: rulerNickname || updatedTerritory.ruler_name,
                     previousRulerId: previousRulerId,
                     protectionEndsAt: updatedTerritory.protection_ends_at,
-                    purchasedPrice: updatedTerritory.base_price,
+                    purchasedPrice: purchasePrice,
                     purchasedByAdmin: updatedTerritory.purchased_by_admin,
                     updatedAt: updatedTerritory.updated_at
                 });
@@ -942,6 +1058,276 @@ router.post('/:id/purchase', async (req, res) => {
         if (client && !client.released) {
             client.release();
         }
+    }
+});
+
+const SITE_URL = process.env.SITE_URL || 'https://www.worldadvertisingmap.com';
+const AD_TITLE_MAX = 80;
+const AD_URL_MAX = 500;
+const REPORT_REASONS = ['art', 'link', 'spam', 'other'];
+
+function resolveTerritoryId(param) {
+    const validation = validateTerritoryIdParam(param, { strict: false, autoConvert: true, logWarning: false });
+    return validation?.canonicalId || null;
+}
+
+async function getUserIdByFirebaseUid(uid) {
+    const result = await query(`SELECT id FROM users WHERE firebase_uid = $1`, [uid]);
+    return result.rows[0]?.id || null;
+}
+
+/**
+ * 광고 링크 정규화: http(s)만 허용, 스킴이 없으면 https 붙임
+ * @returns {string|null} 유효하지 않으면 null
+ */
+function normalizeAdUrl(raw) {
+    let value = String(raw || '').trim();
+    if (!value) return null;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+        value = `https://${value}`;
+    }
+    try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol)) return null;
+        if (!url.hostname.includes('.') || url.username || url.password) return null;
+        const normalized = url.toString();
+        return normalized.length <= AD_URL_MAX ? normalized : null;
+    } catch {
+        return null;
+    }
+}
+
+function sanitizeAdTitle(raw) {
+    return String(raw || '')
+        .replace(/[\u0000-\u001f\u007f<>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, AD_TITLE_MAX);
+}
+
+/**
+ * PUT /api/territories/:id/ad
+ * 영토 주인이 광고 링크/소개 문구를 설정 (url을 비우면 삭제)
+ */
+router.put('/:id/ad', async (req, res) => {
+    if (!req.user?.uid) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+    const territoryId = resolveTerritoryId(req.params.id);
+    if (!territoryId) {
+        return res.status(400).json({ error: 'Invalid territory ID' });
+    }
+    
+    const rawUrl = String(req.body?.url || '').trim();
+    const url = rawUrl ? normalizeAdUrl(rawUrl) : null;
+    const title = sanitizeAdTitle(req.body?.title);
+    if (rawUrl && !url) {
+        return res.status(400).json({ error: 'Please enter a valid website address (http or https).' });
+    }
+    
+    try {
+        const userId = await getUserIdByFirebaseUid(req.user.uid);
+        const result = await query(`SELECT ruler_id, ad_hidden FROM territories WHERE id = $1`, [territoryId]);
+        const territory = result.rows[0];
+        if (!territory) {
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        const isOwner = userId && String(territory.ruler_id) === String(userId);
+        if (!isOwner && !isAdminUser(req.user)) {
+            return res.status(403).json({ error: 'Only the owner can edit this link' });
+        }
+        if (territory.ad_hidden && url && !isAdminUser(req.user)) {
+            return res.status(403).json({ error: 'Links are blocked on this territory by a moderator.' });
+        }
+        
+        await query(
+            `UPDATE territories
+             SET ad_url = $1, ad_title = $2, ad_updated_at = NOW()
+             WHERE id = $3`,
+            [url, url ? (title || null) : null, territoryId]
+        );
+        await invalidateTerritoryCache(territoryId);
+        res.json({ success: true, territoryId, adUrl: url, adTitle: url ? (title || null) : null });
+    } catch (error) {
+        console.error('[Territories] Update ad error:', error);
+        res.status(500).json({ error: 'Failed to update link' });
+    }
+});
+
+/**
+ * GET /api/territories/:id/go
+ * 광고 링크로 이동 (클릭 수 집계, 같은 방문자는 10분에 1번만 집계)
+ */
+router.get('/:id/go', async (req, res) => {
+    const territoryId = resolveTerritoryId(req.params.id);
+    const fallback = `${SITE_URL}/?territory=${encodeURIComponent(req.params.id || '')}`;
+    if (!territoryId) {
+        return res.redirect(302, fallback);
+    }
+    try {
+        const result = await query(
+            `SELECT ad_url FROM territories WHERE id = $1 AND ad_hidden = false AND ad_url IS NOT NULL`,
+            [territoryId]
+        );
+        const adUrl = result.rows[0]?.ad_url;
+        if (!adUrl) {
+            return res.redirect(302, fallback);
+        }
+        
+        const visitorKey = crypto.createHash('sha256')
+            .update(`${req.ip}|${req.headers['user-agent'] || ''}`)
+            .digest('hex')
+            .slice(0, 16);
+        const dedupeKey = `adclick:${territoryId}:${visitorKey}`;
+        const seen = await redis.get(dedupeKey);
+        if (!seen) {
+            await redis.set(dedupeKey, 1, 600);
+            await query(`UPDATE territories SET ad_clicks = ad_clicks + 1 WHERE id = $1`, [territoryId]);
+        }
+        res.setHeader('Cache-Control', 'no-store');
+        res.redirect(302, adUrl);
+    } catch (error) {
+        console.error('[Territories] Ad redirect error:', error);
+        res.redirect(302, fallback);
+    }
+});
+
+/**
+ * POST /api/territories/:id/report
+ * 그림/링크 신고 (로그인 필요, 같은 사람은 처리 전까지 1건)
+ */
+router.post('/:id/report', async (req, res) => {
+    if (!req.user?.uid) {
+        return res.status(401).json({ error: 'Please sign in to report' });
+    }
+    const territoryId = resolveTerritoryId(req.params.id);
+    const reason = String(req.body?.reason || '');
+    const details = String(req.body?.details || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500);
+    if (!territoryId) {
+        return res.status(400).json({ error: 'Invalid territory ID' });
+    }
+    if (!REPORT_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'Invalid reason', allowed: REPORT_REASONS });
+    }
+    
+    try {
+        const userId = await getUserIdByFirebaseUid(req.user.uid);
+        if (!userId) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        await query(
+            `INSERT INTO territory_reports (territory_id, reporter_id, reason, details)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (territory_id, reporter_id) WHERE status = 'open' DO NOTHING`,
+            [territoryId, userId, reason, details || null]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        if (error.code === '23503') {
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        console.error('[Territories] Report error:', error);
+        res.status(500).json({ error: 'Failed to submit report' });
+    }
+});
+
+/**
+ * POST /api/territories/:id/extend
+ * 주인이 보호 기간 연장 (구매와 같은 가격표: 기준가 × 기간 배수)
+ * body: { protectionDays: 7 | 30 | 365 | null(평생) }
+ * 남은 보호 기간이 있으면 그 끝에서부터 연장
+ */
+router.post('/:id/extend', async (req, res) => {
+    if (!req.user?.uid) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+    const territoryId = resolveTerritoryId(req.params.id);
+    if (!territoryId) {
+        return res.status(400).json({ error: 'Invalid territory ID' });
+    }
+    const raw = req.body?.protectionDays;
+    const protectionDays = raw === null || raw === undefined || raw === 'lifetime' ? null : Number(raw);
+    const multiplier = PURCHASE_PROTECTION_MULTIPLIERS[protectionDays === null ? 'lifetime' : protectionDays];
+    if (!multiplier) {
+        return res.status(400).json({ error: 'Invalid protection period', allowed: [7, 30, 365, null] });
+    }
+    
+    const client = await getPool().connect();
+    try {
+        await client.query('BEGIN');
+        const userResult = await client.query(`SELECT id FROM users WHERE firebase_uid = $1`, [req.user.uid]);
+        const userId = userResult.rows[0]?.id;
+        const territoryResult = await client.query(
+            `SELECT id, ruler_id, sovereignty, protection_ends_at, base_price, market_base_price, is_billboard
+             FROM territories WHERE id = $1 FOR UPDATE`,
+            [territoryId]
+        );
+        const territory = territoryResult.rows[0];
+        if (!territory) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        if (territory.is_billboard) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'Billboard spots are booked by the week. Book more weeks instead.' });
+        }
+        if (!userId || String(territory.ruler_id) !== String(userId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'Only the owner can extend protection' });
+        }
+        if (territory.sovereignty === 'protected' && !territory.protection_ends_at) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'This spot already has lifetime protection' });
+        }
+        const offeredReservation = await client.query(
+            `SELECT 1 FROM territory_reservations WHERE territory_id = $1 AND status = 'offered' AND offered_until > NOW() LIMIT 1`,
+            [territoryId]
+        );
+        if (offeredReservation.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'The renewal window has closed. The next person in line now has the first right to buy.' });
+        }
+        const activeAuction = await client.query(
+            `SELECT id FROM auctions WHERE territory_id = $1 AND status = 'active' LIMIT 1`,
+            [territoryId]
+        );
+        if (activeAuction.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'An auction is running on this spot. Bid in the auction to defend it.' });
+        }
+        
+        const price = Math.ceil(getServerBasePrice(territory) * multiplier);
+        const { balance } = await adjustWalletBalance(client, userId, -price, {
+            type: 'extend',
+            description: `Protection extended: ${territoryId} (${protectionDays === null ? 'lifetime' : `${protectionDays} days`})`,
+            referenceId: territoryId
+        });
+        
+        let protectionEndsAt = null;
+        if (protectionDays !== null) {
+            const current = territory.protection_ends_at ? new Date(territory.protection_ends_at).getTime() : 0;
+            const start = Math.max(Date.now(), current);
+            protectionEndsAt = new Date(start + protectionDays * 24 * 60 * 60 * 1000);
+        }
+        await client.query(
+            `UPDATE territories
+             SET sovereignty = 'protected', status = 'protected', protection_ends_at = $1
+             WHERE id = $2`,
+            [protectionEndsAt, territoryId]
+        );
+        await client.query('COMMIT');
+        await invalidateTerritoryCache(territoryId);
+        
+        res.json({ success: true, territoryId, price, balance, protectionEndsAt });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        if (error.code === 'INSUFFICIENT_BALANCE') {
+            return res.status(400).json({ error: 'Insufficient balance', code: 'INSUFFICIENT_BALANCE', required: error.required, current: error.current });
+        }
+        console.error('[Territories] Extend protection error:', error);
+        res.status(500).json({ error: 'Failed to extend protection' });
+    } finally {
+        client.release();
     }
 });
 
@@ -1046,8 +1432,11 @@ router.get('/:id', async (req, res) => {
             ruler_nickname: row.ruler_nickname || row.ruler_name || null,
             // country_iso를 countryIso로 매핑 (프론트엔드 호환성)
             // ⚠️ 중요: row.country_iso가 undefined일 수 있으므로 명시적으로 확인
-            countryIso: (row.country_iso && row.country_iso.length === 3) ? row.country_iso.toUpperCase() : null
+            countryIso: (row.country_iso && row.country_iso.length === 3) ? row.country_iso.toUpperCase() : null,
+            ad_url: row.ad_hidden ? null : (row.ad_url || null),
+            ad_title: row.ad_hidden ? null : (row.ad_title || null)
         };
+        delete territory.ruler_email;
         
         // ⚠️ 디버깅: countryIso 포함 확인
         console.log(`[Territories] GET /${territoryId}: country_iso=${row.country_iso}, countryIso=${territory.countryIso}`);
@@ -1105,7 +1494,6 @@ router.put('/:id', async (req, res) => {
         
         if (!idValidation || !idValidation.canonicalId) {
             await client.query('ROLLBACK');
-            client.release();
             return res.status(400).json({ 
                 error: idValidation?.error || 'Invalid territory ID format',
                 received: territoryIdParam,
@@ -1114,6 +1502,11 @@ router.put('/:id', async (req, res) => {
         }
         
         const territoryId = idValidation.canonicalId;
+        
+        // 소유권/가격/보호기간 변경은 관리자만 가능.
+        // 일반 사용자는 구매(POST /:id/purchase)·경매 낙찰로만 소유권을 얻으며,
+        // 이미 소유한 영토에 대한 호출은 변경 없이 현재 상태를 반환함
+        const isAdmin = isAdminUser(req.user);
         const { 
             rulerId,
             rulerFirebaseUid,  // Firebase UID로도 받을 수 있음
@@ -1126,7 +1519,7 @@ router.put('/:id', async (req, res) => {
             purchasedPrice,
             purchasedByAdmin,
             market_base_price  // 시장 기준가 (경매 낙찰가에 따라 갱신)
-        } = req.body;
+        } = isAdmin ? req.body : {};
         const firebaseUid = req.user.uid;
         
         // 사용자 ID 조회 (요청 사용자)
@@ -1174,6 +1567,13 @@ router.put('/:id', async (req, res) => {
         const currentTerritory = territoryResult.rows[0];
         const previousStatus = currentTerritory.status;
         const previousRulerId = currentTerritory.ruler_id;
+        
+        if (!isAdmin && String(currentTerritory.ruler_id || '') !== String(currentUserId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({
+                error: 'Territory ownership can only be acquired through purchase or auction'
+            });
+        }
         
         // 동시성 검증: ruler가 이미 설정되어 있고 다른 사용자이면 실패
         if (finalRulerId && currentTerritory.ruler_id && currentTerritory.ruler_id !== finalRulerId) {

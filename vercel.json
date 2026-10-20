@@ -9,6 +9,14 @@
   ],
   "rewrites": [
     {
+      "source": "/s/:id/image.png",
+      "destination": "https://global-advertising-platform-production.up.railway.app/api/share/:id/image.png"
+    },
+    {
+      "source": "/s/:id",
+      "destination": "https://global-advertising-platform-production.up.railway.app/api/share/:id"
+    },
+    {
       "source": "/data/:path*",
       "destination": "/data/:path*"
     },
@@ -36,17 +44,24 @@
       ]
     },
     {
+      "source": "/data/world-admin1.v(.*).json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
       "source": "/(.*).js",
       "headers": [
         { "key": "Content-Type", "value": "application/javascript; charset=utf-8" },
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },
     {
       "source": "/(.*).css",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     },

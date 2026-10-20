@@ -1,11 +1,16 @@
 /**
  * TimelineWidget - 실시간 타임라인 위젯 UI
- * 글로벌 이벤트 실시간 표시
+ * 서버의 사이트 전체 최근 활동(구매/입찰/경매 시작)을 표시, 1분마다 갱신
  */
 
-import { CONFIG, log } from '../config.js';
+import { log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
-import { historyLogger, HISTORY_EVENT_TYPE } from '../features/HistoryLogger.js';
+import { apiService } from '../services/ApiService.js';
+import mapController from '../core/MapController.js';
+import { escapeHtml } from './ConfirmDialog.js';
+import { openTerritoryById } from '../utils/TerritoryNavigator.js';
+
+const POLL_INTERVAL_MS = 60000;
 
 class TimelineWidget {
     constructor() {
@@ -14,6 +19,10 @@ class TimelineWidget {
         this.isCollapsed = false;
         this.maxEvents = 20;
         this.events = [];
+        this.seenKeys = new Set();
+        this.pollTimer = null;
+        this.refreshTimer = null;
+        this.mapNames = null;
     }
     
     /**
@@ -29,7 +38,10 @@ class TimelineWidget {
         }
         
         this.setupEventListeners();
-        this.loadInitialEvents();
+        this.refresh();
+        this.pollTimer = setInterval(() => {
+            if (document.visibilityState === 'visible') this.refresh();
+        }, POLL_INTERVAL_MS);
         
         log.info('TimelineWidget initialized');
     }
@@ -38,7 +50,6 @@ class TimelineWidget {
      * 이벤트 리스너 설정
      */
     setupEventListeners() {
-        // 토글 버튼
         const toggleBtn = document.getElementById('timeline-toggle');
         const header = this.container.querySelector('.timeline-header');
         
@@ -53,123 +64,70 @@ class TimelineWidget {
             header.addEventListener('click', () => this.toggle());
         }
         
-        // 새 이벤트 수신
-        this.subscribeToEvents();
-    }
-    
-    /**
-     * 이벤트 구독
-     */
-    subscribeToEvents() {
-        // Territory claimed
-        eventBus.on(EVENTS.TERRITORY_CONQUERED, (data) => {
-            this.addEvent({
-                type: HISTORY_EVENT_TYPE.CONQUERED,
-                icon: '⚔️',
-                text: `${data.userName} claimed a spot!`,
-                className: 'conquered'
-            });
+        this.contentEl?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-territory-id]');
+            if (item) openTerritoryById(item.dataset.territoryId);
         });
         
-        // Auction bid
-        eventBus.on(EVENTS.AUCTION_BID, (data) => {
-            this.addEvent({
-                type: HISTORY_EVENT_TYPE.AUCTION_BID,
-                icon: '💰',
-                text: `${data.userName} bid ${data.bidAmount} pt`,
-                className: 'auction'
-            });
-        });
-        
-        // Auction start
-        eventBus.on(EVENTS.AUCTION_START, (data) => {
-            this.addEvent({
-                type: HISTORY_EVENT_TYPE.AUCTION_STARTED,
-                icon: '🏷️',
-                text: `New auction started`,
-                className: 'auction'
-            });
-        });
-        
-        // Pixel milestone
-        eventBus.on(EVENTS.PIXEL_VALUE_CHANGE, (data) => {
-            const milestones = [1000, 2500, 5000, 7500, 10000];
-            for (const milestone of milestones) {
-                if (data.filledPixels === milestone) {
-                    this.addEvent({
-                        type: HISTORY_EVENT_TYPE.PIXEL_MILESTONE,
-                        icon: '🎨',
-                        text: `${milestone} pixel milestone reached!`,
-                        className: 'pixel'
-                    });
-                }
-            }
-        });
-        
-        // Collaboration join
-        eventBus.on(EVENTS.COLLAB_JOIN, (data) => {
-            this.addEvent({
-                type: HISTORY_EVENT_TYPE.COLLAB_JOINED,
-                icon: '👋',
-                text: `${data.userName} joined collaboration`,
-                className: 'collab'
-            });
-        });
-        
-        // Ranking change
-        eventBus.on(EVENTS.RANKING_UPDATE, () => {
-            // Ranking changes happen too often, only show important ones
-        });
-    }
-    
-    /**
-     * 초기 이벤트 로드
-     */
-    loadInitialEvents() {
-        const timeline = historyLogger.getGlobalTimeline(10);
-        
-        if (timeline.length === 0) {
-            this.showEmpty();
-            return;
-        }
-        
-        for (const event of timeline.reverse()) {
-            this.events.push({
-                ...event,
-                isNew: false
-            });
-        }
-        
-        this.render();
-    }
-    
-    /**
-     * 새 이벤트 추가
-     */
-    addEvent(event) {
-        const newEvent = {
-            id: `evt_${Date.now()}`,
-            icon: event.icon,
-            text: event.text,
-            className: event.className,
-            timestamp: Date.now(),
-            isNew: true
+        // 이 브라우저에서 일어난 구매/입찰은 서버 기록 반영 후 곧바로 새로고침
+        const refreshSoon = () => {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = setTimeout(() => this.refresh(), 2500);
         };
-        
-        // 앞에 추가
-        this.events.unshift(newEvent);
-        
-        // 최대 개수 유지
-        if (this.events.length > this.maxEvents) {
-            this.events.pop();
+        eventBus.on(EVENTS.TERRITORY_CONQUERED, refreshSoon);
+        eventBus.on(EVENTS.AUCTION_BID, refreshSoon);
+        eventBus.on(EVENTS.AUCTION_START, refreshSoon);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this.refresh();
+        });
+    }
+    
+    /**
+     * 서버에서 최근 활동 불러오기
+     */
+    async refresh() {
+        try {
+            const events = await apiService.get(`/territories/activity/recent?limit=${this.maxEvents}`);
+            if (!Array.isArray(events)) return;
+            const firstLoad = this.seenKeys.size === 0;
+            this.events = events.map(event => {
+                const key = `${event.type}|${event.territoryId}|${event.at}`;
+                const isNew = !firstLoad && !this.seenKeys.has(key);
+                this.seenKeys.add(key);
+                return { ...event, isNew };
+            });
+            this.render();
+        } catch (error) {
+            log.debug('[TimelineWidget] Failed to load recent activity:', error.message);
+            if (this.events.length === 0) this.showEmpty();
         }
-        
-        this.render();
-        
-        // 새 이벤트 애니메이션 후 플래그 제거
-        setTimeout(() => {
-            newEvent.isNew = false;
-        }, 500);
+    }
+    
+    territoryNameOf(event) {
+        if (event.territoryName && event.territoryName !== event.territoryId) return event.territoryName;
+        if (!this.mapNames) {
+            const features = mapController.map?.getSource?.('world-territories')?._data?.features;
+            if (features) {
+                this.mapNames = new Map(features.map(f => [f.properties?.id, f.properties?.name || f.properties?.name_en]));
+            }
+        }
+        return this.mapNames?.get(event.territoryId) || event.territoryName || event.territoryId;
+    }
+    
+    describe(event) {
+        const who = escapeHtml(event.user || 'Someone');
+        const where = `<strong>${escapeHtml(this.territoryNameOf(event))}</strong>`;
+        const amount = event.amount ? `${Math.round(event.amount).toLocaleString()} pt` : '';
+        switch (event.type) {
+            case 'claim':
+                return { icon: '🏴', className: 'conquered', text: `${who} claimed ${where}${amount ? ` for ${amount}` : ''}` };
+            case 'bid':
+                return { icon: '💰', className: 'auction', text: `${who} bid ${amount} on ${where}` };
+            case 'auction_start':
+                return { icon: '🏷️', className: 'auction', text: `Auction started for ${where}${amount ? ` (from ${amount})` : ''}` };
+            default:
+                return { icon: '✨', className: '', text: where };
+        }
     }
     
     /**
@@ -183,15 +141,18 @@ class TimelineWidget {
             return;
         }
         
-        this.contentEl.innerHTML = this.events.map(event => `
-            <div class="timeline-event ${event.className || ''} ${event.isNew ? 'new' : ''}">
-                <span class="event-icon">${event.icon}</span>
-                <div class="event-content">
-                    <div class="event-text">${event.text}</div>
-                    <div class="event-time">${this.formatTime(event.timestamp)}</div>
+        this.contentEl.innerHTML = this.events.map(event => {
+            const { icon, className, text } = this.describe(event);
+            return `
+                <div class="timeline-event ${className} ${event.isNew ? 'new' : ''}" data-territory-id="${escapeHtml(event.territoryId)}" style="cursor:pointer;" title="Open this spot">
+                    <span class="event-icon">${icon}</span>
+                    <div class="event-content">
+                        <div class="event-text">${text}</div>
+                        <div class="event-time">${this.formatTime(new Date(event.at).getTime())}</div>
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
     
     /**
@@ -202,8 +163,8 @@ class TimelineWidget {
         
         this.contentEl.innerHTML = `
             <div class="timeline-empty">
-                No events yet.<br>
-                Claim a spot to see activity here!
+                No activity yet.<br>
+                Be the first to claim a spot!
             </div>
         `;
     }
@@ -214,6 +175,7 @@ class TimelineWidget {
     formatTime(timestamp) {
         const seconds = Math.floor((Date.now() - timestamp) / 1000);
         
+        if (!Number.isFinite(seconds)) return '';
         if (seconds < 60) return 'Just now';
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
         if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -228,17 +190,11 @@ class TimelineWidget {
         this.container.classList.toggle('collapsed', this.isCollapsed);
     }
     
-    /**
-     * 펼치기
-     */
     expand() {
         this.isCollapsed = false;
         this.container.classList.remove('collapsed');
     }
     
-    /**
-     * 접기
-     */
     collapse() {
         this.isCollapsed = true;
         this.container.classList.add('collapsed');
@@ -248,4 +204,3 @@ class TimelineWidget {
 // 싱글톤 인스턴스
 export const timelineWidget = new TimelineWidget();
 export default timelineWidget;
-

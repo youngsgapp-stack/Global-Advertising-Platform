@@ -14,16 +14,20 @@ import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd } f
 
 const router = express.Router();
 
+const ENABLE_ABANDONED_REAUCTION = false;
+
 /**
  * Cron Job 핸들러
  * GET /api/cron?job=all
  * POST /api/cron?job=all
  */
-router.post('/', async (req, res) => {
+async function handleCron(req, res) {
     try {
         // ⚠️ cron 보안: 서버 내부 시크릿 토큰 체크
+        // Vercel Cron은 Authorization: Bearer <CRON_SECRET> 헤더로 호출함
         const cronSecret = process.env.CRON_SECRET || process.env.VERCEL_CRON_SECRET;
-        const providedSecret = req.headers['x-cron-secret'] || req.query.secret || req.body.secret;
+        const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+        const providedSecret = req.headers['x-cron-secret'] || bearer || req.query.secret || req.body?.secret;
         
         if (cronSecret && providedSecret !== cronSecret) {
             logger.warn(`[Cron] Unauthorized access attempt from ${req.ip}`);
@@ -33,7 +37,7 @@ router.post('/', async (req, res) => {
             });
         }
         
-        const jobType = req.query.job || req.body.job || 'all';
+        const jobType = req.query.job || req.body?.job || 'all';
         
         logger.info(`[Cron] Starting job: ${jobType}`, {
             ip: req.ip,
@@ -109,12 +113,11 @@ router.post('/', async (req, res) => {
             error: error.message || 'Internal server error'
         });
     }
-});
+}
 
+router.post('/', handleCron);
 // GET도 지원 (Vercel Cron Job이 GET으로 호출할 수도 있음)
-router.get('/', async (req, res) => {
-    return router.post(req, res);
-});
+router.get('/', handleCron);
 
 /**
  * 랭킹 계산
@@ -326,9 +329,45 @@ async function calculateRankings() {
 /**
  * 만료된 영토 확인
  */
+/**
+ * 보호 기간이 끝난 영토: protected → ruled (소유자는 유지, 평생 보호(NULL)는 제외)
+ * @returns {Promise<number>} 전환된 영토 수
+ */
+async function expireProtections() {
+        const protectionExpired = await query(`
+            UPDATE territories
+            SET status = 'ruled',
+                sovereignty = 'ruled',
+                updated_at = NOW()
+            WHERE status = 'protected'
+            AND ruler_id IS NOT NULL
+            AND protection_ends_at IS NOT NULL
+            AND protection_ends_at <= NOW()
+            RETURNING id, ruler_id, ruler_name, protection_ends_at
+        `);
+        
+        for (const territory of protectionExpired.rows) {
+            await invalidateTerritoryCache(territory.id);
+            broadcastTerritoryUpdate(territory.id, {
+                id: territory.id,
+                status: 'ruled',
+                sovereignty: 'ruled',
+                previousStatus: 'protected',
+                rulerId: territory.ruler_id,
+                rulerName: territory.ruler_name,
+                protectionEndsAt: territory.protection_ends_at,
+                updatedAt: new Date().toISOString()
+            });
+        }
+        logger.info(`[Check Expired Territories] Protection expired: ${protectionExpired.rows.length} territories → ruled`);
+        return protectionExpired.rows.length;
+}
+
 async function checkExpiredTerritories() {
     try {
         logger.info('[Check Expired Territories] Starting check...');
+        
+        const protectionExpiredCount = await expireProtections();
         
         const now = new Date();
         const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -455,7 +494,11 @@ async function checkExpiredTerritories() {
         
         abandonedQuery += ` LIMIT 100`;
         
-        const abandonedTerritories = await query(abandonedQuery, [thirtyDaysAgo]);
+        // 방치 영토 자동 재경매는 비활성화: 구매한 영토를 보상 없이 경매에 넘기며,
+        // auctions 테이블에 없는 컬럼(starting_bid, bid_count, reason 등)을 사용함
+        const abandonedTerritories = ENABLE_ABANDONED_REAUCTION
+            ? await query(abandonedQuery, [thirtyDaysAgo])
+            : { rows: [] };
         
         let abandonedCount = 0;
         for (const territory of abandonedTerritories.rows) {
@@ -629,6 +672,7 @@ async function checkExpiredTerritories() {
         return {
             success: true,
             stats: {
+                protectionExpiredCount,
                 autoPermanentCount,
                 abandonedCount,
                 expiredLeaseCount
@@ -773,7 +817,9 @@ async function endExpiredAuctions() {
                     a.territory_id,
                     a.current_bid,
                     a.current_bidder_id,
-                    a.protection_days,
+                    a.status,
+                    a.kind,
+                    a.seller_id,
                     t.market_base_price,
                     t.base_price,
                     t.ruler_id as current_owner_id,
@@ -870,7 +916,7 @@ async function endExpiredAuctions() {
                     // 순서: 1) auction ended, 2) territory 업데이트 (새 ruler, market_base_price, protectionEndsAt)
                     try {
                         // 1단계: 경매 종료 브로드캐스트
-                        await broadcastAuctionUpdate({
+                        await broadcastAuctionUpdate(auction.id, {
                             id: auction.id,
                             status: 'ended',
                             territoryId: auction.territory_id,
@@ -1005,5 +1051,6 @@ function getContinent(countryCode) {
     return continentMap[countryCode?.toLowerCase()] || null;
 }
 
+export { endExpiredAuctions, expireProtections };
 export default router;
 

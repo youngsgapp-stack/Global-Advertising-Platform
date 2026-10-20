@@ -8,6 +8,8 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { invalidateAuctionCache, invalidateTerritoryCache, invalidateCachePattern, invalidatePixelCache } from '../redis/cache-utils.js';
 import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd } from '../utils/auction-utils.js';
+import { releaseAuctionHolds, adjustWalletBalance } from '../utils/wallet-utils.js';
+import { deleteTerritoryPixels } from '../utils/pixel-cleanup.js';
 // requireAdmin은 server.js에서 전역으로 적용됨
 
 const router = express.Router();
@@ -171,114 +173,160 @@ router.get('/users', async (req, res) => {
 
 /**
  * POST /api/admin/users/:userId/points
- * 사용자에게 포인트 지급
+ * 사용자 포인트 지급(+) / 차감(-)
+ * body: { amount, reason } — 차감은 reason 필수, 잔액보다 많이 차감 불가
  * ⚠️ 중요: 이 라우트는 /users/:id보다 먼저 등록되어야 함 (라우트 순서)
  */
 router.post('/users/:userId/points', async (req, res) => {
-    const client = await getPool().connect();
+    const { userId } = req.params;
+    const amount = Number(req.body?.amount);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+    const adminEmail = req.user?.email || 'admin';
     
+    if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1000000) {
+        return res.status(400).json({ error: 'Amount must be a non-zero number (max 1,000,000)' });
+    }
+    if (amount < 0 && !reason) {
+        return res.status(400).json({ error: 'A reason is required when deducting points' });
+    }
+    
+    const client = await getPool().connect();
     try {
-        const { userId } = req.params;
-        const { amount, reason } = req.body;
-        const adminEmail = req.user?.email || 'admin';
-        
-        // 유효성 검사
-        if (!amount || amount <= 0) {
-            return res.status(400).json({ error: 'Invalid amount. Amount must be greater than 0' });
-        }
-        
         await client.query('BEGIN');
         
-        // 사용자 확인 (UUID와 VARCHAR 타입 불일치 해결을 위해 타입 캐스팅 사용)
         const userResult = await client.query(
             'SELECT id FROM users WHERE id::text = $1 OR firebase_uid = $1',
             [userId]
         );
-        
         if (userResult.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'User not found' });
         }
-        
         const actualUserId = userResult.rows[0].id;
         
-        // 지갑 확인 또는 생성
-        let walletResult = await client.query(
-            'SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
-            [actualUserId]
-        );
+        const isDeduct = amount < 0;
+        const { balance: newBalance } = await adjustWalletBalance(client, actualUserId, amount, {
+            type: isDeduct ? 'admin_deduct' : 'admin_grant',
+            description: reason || `Granted by admin (${adminEmail})`,
+            referenceId: `admin:${adminEmail}`
+        });
         
-        let walletId;
-        let currentBalance = 0;
-        
-        if (walletResult.rows.length === 0) {
-            // 지갑이 없으면 생성
-            const insertResult = await client.query(
-                `INSERT INTO wallets (user_id, balance, created_at, updated_at)
-                 VALUES ($1, 0, NOW(), NOW())
-                 RETURNING id, balance`,
-                [actualUserId]
-            );
-            walletId = insertResult.rows[0].id;
-            currentBalance = 0;
-        } else {
-            walletId = walletResult.rows[0].id;
-            currentBalance = parseFloat(walletResult.rows[0].balance || 0);
-        }
-        
-        // 잔액 업데이트
-        const newBalance = currentBalance + parseFloat(amount);
-        await client.query(
-            'UPDATE wallets SET balance = $1, updated_at = NOW() WHERE id = $2',
-            [newBalance, walletId]
-        );
-        
-        // 거래 내역 추가
-        await client.query(
-            `INSERT INTO wallet_transactions 
-             (wallet_id, type, amount, description, created_at)
-             VALUES ($1, 'admin_grant', $2, $3, NOW())`,
-            [
-                walletId,
-                parseFloat(amount),
-                reason || `관리자(${adminEmail})에 의해 지급됨`
-            ]
-        );
-        
-        // 관리자 로그 기록
         await client.query(
             `INSERT INTO admin_logs (admin_email, action, details, created_at)
-             VALUES ($1, 'ADD_POINTS', $2, NOW())`,
+             VALUES ($1, $2, $3, NOW())`,
             [
                 adminEmail,
-                JSON.stringify({
-                    userId: actualUserId,
-                    amount: parseFloat(amount),
-                    reason: reason || null,
-                    newBalance: newBalance
-                })
+                isDeduct ? 'DEDUCT_POINTS' : 'ADD_POINTS',
+                JSON.stringify({ userId: actualUserId, amount, reason: reason || null, newBalance })
             ]
         );
         
         await client.query('COMMIT');
         
-        // 캐시 무효화
         await invalidateCachePattern(`user:${actualUserId}:*`);
         await invalidateCachePattern(`wallet:${actualUserId}:*`);
         
         res.json({
             success: true,
             userId: actualUserId,
-            amount: parseFloat(amount),
-            previousBalance: currentBalance,
-            newBalance: newBalance
+            amount,
+            previousBalance: newBalance - amount,
+            newBalance
         });
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('[Admin] Add points error:', error);
-        res.status(500).json({ error: 'Failed to add points' });
+        if (error.code === 'INSUFFICIENT_BALANCE') {
+            return res.status(400).json({ error: `Cannot deduct more than the current balance (${error.current} pt)` });
+        }
+        console.error('[Admin] Adjust points error:', error);
+        res.status(500).json({ error: 'Failed to adjust points' });
     } finally {
         client.release();
+    }
+});
+
+/**
+ * GET /api/admin/payments
+ * PayPal 결제 기록 조회
+ * Query params: limit, offset, status, search (주문번호/이메일/닉네임)
+ */
+router.get('/payments', async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+        const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+        const { status, search } = req.query;
+        
+        const conditions = [];
+        const params = [];
+        if (status) {
+            params.push(status === 'failed' ? ['failed', 'rejected'] : [String(status)]);
+            conditions.push(`p.status = ANY($${params.length})`);
+        }
+        if (search) {
+            params.push(`%${String(search)}%`);
+            conditions.push(`(p.order_id ILIKE $${params.length} OR u.email ILIKE $${params.length} OR u.nickname ILIKE $${params.length})`);
+        }
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        
+        const listParams = [...params, limit, offset];
+        const [list, summary] = await Promise.all([
+            query(
+                `SELECT p.*, u.email, u.nickname
+                 FROM payments p
+                 LEFT JOIN users u ON p.user_id = u.id
+                 ${where}
+                 ORDER BY p.created_at DESC
+                 LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+                listParams
+            ),
+            query(
+                `SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE p.status = 'credited') AS credited,
+                    COUNT(*) FILTER (WHERE p.status = 'credit_failed') AS credit_failed,
+                    COUNT(*) FILTER (WHERE p.status IN ('failed', 'rejected')) AS failed,
+                    COALESCE(SUM(p.amount_usd) FILTER (WHERE p.status = 'credited'), 0) AS revenue_usd
+                 FROM payments p
+                 LEFT JOIN users u ON p.user_id = u.id
+                 ${where}`,
+                params
+            )
+        ]);
+        
+        const s = summary.rows[0];
+        res.json({
+            payments: list.rows.map(row => ({
+                id: row.id,
+                orderId: row.order_id,
+                userId: row.user_id,
+                email: row.email,
+                nickname: row.nickname,
+                provider: row.provider,
+                amountUsd: row.amount_usd !== null ? parseFloat(row.amount_usd) : null,
+                currency: row.currency,
+                points: row.points,
+                status: row.status,
+                captureId: row.capture_id,
+                error: row.error,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at
+            })),
+            summary: {
+                total: parseInt(s.total, 10),
+                credited: parseInt(s.credited, 10),
+                creditFailed: parseInt(s.credit_failed, 10),
+                failed: parseInt(s.failed, 10),
+                revenueUsd: parseFloat(s.revenue_usd)
+            },
+            limit,
+            offset
+        });
+    } catch (error) {
+        if (error.code === '42P01') {
+            return res.json({ payments: [], summary: { total: 0, credited: 0, creditFailed: 0, failed: 0, revenueUsd: 0 }, limit: 0, offset: 0 });
+        }
+        console.error('[Admin] Payments error:', error);
+        res.status(500).json({ error: 'Failed to fetch payments' });
     }
 });
 
@@ -425,7 +473,14 @@ router.put('/territories/:id/reset', async (req, res) => {
             );
         }
         
-        // 활성 경매 삭제
+        // 활성 경매 삭제 (입찰 예치금 환불 후)
+        const activeAuctions = await client.query(
+            `SELECT id FROM auctions WHERE territory_id = $1 AND status = 'active'`,
+            [territoryId]
+        );
+        for (const row of activeAuctions.rows) {
+            await releaseAuctionHolds(client, row.id, { reason: 'Auction cancelled refund' });
+        }
         await client.query(
             `DELETE FROM auctions 
              WHERE territory_id = $1 AND status = 'active'`,
@@ -437,6 +492,8 @@ router.put('/territories/:id/reset', async (req, res) => {
         // Redis 캐시 무효화
         await invalidateTerritoryCache(territoryId);
         await invalidateAuctionCache(null, territoryId); // 해당 영토의 모든 경매 캐시 무효화
+        // 초기화된 영토의 픽셀 아트도 서버에서 삭제
+        await deleteTerritoryPixels(territoryId);
         
         res.json({ 
             success: true, 
@@ -688,6 +745,121 @@ router.put('/territories/:id', async (req, res) => {
     } finally {
         client.release();
     }
+});
+
+/**
+ * POST /api/admin/territories/:id/owner
+ * 관리자가 영토 소유자를 직접 지정 (결제 없이)
+ * body: { user: 이메일 | 사용자 UUID | Firebase UID, protectionDays = 7, clearPixels = true }
+ * 진행 중인 경매는 취소하고 입찰 예치금을 돌려줌
+ */
+router.post('/territories/:id/owner', async (req, res) => {
+    const { id: territoryId } = req.params;
+    const userKey = typeof req.body?.user === 'string' ? req.body.user.trim() : '';
+    const protectionDays = req.body?.protectionDays === null ? null : Number(req.body?.protectionDays ?? 7);
+    const clearPixels = req.body?.clearPixels !== false;
+    const adminEmail = req.user?.email || 'admin';
+    
+    if (!userKey) {
+        return res.status(400).json({ error: 'User email or ID is required' });
+    }
+    if (protectionDays !== null && (!Number.isInteger(protectionDays) || protectionDays < 1 || protectionDays > 3650)) {
+        return res.status(400).json({ error: 'protectionDays must be an integer between 1 and 3650 (or null for lifetime)' });
+    }
+    
+    const client = await getPool().connect();
+    let previousRulerId = null;
+    let newOwnerId = null;
+    try {
+        await client.query('BEGIN');
+        
+        const userResult = await client.query(
+            `SELECT id, email, nickname FROM users WHERE id::text = $1 OR firebase_uid = $1 OR LOWER(email) = LOWER($1) LIMIT 1`,
+            [userKey]
+        );
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const newOwner = userResult.rows[0];
+        newOwnerId = newOwner.id;
+        
+        const territoryResult = await client.query(
+            `SELECT id, ruler_id FROM territories WHERE id = $1 FOR UPDATE`,
+            [territoryId]
+        );
+        if (territoryResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Territory not found' });
+        }
+        previousRulerId = territoryResult.rows[0].ruler_id;
+        
+        const activeAuctions = await client.query(
+            `SELECT id FROM auctions WHERE territory_id = $1 AND status = 'active'`,
+            [territoryId]
+        );
+        for (const row of activeAuctions.rows) {
+            await releaseAuctionHolds(client, row.id, { reason: `Auction cancelled by admin owner change: ${territoryId}` });
+            await client.query(
+                `UPDATE auctions SET status = 'cancelled', ended_at = NOW(), updated_at = NOW() WHERE id = $1`,
+                [row.id]
+            );
+        }
+        
+        if (previousRulerId) {
+            await client.query(
+                `UPDATE ownerships SET ended_at = NOW() WHERE territory_id = $1 AND ended_at IS NULL`,
+                [territoryId]
+            );
+        }
+        await client.query(
+            `INSERT INTO ownerships (territory_id, user_id, acquired_at, price) VALUES ($1, $2, NOW(), 0)`,
+            [territoryId, newOwner.id]
+        );
+        
+        const protectionEndsAt = protectionDays === null
+            ? null
+            : new Date(Date.now() + protectionDays * 24 * 60 * 60 * 1000);
+        await client.query(
+            `UPDATE territories
+             SET ruler_id = $1,
+                 ruler_name = $2,
+                 status = 'protected',
+                 sovereignty = 'protected',
+                 protection_ends_at = $3,
+                 purchased_by_admin = true,
+                 current_auction_id = NULL,
+                 updated_at = NOW()
+             WHERE id = $4`,
+            [newOwner.id, newOwner.nickname || newOwner.email, protectionEndsAt, territoryId]
+        );
+        
+        await client.query(
+            `INSERT INTO admin_logs (admin_email, action, details, created_at) VALUES ($1, 'SET_TERRITORY_OWNER', $2, NOW())`,
+            [adminEmail, JSON.stringify({ territoryId, newOwnerId: newOwner.id, newOwnerEmail: newOwner.email, previousRulerId, protectionDays, clearPixels })]
+        );
+        
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Admin] Set territory owner error:', error);
+        return res.status(500).json({ error: 'Failed to set territory owner' });
+    } finally {
+        client.release();
+    }
+    
+    const ownerChanged = previousRulerId && String(previousRulerId) !== String(newOwnerId);
+    if (clearPixels && ownerChanged) {
+        try {
+            await deleteTerritoryPixels(territoryId);
+        } catch (error) {
+            console.warn('[Admin] Set owner: pixel cleanup failed:', error.message);
+        }
+    }
+    await invalidateTerritoryCache(territoryId);
+    await invalidateCachePattern('auctions:*').catch(() => {});
+    
+    res.json({ success: true, territoryId });
 });
 
 /**
@@ -999,7 +1171,10 @@ router.delete('/auctions/:id', async (req, res) => {
         const territoryId = auction.territory_id;
         const wasActive = auction.status === 'active';
         
-        // 경매 삭제
+        // 경매 삭제 (진행 중이었으면 입찰 예치금 환불)
+        if (wasActive) {
+            await releaseAuctionHolds(client, auctionId, { reason: 'Auction cancelled refund' });
+        }
         await client.query(
             `DELETE FROM auctions WHERE id = $1`,
             [auctionId]
@@ -1269,7 +1444,10 @@ router.delete('/auctions/:id', async (req, res) => {
         const territoryId = auction.territory_id;
         const wasActive = auction.status === 'active';
         
-        // 경매 삭제
+        // 경매 삭제 (진행 중이었으면 입찰 예치금 환불)
+        if (wasActive) {
+            await releaseAuctionHolds(client, auctionId, { reason: 'Auction cancelled refund' });
+        }
         await client.query(
             `DELETE FROM auctions WHERE id = $1`,
             [auctionId]
@@ -1361,10 +1539,11 @@ router.delete('/users/:id', async (req, res) => {
         // 5. 입찰 기록 삭제
         await client.query('DELETE FROM bids WHERE user_id = $1', [userId]);
         
-        // 6. 지갑 거래 이력 삭제
+        // 6. 지갑 거래 이력 삭제 (관리자 지급 기록은 user_id 없이 wallet_id만 있으므로 지갑 기준으로도 삭제)
         await client.query(`
             DELETE FROM wallet_transactions 
             WHERE user_id = $1
+               OR wallet_id IN (SELECT id FROM wallets WHERE user_id = $1)
         `, [userId]);
         
         // 7. 지갑 삭제
@@ -1644,6 +1823,268 @@ router.get('/activity', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/billboards — 광고판 영토 목록과 예약 현황
+ * POST /api/admin/territories/:id/billboard — 광고판 지정/해제 { enabled }
+ * 지정: 주인 없고 진행 중인 경매가 없는 영토만. 해제: 앞으로의 예약이 없을 때만
+ */
+router.get('/billboards', async (req, res) => {
+    try {
+        const result = await query(
+            `SELECT t.id, t.name, t.base_price, t.ruler_id, COALESCE(u.nickname, u.email) AS current_booker,
+                    (SELECT COUNT(*) FROM billboard_bookings b WHERE b.territory_id = t.id AND b.status IN ('booked', 'active')) AS upcoming,
+                    (SELECT COALESCE(SUM(price), 0) FROM billboard_bookings b WHERE b.territory_id = t.id AND b.status IN ('booked', 'active', 'done')) AS revenue_pt
+             FROM territories t LEFT JOIN users u ON u.id = t.ruler_id
+             WHERE t.is_billboard = true ORDER BY t.name`
+        );
+        res.json(result.rows.map(r => ({
+            id: r.id,
+            name: r.name,
+            weeklyPrice: parseFloat(r.base_price || 0),
+            currentBooker: r.current_booker,
+            upcomingWeeks: parseInt(r.upcoming, 10),
+            revenuePt: parseFloat(r.revenue_pt)
+        })));
+    } catch (error) {
+        if (error.code === '42703' || error.code === '42P01') return res.json([]);
+        console.error('[Admin] Billboards error:', error);
+        res.status(500).json({ error: 'Failed to fetch billboards' });
+    }
+});
+
+router.post('/territories/:id/billboard', async (req, res) => {
+    const territoryId = req.params.id;
+    const enabled = req.body?.enabled === true;
+    const adminEmail = req.user?.email || 'admin';
+    try {
+        const territory = (await query(`SELECT id, ruler_id, is_billboard FROM territories WHERE id = $1`, [territoryId])).rows[0];
+        if (!territory) return res.status(404).json({ error: 'Territory not found' });
+        if (enabled) {
+            if (territory.ruler_id) {
+                return res.status(409).json({ error: '주인이 있는 영토는 광고판으로 바꿀 수 없습니다 (주인 권리 보호). 비어 있는 영토만 가능합니다.' });
+            }
+            const auction = await query(`SELECT 1 FROM auctions WHERE territory_id = $1 AND status = 'active'`, [territoryId]);
+            if (auction.rows.length > 0) return res.status(409).json({ error: '진행 중인 경매가 있습니다. 경매가 끝난 뒤 지정해주세요.' });
+        } else {
+            const upcoming = await query(
+                `SELECT COUNT(*) AS n FROM billboard_bookings WHERE territory_id = $1 AND status IN ('booked', 'active')`,
+                [territoryId]
+            );
+            if (parseInt(upcoming.rows[0].n, 10) > 0) {
+                return res.status(409).json({ error: '예약된 주가 남아 있어 해제할 수 없습니다. 예약이 모두 끝난 뒤 해제해주세요.' });
+            }
+        }
+        await query(`UPDATE territories SET is_billboard = $1, updated_at = NOW() WHERE id = $2`, [enabled, territoryId]);
+        await query(
+            `INSERT INTO admin_logs (admin_email, action, details, created_at) VALUES ($1, 'SET_BILLBOARD', $2, NOW())`,
+            [adminEmail, JSON.stringify({ territoryId, enabled })]
+        );
+        await invalidateTerritoryCache(territoryId);
+        res.json({ success: true, territoryId, enabled });
+    } catch (error) {
+        console.error('[Admin] Set billboard error:', error);
+        res.status(500).json({ error: 'Failed to update billboard' });
+    }
+});
+
+/**
+ * POST /api/admin/prices/bulk
+ * 가격 일괄 조정 (기본: 미리보기만, apply=true일 때 저장)
+ * body: { countryIso?, minPrice?, maxPrice?, onlyUnowned = true, mode: 'percent' | 'set', value, apply = false }
+ * 결과 가격은 10pt 단위 반올림, 최소 50pt. 시장가(market_base_price)가 있는 땅은 시장가도 같은 비율로 조정
+ */
+router.post('/prices/bulk', async (req, res) => {
+    const body = req.body || {};
+    const mode = body.mode === 'set' ? 'set' : 'percent';
+    const value = Number(body.value);
+    const countryIso = typeof body.countryIso === 'string' && /^[A-Za-z]{3}$/.test(body.countryIso) ? body.countryIso.toUpperCase() : null;
+    const minPrice = body.minPrice !== undefined && body.minPrice !== '' ? Number(body.minPrice) : null;
+    const maxPrice = body.maxPrice !== undefined && body.maxPrice !== '' ? Number(body.maxPrice) : null;
+    const onlyUnowned = body.onlyUnowned !== false;
+    const apply = body.apply === true;
+    const adminEmail = req.user?.email || 'admin';
+    
+    if (!Number.isFinite(value) || (mode === 'percent' && (value < -90 || value > 1000)) || (mode === 'set' && (value < 50 || value > 1000000))) {
+        return res.status(400).json({ error: mode === 'percent' ? 'Percent must be between -90 and 1000' : 'Price must be between 50 and 1,000,000' });
+    }
+    if ([minPrice, maxPrice].some(v => v !== null && !Number.isFinite(v))) {
+        return res.status(400).json({ error: 'Invalid price range' });
+    }
+    
+    const conditions = [];
+    const params = [];
+    if (countryIso) {
+        params.push(countryIso);
+        conditions.push(`country_iso = $${params.length}`);
+    }
+    if (minPrice !== null) {
+        params.push(minPrice);
+        conditions.push(`base_price >= $${params.length}`);
+    }
+    if (maxPrice !== null) {
+        params.push(maxPrice);
+        conditions.push(`base_price <= $${params.length}`);
+    }
+    if (onlyUnowned) {
+        conditions.push(`ruler_id IS NULL`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(value);
+    const valueParam = `$${params.length}`;
+    const newPriceExpr = mode === 'set'
+        ? `GREATEST(50, ROUND(${valueParam}::numeric / 10) * 10)`
+        : `GREATEST(50, ROUND(base_price * (1 + ${valueParam}::numeric / 100) / 10) * 10)`;
+    const newMarketExpr = mode === 'set'
+        ? `CASE WHEN market_base_price > 0 THEN GREATEST(50, ROUND(${valueParam}::numeric / 10) * 10) ELSE market_base_price END`
+        : `CASE WHEN market_base_price > 0 THEN GREATEST(50, ROUND(market_base_price * (1 + ${valueParam}::numeric / 100) / 10) * 10) ELSE market_base_price END`;
+    
+    try {
+        const preview = await query(
+            `SELECT COUNT(*) AS count,
+                    COALESCE(AVG(base_price), 0) AS avg_before,
+                    COALESCE(AVG(${newPriceExpr}), 0) AS avg_after,
+                    COALESCE(MIN(${newPriceExpr}), 0) AS min_after,
+                    COALESCE(MAX(${newPriceExpr}), 0) AS max_after
+             FROM territories ${where}`,
+            params
+        );
+        const samples = await query(
+            `SELECT id, name, country_iso, base_price, ${newPriceExpr} AS new_price
+             FROM territories ${where}
+             ORDER BY base_price DESC
+             LIMIT 8`,
+            params
+        );
+        const p = preview.rows[0];
+        const summary = {
+            count: parseInt(p.count, 10),
+            avgBefore: Math.round(parseFloat(p.avg_before)),
+            avgAfter: Math.round(parseFloat(p.avg_after)),
+            minAfter: parseFloat(p.min_after),
+            maxAfter: parseFloat(p.max_after),
+            samples: samples.rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                countryIso: r.country_iso,
+                before: parseFloat(r.base_price),
+                after: parseFloat(r.new_price)
+            }))
+        };
+        
+        if (!apply) {
+            return res.json({ applied: false, ...summary });
+        }
+        if (summary.count === 0) {
+            return res.json({ applied: true, updated: 0, ...summary });
+        }
+        
+        const updated = await query(
+            `UPDATE territories
+             SET base_price = ${newPriceExpr}, market_base_price = ${newMarketExpr}
+             ${where}`,
+            params
+        );
+        await query(
+            `INSERT INTO admin_logs (admin_email, action, details, created_at) VALUES ($1, 'BULK_PRICE_UPDATE', $2, NOW())`,
+            [adminEmail, JSON.stringify({ countryIso, minPrice, maxPrice, onlyUnowned, mode, value, updated: updated.rowCount })]
+        );
+        await invalidateCachePattern('territories:*');
+        await invalidateCachePattern('territory:*');
+        res.json({ applied: true, updated: updated.rowCount, ...summary });
+    } catch (error) {
+        console.error('[Admin] Bulk price error:', error);
+        res.status(500).json({ error: 'Failed to update prices' });
+    }
+});
+
+/**
+ * GET /api/admin/revenue-summary?days=30
+ * 매출 대시보드: 일별 결제액($)/충전 포인트/사용 포인트/신규 가입 + 전환율
+ * 결제액($)은 payments 테이블(credited) 기준, 그 이전 충전은 포인트만 집계
+ */
+router.get('/revenue-summary', async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 7), 365);
+    try {
+        let paymentsAvailable = true;
+        const dailyPayments = await query(
+            `SELECT to_char(DATE(created_at), 'YYYY-MM-DD') AS day, SUM(amount_usd) AS usd, COUNT(*) AS count
+             FROM payments
+             WHERE status = 'credited' AND created_at >= CURRENT_DATE - ($1::int - 1)
+             GROUP BY DATE(created_at)`,
+            [days]
+        ).catch(error => {
+            if (error.code === '42P01') {
+                paymentsAvailable = false;
+                return { rows: [] };
+            }
+            throw error;
+        });
+        
+        const [daily, totals] = await Promise.all([
+            query(
+                `SELECT to_char(d::date, 'YYYY-MM-DD') AS day,
+                        (SELECT COUNT(*) FROM users u WHERE DATE(u.created_at) = d::date) AS signups,
+                        (SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions w
+                            WHERE w.type = 'charge' AND DATE(w.created_at) = d::date) AS charged_pt,
+                        (SELECT COALESCE(-SUM(amount), 0) FROM wallet_transactions w
+                            WHERE w.type IN ('purchase', 'extend') AND DATE(w.created_at) = d::date) AS spent_pt
+                 FROM generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, interval '1 day') d
+                 ORDER BY d`,
+                [days]
+            ),
+            query(
+                `SELECT
+                    (SELECT COUNT(*) FROM users) AS users,
+                    (SELECT COUNT(DISTINCT user_id) FROM wallet_transactions WHERE type = 'charge') AS paying_users,
+                    (SELECT COUNT(DISTINCT user_id) FROM wallet_transactions WHERE type = 'purchase') AS buyers,
+                    (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - ($1::int * interval '1 day')) AS new_users,
+                    (SELECT COUNT(*) FROM territories WHERE ruler_id IS NOT NULL) AS owned_territories,
+                    (SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions WHERE type = 'charge') AS charged_pt_total`,
+                [days]
+            )
+        ]);
+        
+        const paymentsByDay = new Map(dailyPayments.rows.map(r => [r.day, r]));
+        const t = totals.rows[0];
+        const users = parseInt(t.users, 10) || 0;
+        const payingUsers = parseInt(t.paying_users, 10) || 0;
+        const buyers = parseInt(t.buyers, 10) || 0;
+        const periodUsd = dailyPayments.rows.reduce((sum, r) => sum + parseFloat(r.usd || 0), 0);
+        
+        res.json({
+            days,
+            paymentsAvailable,
+            daily: daily.rows.map(r => {
+                const key = r.day;
+                const payment = paymentsByDay.get(key);
+                return {
+                    day: key,
+                    usd: payment ? parseFloat(payment.usd) : 0,
+                    payments: payment ? parseInt(payment.count, 10) : 0,
+                    signups: parseInt(r.signups, 10),
+                    chargedPt: parseFloat(r.charged_pt),
+                    spentPt: parseFloat(r.spent_pt)
+                };
+            }),
+            totals: {
+                users,
+                newUsers: parseInt(t.new_users, 10) || 0,
+                payingUsers,
+                buyers,
+                ownedTerritories: parseInt(t.owned_territories, 10) || 0,
+                chargedPtTotal: parseFloat(t.charged_pt_total) || 0,
+                periodUsd,
+                payConversion: users ? payingUsers / users : 0,
+                buyConversion: users ? buyers / users : 0,
+                arppu: payingUsers ? periodUsd / payingUsers : 0
+            }
+        });
+    } catch (error) {
+        console.error('[Admin] Revenue summary error:', error);
+        res.status(500).json({ error: 'Failed to fetch revenue summary' });
+    }
+});
+
+/**
  * GET /api/admin/analytics
  * 분석 데이터 조회
  */
@@ -1677,7 +2118,7 @@ router.get('/analytics', async (req, res) => {
                 DATE(created_at) as date,
                 SUM(amount) as total
             FROM wallet_transactions
-            WHERE type = 'deposit' ${dateFilter}
+            WHERE type IN ('charge', 'deposit') ${dateFilter}
             GROUP BY DATE(created_at)
             ORDER BY date ASC
         `);
@@ -1715,6 +2156,113 @@ router.get('/analytics', async (req, res) => {
     } catch (error) {
         console.error('[Admin] Analytics error:', error);
         res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
+
+/**
+ * GET /api/admin/reports
+ * 그림/링크 신고 목록 (영토별로 묶어서 신고 수와 함께)
+ * Query params: status (open | resolved | dismissed | all)
+ */
+router.get('/reports', async (req, res) => {
+    const status = String(req.query.status || 'open');
+    try {
+        const params = [];
+        let where = '';
+        if (status !== 'all') {
+            params.push(status);
+            where = `WHERE r.status = $1`;
+        }
+        const result = await query(
+            `SELECT r.*, u.email AS reporter_email, u.nickname AS reporter_nickname,
+                    t.name AS territory_name, t.ad_url, t.ad_title, t.ad_hidden,
+                    o.email AS owner_email, o.nickname AS owner_nickname,
+                    COUNT(*) OVER (PARTITION BY r.territory_id, r.status) AS territory_report_count
+             FROM territory_reports r
+             LEFT JOIN users u ON r.reporter_id = u.id
+             LEFT JOIN territories t ON r.territory_id = t.id
+             LEFT JOIN users o ON t.ruler_id = o.id
+             ${where}
+             ORDER BY r.created_at DESC
+             LIMIT 200`,
+            params
+        );
+        res.json(result.rows.map(row => ({
+            id: row.id,
+            territoryId: row.territory_id,
+            territoryName: row.territory_name,
+            reason: row.reason,
+            details: row.details,
+            status: row.status,
+            action: row.action,
+            reporter: row.reporter_nickname || row.reporter_email,
+            owner: row.owner_nickname || row.owner_email,
+            adUrl: row.ad_url,
+            adTitle: row.ad_title,
+            adHidden: row.ad_hidden,
+            territoryReportCount: parseInt(row.territory_report_count, 10),
+            resolvedBy: row.resolved_by,
+            resolvedAt: row.resolved_at,
+            createdAt: row.created_at
+        })));
+    } catch (error) {
+        if (error.code === '42P01') {
+            return res.json([]);
+        }
+        console.error('[Admin] Reports error:', error);
+        res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+/**
+ * POST /api/admin/reports/:id/resolve
+ * 신고 처리. 같은 영토의 열린 신고는 함께 처리됨
+ * body: { action: 'dismiss' | 'remove_art' | 'remove_link' | 'block_link' | 'remove_all' }
+ */
+router.post('/reports/:id/resolve', async (req, res) => {
+    const reportId = parseInt(req.params.id, 10);
+    const action = String(req.body?.action || '');
+    const allowed = ['dismiss', 'remove_art', 'remove_link', 'block_link', 'remove_all'];
+    const adminEmail = req.user?.email || 'admin';
+    if (!Number.isInteger(reportId) || !allowed.includes(action)) {
+        return res.status(400).json({ error: 'Invalid report or action', allowed });
+    }
+    
+    try {
+        const reportResult = await query(`SELECT territory_id FROM territory_reports WHERE id = $1`, [reportId]);
+        const territoryId = reportResult.rows[0]?.territory_id;
+        if (!territoryId) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+        
+        if (action === 'remove_art' || action === 'remove_all') {
+            await deleteTerritoryPixels(territoryId);
+        }
+        if (action === 'remove_link' || action === 'block_link' || action === 'remove_all') {
+            await query(
+                `UPDATE territories SET ad_url = NULL, ad_title = NULL, ad_hidden = $2, ad_updated_at = NOW() WHERE id = $1`,
+                [territoryId, action !== 'remove_link']
+            );
+        }
+        
+        const newStatus = action === 'dismiss' ? 'dismissed' : 'resolved';
+        const updated = await query(
+            `UPDATE territory_reports
+             SET status = $1, action = $2, resolved_by = $3, resolved_at = NOW()
+             WHERE territory_id = $4 AND status = 'open'
+             RETURNING id`,
+            [newStatus, action, adminEmail, territoryId]
+        );
+        await query(
+            `INSERT INTO admin_logs (admin_email, action, details, created_at) VALUES ($1, 'RESOLVE_REPORT', $2, NOW())`,
+            [adminEmail, JSON.stringify({ territoryId, action, reportIds: updated.rows.map(r => r.id) })]
+        );
+        await invalidateTerritoryCache(territoryId);
+        
+        res.json({ success: true, territoryId, action, resolvedCount: updated.rows.length });
+    } catch (error) {
+        console.error('[Admin] Resolve report error:', error);
+        res.status(500).json({ error: 'Failed to resolve report' });
     }
 });
 
