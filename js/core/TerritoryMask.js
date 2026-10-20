@@ -8,6 +8,7 @@
  */
 
 import { CONFIG, log } from '../config.js';
+import { gridToLngLat } from './PixelGridProjection.js';
 
 export class TerritoryMask {
     /**
@@ -33,19 +34,10 @@ export class TerritoryMask {
     generateMask() {
         if (!this.bounds || !this.geometry) return;
         
-        const { minLng, maxLng, minLat, maxLat } = this.bounds;
-        const lngRange = maxLng - minLng;
-        const latRange = maxLat - minLat;
-        
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                // 셀 중앙점의 정규화 좌표
-                const normalizedX = (x + 0.5) / this.width;
-                const normalizedY = (y + 0.5) / this.height;
-                
                 // 셀 중앙점의 경도/위도
-                const lng = minLng + normalizedX * lngRange;
-                const lat = maxLat - normalizedY * latRange;
+                const { lng, lat } = gridToLngLat(x + 0.5, y + 0.5, this.bounds, this.width, this.height);
                 
                 if (this.isPointInGeometry([lng, lat], this.geometry)) {
                     this.mask.add(`${x},${y}`);

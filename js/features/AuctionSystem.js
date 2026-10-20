@@ -1145,6 +1145,8 @@ class AuctionSystem {
                     // ⚠️ 중요: territoryId 보장 (getAuctionByTerritory가 작동하도록)
                     territoryId: updatedAuction.territoryId || auction.territoryId,
                     status: updatedAuction.status || auction.status, // status 보장
+                    // 마감 직전 입찰이면 서버가 마감을 연장함
+                    endTime: updatedAuction.endTime || auction.endTime,
                     id: auctionId // ID 명시적으로 보장
                 });
                 

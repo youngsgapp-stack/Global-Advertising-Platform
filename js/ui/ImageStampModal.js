@@ -228,7 +228,7 @@ class ImageStampModal {
                                 ${vocab.clamp}
                             </label>
                             <div class="image-stamp-info" style="margin-top: 8px; font-size: 12px; color: #888;">
-                                💡 Fit 버튼은 이미지를 영토 경계 안에 맞춥니다
+                                💡 Preview shows the final pixels. Faded areas fall outside your territory and will be cut. Use "Fit" to place the image inside your territory.
                             </div>
                         </div>
                         
@@ -393,6 +393,14 @@ class ImageStampModal {
         // TerritoryMask 생성
         await this.initializeTerritoryMask();
         
+        // 화면 크기에 맞춰 미리보기 크기 결정
+        this.stageSize = this.computeStageSize();
+        const stage = this.container?.querySelector('#image-stamp-stage');
+        if (stage) {
+            stage.style.width = `${this.stageSize}px`;
+            stage.style.height = `${this.stageSize}px`;
+        }
+        
         // 캔버스 초기화
         this.initializeCanvases();
         
@@ -403,6 +411,15 @@ class ImageStampModal {
         this.bindUI();
         
         log.info(`[ImageStampModal] Opened for ${territory.id}`);
+    }
+    
+    /**
+     * 미리보기(Stage) 크기: 오른쪽 옵션 패널과 헤더/하단 여백을 뺀 공간 (280~640px)
+     */
+    computeStageSize() {
+        const availableWidth = window.innerWidth >= 900 ? window.innerWidth - 560 : window.innerWidth - 48;
+        const availableHeight = window.innerHeight - 300;
+        return Math.max(280, Math.min(640, Math.floor(Math.min(availableWidth, availableHeight))));
     }
     
     /**
@@ -877,14 +894,39 @@ class ImageStampModal {
     renderStampPreview(ctx) {
         if (!this.rectWorld) return;
         
-        // 원본 이미지를 rectWorld 크기로 그리기
-        ctx.drawImage(
-            this.image,
-            this.rectWorld.x,
-            this.rectWorld.y,
-            this.rectWorld.width,
-            this.rectWorld.height
-        );
+        // apply()와 같은 방식으로 128×128 셀에 샘플링한 결과를 그대로 보여줌 (적용 결과 = 미리보기)
+        // 영토 밖으로 잘려 나갈 셀은 흐리게, 투명도 기준 미만 셀은 표시하지 않음
+        const gridSize = CONFIG.TERRITORY.PIXEL_GRID_SIZE;
+        if (!this.previewGridCanvas) {
+            this.previewGridCanvas = document.createElement('canvas');
+            this.previewGridCanvas.width = gridSize;
+            this.previewGridCanvas.height = gridSize;
+            this.previewGridCtx = this.previewGridCanvas.getContext('2d', { willReadFrequently: true });
+        }
+        const g = this.previewGridCtx;
+        g.clearRect(0, 0, gridSize, gridSize);
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(this.image, this.rectWorld.x, this.rectWorld.y, this.rectWorld.width, this.rectWorld.height);
+        
+        const imageData = g.getImageData(0, 0, gridSize, gridSize);
+        const data = imageData.data;
+        for (let y = 0; y < gridSize; y++) {
+            for (let x = 0; x < gridSize; x++) {
+                const idx = (y * gridSize + x) * 4 + 3;
+                if (data[idx] < this.options.alphaThreshold) {
+                    data[idx] = 0;
+                } else if (this.territoryMask && !this.territoryMask.isInside(x, y)) {
+                    data[idx] = 50;
+                } else {
+                    data[idx] = 255;
+                }
+            }
+        }
+        g.putImageData(imageData, 0, 0);
+        
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(this.previewGridCanvas, 0, 0, gridSize, gridSize);
     }
     
     /**
@@ -1303,6 +1345,9 @@ class ImageStampModal {
                 
                 // bulk 적용
                 await pixelCanvas3.applyBulkPixels(pixelMap);
+                
+                // 스탬프 적용을 하나의 Undo 단계로 기록
+                pixelCanvas3.saveHistory();
                 
                 // 렌더
                 pixelCanvas3.render();

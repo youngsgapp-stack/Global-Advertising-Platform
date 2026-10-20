@@ -9,6 +9,16 @@ import { CACHE_TTL, invalidateAuctionCache, invalidateTerritoryCache, invalidate
 import { broadcastBidUpdate, broadcastTerritoryUpdate, broadcastAuctionUpdate } from '../websocket/index.js';
 import { serializeAuction, serializeAuctions } from '../utils/auction-serializer.js';
 import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd, calculateProtectionDays, calculateProtectionEndsAtFromBid } from '../utils/auction-utils.js';
+import { isAdminUser } from '../middleware/admin.js';
+import { adjustWalletBalance, releaseAuctionHolds, auctionHoldReference } from '../utils/wallet-utils.js';
+import { getServerBasePrice } from './territories.js';
+import { auctionStartPolicy } from '../utils/territory-phase.js';
+
+// js/config.js TERRITORY.AUCTION_STARTING_BID_RATIO와 동일
+const AUCTION_STARTING_BID_RATIO = 0.6;
+const MIN_AUCTION_DURATION_MS = 60 * 60 * 1000;          // 1시간
+const ANTI_SNIPE_WINDOW_MS = 5 * 60 * 1000;              // 마감 5분 안 입찰 시 마감을 5분 뒤로 연장
+const MAX_AUCTION_DURATION_MS = 14 * 24 * 60 * 60 * 1000; // 14일
 
 const router = express.Router();
 
@@ -241,7 +251,6 @@ router.post('/', async (req, res) => {
         const countryIso = territory.country_iso;
         if (!countryIso || countryIso.length !== 3) {
             await client.query('ROLLBACK');
-            client.release();
             return res.status(400).json({ 
                 error: 'Cannot create auction: countryIso is required',
                 message: `Territory ${territoryId} must have a valid countryIso (ISO 3166-1 alpha-3). Got: ${countryIso || 'null'}. Territory must have valid country information.`,
@@ -250,23 +259,7 @@ router.post('/', async (req, res) => {
             });
         }
         
-        // 2. 영토 상태 확인 - ruled, protected, 또는 unconquered 상태에서 경매 시작 가능
-        // ⚠️ 중요: Protected 상태에서도 경매 시작 가능
-        // 보호 기간은 소유권 보호용이며, 경매는 보호 기간 중에도 누구나 시작 가능
-        // contested 상태는 이미 경매가 진행 중이므로 불가
-        if (territory.status === 'contested') {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ error: 'Auction already in progress' });
-        }
-        
-        if (territory.status !== 'ruled' && territory.status !== 'protected' && territory.status !== 'unconquered') {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ 
-                error: `Territory must be in ruled, protected, or unconquered status to start auction. Current status: ${territory.status}`
-            });
-        }
-        
-        // 5. 이미 활성 경매가 있는지 확인
+        // 2. 이미 활성 경매가 있는지 확인
         const existingAuctionResult = await client.query(
             `SELECT id FROM auctions 
              WHERE territory_id = $1 AND status = 'active'`,
@@ -298,27 +291,54 @@ router.post('/', async (req, res) => {
             userId = userResult.rows[0].id;
         }
         
-        // 7. 소유자 확인 제거 - 보호 기간이 지나면 누구나 경매 시작 가능
-        // (Protected 상태는 이미 위에서 체크했으므로, 여기까지 오면 보호 기간이 지난 상태)
+        // 3. 거래 상태 규칙 (backend/utils/territory-phase.js): 산 기간 중에는 주인 판매 또는 마감 7일 전 '다음 기간 경매'만 가능
+        const offeredResult = await client.query(
+            `SELECT 1 FROM territory_reservations WHERE territory_id = $1 AND status = 'offered' AND offered_until > NOW() LIMIT 1`,
+            [territoryId]
+        ).catch(error => (error.code === '42P01' ? { rows: [] } : Promise.reject(error)));
+        const policy = auctionStartPolicy(territory, {
+            userId,
+            isAdmin: isAdminUser(req.user),
+            hasOfferedReservation: offeredResult.rows.length > 0
+        });
+        if (!policy.allowed) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: policy.reason, code: 'AUCTION_NOT_ALLOWED', allowedFrom: policy.allowedFrom || null });
+        }
+        const auctionKind = policy.kind;
         
+
         // 8. ⚠️ 전문가 조언 반영: 이전 낙찰가를 시작가로 사용
         // last_winning_amount가 있으면 그것을 시작가로 사용, 없으면 요청 본문의 startingBid 사용
-        let finalStartingBid = startingBid;
-        if (territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
+        let finalStartingBid = parseFloat(startingBid);
+        if (auctionKind !== 'owner_sale' && territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
             finalStartingBid = parseFloat(territory.last_winning_amount);
             console.log(`[Auctions] Using last_winning_amount (${finalStartingBid}) as starting bid for territory ${territoryId}`);
         }
         
-        // 최소 입찰가는 시작가와 동일하게 설정
-        const finalMinBid = minBid || finalStartingBid;
+        // 시작가 하한: 즉시 구매가(서버 기준가)의 60% (경매로 즉시 구매가보다 싸게 가져가는 것 방지)
+        const startingBidFloor = Math.ceil(getServerBasePrice(territory) * AUCTION_STARTING_BID_RATIO);
+        finalStartingBid = Math.max(finalStartingBid, startingBidFloor);
         
-        // 9. 경매 종료 시간 결정
-        let auctionEndTime = endTime;
-        if (!auctionEndTime) {
-            // 기본값: 24시간 후
-            const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-            auctionEndTime = endDate.toISOString();
+        // 최소 입찰가는 시작가 이상
+        const finalMinBid = Math.max(parseFloat(minBid) || 0, finalStartingBid);
+        
+        // 9. 경매 종료 시간 결정 (기본 24시간, 관리자가 아니면 1시간~14일로 제한)
+        let auctionEndMs = endTime ? new Date(endTime).getTime() : NaN;
+        if (!Number.isFinite(auctionEndMs)) {
+            auctionEndMs = Date.now() + 24 * 60 * 60 * 1000;
         }
+        if (!isAdminUser(req.user)) {
+            auctionEndMs = Math.min(
+                Math.max(auctionEndMs, Date.now() + MIN_AUCTION_DURATION_MS),
+                Date.now() + MAX_AUCTION_DURATION_MS
+            );
+        }
+        // 다음 기간 경매는 지금 주인의 기간이 끝나는 순간 마감
+        if (auctionKind === 'next_period' && policy.endTime) {
+            auctionEndMs = policy.endTime.getTime();
+        }
+        const auctionEndTime = new Date(auctionEndMs).toISOString();
         
         // 10. 경매 생성
         const auctionResult = await client.query(
@@ -330,17 +350,23 @@ router.post('/', async (req, res) => {
                 min_bid, 
                 current_bid,
                 country,
+                kind,
+                created_by,
+                seller_id,
                 created_at,
                 updated_at
             )
-            VALUES ($1, 'active', NOW(), $2, $3, $4, $5, NOW(), NOW())
+            VALUES ($1, 'active', NOW(), $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
             RETURNING *`,
             [
                 territoryId,
                 auctionEndTime,
                 finalMinBid,
                 finalStartingBid,
-                countryIso // ⚠️ 중요: countryIso 사용 (ISO 3166-1 alpha-3)
+                countryIso, // ⚠️ 중요: countryIso 사용 (ISO 3166-1 alpha-3)
+                auctionKind,
+                userId,
+                auctionKind === 'owner_sale' ? territory.ruler_id : null
             ]
         );
         
@@ -405,6 +431,11 @@ router.post('/', async (req, res) => {
  * 경매 업데이트
  */
 router.put('/:id', async (req, res) => {
+    // 입찰가/입찰자/상태 직접 변경은 관리자 전용 (일반 입찰은 POST /:id/bids)
+    if (!isAdminUser(req.user)) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    
     const client = await getPool().connect();
     
     try {
@@ -533,7 +564,7 @@ router.post('/:id/bids', async (req, res) => {
     
     try {
         const { id: auctionId } = req.params;
-        const { amount } = req.body;
+        const amount = Number(req.body.amount);
         const firebaseUid = req.user.uid;
         
         // ⚠️ 디버깅 로그: 서버에서 받은 요청 확인 (가장 중요)
@@ -544,8 +575,8 @@ router.post('/:id/bids', async (req, res) => {
             bodyKeys: Object.keys(req.body)
         });
         
-        if (!amount || amount <= 0) {
-            return res.status(400).json({ error: 'Invalid bid amount' });
+        if (!Number.isInteger(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Bid must be a whole number of points' });
         }
         
         // 트랜잭션 시작
@@ -609,9 +640,22 @@ router.post('/:id/bids', async (req, res) => {
         const startingBid = parseFloat(auction.min_bid || 0);
         const increment = 1; // 1pt 고정
         
-        // minNextBid 계산: 입찰이 있으면 최고입찰가 + 1pt, 없으면 startingBid
+        // 입찰자 / 현재 주인 확인 (다음 기간 경매의 주인 동액 매칭, 판매 경매의 판매자 입찰 금지)
+        const bidderResult = await client.query(`SELECT id FROM users WHERE firebase_uid = $1`, [firebaseUid]);
+        const bidderId = bidderResult.rows[0]?.id || null;
+        const ownerResult = await client.query(`SELECT ruler_id FROM territories WHERE id = $1`, [auction.territory_id]);
+        const currentOwnerId = ownerResult.rows[0]?.ruler_id || null;
+        const bidderIsOwner = bidderId && currentOwnerId && String(bidderId) === String(currentOwnerId);
+        if (auction.kind === 'owner_sale' && bidderId && String(bidderId) === String(auction.seller_id)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'You cannot bid on your own sale' });
+        }
+        const ownerCanMatch = auction.kind === 'next_period' && bidderIsOwner &&
+            currentBid > 0 && String(auction.current_bidder_id) !== String(currentOwnerId);
+        
+        // minNextBid 계산: 입찰이 있으면 최고입찰가 + 1pt, 없으면 startingBid (다음 기간 경매의 주인은 같은 금액으로 지킬 수 있음)
         const minNextBid = currentBid > 0 
-            ? currentBid + increment 
+            ? currentBid + (ownerCanMatch ? 0 : increment)
             : startingBid;
         
         console.log(`[Auctions] Bid validation for ${auctionId}:`, {
@@ -653,6 +697,27 @@ router.post('/:id/bids', async (req, res) => {
             userId = userResult.rows[0].id;
         }
         
+        // 3-1. 입찰금 예치: 기존 최고 입찰자 예치금 환불 후, 새 입찰자 잔액에서 입찰액 차감
+        // (낙찰 시 예치금이 그대로 결제금이 됨)
+        await releaseAuctionHolds(client, auctionId, { reason: `Outbid refund: ${auction.territory_id}` });
+        try {
+            await adjustWalletBalance(client, userId, -amount, {
+                type: 'bid_hold',
+                description: `Bid hold: ${auction.territory_id}`,
+                referenceId: auctionHoldReference(auctionId)
+            });
+        } catch (walletError) {
+            if (walletError.code === 'INSUFFICIENT_BALANCE') {
+                await client.query('ROLLBACK');
+                return res.status(402).json({
+                    error: 'Insufficient balance',
+                    required: amount,
+                    current: walletError.current
+                });
+            }
+            throw walletError;
+        }
+        
         // 4. 입찰 생성
         const bidResult = await client.query(
             `INSERT INTO bids (auction_id, user_id, amount)
@@ -661,15 +726,22 @@ router.post('/:id/bids', async (req, res) => {
             [auctionId, userId, amount]
         );
         
-        // 5. 경매 정보 업데이트
+        // 5. 경매 정보 업데이트 (마감 직전 입찰이면 마감을 연장해 막판 몰래 입찰 방지)
+        const extendedEndTime = endTime.getTime() - now.getTime() < ANTI_SNIPE_WINDOW_MS
+            ? new Date(now.getTime() + ANTI_SNIPE_WINDOW_MS)
+            : null;
         await client.query(
             `UPDATE auctions 
              SET current_bid = $1, 
                  current_bidder_id = $2,
+                 end_time = COALESCE($4, end_time),
                  updated_at = NOW()
              WHERE id = $3`,
-            [amount, userId, auctionId]
+            [amount, userId, auctionId, extendedEndTime]
         );
+        if (extendedEndTime) {
+            auction.end_time = extendedEndTime;
+        }
         
         // 6. 영토 정보 업데이트 (캐시 무효화를 위해)
         const territoryUpdateResult = await client.query(
@@ -686,60 +758,33 @@ router.post('/:id/bids', async (req, res) => {
         // Redis 캐시 무효화
         await invalidateAuctionCache(auctionId, auction.territory_id);
         
-        // WebSocket으로 입찰 업데이트 브로드캐스트
+        // WebSocket 브로드캐스트 (공개 채널이라 이메일은 보내지 않음)
+        const userInfoResult = await query(`SELECT nickname FROM users WHERE id = $1`, [userId]);
+        const bidderNickname = userInfoResult.rows[0]?.nickname || 'Someone';
+        const endTimeIso = new Date(auction.end_time).toISOString();
+        
         broadcastBidUpdate({
             auctionId,
             territoryId: auction.territory_id,
             amount,
             bidderId: userId,
-            bidderNickname: req.user.name || req.user.email,
+            bidderNickname,
+            endTime: endTimeIso
         });
-        
-        // 경매 업데이트 브로드캐스트
-        const userInfoResult = await query(
-            `SELECT nickname, email FROM users WHERE id = $1`,
-            [userId]
-        );
         broadcastAuctionUpdate(auctionId, {
             currentBid: amount,
             currentBidderId: userId,
-            currentBidderNickname: userInfoResult.rows[0]?.nickname || req.user.email,
+            currentBidderNickname: bidderNickname,
+            endTime: endTimeIso,
             updatedAt: new Date().toISOString()
         });
         
-        // 영토 업데이트도 브로드캐스트 (입찰로 인한 영토 상태 변경 반영)
         if (territoryUpdateResult.rows.length > 0) {
             const territory = territoryUpdateResult.rows[0];
-            
-            // 사용자 정보 조회
-            const userInfoResult = await query(
-                `SELECT nickname, email FROM users WHERE id = $1`,
-                [userId]
-            );
-            
-            // 입찰 업데이트 브로드캐스트
-            broadcastBidUpdate({
-                auctionId: auctionId,
-                territoryId: auction.territory_id,
-                amount: amount,
-                bidderId: userId,
-                bidderNickname: userInfoResult.rows[0]?.nickname || req.user.email
-            });
-            
-            // 경매 업데이트 브로드캐스트
-            broadcastAuctionUpdate(auctionId, {
-                currentBid: amount,
-                currentBidderId: userId,
-                currentBidderNickname: userInfoResult.rows[0]?.nickname || req.user.email,
-                updatedAt: new Date().toISOString()
-            });
-            
-            // 영토 업데이트 브로드캐스트
             broadcastTerritoryUpdate(auction.territory_id, {
                 id: territory.id,
                 status: territory.status,
                 rulerId: territory.ruler_id,
-                rulerNickname: userInfoResult.rows[0]?.nickname || req.user.email,
                 updatedAt: territory.updated_at,
                 currentAuctionId: auctionId
             });
@@ -849,15 +894,8 @@ router.post('/:id/end', async (req, res) => {
             });
         }
         
-        // 3. 권한 확인 (관리자 또는 경매 생성자만 종료 가능)
-        // TODO: 경매 생성자 확인 로직 추가 필요 (auctions 테이블에 created_by 필드가 있다면)
-        // 현재는 관리자만 허용
-        const isAdmin = firebaseUid && (
-            firebaseUid.startsWith('admin_') ||
-            req.user.email?.includes('admin')
-        );
-        
-        if (!isAdmin) {
+        // 3. 권한 확인 (관리자만 수동 종료 가능)
+        if (!isAdminUser(req.user)) {
             await client.query('ROLLBACK');
             return res.status(403).json({ 
                 error: 'Only admins can manually end auctions'
@@ -908,6 +946,7 @@ router.post('/:id/end', async (req, res) => {
         // WebSocket 브로드캐스트
         broadcastAuctionUpdate(auctionId, {
             status: 'ended',
+            territoryId: auction.territory_id,
             endedAt: new Date().toISOString()
         });
         

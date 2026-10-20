@@ -32,11 +32,38 @@ const ADMIN_EMAILS = [
     'etgbajy@gmail.com',         // 일반 관리자 (Firebase Auth 등록 계정)
 ];
 
-// 로컬 관리자 계정 (P키 5번 연타 로그인용)
-const LOCAL_ADMIN_CREDENTIALS = {
-    'admin': 'billionaire2024!',
-    'young91': 'admin1234!',
-    'q886654': 'znznektm1@'  // Firebase 계정과 동일하게 설정
+/**
+ * 서버 데이터의 문자열을 HTML 이스케이프
+ * 관리자 화면은 닉네임/이메일 등 사용자 입력을 innerHTML 템플릿으로 그리므로, 조회 결과를 미리 이스케이프해 저장형 XSS를 막음
+ */
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeDeep(data) {
+    if (typeof data === 'string') return escapeHtml(data);
+    if (Array.isArray(data)) return data.map(escapeDeep);
+    if (data && typeof data === 'object' && !(data instanceof Date)) {
+        const out = {};
+        for (const [key, value] of Object.entries(data)) {
+            out[key] = escapeDeep(value);
+        }
+        return out;
+    }
+    return data;
+}
+
+const adminApi = {
+    get: async (endpoint, params = null) => {
+        const entries = Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null && value !== '');
+        const query = entries.length ? `${endpoint.includes('?') ? '&' : '?'}${new URLSearchParams(entries)}` : '';
+        return escapeDeep(await apiService.get(endpoint + query));
+    }
 };
 
 // 세션 인증 유효 시간 (1시간)
@@ -80,42 +107,7 @@ class AdminDashboard {
                 }
             }
             
-            // 1. 먼저 세션 인증 확인 (P키 5번 로그인)
-            const sessionAuth = this.checkSessionAuth();
-            if (sessionAuth) {
-                console.log('Session auth valid:', sessionAuth.id);
-                this.currentUser = { email: sessionAuth.id, uid: 'local-' + sessionAuth.id };
-                this.isLocalAuth = true;
-                
-                // ⚠️ 중요: 로컬 세션 인증 사용 시 Firebase Auth로 관리자 계정 로그인 시도
-                // Firestore rules에서 관리자 권한 확인을 위해 필요
-                const adminEmail = sessionAuth.id;
-                const adminPassword = LOCAL_ADMIN_CREDENTIALS[adminEmail];
-                
-                if (adminEmail && adminPassword && ADMIN_EMAILS.includes(adminEmail)) {
-                    try {
-                        console.log(`[AdminDashboard] Attempting Firebase Auth login for admin: ${adminEmail}`);
-                        await this.auth.signInWithEmailAndPassword(adminEmail, adminPassword);
-                        console.log(`[AdminDashboard] ✅ Firebase Auth login successful for admin: ${adminEmail}`);
-                        // Firebase Auth 로그인 성공 시 isLocalAuth 플래그 해제
-                        this.isLocalAuth = false;
-                    } catch (authError) {
-                        console.warn(`[AdminDashboard] ⚠️ Firebase Auth login failed, using anonymous login:`, authError);
-                        // Firebase Auth 로그인 실패 시 익명 로그인으로 대체 (읽기만 가능)
-                        await this.signInAnonymouslyForFirestore();
-                    }
-                } else {
-                    // 관리자 계정이 아니거나 비밀번호가 없는 경우 익명 로그인
-                    await this.signInAnonymouslyForFirestore();
-                }
-                
-                this.showDashboard();
-                this.loadDashboardData();
-                this.setupEventListeners();
-                return;
-            }
-            
-            // 2. Firebase Auth 상태 감시 (세션 인증이 없는 경우만)
+            // 관리자 인증은 Firebase Auth(관리자 이메일)로만 처리
             // ✅ 단일 인스턴스 사용: firebaseService.auth.onAuthStateChanged는 이미 설정되어 있음
             // 하지만 관리자 대시보드 전용 로직을 위해 추가 리스너 설정
             this.isLocalAuth = false;
@@ -191,7 +183,7 @@ class AdminDashboard {
     }
     
     /**
-     * 세션 인증 확인 (P키 5번 로그인)
+     * 사용자 모드 전환용 세션 정보 확인 (인증 수단 아님, 실제 권한은 Firebase 토큰으로 서버가 검증)
      */
     checkSessionAuth() {
         try {
@@ -207,8 +199,7 @@ class AdminDashboard {
                 return null;
             }
             
-            // 유효한 관리자 ID인지 확인
-            if (!LOCAL_ADMIN_CREDENTIALS[parsed.id]) {
+            if (!parsed.email || !ADMIN_EMAILS.includes(parsed.email)) {
                 sessionStorage.removeItem('adminAuth');
                 return null;
             }
@@ -351,8 +342,8 @@ class AdminDashboard {
                 this.toggleUserMode();
             });
             
-            // 필터 버튼들
-            document.querySelectorAll('.filter-btn').forEach(btn => {
+            // 옥션 / 결제 필터 버튼
+            document.querySelectorAll('#section-auctions .filter-btn, #section-payments .filter-btn, #section-reports .filter-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const parent = e.target.closest('.filter-buttons');
                     if (!parent) return;
@@ -360,13 +351,27 @@ class AdminDashboard {
                     parent.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
                     e.target.classList.add('active');
                     
-                    // 필터 적용 로직
                     const filter = e.target.getAttribute('data-filter');
-                    if (filter) {
+                    if (e.target.closest('#section-payments')) {
+                        this.loadPaymentsTable();
+                    } else if (e.target.closest('#section-reports')) {
+                        this.loadReportsTable();
+                    } else if (filter) {
                         this.loadAuctionsTable(filter);
                     }
                 });
             });
+            
+            // 사용자 / 결제 검색 (입력 멈춘 뒤 0.4초 후 조회)
+            const debounce = (fn) => {
+                let timer = null;
+                return () => {
+                    clearTimeout(timer);
+                    timer = setTimeout(fn, 400);
+                };
+            };
+            document.getElementById('user-search')?.addEventListener('input', debounce(() => this.loadUsersTable()));
+            document.getElementById('payment-search')?.addEventListener('input', debounce(() => this.loadPaymentsTable()));
             
             // 관리자 추가 버튼은 전역 이벤트 위임으로 처리 (나중에 바인딩)
             // setupEventListeners에서는 바인딩하지 않음
@@ -437,6 +442,8 @@ class AdminDashboard {
         const titles = {
             'overview': '대시보드',
             'users': '사용자 관리',
+            'payments': '결제 내역',
+            'reports': '신고 처리',
             'territories': '영토 관리',
             'auctions': '옥션 관리',
             'analytics': '분석',
@@ -457,6 +464,8 @@ class AdminDashboard {
             // 통계 로드
             await this.loadStats();
             
+            this.loadRevenueSummary();
+            
             // 최근 활동 로드
             await this.loadRecentActivity();
             
@@ -471,12 +480,69 @@ class AdminDashboard {
     }
     
     /**
+     * 매출 요약 (KPI + 일별 차트)
+     */
+    async loadRevenueSummary() {
+        const kpiEl = document.getElementById('revenue-kpis');
+        const canvas = document.getElementById('revenue-daily-chart');
+        if (!kpiEl || !canvas) return;
+        const days = parseInt(document.getElementById('revenue-days')?.value, 10) || 30;
+        
+        try {
+            const data = await adminApi.get('/admin/revenue-summary', { days });
+            const t = data.totals || {};
+            const pct = (v) => `${((v || 0) * 100).toFixed(1)}%`;
+            const kpis = [
+                { label: `최근 ${days}일 결제액`, value: `$${(t.periodUsd || 0).toLocaleString()}` },
+                { label: `최근 ${days}일 신규 가입`, value: (t.newUsers || 0).toLocaleString() },
+                { label: '가입 → 첫 충전', value: pct(t.payConversion), sub: `${t.payingUsers}/${t.users}명` },
+                { label: '가입 → 첫 땅 구매', value: pct(t.buyConversion), sub: `${t.buyers}/${t.users}명` },
+                { label: '주인 있는 땅', value: (t.ownedTerritories || 0).toLocaleString() },
+                { label: '누적 충전 포인트', value: `${(t.chargedPtTotal || 0).toLocaleString()} pt` }
+            ];
+            kpiEl.innerHTML = kpis.map(k => `
+                <div class="stat-card"><div class="stat-info">
+                    <span class="stat-value">${k.value}</span>
+                    <span class="stat-label">${k.label}${k.sub ? ` <small style="opacity:0.7">(${k.sub})</small>` : ''}</span>
+                </div></div>
+            `).join('') + (data.paymentsAvailable ? '' : '<p style="grid-column:1/-1;color:#888;font-size:12px;margin:0;">결제액($)은 결제 기록 기능 배포 이후부터 집계됩니다.</p>');
+            
+            if (typeof Chart === 'undefined') return;
+            const daily = data.daily || [];
+            this.revenueDailyChart?.destroy();
+            this.revenueDailyChart = new Chart(canvas.getContext('2d'), {
+                data: {
+                    labels: daily.map(d => d.day.slice(5)),
+                    datasets: [
+                        { type: 'bar', label: '결제액 ($)', data: daily.map(d => d.usd), backgroundColor: 'rgba(78, 205, 196, 0.6)', yAxisID: 'usd' },
+                        { type: 'line', label: '사용 포인트 (pt)', data: daily.map(d => d.spentPt), borderColor: '#f39c12', tension: 0.2, yAxisID: 'pt' },
+                        { type: 'line', label: '신규 가입', data: daily.map(d => d.signups), borderColor: '#9b59b6', tension: 0.2, yAxisID: 'count' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        usd: { type: 'linear', position: 'left', beginAtZero: true, title: { display: true, text: '$' } },
+                        pt: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'pt' } },
+                        count: { type: 'linear', display: false, beginAtZero: true }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('[AdminDashboard] Failed to load revenue summary:', error);
+            kpiEl.innerHTML = `<div class="error">매출 요약을 불러오지 못했습니다: ${escapeHtml(error.message || '')}</div>`;
+        }
+    }
+    
+    /**
      * 통계 로드
      */
     async loadStats() {
         try {
             // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const stats = await apiService.get('/admin/stats');
+            const stats = await adminApi.get('/admin/stats');
             
             if (stats) {
                 // 요소가 존재하는지 확인한 후에만 업데이트
@@ -574,7 +640,7 @@ class AdminDashboard {
         
         try {
             // ✅ 백엔드 API 사용
-            const activities = await apiService.get('/admin/activity?limit=20');
+            const activities = await adminApi.get('/admin/activity?limit=20');
             
             if (!activities || activities.length === 0) {
                 container.innerHTML = '<div class="empty">최근 활동이 없습니다</div>';
@@ -639,7 +705,7 @@ class AdminDashboard {
         
         try {
             // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const response = await apiService.get('/rankings', { limit: 5 });
+            const response = await adminApi.get('/rankings?limit=5');
             
             // 백엔드 API는 { type, rankings } 형태로 반환
             const rankings = response.rankings || response || [];
@@ -700,7 +766,14 @@ class AdminDashboard {
             case 'users':
                 await this.loadUsersTable();
                 break;
+            case 'payments':
+                await this.loadPaymentsTable();
+                break;
+            case 'reports':
+                await this.loadReportsTable();
+                break;
             case 'territories':
+                this.loadBillboards();
                 await this.loadTerritoriesTable();
                 break;
             case 'auctions':
@@ -724,43 +797,42 @@ class AdminDashboard {
     /**
      * 사용자 테이블 로드
      */
-    async loadUsersTable() {
+    async loadUsersTable({ append = false } = {}) {
         const tbody = document.querySelector('#users-table tbody');
+        const moreBtn = document.getElementById('users-load-more');
+        if (!tbody) return;
         
-        if (!tbody) {
-            console.error('[AdminDashboard] Users table tbody not found');
-            return;
+        const pageSize = 50;
+        if (!append) {
+            this.usersOffset = 0;
+            tbody.innerHTML = '<tr><td colspan="6" class="loading">사용자 데이터 로딩 중...</td></tr>';
         }
+        const search = document.getElementById('user-search')?.value.trim() || '';
+        const requestId = (this.usersRequestId = (this.usersRequestId || 0) + 1);
         
         try {
-            // 로딩 표시
-            tbody.innerHTML = '<tr><td colspan="6" class="loading">사용자 데이터 로딩 중...</td></tr>';
-            
-            // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const users = await apiService.get('/admin/users?limit=100');
-            
-            // API 응답이 배열인지 확인 (백엔드는 배열을 직접 반환)
+            const users = await adminApi.get('/admin/users', { limit: pageSize, offset: this.usersOffset, search });
+            if (requestId !== this.usersRequestId) return;
             const userList = Array.isArray(users) ? users : [];
             
-            if (!userList || userList.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">사용자가 없습니다</td></tr>';
+            if (!append && userList.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="empty">${search ? '검색 결과가 없습니다' : '사용자가 없습니다'}</td></tr>`;
+                if (moreBtn) moreBtn.style.display = 'none';
                 return;
             }
             
-            // 사용자 테이블 렌더링
-            tbody.innerHTML = userList.map(user => {
+            const rows = userList.map(user => {
                 const createdAt = user.createdAt ? new Date(user.createdAt).toLocaleDateString('ko-KR') : '-';
                 const isAdmin = ADMIN_EMAILS.includes((user.email || '').toLowerCase());
                 const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
-                
                 return `
                     <tr>
-                        <td>${user.nickname || user.email || '-'}${adminBadge}</td>
+                        <td>${user.nickname || '-'}${adminBadge}</td>
                         <td>${user.email || '-'}</td>
                         <td>${user.territoryCount || 0}</td>
                         <td>${(user.balance || 0).toLocaleString()} pt</td>
                         <td>${createdAt}</td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             <button class="btn btn-sm" onclick="adminDashboard.viewUser('${user.id}')">보기</button>
                             <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${user.id}')" style="margin-left: 4px;">💰 포인트</button>
                             <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${user.id}')" style="margin-left: 4px;">삭제</button>
@@ -769,210 +841,261 @@ class AdminDashboard {
                 `;
             }).join('');
             
-            console.log(`[AdminDashboard] ✅ Loaded ${userList.length} users from API`);
+            if (append) {
+                tbody.insertAdjacentHTML('beforeend', rows);
+            } else {
+                tbody.innerHTML = rows;
+            }
+            this.usersOffset += userList.length;
+            if (moreBtn) moreBtn.style.display = userList.length === pageSize ? 'inline-block' : 'none';
+        } catch (error) {
+            console.error('[AdminDashboard] Failed to load users:', error);
+            tbody.innerHTML = `<tr><td colspan="6" class="error">사용자 로딩 실패: ${escapeHtml(error.message || '')}</td></tr>`;
+        }
+    }
+    
+    /**
+     * 결제 내역 (PayPal) 로드
+     */
+    async loadPaymentsTable() {
+        const tbody = document.querySelector('#payments-table tbody');
+        const summaryEl = document.getElementById('payments-summary');
+        if (!tbody) return;
+        
+        const status = document.querySelector('#section-payments .filter-btn.active')?.dataset.filter || '';
+        const search = document.getElementById('payment-search')?.value.trim() || '';
+        const requestId = (this.paymentsRequestId = (this.paymentsRequestId || 0) + 1);
+        tbody.innerHTML = '<tr><td colspan="7" class="loading">결제 내역 로딩 중...</td></tr>';
+        
+        try {
+            const data = await adminApi.get('/admin/payments', { limit: 100, status: status === 'all' ? '' : status, search });
+            if (requestId !== this.paymentsRequestId) return;
+            const payments = data?.payments || [];
+            const s = data?.summary || {};
             
-            /* 원래 Firestore 코드 (비활성화됨)
-            let snapshot;
-            try {
-                snapshot = await this.db.collection('users').limit(100).get();
-                console.log(`[AdminDashboard] ✅ Method 1 succeeded: ${snapshot.size} users loaded`);
-            } catch (error1) {
-                console.warn('[AdminDashboard] Method 1 failed, trying method 2:', error1);
-                console.warn('[AdminDashboard] Error details:', {
-                    code: error1.code,
-                    message: error1.message
-                });
-                try {
-                    // 방법 2: 익명 인증 후 시도
-                    if (!this.auth.currentUser) {
-                        console.log('[AdminDashboard] No current user, signing in anonymously...');
-                        await this.auth.signInAnonymously();
-                        console.log('[AdminDashboard] ✅ Signed in anonymously');
-                    }
-                    snapshot = await this.db.collection('users').limit(100).get();
-                    console.log(`[AdminDashboard] ✅ Method 2 succeeded: ${snapshot.size} users loaded`);
-                } catch (error2) {
-                    console.error('[AdminDashboard] Method 2 also failed:', error2);
-                    console.error('[AdminDashboard] Error details:', {
-                        code: error2.code,
-                        message: error2.message,
-                        stack: error2.stack
-                    });
-                    throw error2;
-                }
+            if (summaryEl) {
+                summaryEl.innerHTML = `
+                    <div class="stat-card"><div class="stat-info"><span class="stat-value">$${(s.revenueUsd || 0).toLocaleString()}</span><span class="stat-label">결제 완료 금액</span></div></div>
+                    <div class="stat-card"><div class="stat-info"><span class="stat-value">${s.credited || 0}</span><span class="stat-label">충전 완료</span></div></div>
+                    <div class="stat-card"><div class="stat-info"><span class="stat-value" style="color:#e74c3c">${s.creditFailed || 0}</span><span class="stat-label">결제됐는데 포인트 미지급</span></div></div>
+                    <div class="stat-card"><div class="stat-info"><span class="stat-value">${s.failed || 0}</span><span class="stat-label">결제 실패/거절</span></div></div>
+                `;
             }
             
-            console.log(`[AdminDashboard] Total users loaded: ${snapshot.size}`);
-            
-            if (snapshot.empty) {
-                console.log('[AdminDashboard] No users found in Firestore users collection, trying to extract from territories...');
-                
-                // users 컬렉션이 비어있으면 territories에서 사용자 정보 추출
-                try {
-                    const territoriesSnapshot = await this.db.collection('territories')
-                        .where('sovereignty', 'in', ['ruled', 'protected'])
-                        .get();
-                    
-                    const userMap = new Map();
-                    
-                    territoriesSnapshot.docs.forEach(doc => {
-                        const data = doc.data();
-                        const ruler = data.ruler;
-                        const rulerName = data.rulerName;
-                        
-                        if (ruler && !userMap.has(ruler)) {
-                            // email 추출 시도 (rulerName에서 또는 다른 필드에서)
-                            let email = rulerName;
-                            if (rulerName && rulerName.includes('@')) {
-                                email = rulerName;
-                            } else {
-                                // ruler가 email 형식인지 확인
-                                email = ruler.includes('@') ? ruler : `${ruler}@unknown.com`;
-                            }
-                            
-                            userMap.set(ruler, {
-                                uid: ruler,
-                                email: email,
-                                displayName: rulerName || email.split('@')[0],
-                                territoryCount: 1,
-                                createdAt: data.purchasedAt || data.updatedAt || new Date()
-                            });
-                        } else if (ruler && userMap.has(ruler)) {
-                            // 이미 존재하는 사용자면 territoryCount 증가
-                            const user = userMap.get(ruler);
-                            user.territoryCount++;
-                        }
-                    });
-                    
-                    if (userMap.size > 0) {
-                        console.log(`[AdminDashboard] Extracted ${userMap.size} users from territories`);
-                        
-                        const users = Array.from(userMap.values());
-                        tbody.innerHTML = users.map((user, index) => {
-                            let joined = '-';
-                            if (user.createdAt) {
-                                if (user.createdAt.toDate && typeof user.createdAt.toDate === 'function') {
-                                    joined = user.createdAt.toDate().toLocaleDateString('ko-KR');
-                                } else if (user.createdAt.seconds) {
-                                    joined = new Date(user.createdAt.seconds * 1000).toLocaleDateString('ko-KR');
-                                } else if (user.createdAt instanceof Date) {
-                                    joined = user.createdAt.toLocaleDateString('ko-KR');
-                                } else if (typeof user.createdAt === 'number') {
-                                    joined = new Date(user.createdAt).toLocaleDateString('ko-KR');
-                                }
-                            }
-                            
-                            const isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
-                            const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
-                            
-                            return `
-                                <tr>
-                                    <td>${user.displayName}${adminBadge}</td>
-                                    <td>${user.email}</td>
-                                    <td>${user.territoryCount}</td>
-                                    <td>${joined}</td>
-                                    <td><span class="status status-active">활성</span></td>
-                                    <td>
-                                        <button class="btn btn-sm" onclick="adminDashboard.viewUser('${user.uid}')">보기</button>
-                                        <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${user.uid}')" style="margin-left: 4px;">💰 포인트</button>
-                                        <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${user.uid}')" style="margin-left: 4px;">차단</button>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('');
-                        
-                        return;
-                    }
-                } catch (extractError) {
-                    console.error('[AdminDashboard] Failed to extract users from territories:', extractError);
-                }
-                
-                tbody.innerHTML = '<tr><td colspan="6" class="empty">사용자 없음 (users 컬렉션이 비어있고 territories에서도 추출할 수 없음)</td></tr>';
+            if (payments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">결제 내역이 없습니다</td></tr>';
                 return;
             }
             
-            // 사용자 데이터 디버깅
-            snapshot.docs.forEach((doc, index) => {
-                const data = doc.data();
-                console.log(`[AdminDashboard] User ${index + 1}:`, {
-                    id: doc.id,
-                    displayName: data.displayName,
-                    email: data.email,
-                    territoryCount: data.territoryCount,
-                    createdAt: data.createdAt,
-                    fullData: data
-                });
-            });
+            const statusLabels = {
+                credited: '<span class="badge badge-success">충전 완료</span>',
+                credit_failed: '<span class="badge badge-danger">포인트 미지급</span>',
+                failed: '<span class="badge badge-secondary">결제 실패</span>',
+                rejected: '<span class="badge badge-warning">금액/통화 거절</span>'
+            };
             
-            tbody.innerHTML = snapshot.docs.map(doc => {
-                const data = doc.data();
-                
-                // createdAt 처리 (여러 형식 지원)
-                let joined = '-';
-                if (data.createdAt) {
-                    if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
-                        joined = data.createdAt.toDate().toLocaleDateString('ko-KR');
-                    } else if (data.createdAt.seconds) {
-                        joined = new Date(data.createdAt.seconds * 1000).toLocaleDateString('ko-KR');
-                    } else if (data.createdAt instanceof Date) {
-                        joined = data.createdAt.toLocaleDateString('ko-KR');
-                    } else if (typeof data.createdAt === 'number') {
-                        joined = new Date(data.createdAt).toLocaleDateString('ko-KR');
-                    }
-                }
-                
-                const status = data.banned ? '차단됨' : '활성';
-                const statusClass = data.banned ? 'status-banned' : 'status-active';
-                
-                // displayName이 없으면 email에서 추출하거나 doc.id 사용
-                let displayName = data.displayName;
-                if (!displayName || displayName === 'undefined' || displayName === '[object Object]' || displayName === 'null') {
-                    if (data.email) {
-                        displayName = data.email.split('@')[0];
-                    } else {
-                        displayName = doc.id.substring(0, 20); // doc.id의 처음 20자만
-                    }
-                }
-                
-                // email 정리
-                let email = data.email || doc.id;
-                if (email === 'undefined' || email === '[object Object]' || email === 'null') {
-                    email = doc.id;
-                }
-                
-                // territoryCount 계산 (없으면 영토에서 계산)
-                let territoryCount = data.territoryCount || 0;
-                
-                // 관리자 여부 확인
-                const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
-                const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
-                
+            tbody.innerHTML = payments.map(p => {
+                const time = p.createdAt ? new Date(p.createdAt).toLocaleString('ko-KR') : '-';
+                const amount = p.amountUsd !== null && p.amountUsd !== undefined ? `$${p.amountUsd.toLocaleString()}` : '-';
+                const action = p.status === 'credit_failed' && p.userId
+                    ? `<button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${p.userId}', ${p.points || 0}, 'PayPal ${p.orderId} 미지급분 수동 지급')">포인트 지급</button>`
+                    : (p.userId ? `<button class="btn btn-sm" onclick="adminDashboard.viewUser('${p.userId}')">사용자</button>` : '');
                 return `
                     <tr>
-                        <td>${displayName}${adminBadge}</td>
-                        <td>${email}</td>
-                        <td>${territoryCount}</td>
-                        <td>${joined}</td>
-                        <td><span class="status ${statusClass}">${status}</span></td>
-                        <td>
-                            <button class="btn btn-sm" onclick="adminDashboard.viewUser('${doc.id}')">보기</button>
-                            <button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${doc.id}')" style="margin-left: 4px;">💰 포인트</button>
-                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.showBanModal('${doc.id}')" style="margin-left: 4px;">차단</button>
-                        </td>
+                        <td>${time}</td>
+                        <td>${p.nickname || p.email || '-'}<br><small style="color:#888">${p.email || ''}</small></td>
+                        <td>${amount}</td>
+                        <td>${p.points ? p.points.toLocaleString() + ' pt' : '-'}</td>
+                        <td>${statusLabels[p.status] || p.status}</td>
+                        <td><code style="font-size:11px">${p.orderId}</code>${p.error ? `<br><small style="color:#c0392b">${p.error}</small>` : ''}</td>
+                        <td>${action}</td>
                     </tr>
                 `;
             }).join('');
-            
-            console.log(`[AdminDashboard] Successfully rendered ${snapshot.size} users in table`);
-            */
-            
         } catch (error) {
-            console.error('[AdminDashboard] Failed to load users:', error);
-            let errorMessage = '사용자 로딩 실패';
-            if (error.message) {
-                errorMessage = `사용자 로딩 실패: ${error.message}`;
+            console.error('[AdminDashboard] Failed to load payments:', error);
+            tbody.innerHTML = `<tr><td colspan="7" class="error">결제 내역 로딩 실패: ${escapeHtml(error.message || '')}</td></tr>`;
+        }
+    }
+    
+    /**
+     * 광고판 목록 / 지정·해제
+     */
+    async loadBillboards() {
+        const el = document.getElementById('billboard-list');
+        if (!el) return;
+        try {
+            const list = await adminApi.get('/admin/billboards');
+            el.innerHTML = !Array.isArray(list) || list.length === 0
+                ? '<p style="color:#888;font-size:13px;margin:0;">지정된 광고판이 없습니다.</p>'
+                : `<table class="data-table" style="font-size:13px;"><thead><tr><th>영토</th><th>주당 가격</th><th>이번 주</th><th>남은 예약</th><th>누적 예약 매출</th></tr></thead><tbody>
+                    ${list.map(b => `<tr>
+                        <td>${b.name || b.id}<br><small style="color:#888">${b.id}</small></td>
+                        <td>${b.weeklyPrice.toLocaleString()} pt</td>
+                        <td>${b.currentBooker || '-'}</td>
+                        <td>${b.upcomingWeeks}주</td>
+                        <td>${b.revenuePt.toLocaleString()} pt</td>
+                    </tr>`).join('')}
+                  </tbody></table>`;
+        } catch (error) {
+            el.innerHTML = `<p class="error">광고판 목록 로딩 실패: ${escapeHtml(error.message || '')}</p>`;
+        }
+    }
+    
+    async setBillboard(enabled) {
+        const input = document.getElementById('billboard-territory-id');
+        const territoryId = input?.value.trim().toLowerCase();
+        if (!territoryId) {
+            alert('영토 ID를 입력해주세요.');
+            return;
+        }
+        if (!confirm(`${territoryId}을(를) 광고판${enabled ? '으로 지정' : '에서 해제'}하시겠습니까?`)) return;
+        try {
+            await apiService.post(`/admin/territories/${encodeURIComponent(territoryId)}/billboard`, { enabled });
+            alert(`✅ ${territoryId} 광고판 ${enabled ? '지정' : '해제'} 완료`);
+            if (input) input.value = '';
+            this.loadBillboards();
+        } catch (error) {
+            alert(`❌ ${error.message || '실패'}`);
+        }
+    }
+    
+    /**
+     * 가격 일괄 조정 모달
+     */
+    showBulkPriceModal() {
+        document.getElementById('bulk-price-modal-overlay')?.remove();
+        const input = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;';
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="modal-overlay" id="bulk-price-modal-overlay" onclick="if (event.target === this) this.remove()">
+                <div class="modal-content" style="max-width: 560px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #0984e3 0%, #6c5ce7 100%); color: white; padding: 18px 20px; border-radius: 8px 8px 0 0;">
+                        <h2 style="margin: 0; color: white;">💲 가격 일괄 조정 (주당 기준가)</h2>
+                    </div>
+                    <div class="modal-body" style="padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <label>국가 코드 (예: KOR, 비우면 전체)<input id="bulk-country" maxlength="3" placeholder="KOR" style="${input}"></label>
+                        <label>대상<select id="bulk-owned" style="${input}"><option value="unowned">주인 없는 땅만</option><option value="all">주인 있는 땅 포함</option></select></label>
+                        <label>현재 가격 이상 (pt)<input id="bulk-min" type="number" placeholder="예: 500 (S급)" style="${input}"></label>
+                        <label>현재 가격 이하 (pt)<input id="bulk-max" type="number" placeholder="비우면 제한 없음" style="${input}"></label>
+                        <label>방식<select id="bulk-mode" style="${input}"><option value="percent">비율로 올리기/내리기 (%)</option><option value="set">특정 가격으로 맞추기 (pt)</option></select></label>
+                        <label>값<input id="bulk-value" type="number" placeholder="예: 10 또는 -20" style="${input}"></label>
+                        <div id="bulk-preview" style="grid-column: 1 / -1; background: #f5f6fa; color: #333; padding: 12px; border-radius: 8px; font-size: 13px;">조건을 정하고 [미리보기]를 누르세요. 가격은 10pt 단위로 반올림되고 최소 50pt입니다.</div>
+                    </div>
+                    <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('bulk-price-modal-overlay').remove()">닫기</button>
+                        <button class="btn" onclick="adminDashboard.runBulkPrice(false)">미리보기</button>
+                        <button class="btn btn-primary" id="bulk-apply-btn" disabled onclick="adminDashboard.runBulkPrice(true)">적용</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        document.querySelectorAll('#bulk-price-modal-overlay input, #bulk-price-modal-overlay select').forEach(el => {
+            el.addEventListener('input', () => {
+                document.getElementById('bulk-apply-btn').disabled = true;
+            });
+        });
+    }
+    
+    async runBulkPrice(apply) {
+        const val = (id) => document.getElementById(id)?.value.trim() || '';
+        const payload = {
+            countryIso: val('bulk-country') || undefined,
+            minPrice: val('bulk-min') || undefined,
+            maxPrice: val('bulk-max') || undefined,
+            onlyUnowned: val('bulk-owned') !== 'all',
+            mode: val('bulk-mode'),
+            value: Number(val('bulk-value')),
+            apply
+        };
+        const preview = document.getElementById('bulk-preview');
+        const applyBtn = document.getElementById('bulk-apply-btn');
+        if (!val('bulk-value')) {
+            preview.textContent = '값을 입력해주세요.';
+            return;
+        }
+        if (apply && !confirm(`${this.lastBulkPreviewCount ?? '?'}개 땅의 가격을 바꿉니다. 계속할까요?`)) return;
+        try {
+            const result = await apiService.post('/admin/prices/bulk', payload);
+            const samples = (result.samples || []).map(s =>
+                `${escapeHtml(s.name || s.id)} (${escapeHtml(s.countryIso || '-')}): ${s.before.toLocaleString()} → <strong>${s.after.toLocaleString()}</strong> pt`
+            ).join('<br>');
+            preview.innerHTML = `
+                ${result.applied ? `<strong style="color:#27ae60">✅ ${result.updated.toLocaleString()}개 적용 완료</strong><br>` : ''}
+                대상 <strong>${result.count.toLocaleString()}</strong>개 · 평균 ${result.avgBefore.toLocaleString()} → <strong>${result.avgAfter.toLocaleString()}</strong> pt
+                (범위 ${result.minAfter.toLocaleString()}~${result.maxAfter.toLocaleString()} pt)
+                ${samples ? `<div style="margin-top:8px;">${samples}</div>` : ''}
+            `;
+            this.lastBulkPreviewCount = result.count;
+            applyBtn.disabled = result.applied || result.count === 0;
+            if (result.applied && this.currentSection === 'territories') this.loadTerritoriesTable();
+        } catch (error) {
+            preview.textContent = `❌ ${error.message || '실패'}`;
+        }
+    }
+    
+    /**
+     * 신고 목록 로드
+     */
+    async loadReportsTable() {
+        const tbody = document.querySelector('#reports-table tbody');
+        if (!tbody) return;
+        const status = document.querySelector('#section-reports .filter-btn.active')?.dataset.filter || 'open';
+        tbody.innerHTML = '<tr><td colspan="6" class="loading">신고 로딩 중...</td></tr>';
+        
+        try {
+            const reports = await adminApi.get('/admin/reports', { status });
+            if (!Array.isArray(reports) || reports.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">신고가 없습니다</td></tr>';
+                return;
             }
-            tbody.innerHTML = `<tr><td colspan="6" class="error">${errorMessage}</td></tr>`;
+            const reasonLabels = { art: '부적절한 그림', link: '유해/사기 링크', spam: '스팸', other: '기타' };
+            const actionLabels = { dismiss: '문제 없음', remove_art: '그림 삭제', remove_link: '링크 삭제', block_link: '링크 차단', remove_all: '그림+링크 삭제' };
+            
+            tbody.innerHTML = reports.map(r => {
+                const time = r.createdAt ? new Date(r.createdAt).toLocaleString('ko-KR') : '-';
+                const link = r.adUrl
+                    ? `<a href="${r.adUrl}" target="_blank" rel="noopener noreferrer nofollow">${r.adTitle || r.adUrl}</a>`
+                    : (r.adHidden ? '<span class="badge badge-warning">차단됨</span>' : '-');
+                const actions = r.status === 'open' ? `
+                    <select id="report-action-${r.id}" style="padding:4px;">
+                        <option value="dismiss">문제 없음</option>
+                        <option value="remove_art">그림 삭제</option>
+                        <option value="remove_link">링크 삭제</option>
+                        <option value="block_link">링크 차단</option>
+                        <option value="remove_all">그림+링크 삭제</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary" onclick="adminDashboard.resolveReport(${r.id})">처리</button>
+                ` : `${actionLabels[r.action] || r.status}<br><small style="color:#888">${r.resolvedBy || ''}</small>`;
+                return `
+                    <tr>
+                        <td style="white-space:nowrap">${time}</td>
+                        <td>
+                            <a href="index.html?territory=${encodeURIComponent(r.territoryId)}" target="_blank" rel="noopener">${r.territoryName || r.territoryId}</a>
+                            <br><small style="color:#888">주인: ${r.owner || '-'}${r.territoryReportCount > 1 ? ` · 신고 ${r.territoryReportCount}건` : ''}</small>
+                        </td>
+                        <td>${reasonLabels[r.reason] || r.reason}${r.details ? `<br><small style="color:#aaa">${r.details}</small>` : ''}</td>
+                        <td>${r.reporter || '-'}</td>
+                        <td style="max-width:220px;word-break:break-all;">${link}</td>
+                        <td style="white-space:nowrap">${actions}</td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (error) {
+            console.error('[AdminDashboard] Failed to load reports:', error);
+            tbody.innerHTML = `<tr><td colspan="6" class="error">신고 로딩 실패: ${escapeHtml(error.message || '')}</td></tr>`;
+        }
+    }
+    
+    async resolveReport(reportId) {
+        const action = document.getElementById(`report-action-${reportId}`)?.value || 'dismiss';
+        const labels = { dismiss: '문제 없음으로 처리', remove_art: '그림을 삭제', remove_link: '링크를 삭제', block_link: '링크를 삭제하고 차단', remove_all: '그림과 링크를 모두 삭제' };
+        if (!confirm(`이 영토를 "${labels[action]}"하시겠습니까?${action === 'dismiss' ? '' : '\n\n삭제는 되돌릴 수 없습니다.'}`)) return;
+        try {
+            const result = await apiService.post(`/admin/reports/${reportId}/resolve`, { action });
+            alert(`✅ 처리 완료 (신고 ${result.resolvedCount}건 정리)`);
+            this.loadReportsTable();
+        } catch (error) {
+            alert(`❌ 처리 실패: ${error.message || '알 수 없는 오류'}`);
         }
     }
     
@@ -993,7 +1116,7 @@ class AdminDashboard {
             tbody.innerHTML = '<tr><td colspan="6" class="loading">영토 데이터 로딩 중...</td></tr>';
             
             // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const territories = await apiService.get('/admin/territories', { limit: 100 });
+            const territories = await adminApi.get('/admin/territories?limit=100');
             
             if (!territories || territories.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" class="empty">점유된 영토가 없습니다</td></tr>';
@@ -1304,7 +1427,7 @@ class AdminDashboard {
             // ✅ 마이그레이션 완료: 백엔드 API 사용
             // 필터가 지정되지 않은 경우 활성 필터 버튼에서 가져오기
             if (!statusFilter) {
-                const activeFilterBtn = document.querySelector('.filter-btn.active[data-filter]');
+                const activeFilterBtn = document.querySelector('#section-auctions .filter-btn.active[data-filter]');
                 if (activeFilterBtn) {
                     statusFilter = activeFilterBtn.getAttribute('data-filter');
                 }
@@ -1316,7 +1439,7 @@ class AdminDashboard {
                 params.status = statusFilter;
             }
             
-            const auctions = await apiService.get('/admin/auctions', params);
+            const auctions = await adminApi.get('/admin/auctions', params);
             
             if (!auctions || auctions.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" class="empty">경매가 없습니다</td></tr>';
@@ -1641,299 +1764,80 @@ class AdminDashboard {
     
     async viewUser(userId) {
         try {
-            // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const userData = await apiService.get(`/admin/users/${userId}`);
-            
+            const userData = await adminApi.get(`/admin/users/${userId}`);
             if (!userData) {
                 alert('사용자를 찾을 수 없습니다.');
                 return;
             }
             
-            // 사용자 데이터 처리
-            const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
-            const email = userData.email || userId;
-            const photoURL = userData.avatarUrl || '';
-            const emailVerified = userData.emailVerified ? '예' : '아니오';
-            const banned = userData.banned ? '차단됨' : '활성';
-            const bannedClass = userData.banned ? 'status-banned' : 'status-active';
-            const createdAt = userData.createdAt ? new Date(userData.createdAt).toLocaleString('ko-KR') : '-';
-            const lastLoginAt = userData.lastLoginAt ? new Date(userData.lastLoginAt).toLocaleString('ko-KR') : '-';
-            const bannedAt = userData.bannedAt ? new Date(userData.bannedAt).toLocaleString('ko-KR') : '-';
-            const bannedBy = userData.bannedBy || '-';
+            const email = userData.email || '-';
+            const displayName = userData.nickname || email.split('@')[0];
             const balance = userData.balance || 0;
-            const totalCharged = 0; // API에서 제공되지 않음
-            const totalSpent = 0; // API에서 제공되지 않음
-            const territoryCount = userData.territories?.length || 0;
-            const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+            const territories = userData.territories || [];
+            const transactions = userData.transactions || [];
+            const isAdmin = ADMIN_EMAILS.includes(String(email).toLowerCase());
+            const createdAt = userData.createdAt ? new Date(userData.createdAt).toLocaleString('ko-KR') : '-';
+            const totalCharged = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + t.amount, 0);
+            const totalSpent = transactions.filter(t => t.amount < 0 && t.type !== 'bid_hold').reduce((sum, t) => sum - t.amount, 0);
             
-            const modalHtml = `
-                <div class="modal-overlay" id="user-modal-overlay" onclick="adminDashboard.closeUserModal()">
-                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
-                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                            <h2 style="margin: 0; color: white;">👤 사용자 상세 정보</h2>
-                            <button class="modal-close" onclick="adminDashboard.closeUserModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
-                        </div>
-                        <div class="modal-body" style="padding: 20px;">
-                            <!-- 사용자 기본 정보 -->
-                            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
-                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
-                                    ${photoURL ? `<img src="${photoURL}" alt="${displayName}" style="width: 60px; height: 60px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
-                                    <div>
-                                        <h3 style="margin: 0; color: #333; font-size: 20px;">${displayName} ${isAdmin ? '<span class="badge badge-warning">관리자</span>' : ''}</h3>
-                                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${email}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- 정보 그리드 -->
-                            <div class="info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">사용자 ID</label>
-                                    <span style="color: #333; font-size: 14px; word-break: break-all;">${userId}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">이메일 인증</label>
-                                    <span style="color: #333; font-size: 14px;">${emailVerified}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">상태</label>
-                                    <span class="status ${bannedClass}" style="display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">${banned}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">보유 영토</label>
-                                    <span style="color: #333; font-size: 14px; font-weight: bold;">${territoryCount}개</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">가입일</label>
-                                    <span style="color: #333; font-size: 14px;">${createdAt}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">마지막 로그인</label>
-                                    <span style="color: #333; font-size: 14px;">${lastLoginAt}</span>
-                                </div>
-                            </div>
-                            
-                            <!-- 지갑 정보 -->
-                            <div style="background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
-                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">💰 지갑 정보</h3>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">현재 잔액</label>
-                                        <span style="color: #2d3436; font-size: 20px; font-weight: bold;">${balance.toLocaleString()} pt</span>
-                                    </div>
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 충전액</label>
-                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalCharged.toLocaleString()} pt</span>
-                                    </div>
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 사용액</label>
-                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalSpent.toLocaleString()} pt</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            ${userData.banned ? `
-                            <!-- 차단 정보 -->
-                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
-                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">🚫 차단 정보</h3>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                    <div>
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단 일시</label>
-                                        <span style="color: #333; font-size: 14px;">${bannedAt}</span>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단한 관리자</label>
-                                        <span style="color: #333; font-size: 14px;">${bannedBy}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            ` : ''}
-                        </div>
-                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
-                            <button class="btn btn-secondary" onclick="adminDashboard.closeUserModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">닫기</button>
-                            <button class="btn btn-primary" onclick="adminDashboard.addPoints('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 포인트 지급</button>
-                            ${!userData.banned ? `<button class="btn btn-danger" onclick="adminDashboard.showBanModal('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🚫 차단</button>` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // 기존 모달 제거
-            const existingModal = document.getElementById('user-modal-overlay');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // 모달 추가
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            this.logAdminAction('VIEW_USER', { userId });
-            
-            /* 원래 Firestore 코드 (비활성화됨) - 중복 제거됨
-            const userDoc = await this.db.collection('users').doc(userId).get();
-            if (!userDoc.exists) {
-                alert('사용자를 찾을 수 없습니다.');
-                return;
-            }
-            
-            const userData = userDoc.data();
-            
-            // 지갑 정보 가져오기
-            let walletData = null;
-            try {
-                const walletDoc = await this.db.collection('wallets').doc(userId).get();
-                if (walletDoc.exists) {
-                    walletData = walletDoc.data();
-                }
-            } catch (walletError) {
-                console.warn('Failed to load wallet:', walletError);
-            }
-            
-            // 영토 개수 계산
-            let territoryCount = userData.territoryCount || 0;
-            try {
-                const territoriesSnapshot = await this.db.collection('territories')
-                    .where('ruler', '==', userId)
-                    .get();
-                territoryCount = territoriesSnapshot.size;
-            } catch (error) {
-                console.warn('Failed to count territories:', error);
-            }
-            
-            // 날짜 포맷팅
-            const formatDate = (date) => {
-                if (!date) return '-';
-                if (date.toDate && typeof date.toDate === 'function') {
-                    return date.toDate().toLocaleString('ko-KR');
-                } else if (date.seconds) {
-                    return new Date(date.seconds * 1000).toLocaleString('ko-KR');
-                } else if (date instanceof Date) {
-                    return date.toLocaleString('ko-KR');
-                } else if (typeof date === 'number') {
-                    return new Date(date).toLocaleString('ko-KR');
-                }
-                return '-';
+            const typeLabels = {
+                charge: '충전', purchase: '구매', admin_grant: '관리자 지급', admin_deduct: '관리자 차감',
+                bid_hold: '입찰 예치', bid_release: '입찰 환불', signup_bonus: '가입 보너스', reward: '보상', refund: '환불'
             };
             
-            const displayName = userData.displayName || userData.email?.split('@')[0] || userId.substring(0, 20);
-            const email = userData.email || userId;
-            const photoURL = userData.photoURL || '';
-            const emailVerified = userData.emailVerified ? '예' : '아니오';
-            const banned = userData.banned ? '차단됨' : '활성';
-            const bannedClass = userData.banned ? 'status-banned' : 'status-active';
-            const createdAt = formatDate(userData.createdAt);
-            const lastLoginAt = formatDate(userData.lastLoginAt);
-            const bannedAt = formatDate(userData.bannedAt);
-            const bannedBy = userData.bannedBy || '-';
-            const balance = walletData?.balance || 0;
-            const totalCharged = walletData?.totalCharged || 0;
-            const totalSpent = walletData?.totalSpent || 0;
-            const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+            const territoriesHtml = territories.length === 0
+                ? '<p style="color:#888; margin:0;">보유 영토 없음</p>'
+                : `<table class="data-table" style="font-size:13px;"><thead><tr><th>영토</th><th>상태</th><th>구매가</th><th>구매일</th></tr></thead><tbody>
+                    ${territories.map(t => `<tr>
+                        <td>${t.name || t.id}<br><small style="color:#888">${t.id}</small></td>
+                        <td>${t.sovereignty}</td>
+                        <td>${(t.purchasedPrice || 0).toLocaleString()} pt</td>
+                        <td>${t.purchasedAt ? new Date(t.purchasedAt).toLocaleDateString('ko-KR') : '-'}</td>
+                    </tr>`).join('')}
+                  </tbody></table>`;
+            
+            const transactionsHtml = transactions.length === 0
+                ? '<p style="color:#888; margin:0;">거래 내역 없음</p>'
+                : `<table class="data-table" style="font-size:13px;"><thead><tr><th>일시</th><th>종류</th><th>금액</th><th>내용</th></tr></thead><tbody>
+                    ${transactions.map(t => `<tr>
+                        <td style="white-space:nowrap">${t.createdAt ? new Date(t.createdAt).toLocaleString('ko-KR') : '-'}</td>
+                        <td>${typeLabels[t.type] || t.type}</td>
+                        <td style="color:${t.amount < 0 ? '#c0392b' : '#27ae60'}; font-weight:bold; white-space:nowrap">${t.amount > 0 ? '+' : ''}${t.amount.toLocaleString()} pt</td>
+                        <td>${t.description || ''}</td>
+                    </tr>`).join('')}
+                  </tbody></table>`;
             
             const modalHtml = `
                 <div class="modal-overlay" id="user-modal-overlay" onclick="adminDashboard.closeUserModal()">
-                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 820px; max-height: 90vh; overflow-y: auto;">
                         <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                            <h2 style="margin: 0; color: white;">👤 사용자 상세 정보</h2>
+                            <h2 style="margin: 0; color: white;">👤 ${displayName} ${isAdmin ? '<span class="badge badge-warning">관리자</span>' : ''}</h2>
                             <button class="modal-close" onclick="adminDashboard.closeUserModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
                         </div>
                         <div class="modal-body" style="padding: 20px;">
-                            <!-- 사용자 기본 정보 -->
-                            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
-                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
-                                    ${photoURL ? `<img src="${photoURL}" alt="${displayName}" style="width: 60px; height: 60px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
-                                    <div>
-                                        <h3 style="margin: 0; color: #333; font-size: 20px;">${displayName} ${isAdmin ? '<span class="badge badge-warning">관리자</span>' : ''}</h3>
-                                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${email}</p>
-                                    </div>
-                                </div>
+                            <p style="margin: 0 0 15px 0; color: #666;">${email} · 가입 ${createdAt}<br><small>ID: ${userData.id}</small></p>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;">
+                                <div class="stat-card"><div class="stat-info"><span class="stat-value">${balance.toLocaleString()}</span><span class="stat-label">현재 잔액 (pt)</span></div></div>
+                                <div class="stat-card"><div class="stat-info"><span class="stat-value">${totalCharged.toLocaleString()}</span><span class="stat-label">충전 (최근 50건 중)</span></div></div>
+                                <div class="stat-card"><div class="stat-info"><span class="stat-value">${totalSpent.toLocaleString()}</span><span class="stat-label">사용 (최근 50건 중)</span></div></div>
+                                <div class="stat-card"><div class="stat-info"><span class="stat-value">${territories.length}</span><span class="stat-label">보유 영토</span></div></div>
                             </div>
-                            
-                            <!-- 정보 그리드 -->
-                            <div class="info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">사용자 ID</label>
-                                    <span style="color: #333; font-size: 14px; word-break: break-all;">${userId}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">이메일 인증</label>
-                                    <span style="color: #333; font-size: 14px;">${emailVerified}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">상태</label>
-                                    <span class="status ${bannedClass}" style="display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">${banned}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">보유 영토</label>
-                                    <span style="color: #333; font-size: 14px; font-weight: bold;">${territoryCount}개</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">가입일</label>
-                                    <span style="color: #333; font-size: 14px;">${createdAt}</span>
-                                </div>
-                                <div class="info-item" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
-                                    <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">마지막 로그인</label>
-                                    <span style="color: #333; font-size: 14px;">${lastLoginAt}</span>
-                                </div>
-                            </div>
-                            
-                            <!-- 지갑 정보 -->
-                            <div style="background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
-                                <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">💰 지갑 정보</h3>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">현재 잔액</label>
-                                        <span style="color: #2d3436; font-size: 20px; font-weight: bold;">${balance.toLocaleString()} pt</span>
-                                    </div>
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 충전액</label>
-                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalCharged.toLocaleString()} pt</span>
-                                    </div>
-                                    <div style="background: white; padding: 15px; border-radius: 8px; text-align: center;">
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">총 사용액</label>
-                                        <span style="color: #2d3436; font-size: 18px; font-weight: bold;">${totalSpent.toLocaleString()} pt</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            ${userData.banned ? `
-                            <!-- 차단 정보 -->
-                            <div style="background: #fee; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #e74c3c;">
-                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #c0392b; font-size: 16px;">🚫 차단 정보</h3>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                    <div>
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단 일시</label>
-                                        <span style="color: #333; font-size: 14px;">${bannedAt}</span>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-weight: bold; color: #666; margin-bottom: 5px; font-size: 12px;">차단한 관리자</label>
-                                        <span style="color: #333; font-size: 14px;">${bannedBy}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            ` : ''}
+                            <h3 style="margin: 0 0 8px 0;">🗺️ 보유 영토</h3>
+                            <div style="margin-bottom: 20px;">${territoriesHtml}</div>
+                            <h3 style="margin: 0 0 8px 0;">💳 포인트 거래 내역 (최근 50건)</h3>
+                            <div>${transactionsHtml}</div>
                         </div>
-                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
-                            <button class="btn btn-secondary" onclick="adminDashboard.closeUserModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">닫기</button>
-                            <button class="btn btn-primary" onclick="adminDashboard.addPoints('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 포인트 지급</button>
-                            ${!userData.banned ? `<button class="btn btn-danger" onclick="adminDashboard.showBanModal('${userId}'); adminDashboard.closeUserModal();" style="padding: 10px 20px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">🚫 차단</button>` : ''}
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closeUserModal()">닫기</button>
+                            <button class="btn btn-primary" onclick="adminDashboard.closeUserModal(); adminDashboard.addPoints('${userData.id}');">💰 포인트 지급/차감</button>
+                            <button class="btn btn-danger" onclick="adminDashboard.closeUserModal(); adminDashboard.showBanModal('${userData.id}');">🗑️ 삭제</button>
                         </div>
                     </div>
                 </div>
             `;
             
-            // 기존 모달 제거
-            const existingModal = document.getElementById('user-modal-overlay');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // 모달 추가
+            document.getElementById('user-modal-overlay')?.remove();
             document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            this.logAdminAction('VIEW_USER', { userId });
-            */
-            
         } catch (error) {
             console.error('Failed to load user:', error);
             alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
@@ -1953,7 +1857,7 @@ class AdminDashboard {
     async showBanModal(userId) {
         try {
             // ✅ 백엔드 API 사용
-            const userData = await apiService.get(`/admin/users/${userId}`);
+            const userData = await adminApi.get(`/admin/users/${userId}`);
             const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
             const email = userData.email || userId;
             
@@ -2057,104 +1961,70 @@ class AdminDashboard {
     /**
      * 포인트 지급 모달 표시
      */
-    async addPoints(userId) {
+    async addPoints(userId, presetAmount = null, presetReason = '') {
         try {
-            // ✅ 마이그레이션 완료: 백엔드 API 사용
-            const userData = await apiService.get(`/admin/users/${userId}`);
-            
+            const userData = await adminApi.get(`/admin/users/${userId}`);
             if (!userData) {
                 alert('사용자를 찾을 수 없습니다.');
                 return;
             }
             
-            const displayName = userData.nickname || userData.email?.split('@')[0] || userId.substring(0, 20);
-            const email = userData.email || userId;
-            
-            // 지갑 정보 (사용자 정보에 포함됨)
+            const displayName = userData.nickname || userData.email?.split('@')[0] || userId;
             const currentBalance = userData.balance || 0;
+            const quick = [100, 500, 1000, 5000].map(v =>
+                `<button type="button" class="btn btn-sm" onclick="document.getElementById('points-amount-input').value='${v}'; document.getElementById('points-amount-input').dispatchEvent(new Event('input'))">${v.toLocaleString()} pt</button>`
+            ).join('');
             
             const modalHtml = `
                 <div class="modal-overlay" id="points-modal-overlay" onclick="adminDashboard.closePointsModal()">
-                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                    <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 560px;">
                         <div class="modal-header" style="background: linear-gradient(135deg, #00b894 0%, #00a085 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-                            <h2 style="margin: 0; color: white;">💰 포인트 지급</h2>
+                            <h2 style="margin: 0; color: white;">💰 포인트 지급 / 차감</h2>
                             <button class="modal-close" onclick="adminDashboard.closePointsModal()" style="color: white; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 20px;">×</button>
                         </div>
                         <div class="modal-body" style="padding: 20px;">
-                            <!-- 사용자 정보 -->
-                            <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #00b894;">
-                                <h3 style="margin-top: 0; margin-bottom: 10px; color: #2e7d32; font-size: 16px;">👤 지급 대상</h3>
-                                <p style="margin: 0; color: #333; font-size: 14px;"><strong>${displayName}</strong> (${email})</p>
-                                <p style="margin: 5px 0 0 0; color: #666; font-size: 13px;">현재 잔액: <strong>${currentBalance.toLocaleString()} pt</strong></p>
+                            <p style="margin: 0 0 15px 0;"><strong>${displayName}</strong> (${userData.email || '-'})<br>현재 잔액: <strong>${currentBalance.toLocaleString()} pt</strong></p>
+                            <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                                <label><input type="radio" name="points-mode" value="grant" checked> ➕ 지급</label>
+                                <label><input type="radio" name="points-mode" value="deduct"> ➖ 차감 (환불·회수)</label>
                             </div>
-                            
-                            <!-- 포인트 지급 양식 -->
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">지급할 포인트 (pt)</label>
-                                <input type="number" id="points-amount-input" min="1" step="1" placeholder="지급할 포인트를 입력하세요" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px; font-weight: bold; text-align: center;" autofocus>
-                                <p style="margin: 8px 0 0 0; color: #666; font-size: 12px;">※ 최소 1 pt 이상 입력해주세요.</p>
-                            </div>
-                            
-                            <!-- 빠른 선택 버튼 -->
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">빠른 선택</label>
-                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '100'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">100 pt</button>
-                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '500'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">500 pt</button>
-                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '1000'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">1,000 pt</button>
-                                    <button type="button" onclick="document.getElementById('points-amount-input').value = '5000'" style="padding: 10px; background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">5,000 pt</button>
-                                </div>
-                            </div>
-                            
-                            <!-- 사유 입력 -->
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">지급 사유 (선택사항)</label>
-                                <textarea id="points-reason-input" placeholder="포인트 지급 사유를 입력하세요..." style="width: 100%; min-height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
-                            </div>
-                            
-                            <!-- 예상 잔액 표시 -->
-                            <div id="points-preview" style="background: #f0f0f0; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: none;">
-                                <p style="margin: 0; color: #333; font-size: 14px;">
-                                    현재 잔액: <strong>${currentBalance.toLocaleString()} pt</strong><br>
-                                    지급 후 예상 잔액: <strong id="points-preview-amount" style="color: #00b894; font-size: 18px;">-</strong>
-                                </p>
-                            </div>
+                            <input type="number" id="points-amount-input" min="1" step="1" placeholder="포인트 (pt)" value="${presetAmount || ''}" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px; font-weight: bold; text-align: center;">
+                            <div style="display: flex; gap: 6px; margin: 10px 0 15px 0;">${quick}</div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 6px;">사유 <span id="points-reason-required" style="color:#c0392b; display:none;">(차감 시 필수)</span></label>
+                            <textarea id="points-reason-input" placeholder="예: PayPal 환불 처리, 이벤트 보상" style="width: 100%; min-height: 70px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit;">${presetReason}</textarea>
+                            <p id="points-preview" style="margin: 12px 0 0 0; color: #333;"></p>
                         </div>
-                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
-                            <button class="btn btn-secondary" onclick="adminDashboard.closePointsModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">취소</button>
-                            <button class="btn btn-primary" onclick="adminDashboard.confirmAddPoints('${userId}')" style="padding: 10px 30px; background: linear-gradient(135deg, #00b894 0%, #00a085 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">💰 지급 확인</button>
+                        <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">
+                            <button class="btn btn-secondary" onclick="adminDashboard.closePointsModal()">취소</button>
+                            <button class="btn btn-primary" id="points-confirm-btn" onclick="adminDashboard.confirmAddPoints('${userData.id}', ${currentBalance})">확인</button>
                         </div>
                     </div>
                 </div>
             `;
             
-            // 기존 모달 제거
-            const existingModal = document.getElementById('points-modal-overlay');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // 모달 추가
+            document.getElementById('points-modal-overlay')?.remove();
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             
-            // 포인트 입력 시 예상 잔액 업데이트
             const amountInput = document.getElementById('points-amount-input');
-            const previewDiv = document.getElementById('points-preview');
-            const previewAmount = document.getElementById('points-preview-amount');
-            
-            if (amountInput && previewDiv && previewAmount) {
-                amountInput.addEventListener('input', (e) => {
-                    const amount = parseInt(e.target.value) || 0;
-                    if (amount > 0) {
-                        const newBalance = currentBalance + amount;
-                        previewAmount.textContent = newBalance.toLocaleString() + ' pt';
-                        previewDiv.style.display = 'block';
-                    } else {
-                        previewDiv.style.display = 'none';
-                    }
-                });
-            }
-            
+            const preview = document.getElementById('points-preview');
+            const requiredHint = document.getElementById('points-reason-required');
+            const update = () => {
+                const isDeduct = document.querySelector('input[name="points-mode"]:checked')?.value === 'deduct';
+                const amount = parseInt(amountInput.value, 10) || 0;
+                requiredHint.style.display = isDeduct ? 'inline' : 'none';
+                if (amount <= 0) {
+                    preview.textContent = '';
+                    return;
+                }
+                const next = currentBalance + (isDeduct ? -amount : amount);
+                preview.innerHTML = next < 0
+                    ? '<span style="color:#c0392b">⚠️ 현재 잔액보다 많이 차감할 수 없습니다</span>'
+                    : `처리 후 잔액: <strong>${next.toLocaleString()} pt</strong>`;
+            };
+            amountInput.addEventListener('input', update);
+            document.querySelectorAll('input[name="points-mode"]').forEach(r => r.addEventListener('change', update));
+            update();
+            amountInput.focus();
         } catch (error) {
             console.error('Failed to load user for points:', error);
             alert(`사용자 정보를 불러오는데 실패했습니다: ${error.message}`);
@@ -2162,58 +2032,59 @@ class AdminDashboard {
     }
     
     closePointsModal() {
-        const modal = document.getElementById('points-modal-overlay');
-        if (modal) {
-            modal.remove();
-        }
+        document.getElementById('points-modal-overlay')?.remove();
     }
     
     /**
-     * 포인트 지급 확인 및 실행
+     * 포인트 지급/차감 실행
      */
-    async confirmAddPoints(userId) {
+    async confirmAddPoints(userId, currentBalance = 0) {
         const amountInput = document.getElementById('points-amount-input');
-        const reasonInput = document.getElementById('points-reason-input');
+        const reason = document.getElementById('points-reason-input')?.value.trim() || '';
+        const isDeduct = document.querySelector('input[name="points-mode"]:checked')?.value === 'deduct';
+        const amount = parseInt(amountInput?.value, 10);
         
-        if (!amountInput) {
-            alert('포인트 입력 필드를 찾을 수 없습니다.');
+        if (!Number.isFinite(amount) || amount <= 0) {
+            alert('1 pt 이상의 포인트를 입력해주세요.');
+            amountInput?.focus();
             return;
         }
-        
-        const amount = parseInt(amountInput.value);
-        const reason = reasonInput ? reasonInput.value.trim() : '';
-        
-        if (isNaN(amount) || amount <= 0) {
-            alert('올바른 포인트를 입력해주세요. (1 pt 이상)');
-            amountInput.focus();
+        if (isDeduct && !reason) {
+            alert('차감할 때는 사유를 입력해주세요.');
             return;
         }
+        if (isDeduct && amount > currentBalance) {
+            alert(`현재 잔액(${currentBalance.toLocaleString()} pt)보다 많이 차감할 수 없습니다.`);
+            return;
+        }
+        const label = isDeduct ? '차감' : '지급';
+        if (!confirm(`${amount.toLocaleString()} pt를 ${label}하시겠습니까?`)) return;
         
+        const button = document.getElementById('points-confirm-btn');
+        if (button) button.disabled = true;
         try {
-            // ✅ 마이그레이션 완료: 백엔드 API 사용
             const result = await apiService.post(`/admin/users/${userId}/points`, {
-                amount: amount,
+                amount: isDeduct ? -amount : amount,
                 reason: reason || null
             });
-            
-            if (result && result.success) {
-                this.logAdminAction('ADD_POINTS', { userId, amount, reason });
-                this.closePointsModal();
-                this.loadUsersTable(); // Refresh
-                alert(`✅ 포인트가 지급되었습니다.\n\n지급액: ${amount.toLocaleString()} pt\n새 잔액: ${result.newBalance.toLocaleString()} pt`);
-            } else {
-                throw new Error(result?.error || '포인트 지급에 실패했습니다.');
+            if (!result?.success) {
+                throw new Error(result?.error || `포인트 ${label}에 실패했습니다.`);
             }
+            this.closePointsModal();
+            if (this.currentSection === 'users') this.loadUsersTable();
+            if (this.currentSection === 'payments') this.loadPaymentsTable();
+            alert(`✅ ${amount.toLocaleString()} pt ${label} 완료\n새 잔액: ${result.newBalance.toLocaleString()} pt`);
         } catch (error) {
-            console.error('Failed to add points:', error);
-            alert(`❌ 포인트 지급에 실패했습니다: ${error.message || error.error || '알 수 없는 오류'}`);
+            console.error('Failed to adjust points:', error);
+            alert(`❌ 포인트 ${label} 실패: ${error.message || '알 수 없는 오류'}`);
+            if (button) button.disabled = false;
         }
     }
     
     async viewTerritory(territoryId) {
         try {
             // ✅ 백엔드 API 사용 (관리자용 엔드포인트)
-            const data = await apiService.get(`/admin/territories/${territoryId}`);
+            const data = await adminApi.get(`/admin/territories/${territoryId}`);
             if (!data) {
                 alert('영토를 찾을 수 없습니다.');
                 return;
@@ -2268,7 +2139,7 @@ class AdminDashboard {
                     // ✅ 백엔드 API 사용: 옥션 정보는 이미 territory 조회 시 포함됨
                     // auctionId가 있으면 해당 옥션 조회
                     if (data.auctionId) {
-                        const auction = await apiService.get(`/auctions/${data.auctionId}`);
+                        const auction = await adminApi.get(`/auctions/${data.auctionId}`);
                         if (auction && auction.status === 'ended' && auction.currentBid > 0) {
                             purchasedPrice = auction.currentBid;
                             console.log(`[AdminDashboard] viewTerritory: Found auction price from auction currentBid: ${purchasedPrice}`);
@@ -2447,7 +2318,7 @@ class AdminDashboard {
     async editTerritory(territoryId) {
         try {
             // ✅ 백엔드 API 사용: 현재 영토 정보 가져오기
-            const data = await apiService.get(`/admin/territories/${territoryId}`);
+            const data = await adminApi.get(`/admin/territories/${territoryId}`);
             if (!data) {
                 alert('영토를 찾을 수 없습니다.');
                 return;
@@ -2556,7 +2427,7 @@ class AdminDashboard {
     async resetTerritory(territoryId) {
         try {
             // 영토 정보 확인
-            const territory = await apiService.get(`/territories/${territoryId}`);
+            const territory = await adminApi.get(`/territories/${territoryId}`);
             if (!territory) {
                 alert('영토를 찾을 수 없습니다.');
                 this.closeResetTerritoryModal();
@@ -2623,723 +2494,102 @@ class AdminDashboard {
      */
     async showSetOwnerModal(territoryId) {
         try {
-            // 영토 정보 가져오기
-            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
-            if (!territoryDoc.exists) {
-                alert('영토를 찾을 수 없습니다.');
-                return;
-            }
-            
-            const territoryData = territoryDoc.data();
-            const currentRuler = territoryData.ruler || null;
-            const currentRulerName = territoryData.rulerName || '없음';
-            
-            // 사용자 목록 가져오기
-            let users = [];
-            try {
-                const usersSnapshot = await this.db.collection('users').limit(100).get();
-                users = usersSnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-            } catch (error) {
-                console.warn('Failed to load users, will use email input instead:', error);
-            }
-            
-            // 영토 이름 추출
-            const extractName = (name) => {
-                if (!name) return null;
-                if (typeof name === 'string') {
-                    if (name === '[object Object]' || name === 'undefined' || name === 'null') {
-                        return null;
-                    }
-                    return name;
-                }
-                if (typeof name === 'object') {
-                    return name.en || name.ko || name.local || Object.values(name)[0] || null;
-                }
-                return String(name);
-            };
-            
-            const territoryName = extractName(territoryData.name) || 
-                                  extractName(territoryData.properties?.name) ||
-                                  extractName(territoryData.properties?.name_en) ||
-                                  territoryId;
-            
-            // 사용자 선택 옵션 생성
-            let userOptionsHtml = '';
-            if (users.length > 0) {
-                userOptionsHtml = users.map(user => {
-                    const displayName = user.displayName || user.email || user.id;
-                    const isSelected = currentRuler === user.id ? 'selected' : '';
-                    return `<option value="${user.id}" ${isSelected}>${displayName} (${user.email || user.id})</option>`;
-                }).join('');
-            }
+            const data = await adminApi.get(`/admin/territories/${territoryId}`);
+            const territory = data || {};
+            const territoryName = territory.name || territoryId;
+            const currentOwner = territory.rulerNickname || territory.rulerName || territory.rulerEmail || '없음';
             
             const modalHtml = `
                 <div class="modal-overlay premium-modal-overlay" id="set-owner-modal-overlay" onclick="adminDashboard.closeSetOwnerModal()">
-                    <div class="modal-content premium-modal-content" onclick="event.stopPropagation()" style="max-width: 600px;">
+                    <div class="modal-content premium-modal-content" onclick="event.stopPropagation()" style="max-width: 560px;">
                         <div class="modal-header premium-modal-header">
-                            <div class="modal-icon-wrapper">
-                                <span class="modal-icon">👑</span>
-                            </div>
+                            <div class="modal-icon-wrapper"><span class="modal-icon">👑</span></div>
                             <h2>영토 오너 설정</h2>
                             <button class="modal-close premium-modal-close" onclick="adminDashboard.closeSetOwnerModal()">×</button>
                         </div>
                         <div class="modal-body premium-modal-body">
                             <div class="territory-info-box">
-                                <p><strong>영토 ID:</strong> <code>${territoryId}</code></p>
-                                <p><strong>영토명:</strong> ${territoryName}</p>
-                                <p><strong>현재 소유자:</strong> ${currentRulerName}</p>
+                                <p><strong>영토:</strong> ${territoryName} (<code>${territoryId}</code>)</p>
+                                <p><strong>현재 소유자:</strong> ${currentOwner}</p>
                             </div>
                             <div class="form-group premium-form-group">
-                                <label>새 소유자 선택</label>
-                                ${users.length > 0 ? `
-                                    <select id="set-owner-user-select" class="premium-input">
-                                        <option value="">-- 사용자 선택 --</option>
-                                        ${userOptionsHtml}
-                                        <option value="__custom__">직접 입력 (이메일 또는 UID)</option>
-                                    </select>
-                                ` : ''}
-                                <input 
-                                    type="text" 
-                                    id="set-owner-user-input" 
-                                    class="premium-input" 
-                                    placeholder="사용자 이메일 또는 UID 입력"
-                                    ${users.length > 0 ? 'style="display: none; margin-top: 10px;"' : ''}
-                                >
+                                <label>새 소유자 (이메일 또는 사용자 ID)</label>
+                                <input type="text" id="set-owner-user-input" class="premium-input" placeholder="user@example.com">
                             </div>
                             <div class="form-group premium-form-group">
-                                <label>소유자 이름 (선택사항)</label>
-                                <input 
-                                    type="text" 
-                                    id="set-owner-name-input" 
-                                    class="premium-input" 
-                                    placeholder="표시될 이름을 입력하세요"
-                                >
+                                <label>보호 기간</label>
+                                <select id="set-owner-days" class="premium-input">
+                                    <option value="7">1주</option>
+                                    <option value="30">1개월</option>
+                                    <option value="365">1년</option>
+                                    <option value="lifetime">평생</option>
+                                </select>
                             </div>
-                            <div class="info-box">
-                                <p>💡 <strong>참고:</strong></p>
+                            <label style="display:block; margin-top:8px;"><input type="checkbox" id="set-owner-clear-pixels" checked> 소유자가 바뀌면 기존 픽셀 아트 삭제</label>
+                            <div class="info-box" style="margin-top:12px;">
                                 <ul>
-                                    <li>사용자 이메일 또는 UID를 입력할 수 있습니다</li>
-                                    <li>소유자 이름을 입력하지 않으면 이메일이 표시됩니다</li>
-                                    <li>기존 소유자가 있으면 자동으로 교체됩니다</li>
-                                    <li>영토 상태가 'ruled'로 변경되고 보호 기간이 설정됩니다</li>
+                                    <li>결제 없이 소유권만 지정됩니다 (관리자 지정으로 기록)</li>
+                                    <li>진행 중인 경매는 취소되고 입찰금은 환불됩니다</li>
                                 </ul>
                             </div>
                         </div>
                         <div class="modal-footer premium-modal-footer">
                             <button class="btn btn-secondary" onclick="adminDashboard.closeSetOwnerModal()">취소</button>
-                            <button class="btn btn-primary" onclick="adminDashboard.setTerritoryOwner('${territoryId}')">설정</button>
+                            <button class="btn btn-primary" id="set-owner-confirm-btn" onclick="adminDashboard.setTerritoryOwner('${territoryId}')">설정</button>
                         </div>
                     </div>
                 </div>
             `;
             
-            // 기존 모달 제거
-            const existingModal = document.getElementById('set-owner-modal-overlay');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // 모달 추가
+            document.getElementById('set-owner-modal-overlay')?.remove();
             document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            // 사용자 선택 드롭다운 이벤트 리스너
-            if (users.length > 0) {
-                const select = document.getElementById('set-owner-user-select');
-                const input = document.getElementById('set-owner-user-input');
-                
-                select.addEventListener('change', (e) => {
-                    if (e.target.value === '__custom__') {
-                        input.style.display = 'block';
-                        input.value = '';
-                    } else {
-                        input.style.display = 'none';
-                        input.value = e.target.value;
-                    }
-                });
-            }
-            
+            document.getElementById('set-owner-user-input')?.focus();
         } catch (error) {
             console.error('Failed to show set owner modal:', error);
-            alert(`모달을 표시하는데 실패했습니다: ${error.message}`);
+            alert(`영토 정보를 불러오지 못했습니다: ${error.message}`);
         }
     }
     
     closeSetOwnerModal() {
-        const modal = document.getElementById('set-owner-modal-overlay');
-        if (modal) {
-            modal.remove();
-        }
+        document.getElementById('set-owner-modal-overlay')?.remove();
     }
     
     /**
      * 영토 오너 설정 실행
      */
     async setTerritoryOwner(territoryId) {
-        try {
-            const userSelect = document.getElementById('set-owner-user-select');
-            const userInput = document.getElementById('set-owner-user-input');
-            const nameInput = document.getElementById('set-owner-name-input');
-            
-            let userId = '';
-            if (userSelect && userSelect.value && userSelect.value !== '__custom__') {
-                userId = userSelect.value;
-            } else if (userInput) {
-                userId = userInput.value.trim();
-            }
-            
-            if (!userId) {
-                alert('사용자 이메일 또는 UID를 입력해주세요.');
-                return;
-            }
-            
-            // 사용자 정보 가져오기 (이메일로 검색)
-            let userData = null;
-            let userName = nameInput?.value.trim() || '';
-            
-            try {
-                // 먼저 UID로 직접 조회
-                const userDoc = await this.db.collection('users').doc(userId).get();
-                if (userDoc.exists) {
-                    userData = userDoc.data();
-                    if (!userName) {
-                        userName = userData.displayName || userData.email || userData.name || userId;
-                    }
-                } else {
-                    // 이메일로 검색
-                    const emailQuery = await this.db.collection('users')
-                        .where('email', '==', userId)
-                        .limit(1)
-                        .get();
-                    
-                    if (!emailQuery.empty) {
-                        const doc = emailQuery.docs[0];
-                        userData = doc.data();
-                        userId = doc.id; // 실제 UID로 변경
-                        if (!userName) {
-                            userName = userData.displayName || userData.email || userData.name || userId;
-                        }
-                    } else {
-                        // 사용자를 찾을 수 없으면 입력한 값을 그대로 사용
-                        if (!userName) {
-                            userName = userId;
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('Failed to fetch user data, using provided values:', error);
-                if (!userName) {
-                    userName = userId;
-                }
-            }
-            
-            // 영토 정보 확인
-            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
-            if (!territoryDoc.exists) {
-                alert('영토를 찾을 수 없습니다.');
-                this.closeSetOwnerModal();
-                return;
-            }
-            
-            const territoryData = territoryDoc.data();
-            const previousRuler = territoryData.ruler;
-            const previousRulerName = territoryData.rulerName;
-            
-            // 확인
-            if (!confirm(`이 영토의 소유자를 설정하시겠습니까?\n\n영토 ID: ${territoryId}\n새 소유자: ${userName} (${userId})\n이전 소유자: ${previousRulerName || '없음'}`)) {
-                return;
-            }
-            
-            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            const now = new Date();
-            const protectionEndsAt = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7일 보호
-            
-            // 영토 소유자 설정
-            await this.db.collection('territories').doc(territoryId).update({
-                ruler: userId,
-                rulerName: userName,
-                rulerSince: Timestamp,
-                sovereignty: 'protected', // 보호 기간 시작
-                protectionEndsAt: firebase.firestore.Timestamp.fromDate(protectionEndsAt),
-                currentAuction: null, // 기존 옥션 제거
-                purchasedByAdmin: true, // 관리자 설정
-                updatedAt: Timestamp,
-                updatedBy: this.currentUser?.email || 'admin'
-            });
-            
-            this.logAdminAction('SET_TERRITORY_OWNER', { 
-                territoryId, 
-                userId, 
-                userName,
-                previousRuler,
-                previousRulerName
-            });
-            
-            // 모달 닫기
-            this.closeSetOwnerModal();
-            
-            // 테이블 새로고침
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
-            
-            // 통계 새로고침
-            await this.loadStats();
-            
-            alert(`✅ 영토 소유자가 설정되었습니다.\n\n영토 ID: ${territoryId}\n소유자: ${userName} (${userId})`);
-            
-        } catch (error) {
-            console.error('Failed to set territory owner:', error);
-            this.handleFirestoreError(error, '영토 오너 설정');
-            alert(`❌ 영토 오너 설정에 실패했습니다: ${error.message}`);
-        }
-    }
-    
-    /**
-     * 이미 초기화된 영토의 픽셀 아트 삭제
-     */
-    async clearPixelArtForUnconqueredTerritories() {
-        if (!confirm('이미 초기화된 영토(소유권이 없는 영토)의 픽셀 아트를 모두 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+        const user = document.getElementById('set-owner-user-input')?.value.trim();
+        const daysValue = document.getElementById('set-owner-days')?.value || '7';
+        const clearPixels = document.getElementById('set-owner-clear-pixels')?.checked !== false;
+        if (!user) {
+            alert('새 소유자의 이메일 또는 사용자 ID를 입력해주세요.');
             return;
         }
+        if (!confirm(`${territoryId}의 소유자를 ${user}(으)로 지정하시겠습니까?`)) return;
         
+        const button = document.getElementById('set-owner-confirm-btn');
+        if (button) button.disabled = true;
         try {
-            console.log('[AdminDashboard] Clearing pixel art for unconquered territories...');
-            
-            // sovereignty가 'unconquered'이고 ruler가 null인 영토들 찾기
-            const unconqueredTerritories = await this.db.collection('territories')
-                .where('sovereignty', '==', 'unconquered')
-                .get();
-            
-            const territoryIds = [];
-            unconqueredTerritories.docs.forEach(doc => {
-                const data = doc.data();
-                if (!data.ruler || data.ruler === null) {
-                    territoryIds.push(doc.id);
-                }
+            await apiService.post(`/admin/territories/${territoryId}/owner`, {
+                user,
+                protectionDays: daysValue === 'lifetime' ? null : parseInt(daysValue, 10),
+                clearPixels
             });
-            
-            console.log(`[AdminDashboard] Found ${territoryIds.length} unconquered territories`);
-            
-            if (territoryIds.length === 0) {
-                alert('초기화된 영토가 없습니다.');
-                return;
-            }
-            
-            let deletedFirestoreCount = 0;
-            let deletedCacheCount = 0;
-            
-            // 1. Firestore pixelCanvases 컬렉션에서 삭제
-            const pixelCanvasBatchSize = 500;
-            for (let i = 0; i < territoryIds.length; i += pixelCanvasBatchSize) {
-                const batch = this.db.batch();
-                const batchIds = territoryIds.slice(i, i + pixelCanvasBatchSize);
-                
-                for (const territoryId of batchIds) {
-                    const pixelCanvasRef = this.db.collection('pixelCanvases').doc(territoryId);
-                    batch.delete(pixelCanvasRef);
-                }
-                
-                await batch.commit();
-                deletedFirestoreCount += batchIds.length;
-                console.log(`[AdminDashboard] Deleted ${deletedFirestoreCount}/${territoryIds.length} pixelCanvas documents from Firestore`);
-            }
-            
-            // 2. IndexedDB 캐시에서 삭제
-            const dbName = 'pixelCanvasCache';
-            const storeName = 'pixelCanvases';
-            
-            const db = await new Promise((resolve, reject) => {
-                const request = indexedDB.open(dbName, 2);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-            
-            const transaction = db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            
-            for (const territoryId of territoryIds) {
-                try {
-                    await new Promise((resolve, reject) => {
-                        const request = store.delete(territoryId);
-                        request.onsuccess = () => {
-                            deletedCacheCount++;
-                            resolve();
-                        };
-                        request.onerror = () => reject(request.error);
-                    });
-                } catch (deleteError) {
-                    // 개별 삭제 실패는 무시 (이미 없을 수 있음)
-                    console.debug(`[AdminDashboard] Failed to delete cache for ${territoryId}:`, deleteError);
-                }
-            }
-            
-            db.close();
-            
-            // 3. territories 컬렉션의 pixelCanvas 필드도 삭제
-            const deleteField = firebase.firestore.FieldValue.delete();
-            const territoryBatchSize = 500;
-            let updatedTerritoryCount = 0;
-            
-            try {
-                for (let i = 0; i < territoryIds.length; i += territoryBatchSize) {
-                    const batch = this.db.batch();
-                    const batchIds = territoryIds.slice(i, i + territoryBatchSize);
-                    
-                    for (const territoryId of batchIds) {
-                        const territoryRef = this.db.collection('territories').doc(territoryId);
-                        batch.update(territoryRef, {
-                            pixelCanvas: deleteField,
-                            territoryValue: 0,
-                            hasPixelArt: false
-                        });
-                    }
-                    
-                    await batch.commit();
-                    updatedTerritoryCount += batchIds.length;
-                    console.log(`[AdminDashboard] Updated ${updatedTerritoryCount}/${territoryIds.length} territory documents`);
-                }
-            } catch (updateError) {
-                console.warn('[AdminDashboard] Failed to update some territory documents (may be due to permissions):', updateError);
-                // territories 업데이트 실패해도 Firestore와 IndexedDB 삭제는 완료되었으므로 계속 진행
-            }
-            
-            this.logAdminAction('CLEAR_PIXEL_ART_UNCONQUERED', {
-                territoryCount: territoryIds.length,
-                firestoreCount: deletedFirestoreCount,
-                cacheCount: deletedCacheCount,
-                updatedCount: updatedTerritoryCount
-            });
-            
-            alert(`✅ 완료!\n\n초기화된 영토: ${territoryIds.length}개\nFirestore 픽셀 아트 삭제: ${deletedFirestoreCount}개\nIndexedDB 캐시 삭제: ${deletedCacheCount}개\n영토 문서 업데이트: ${updatedTerritoryCount}개`);
-            
-            // 테이블 새로고침
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
-            
-        } catch (error) {
-            console.error('[AdminDashboard] Failed to clear pixel art for unconquered territories:', error);
-            alert('픽셀 아트 삭제 중 오류가 발생했습니다: ' + error.message);
-        }
-    }
-    
-    /**
-     * 모든 영토 초기화 모달 표시
-     */
-    showResetAllTerritoriesModal() {
-        const modalHtml = `
-            <div class="modal-overlay premium-modal-overlay" id="reset-all-territories-modal-overlay" onclick="adminDashboard.closeResetAllTerritoriesModal()">
-                <div class="modal-content premium-modal-content" onclick="event.stopPropagation()" style="max-width: 700px;">
-                    <div class="modal-header premium-modal-header">
-                        <div class="modal-icon-wrapper">
-                            <span class="modal-icon">🔄</span>
-                        </div>
-                        <h2>모든 영토 초기화</h2>
-                        <button class="modal-close premium-modal-close" onclick="adminDashboard.closeResetAllTerritoriesModal()">×</button>
-                    </div>
-                    <div class="modal-body premium-modal-body">
-                        <div class="warning-box critical-warning">
-                            <div class="warning-icon">🚨</div>
-                            <div class="warning-content">
-                                <h3>심각한 경고</h3>
-                                <p>이 작업은 <strong>모든 점유된 영토를 초기화</strong>합니다.</p>
-                                <ul>
-                                    <li>모든 영토의 소유자가 삭제됩니다</li>
-                                    <li>모든 영토 상태가 'unconquered'로 변경됩니다</li>
-                                    <li>모든 보호 기간이 제거됩니다</li>
-                                    <li>모든 활성 옥션이 삭제됩니다</li>
-                                    <li><strong>이 작업은 되돌릴 수 없습니다!</strong></li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div class="info-box">
-                            <p>💡 <strong>주의사항:</strong></p>
-                            <ul>
-                                <li>이 작업은 시간이 오래 걸릴 수 있습니다</li>
-                                <li>진행 중에는 페이지를 닫지 마세요</li>
-                                <li>초기화 후에는 모든 영토가 미점유 상태가 됩니다</li>
-                            </ul>
-                        </div>
-                        <div class="form-group premium-form-group">
-                            <label>확인을 위해 "초기화"를 입력하세요</label>
-                            <input 
-                                type="text" 
-                                id="reset-all-confirm-input" 
-                                class="premium-input" 
-                                placeholder="초기화"
-                            >
-                        </div>
-                    </div>
-                    <div class="modal-footer premium-modal-footer">
-                        <button class="btn btn-secondary" onclick="adminDashboard.closeResetAllTerritoriesModal()">취소</button>
-                        <button class="btn btn-danger" onclick="adminDashboard.resetAllTerritories()">모든 영토 초기화</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // 기존 모달 제거
-        const existingModal = document.getElementById('reset-all-territories-modal-overlay');
-        if (existingModal) {
-            existingModal.remove();
-        }
-        
-        // 모달 추가
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    }
-    
-    closeResetAllTerritoriesModal() {
-        const modal = document.getElementById('reset-all-territories-modal-overlay');
-        if (modal) {
-            modal.remove();
-        }
-    }
-    
-    /**
-     * 모든 영토 초기화 실행
-     */
-    async resetAllTerritories() {
-        try {
-            // 확인 입력 검증
-            const confirmInput = document.getElementById('reset-all-confirm-input');
-            if (!confirmInput || confirmInput.value.trim() !== '초기화') {
-                alert('확인을 위해 "초기화"를 정확히 입력해주세요.');
-                return;
-            }
-            
-            // 최종 확인
-            if (!confirm('정말로 모든 영토를 초기화하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 점유된 영토가 미점유 상태로 변경됩니다.')) {
-                return;
-            }
-            
-            // 진행 상태 표시
-            const modalBody = document.querySelector('#reset-all-territories-modal-overlay .premium-modal-body');
-            const originalContent = modalBody.innerHTML;
-            modalBody.innerHTML = `
-                <div class="loading-state">
-                    <div class="loading-spinner"></div>
-                    <p>영토 초기화 중... 잠시만 기다려주세요.</p>
-                    <p id="reset-progress-text" style="margin-top: 10px; color: var(--color-text-secondary);">준비 중...</p>
-                </div>
-            `;
-            
-            const progressText = document.getElementById('reset-progress-text');
-            
-            // 점유된 영토 가져오기
-            progressText.textContent = '점유된 영토 조회 중...';
-            const ruledSnapshot = await this.db.collection('territories')
-                .where('sovereignty', '==', 'ruled')
-                .get();
-            
-            const protectedSnapshot = await this.db.collection('territories')
-                .where('sovereignty', '==', 'protected')
-                .get();
-            
-            const allTerritories = [...ruledSnapshot.docs, ...protectedSnapshot.docs];
-            const totalCount = allTerritories.length;
-            
-            if (totalCount === 0) {
-                modalBody.innerHTML = `
-                    <div class="info-box">
-                        <p>초기화할 영토가 없습니다.</p>
-                    </div>
-                `;
-                setTimeout(() => {
-                    this.closeResetAllTerritoriesModal();
-                }, 2000);
-                return;
-            }
-            
-            progressText.textContent = `${totalCount}개 영토 초기화 중...`;
-            
-            // 배치 처리로 초기화 (Firestore 배치 제한: 500개)
-            const batchSize = 500;
-            const Timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            let processedCount = 0;
-            
-            for (let i = 0; i < allTerritories.length; i += batchSize) {
-                const batch = this.db.batch();
-                const batchDocs = allTerritories.slice(i, i + batchSize);
-                
-                // ⚠️ 중요: 픽셀 아트도 함께 초기화
-                const deleteField = firebase.firestore.FieldValue.delete();
-                
-                batchDocs.forEach(doc => {
-                    batch.update(doc.ref, {
-                        ruler: null,
-                        rulerName: null,
-                        rulerSince: null,
-                        sovereignty: 'unconquered',
-                        protectionEndsAt: null,
-                        currentAuction: null,
-                        purchasedByAdmin: false,
-                        purchasedPrice: null,
-                        tribute: null,
-                        pixelCanvas: deleteField,  // 픽셀 아트 데이터 삭제
-                        territoryValue: 0,  // 영토 가치 초기화
-                        hasPixelArt: false,  // 픽셀 아트 플래그 초기화
-                        updatedAt: Timestamp,
-                        updatedBy: this.currentUser?.email || 'admin'
-                    });
-                });
-                
-                await batch.commit();
-                processedCount += batchDocs.length;
-                progressText.textContent = `${processedCount}/${totalCount}개 영토 초기화 완료...`;
-            }
-            
-            // 활성 옥션 삭제
-            progressText.textContent = '활성 옥션 삭제 중...';
-            const activeAuctions = await this.db.collection('auctions')
-                .where('status', '==', 'active')
-                .get();
-            
-            if (activeAuctions.size > 0) {
-                const auctionBatchSize = 500;
-                for (let i = 0; i < activeAuctions.docs.length; i += auctionBatchSize) {
-                    const batch = this.db.batch();
-                    const batchDocs = activeAuctions.docs.slice(i, i + auctionBatchSize);
-                    
-                    batchDocs.forEach(doc => {
-                        batch.delete(doc.ref);
-                    });
-                    
-                    await batch.commit();
-                }
-            }
-            
-            // ⚠️ 중요: 초기화된 영토들의 픽셀 아트 데이터도 pixelCanvases 컬렉션에서 삭제
-            progressText.textContent = '픽셀 아트 데이터 삭제 중...';
-            let deletedPixelCount = 0;
-            try {
-                // 초기화된 영토 ID 목록
-                const resetTerritoryIds = allTerritories.map(doc => doc.id);
-                
-                // pixelCanvases 컬렉션에서 해당 영토들의 픽셀 데이터 삭제
-                const pixelCanvasBatchSize = 500;
-                
-                for (let i = 0; i < resetTerritoryIds.length; i += pixelCanvasBatchSize) {
-                    const batch = this.db.batch();
-                    const batchIds = resetTerritoryIds.slice(i, i + pixelCanvasBatchSize);
-                    
-                    for (const territoryId of batchIds) {
-                        const pixelCanvasRef = this.db.collection('pixelCanvases').doc(territoryId);
-                        batch.delete(pixelCanvasRef);
-                    }
-                    
-                    await batch.commit();
-                    deletedPixelCount += batchIds.length;
-                    progressText.textContent = `픽셀 아트 데이터 삭제 중... ${deletedPixelCount}/${resetTerritoryIds.length}개`;
-                }
-                
-                console.log(`[AdminDashboard] Deleted ${deletedPixelCount} pixelCanvas documents from Firestore`);
-            } catch (error) {
-                console.warn(`[AdminDashboard] Failed to delete pixelCanvas documents:`, error);
-                // 픽셀 아트 삭제 실패해도 계속 진행
-            }
-            
-            // ⚠️ 중요: IndexedDB 캐시에서도 픽셀 아트 데이터 삭제
-            progressText.textContent = 'IndexedDB 캐시 삭제 중...';
-            let deletedCacheCount = 0;
-            try {
-                const resetTerritoryIds = allTerritories.map(doc => doc.id);
-                
-                // IndexedDB에서 직접 삭제
-                const dbName = 'pixelCanvasCache';
-                const storeName = 'pixelCanvases';
-                
-                const db = await new Promise((resolve, reject) => {
-                    const request = indexedDB.open(dbName, 2);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
-                
-                const transaction = db.transaction([storeName], 'readwrite');
-                const store = transaction.objectStore(storeName);
-                
-                // 각 영토의 캐시 삭제
-                for (const territoryId of resetTerritoryIds) {
-                    try {
-                        await new Promise((resolve, reject) => {
-                            const request = store.delete(territoryId);
-                            request.onsuccess = () => {
-                                deletedCacheCount++;
-                                resolve();
-                            };
-                            request.onerror = () => reject(request.error);
-                        });
-                    } catch (deleteError) {
-                        // 개별 삭제 실패는 무시 (이미 없을 수 있음)
-                        console.debug(`[AdminDashboard] Failed to delete cache for ${territoryId}:`, deleteError);
-                    }
-                }
-                
-                db.close();
-                console.log(`[AdminDashboard] Deleted ${deletedCacheCount} pixelCanvas cache entries from IndexedDB`);
-            } catch (error) {
-                console.warn(`[AdminDashboard] Failed to delete IndexedDB cache:`, error);
-                // IndexedDB 캐시 삭제 실패해도 계속 진행
-            }
-            
-            this.logAdminAction('RESET_ALL_TERRITORIES', { 
-                territoryCount: totalCount,
-                auctionCount: activeAuctions.size,
-                pixelCanvasCount: deletedPixelCount
-            });
-            
-            // 완료 메시지
-            modalBody.innerHTML = `
-                <div class="success-box">
-                    <div class="success-icon">✅</div>
-                    <div class="success-content">
-                        <h3>초기화 완료</h3>
-                        <p>총 <strong>${totalCount}</strong>개 영토가 초기화되었습니다.</p>
-                        <p>활성 옥션 <strong>${activeAuctions.size}</strong>개가 삭제되었습니다.</p>
-                        <p>픽셀 아트 데이터 (Firestore) <strong>${deletedPixelCount}</strong>개가 삭제되었습니다.</p>
-                        <p>픽셀 아트 캐시 (IndexedDB) <strong>${deletedCacheCount}</strong>개가 삭제되었습니다.</p>
-                    </div>
-                </div>
-            `;
-            
-            // 모달 닫기 (3초 후)
-            setTimeout(() => {
-                this.closeResetAllTerritoriesModal();
-            }, 3000);
-            
-            // 테이블 새로고침
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
-            
-            // 통계 새로고침
+            this.closeSetOwnerModal();
+            if (this.currentSection === 'territories') await this.loadTerritoriesTable();
             await this.loadStats();
-            
+            alert(`✅ 소유자가 지정되었습니다.\n영토: ${territoryId}\n소유자: ${user}`);
         } catch (error) {
-            console.error('Failed to reset all territories:', error);
-            this.handleFirestoreError(error, '모든 영토 초기화');
-            
-            const modalBody = document.querySelector('#reset-all-territories-modal-overlay .premium-modal-body');
-            if (modalBody) {
-                modalBody.innerHTML = `
-                    <div class="error-box">
-                        <div class="error-icon">❌</div>
-                        <div class="error-content">
-                            <h3>초기화 실패</h3>
-                            <p>${error.message}</p>
-                        </div>
-                    </div>
-                `;
-            }
+            console.error('Failed to set territory owner:', error);
+            alert(`❌ 오너 설정 실패: ${error.message || '알 수 없는 오류'}`);
+            if (button) button.disabled = false;
         }
     }
     
     async viewAuction(auctionId) {
         try {
             // ✅ 백엔드 API 사용
-            const data = await apiService.get(`/admin/auctions/${auctionId}`);
+            const data = await adminApi.get(`/admin/auctions/${auctionId}`);
             
             if (!data) {
                 alert('옥션을 찾을 수 없습니다.');
@@ -3355,7 +2605,7 @@ class AdminDashboard {
             let territoryInfo = null;
             if (data.territoryId && data.status === 'ended' && data.currentBidderId) {
                 try {
-                    const territory = await apiService.get(`/territories/${data.territoryId}`);
+                    const territory = await adminApi.get(`/territories/${data.territoryId}`);
                     if (territory && territory.rulerId === data.currentBidderId) {
                         territoryInfo = {
                             ruler: territory.rulerId,
@@ -3556,7 +2806,7 @@ class AdminDashboard {
     async editAuctionTime(auctionId) {
         try {
             // ✅ 백엔드 API 사용
-            const auction = await apiService.get(`/admin/auctions/${auctionId}`);
+            const auction = await adminApi.get(`/admin/auctions/${auctionId}`);
             
             // 디버깅: API 응답 확인
             console.log('[AdminDashboard] Auction detail API response:', auction);
@@ -4052,229 +3302,15 @@ class AdminDashboard {
      * 종료된 옥션의 소유권 이전 처리
      */
     async processAuctionOwnership(auctionId) {
+        if (!confirm('이 옥션의 낙찰 결과(소유권 이전)를 다시 처리하시겠습니까?')) return;
         try {
-            // 옥션 데이터 가져오기
-            const auctionDoc = await this.db.collection('auctions').doc(auctionId).get();
-            if (!auctionDoc.exists) {
-                alert('옥션을 찾을 수 없습니다.');
-                return;
-            }
-            
-            const auctionData = auctionDoc.data();
-            
-            // 이미 종료된 옥션이 아니면 경고
-            if (auctionData.status !== 'ended' && auctionData.status !== 'ENDED') {
-                alert('이 옥션은 아직 종료되지 않았습니다.');
-                return;
-            }
-            
-            // 낙찰자가 없으면 경고
-            if (!auctionData.highestBidder) {
-                alert('이 옥션에는 낙찰자가 없습니다.');
-                return;
-            }
-            
-            const territoryId = auctionData.territoryId;
-            const userId = auctionData.highestBidder;
-            const userName = auctionData.highestBidderName || userId;
-            
-            // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
-            let tribute = auctionData.currentBid || auctionData.startingBid || 0;
-            
-            // bids 배열이 있으면 최고 입찰가 확인
-            if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
-                const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
-                if (highestBid > 0 && highestBid >= tribute) {
-                    tribute = highestBid;
-                }
-            }
-            
-            console.log(`[AdminDashboard] Processing ownership for auction ${auctionId}:`, {
-                currentBid: auctionData.currentBid,
-                startingBid: auctionData.startingBid,
-                bidsCount: auctionData.bids?.length || 0,
-                highestBidFromArray: auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0
-                    ? Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0))
-                    : 0,
-                finalTribute: tribute
-            });
-            
-            // 확인
-            if (!confirm(`소유권을 이전하시겠습니까?\n\n영토: ${territoryId}\n낙찰자: ${userName}\n입찰가: ${tribute.toLocaleString()} pt`)) {
-                return;
-            }
-            
-            // 관리자 모드 확인
-            const isAdmin = auctionData.purchasedByAdmin || 
-                           (userId && userId.startsWith('admin_')) ||
-                           (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('adminAuth') !== null);
-            
-            // 영토 데이터 가져오기
-            const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
-            if (!territoryDoc.exists) {
-                alert('영토를 찾을 수 없습니다.');
-                return;
-            }
-            
-            const territoryData = territoryDoc.data();
-            const Timestamp = firebase.firestore.Timestamp;
-            const now = new Date();
-            const protectionEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7일 보호
-            
-            // 영토 상태 업데이트
-            await this.db.collection('territories').doc(territoryId).update({
-                sovereignty: 'protected', // 구매 직후 보호 상태
-                ruler: userId,
-                rulerName: userName,
-                rulerSince: firebase.firestore.FieldValue.serverTimestamp(),
-                protectionEndsAt: Timestamp.fromDate(protectionEndsAt),
-                purchasedByAdmin: isAdmin,
-                purchasedPrice: tribute, // 낙찰가 저장
-                tribute: tribute, // 낙찰가 저장 (호환성)
-                currentAuction: null,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            this.logAdminAction('PROCESS_AUCTION_OWNERSHIP', { 
-                auctionId, 
-                territoryId, 
-                userId, 
-                userName, 
-                tribute 
-            });
-            
-            alert(`✅ 소유권 이전이 완료되었습니다.\n\n영토: ${territoryId}\n소유자: ${userName}\n입찰가: ${tribute.toLocaleString()} pt`);
-            
-            // 테이블 새로고침
-            if (this.currentSection === 'auctions') {
-                await this.loadAuctionsTable();
-            }
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
-            
+            const result = await apiService.put(`/admin/auctions/${auctionId}/end`, { reason: '관리자 소유권 이전 재처리' });
+            alert(`✅ 처리 완료\n${result?.message || ''}`);
+            if (this.currentSection === 'auctions') await this.loadAuctionsTable();
+            if (this.currentSection === 'territories') await this.loadTerritoriesTable();
         } catch (error) {
             console.error('Failed to process auction ownership:', error);
             alert(`소유권 이전 처리 실패: ${error.message}`);
-        }
-    }
-    
-    /**
-     * 모든 종료된 옥션의 소유권 이전 자동 처리
-     */
-    async processAllEndedAuctions() {
-        try {
-            // 종료된 옥션 중 낙찰자가 있는 것만 가져오기
-            const endedAuctionsSnapshot = await this.db.collection('auctions')
-                .where('status', '==', 'ended')
-                .where('highestBidder', '!=', null)
-                .limit(100)
-                .get();
-            
-            if (endedAuctionsSnapshot.empty) {
-                alert('처리할 종료된 옥션이 없습니다.');
-                return;
-            }
-            
-            const count = endedAuctionsSnapshot.size;
-            if (!confirm(`총 ${count}개의 종료된 옥션에 대해 소유권 이전을 처리하시겠습니까?`)) {
-                return;
-            }
-            
-            let successCount = 0;
-            let failCount = 0;
-            const errors = [];
-            
-            for (const doc of endedAuctionsSnapshot.docs) {
-                try {
-                    const auctionData = doc.data();
-                    const territoryId = auctionData.territoryId;
-                    const userId = auctionData.highestBidder;
-                    const userName = auctionData.highestBidderName || userId;
-                    
-                    // 입찰가 계산: bids 배열의 최고 입찰가 또는 currentBid 사용
-                    let tribute = auctionData.currentBid || auctionData.startingBid || 0;
-                    
-                    // bids 배열이 있으면 최고 입찰가 확인
-                    if (auctionData.bids && Array.isArray(auctionData.bids) && auctionData.bids.length > 0) {
-                        const highestBid = Math.max(...auctionData.bids.map(b => b.amount || b.buffedAmount || 0));
-                        if (highestBid > 0 && highestBid >= tribute) {
-                            tribute = highestBid;
-                        }
-                    }
-                    
-                    // 영토 데이터 확인
-                    const territoryDoc = await this.db.collection('territories').doc(territoryId).get();
-                    if (!territoryDoc.exists) {
-                        errors.push(`${territoryId}: 영토를 찾을 수 없음`);
-                        failCount++;
-                        continue;
-                    }
-                    
-                    const territoryData = territoryDoc.data();
-                    
-                    // 이미 소유자가 있고 현재 소유자가 낙찰자와 같으면 스킵
-                    if (territoryData.ruler === userId && 
-                        (territoryData.sovereignty === 'protected' || territoryData.sovereignty === 'ruled')) {
-                        console.log(`[AdminDashboard] Territory ${territoryId} already owned by ${userName}, skipping...`);
-                        continue;
-                    }
-                    
-                    // 관리자 모드 확인
-                    const isAdmin = auctionData.purchasedByAdmin || 
-                                   (userId && userId.startsWith('admin_')) ||
-                                   (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('adminAuth') !== null);
-                    
-                    const Timestamp = firebase.firestore.Timestamp;
-                    const now = new Date();
-                    const protectionEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-                    
-                    // 영토 상태 업데이트
-                    await this.db.collection('territories').doc(territoryId).update({
-                        sovereignty: 'protected',
-                        ruler: userId,
-                        rulerName: userName,
-                        rulerSince: firebase.firestore.FieldValue.serverTimestamp(),
-                        protectionEndsAt: Timestamp.fromDate(protectionEndsAt),
-                        purchasedByAdmin: isAdmin,
-                        purchasedPrice: tribute, // 낙찰가 저장
-                        tribute: tribute, // 낙찰가 저장 (호환성)
-                        currentAuction: null,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    successCount++;
-                    console.log(`[AdminDashboard] ✅ Processed ownership for ${territoryId} → ${userName}`);
-                    
-                } catch (error) {
-                    const auctionData = doc.data();
-                    errors.push(`${auctionData.territoryId || doc.id}: ${error.message}`);
-                    failCount++;
-                    console.error(`[AdminDashboard] Failed to process auction ${doc.id}:`, error);
-                }
-            }
-            
-            // 결과 표시
-            let message = `처리 완료!\n\n성공: ${successCount}개\n실패: ${failCount}개`;
-            if (errors.length > 0 && errors.length <= 10) {
-                message += `\n\n실패 목록:\n${errors.join('\n')}`;
-            } else if (errors.length > 10) {
-                message += `\n\n실패 목록 (최근 10개):\n${errors.slice(0, 10).join('\n')}\n...외 ${errors.length - 10}개`;
-            }
-            
-            alert(message);
-            
-            // 테이블 새로고침
-            if (this.currentSection === 'auctions') {
-                await this.loadAuctionsTable();
-            }
-            if (this.currentSection === 'territories') {
-                await this.loadTerritoriesTable();
-            }
-            
-        } catch (error) {
-            console.error('Failed to process all ended auctions:', error);
-            alert(`일괄 처리 실패: ${error.message}`);
         }
     }
     
@@ -4284,7 +3320,7 @@ class AdminDashboard {
     async deleteAuction(auctionId) {
         try {
             // ✅ 백엔드 API 사용
-            const auction = await apiService.get(`/auctions/${auctionId}`);
+            const auction = await adminApi.get(`/auctions/${auctionId}`);
             if (!auction) {
                 alert('옥션을 찾을 수 없습니다.');
                 return;
@@ -4386,85 +3422,6 @@ class AdminDashboard {
     }
     
     /**
-     * 중복 옥션 자동 정리
-     */
-    async cleanupDuplicateAuctions() {
-        if (!confirm('중복된 활성 옥션을 자동으로 정리하시겠습니까?\n\n각 영토에 대해 가장 최근 옥션만 남기고 나머지는 종료 처리됩니다.')) {
-            return;
-        }
-        
-        try {
-            const snapshot = await this.db.collection('auctions')
-                .where('status', '==', 'active')
-                .get();
-            
-            if (snapshot.empty) {
-                alert('정리할 중복 옥션이 없습니다.');
-                return;
-            }
-            
-            // territoryId별로 그룹화
-            const territoryGroups = {};
-            snapshot.docs.forEach(doc => {
-                const data = doc.data();
-                const territoryId = data.territoryId || doc.id;
-                if (!territoryGroups[territoryId]) {
-                    territoryGroups[territoryId] = [];
-                }
-                territoryGroups[territoryId].push({ doc, data });
-            });
-            
-            let cleanedCount = 0;
-            const batch = this.db.batch();
-            const maxBatchSize = 500;
-            let batchCount = 0;
-            
-            for (const [territoryId, auctions] of Object.entries(territoryGroups)) {
-                if (auctions.length > 1) {
-                    // 생성 시간 기준으로 정렬 (가장 최근 것만 남김)
-                    auctions.sort((a, b) => {
-                        const aTime = a.data.createdAt?.toDate?.() || new Date(0);
-                        const bTime = b.data.createdAt?.toDate?.() || new Date(0);
-                        return bTime - aTime; // 내림차순 (최신이 먼저)
-                    });
-                    
-                    // 가장 최근 옥션은 유지, 나머지는 종료 처리
-                    for (let i = 1; i < auctions.length; i++) {
-                        const auctionRef = auctions[i].doc.ref;
-                        batch.update(auctionRef, {
-                            status: 'ended',
-                            endedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                            endedBy: this.currentUser?.email || 'admin',
-                            reason: '중복 옥션 자동 정리'
-                        });
-                        cleanedCount++;
-                        batchCount++;
-                        
-                        // Firestore 배치 제한 (500개) 체크
-                        if (batchCount >= maxBatchSize) {
-                            await batch.commit();
-                            batchCount = 0;
-                        }
-                    }
-                }
-            }
-            
-            // 남은 배치 커밋
-            if (batchCount > 0) {
-                await batch.commit();
-            }
-            
-            this.logAdminAction('CLEANUP_DUPLICATE_AUCTIONS', { cleanedCount });
-            this.loadAuctionsTable(); // Refresh
-            alert(`✅ 중복 옥션 정리 완료!\n\n${cleanedCount}개의 중복 옥션이 종료 처리되었습니다.`);
-            
-        } catch (error) {
-            console.error('Failed to cleanup duplicate auctions:', error);
-            this.handleFirestoreError(error, '중복 옥션 정리');
-        }
-    }
-    
-    /**
      * Firestore 에러 처리
      */
     handleFirestoreError(error, action) {
@@ -4499,7 +3456,7 @@ class AdminDashboard {
     async loadAnalytics() {
         try {
             // ✅ 백엔드 API 사용
-            const analytics = await apiService.get('/admin/analytics?period=30d');
+            const analytics = await adminApi.get('/admin/analytics?period=30d');
             
             // 사용자 성장 차트
             this.renderUserGrowthChart(analytics.userGrowth || []);
@@ -4695,7 +3652,7 @@ class AdminDashboard {
         
         try {
             // ✅ 백엔드 API 사용
-            const logs = await apiService.get('/admin/logs?limit=50');
+            const logs = await adminApi.get('/admin/logs?limit=50');
             
             if (!logs || logs.length === 0) {
                 container.innerHTML = '<div class="empty">관리자 로그가 없습니다</div>';
@@ -4734,112 +3691,6 @@ class AdminDashboard {
         }
     }
     
-    // === 데이터 백업 ===
-    
-    /**
-     * 데이터 백업 (JSON 다운로드)
-     */
-    async backupData() {
-        if (!confirm('모든 데이터의 백업을 다운로드하시겠습니까?')) return;
-        
-        try {
-            const backup = {
-                exportedAt: new Date().toISOString(),
-                exportedBy: this.currentUser.email,
-                data: {}
-            };
-            
-            // 주요 컬렉션 백업
-            const collections = ['users', 'territories', 'auctions', 'rankings', 'history'];
-            
-            for (const collName of collections) {
-                const snapshot = await this.db.collection(collName).get();
-                backup.data[collName] = {};
-                snapshot.forEach(doc => {
-                    backup.data[collName][doc.id] = doc.data();
-                });
-            }
-            
-            // JSON 파일 다운로드
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `billionaire-map-backup-${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            this.logAdminAction('BACKUP_DATA', { collections });
-            alert('백업이 성공적으로 다운로드되었습니다!');
-            
-        } catch (error) {
-            console.error('Failed to backup data:', error);
-            alert('백업 실패. 콘솔에서 상세 정보를 확인하세요.');
-        }
-    }
-    
-    /**
-     * 데이터 복원 (JSON 업로드)
-     */
-    async restoreData() {
-        if (!confirm('⚠️ 경고: 기존 데이터가 덮어쓰기 됩니다. 계속하시겠습니까?')) return;
-        
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        
-        input.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            try {
-                const text = await file.text();
-                const backup = JSON.parse(text);
-                
-                if (!backup.data) {
-                    throw new Error('유효하지 않은 백업 파일 형식');
-                }
-                
-                // 각 컬렉션 복원
-                for (const [collName, documents] of Object.entries(backup.data)) {
-                    const batch = this.db.batch();
-                    let count = 0;
-                    
-                    for (const [docId, docData] of Object.entries(documents)) {
-                        batch.set(this.db.collection(collName).doc(docId), docData);
-                        count++;
-                        
-                        // Firestore batch 제한 (500)
-                        if (count >= 450) {
-                            await batch.commit();
-                            count = 0;
-                        }
-                    }
-                    
-                    if (count > 0) {
-                        await batch.commit();
-                    }
-                }
-                
-                this.logAdminAction('RESTORE_DATA', { 
-                    originalExport: backup.exportedAt,
-                    collections: Object.keys(backup.data)
-                });
-                
-                alert('데이터가 성공적으로 복원되었습니다! 새로고침 중...');
-                location.reload();
-                
-            } catch (error) {
-                console.error('Failed to restore data:', error);
-                alert('데이터 복원 실패: ' + error.message);
-            }
-        };
-        
-        input.click();
-    }
-    
     /**
      * 관리자 목록 로드
      */
@@ -4851,7 +3702,7 @@ class AdminDashboard {
             // ✅ 백엔드 API에서 실제 사용자 정보 확인
             let actualUsers = new Set();
             try {
-                const users = await apiService.get('/admin/users?limit=100');
+                const users = await adminApi.get('/admin/users?limit=100');
                 if (Array.isArray(users)) {
                     users.forEach(user => {
                         if (user.email) {
@@ -4892,11 +3743,6 @@ class AdminDashboard {
                                 </span>
                             </div>
                         </div>
-                        ${!isSuperAdmin ? `
-                            <button class="btn btn-sm btn-danger" onclick="adminDashboard.showRemoveAdminModal('${email}')" style="padding: 6px 12px; font-size: 12px; margin-left: 10px;" title="관리자 삭제">
-                                삭제
-                            </button>
-                        ` : ''}
                     </div>
                 `;
             }).join('');
@@ -5125,34 +3971,13 @@ class AdminDashboard {
         }
         
         try {
-            // 관리자 목록에 추가 (실제로는 코드 수정이 필요하지만, 사용자에게 안내)
-            const codeExample = `// js/admin.js 파일 수정 필요:
-
-// 1. ADMIN_EMAILS 배열에 추가 (약 15번째 줄):
-const ADMIN_EMAILS = [
-    'admin@billionairemap.com',
-    'young91@naver.com',
-    'q886654@naver.com',
-    'etgbajy@gmail.com',
-    '${email}',  // ← 여기에 추가
-];
-
-// 2. LOCAL_ADMIN_CREDENTIALS 객체에 추가 (약 22번째 줄, P키 로그인용):
-const LOCAL_ADMIN_CREDENTIALS = {
-    'admin': 'billionaire2024!',
-    'young91': 'admin1234!',
-    'q886654': 'znznektm1@',
-    '${adminId}': '${password || '비밀번호를_설정하세요'}',  // ← 여기에 추가
-};`;
+            alert(`✅ 관리자 추가 정보:\n\n이메일: ${email}\n\n⚠️ 실제 적용을 위해서는:\n1. Firebase Authentication에 ${email} 계정을 만들어주세요 (비밀번호는 Firebase에서만 관리)\n2. 백엔드(Railway) 환경변수 ADMIN_EMAILS에 쉼표로 구분해 "${email}" 추가\n3. js/admin.js의 ADMIN_EMAILS 배열에도 "${email}" 추가 (대시보드 화면 표시용)\n4. 백엔드 재시작 후 페이지 새로고침`);
             
-            alert(`✅ 관리자 추가 정보:\n\n이메일: ${email}\n관리자 ID: ${adminId}${password ? '\n비밀번호: ' + password : ''}\n\n⚠️ 실제 적용을 위해서는:\n1. js/admin.js 파일을 열어주세요\n2. ADMIN_EMAILS 배열에 "${email}" 추가\n3. LOCAL_ADMIN_CREDENTIALS 객체에 "${adminId}": "${password || '비밀번호를_설정하세요'}" 추가\n4. 페이지 새로고침\n\n코드 예시:\n\n${codeExample}`);
-            
-            // 임시로 세션에 저장 (실제 코드 수정 전까지 사용)
+            // 임시로 세션에 저장 (실제 설정 전까지 목록 표시용)
             const tempAdmins = JSON.parse(sessionStorage.getItem('tempAdmins') || '[]');
             tempAdmins.push({
                 email: email,
                 id: adminId,
-                password: password,
                 addedAt: new Date().toISOString()
             });
             sessionStorage.setItem('tempAdmins', JSON.stringify(tempAdmins));

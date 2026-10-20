@@ -3,6 +3,9 @@
  * 옥션 관련 공통 유틸리티 함수
  */
 
+import { releaseAuctionHolds, adjustWalletBalance } from './wallet-utils.js';
+import { SALE_FEE_RATE } from './territory-phase.js';
+
 /**
  * 입찰금액에 따른 보호기간 계산 (일수)
  * ⚠️ 전문가 조언: winning_amount 기준으로 계산
@@ -75,7 +78,7 @@ export function logAuctionEndSuccess({
     processingTimeMs,
     source = 'unknown'
 }) {
-    console.log(`[Auction End Success] auctionId=${auctionId} territoryId=${territoryId} winnerUserId=${winnerUserId || 'null'} protectionEndsAt=${protectionEndsAt.toISOString()} processingTime=${processingTimeMs}ms source=${source}`);
+    console.log(`[Auction End Success] auctionId=${auctionId} territoryId=${territoryId} winnerUserId=${winnerUserId || 'null'} protectionEndsAt=${protectionEndsAt ? new Date(protectionEndsAt).toISOString() : 'none'} processingTime=${processingTimeMs}ms source=${source}`);
 }
 
 /**
@@ -92,6 +95,13 @@ export function logAuctionEndSuccess({
  */
 export async function finalizeAuctionEnd({ client, auctionId, auction, source = 'unknown' }) {
     // 1. 레이스 방어: bids 테이블에서 최종 승자 재확인 (종료 직전 입찰 방어)
+    // 다음 기간 경매는 같은 금액이면 현재 주인이 이김 (주인 매칭권)
+    const auctionMeta = (await client.query(
+        `SELECT a.kind, a.seller_id, a.transferred_at, t.ruler_id AS owner_id
+         FROM auctions a LEFT JOIN territories t ON t.id = a.territory_id WHERE a.id = $1`,
+        [auctionId]
+    )).rows[0] || {};
+    const auctionKind = auction.kind || auctionMeta.kind || 'standard';
     const bidsResult = await client.query(
         `SELECT 
             id,
@@ -101,9 +111,11 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
         FROM bids 
         WHERE auction_id = $1 
             AND created_at <= (SELECT end_time FROM auctions WHERE id = $1)
-        ORDER BY amount DESC, created_at ASC
+        ORDER BY amount DESC,
+                 CASE WHEN $2::text = 'next_period' AND user_id IS NOT DISTINCT FROM $3::uuid THEN 0 ELSE 1 END,
+                 created_at ASC
         LIMIT 1`,
-        [auctionId]
+        [auctionId, auctionKind, auctionMeta.owner_id || null]
     );
     
     // 최종 승자 결정: bids 테이블의 최고 입찰 vs auctions 테이블의 current_bid
@@ -114,7 +126,8 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
     
     if (bidsResult.rows.length > 0) {
         const highestBidFromBids = parseFloat(bidsResult.rows[0].amount || 0);
-        if (highestBidFromBids > finalBid) {
+        const ownerMatched = highestBidFromBids === finalBid && String(bidsResult.rows[0].user_id) !== String(finalBidderId);
+        if (highestBidFromBids > finalBid || ownerMatched) {
             // bids 테이블에 더 높은 입찰이 있으면 그것을 사용
             finalBid = highestBidFromBids;
             finalBidderId = bidsResult.rows[0].user_id;
@@ -145,6 +158,12 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
     
     const hasWinner = finalBidderId && finalBid > 0;
     const isAlreadyEnded = auction.status === 'ended';
+    
+    // 낙찰자를 제외한 입찰 예치금 환불 (낙찰자 예치금은 결제금으로 확정)
+    await releaseAuctionHolds(client, auctionId, {
+        exceptUserId: hasWinner ? finalBidderId : null,
+        reason: 'Auction ended refund'
+    });
     
     // 2. 경매 상태를 ended로 업데이트하고 승자 확정값 저장 (winning_amount 기준)
     // 이미 종료된 경우에는 상태 업데이트를 스킵하고 승자 확정값만 갱신 (복구용)
@@ -215,34 +234,68 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
         
         // ⚠️ 전문가 조언: 보호기간은 winning_amount 기준으로 계산
         protectionEndsAt = calculateProtectionEndsAtFromBid(finalBid);
+        const lockedTerritory = territoryLockResult.rows[0];
+        const previousOwnerId = lockedTerritory.ruler_id;
+        const winnerIsPreviousOwner = previousOwnerId && String(previousOwnerId) === String(finalBidderId);
         
-        // 영토 소유권 이전 (멱등성 보장)
-        const territoryUpdateResult = await client.query(
-            `UPDATE territories 
-             SET ruler_id = $1,
-                 ruler_name = $2,
-                 sovereignty = 'protected',
-                 status = 'protected',
-                 protection_ends_at = $3,
-                 market_base_price = $4,
-                 last_winning_amount = $5,
-                 current_auction_id = NULL,
-                 updated_at = NOW()
-             WHERE id = $6
-               AND (ruler_id IS DISTINCT FROM $1 OR ruler_id IS NULL)`,
-            [
-                finalBidderId,
-                finalBidderNickname,
-                protectionEndsAt,
-                newMarketBase,
-                finalBid, // last_winning_amount 저장
-                auction.territory_id
-            ]
-        );
+        // 판매 경매: 구매자는 남은 기간(평생 포함)을 그대로 이어받음 (경매 기준 보호기간보다 길면)
+        if (auctionKind === 'owner_sale') {
+            const isLifetime = lockedTerritory.sovereignty === 'protected' && !lockedTerritory.protection_ends_at;
+            const remaining = lockedTerritory.protection_ends_at ? new Date(lockedTerritory.protection_ends_at) : null;
+            if (isLifetime) {
+                protectionEndsAt = null;
+            } else if (remaining && remaining > protectionEndsAt) {
+                protectionEndsAt = remaining;
+            }
+        }
+        // 다음 기간 경매에서 주인이 지키면 지금 기간 끝에서부터 이어서 연장
+        if (auctionKind === 'next_period' && winnerIsPreviousOwner && lockedTerritory.protection_ends_at) {
+            const base = Math.max(Date.now(), new Date(lockedTerritory.protection_ends_at).getTime());
+            protectionEndsAt = new Date(base + (protectionEndsAt.getTime() - Date.now()));
+        }
         
-        // 소유권이 실제로 변경되었는지 확인
-        if (territoryUpdateResult.rowCount === 0) {
-            console.log(`[FinalizeAuctionEnd] Territory ${auction.territory_id} already has ruler ${finalBidderId}, skipping update (idempotent)`);
+        // 소유권 이전/보호 연장은 경매당 1번만 (관리자 재처리 시 중복 지급/연장 방지)
+        if (!auctionMeta.transferred_at) {
+            await client.query(
+                `UPDATE territories 
+                 SET ruler_id = $1,
+                     ruler_name = $2,
+                     sovereignty = 'protected',
+                     status = 'protected',
+                     protection_ends_at = $3,
+                     market_base_price = $4,
+                     last_winning_amount = $5,
+                     current_auction_id = NULL,
+                     updated_at = NOW()
+                 WHERE id = $6`,
+                [
+                    finalBidderId,
+                    finalBidderNickname,
+                    protectionEndsAt,
+                    newMarketBase,
+                    finalBid, // last_winning_amount 저장
+                    auction.territory_id
+                ]
+            );
+            
+            // 판매 경매: 판매자에게 낙찰금의 90% 지급 (판매자가 아닌 사람이 낙찰한 경우)
+            const sellerId = auction.seller_id || auctionMeta.seller_id;
+            if (auctionKind === 'owner_sale' && sellerId && String(sellerId) !== String(finalBidderId)) {
+                const payout = Math.floor(finalBid * (1 - SALE_FEE_RATE));
+                await adjustWalletBalance(client, sellerId, payout, {
+                    type: 'sale',
+                    description: `Sold ${auction.territory_id} at auction (${finalBid} pt, ${Math.round(SALE_FEE_RATE * 100)}% fee)`,
+                    referenceId: `auction_sale:${auctionId}`
+                });
+            }
+            if (previousOwnerId && !winnerIsPreviousOwner) {
+                await client.query(
+                    `UPDATE ownerships SET ended_at = NOW() WHERE territory_id = $1 AND user_id = $2 AND ended_at IS NULL`,
+                    [auction.territory_id, previousOwnerId]
+                );
+            }
+        } else {
+            console.log(`[FinalizeAuctionEnd] Auction ${auctionId} already transferred, skipping territory update (idempotent)`);
         }
         
         // 소유권 이력 기록 (멱등성 보장)
@@ -270,10 +323,17 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
             );
             
             if (auction.current_owner_id) {
+                // 소유 영토 경매가 유찰되면 원래 상태(보호 기간 포함)를 그대로 유지
                 await client.query(
                     `UPDATE territories 
-                     SET sovereignty = 'ruled',
-                         status = 'ruled',
+                     SET sovereignty = CASE
+                             WHEN protection_ends_at > NOW() THEN 'protected'
+                             WHEN sovereignty = 'contested' THEN 'ruled'
+                             ELSE sovereignty END,
+                         status = CASE
+                             WHEN protection_ends_at > NOW() THEN 'protected'
+                             WHEN status = 'contested' THEN 'ruled'
+                             ELSE status END,
                          current_auction_id = NULL,
                          updated_at = NOW()
                      WHERE id = $1`,

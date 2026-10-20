@@ -769,6 +769,20 @@ body {
     font-size: var(--font-size-xs);
 }
 
+.data-table .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-success { background: rgba(46, 204, 113, 0.18); color: #2ecc71; }
+.badge-danger { background: rgba(231, 76, 60, 0.2); color: #ff6b5b; }
+.badge-warning { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
+.badge-secondary { background: rgba(149, 165, 166, 0.2); color: #bdc3c7; }
+
 .data-actions {
     display: flex;
     flex-direction: column;

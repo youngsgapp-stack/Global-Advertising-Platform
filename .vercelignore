@@ -35,3 +35,8 @@ node_modules/
 # Firebase Functions (ì¤‘ë³µ - api/ í´ë” ì‚¬ìš©)
 functions/
 
+
+# Firebase ¼­ºñ½º °èÁ¤ Å° (¹èÆ÷ ±İÁö)
+FIREBASE_SERVICE_ACCOUNT*.txt
+*service-account*.json
+*firebase-adminsdk*.json

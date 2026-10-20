@@ -6,6 +6,9 @@
 // ==========================================
 // 🔍 1단계: 버전 배너 (최신 코드 검증용)
 // ==========================================
+// DB의 시간 컬럼은 시간대 없는 timestamp라 서버 시간대가 UTC가 아니면 마감/보호 시각이 어긋남
+process.env.TZ = 'UTC';
+
 const BUILD_VERSION = '2025-01-11-02-FIX-001'; // 배포마다 변경하여 최신 코드 확인
 console.log('🚀 ========================================');
 console.log(`🚀 Build Version: ${BUILD_VERSION}`);
@@ -111,11 +114,47 @@ import { auctionsListRouter } from './routes/auctions-list.js';
 import { usersRouter } from './routes/users.js';
 import { pixelsRouter, pixelsTopLevelRouter } from './routes/pixels.js';
 import { adminRouter } from './routes/admin.js';
-import cronRouter from './routes/cron.js';
+import { shareRouter } from './routes/share.js';
+import { marketRouter, processMarketJobs } from './routes/market.js';
+import cronRouter, { endExpiredAuctions, expireProtections } from './routes/cron.js';
+
+/**
+ * 서버 내부 주기 작업 (Vercel cron은 하루 1번이라 경매 종료가 최대 하루 늦어지는 것을 보완)
+ * 같은 작업이 아직 실행 중이면 이번 차례는 건너뜀. 종료 처리는 status='active' 조건으로 중복 실행에도 안전
+ */
+// 라우트에서 놓친 비동기 오류로 서버 프로세스가 통째로 죽지 않도록 기록만 함
+process.on('unhandledRejection', (reason) => {
+    console.error('[Server] Unhandled promise rejection:', reason?.stack || reason);
+});
+
+function startBackgroundJobs() {
+    if (process.env.DISABLE_BACKGROUND_JOBS === 'true') return;
+    const schedule = (name, intervalMs, job) => {
+        let running = false;
+        const run = async () => {
+            if (running) return;
+            running = true;
+            try {
+                await job();
+            } catch (error) {
+                console.error(`[Jobs] ${name} failed:`, error.message);
+            } finally {
+                running = false;
+            }
+        };
+        setTimeout(run, 15000);
+        setInterval(run, intervalMs);
+    };
+    schedule('endExpiredAuctions', 60 * 1000, endExpiredAuctions);
+    schedule('expireProtections', 30 * 60 * 1000, expireProtections);
+    schedule('marketJobs', 60 * 1000, processMarketJobs);
+    console.log('[Jobs] Background jobs started (auction end: every 1 min, protection expiry: every 30 min)');
+}
 
 // 미들웨어
 import { authenticateToken, optionalAuthenticateToken } from './middleware/auth.js';
 import { requireAdmin } from './middleware/admin.js';
+import { apiRateLimit, writeRateLimit, moneyRateLimit } from './middleware/rate-limit.js';
 
 // WebSocket 핸들러
 import { setupWebSocket } from './websocket/index.js';
@@ -130,6 +169,8 @@ import logger from './utils/logger.js';
 import { initSentry } from './utils/sentry.js';
 
 const app = express();
+// Railway 프록시 뒤에서 실제 클라이언트 IP(req.ip)를 사용 (요청 횟수 제한에 필요)
+app.set('trust proxy', 1);
 // Railway는 자동으로 PORT를 할당하므로, 정수로 파싱
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
@@ -231,6 +272,27 @@ app.get('/api/health', (req, res) => {
 // 라우터 (인증 필요 없는 것들)
 app.use('/api/auth', authRouter);
 app.use('/api/cron', cronRouter); // Cron Job (Vercel에서 호출)
+
+// 요청 횟수 제한 (cron 제외)
+app.use('/api', apiRateLimit, writeRateLimit);
+app.use([
+    '/api/territories/:id/purchase',
+    '/api/territories/:id/extend',
+    '/api/territories/:id/report',
+    '/api/market/territories/:id/reservations',
+    '/api/market/territories/:id/offers',
+    '/api/market/offers',
+    '/api/market/territories/:id/billboard/bookings',
+    '/api/auctions/:id/bids',
+    '/api/users/me/wallet/paypal-capture'
+], moneyRateLimit);
+app.post('/api/auctions', moneyRateLimit, (req, res, next) => next());
+
+// 공유 링크 미리보기 (공개, 사이트에서는 /s/:id 로 프록시)
+app.use('/api/share', shareRouter);
+
+// 영토 거래 (관심 등록, 대기 예약, 구매 제안, 광고판)
+app.use('/api/market', optionalAuthenticateToken, marketRouter);
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);
@@ -335,6 +397,8 @@ async function startServer() {
         });
         
         console.log('[Server] ✅ Server listen() called successfully');
+        
+        startBackgroundJobs();
     } catch (error) {
         console.error('❌ Failed to start server:', error);
         console.error('Error details:', {

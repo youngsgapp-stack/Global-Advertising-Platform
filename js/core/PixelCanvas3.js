@@ -13,6 +13,7 @@ import { apiService } from '../services/ApiService.js';
 import { localCacheService } from '../services/LocalCacheService.js';
 import mapController from './MapController.js';
 import { TerritoryMask } from './TerritoryMask.js';
+import { getPixelGridBounds, lngLatToGrid } from './PixelGridProjection.js';
 
 // 픽셀 도구
 export const TOOLS = {
@@ -45,7 +46,8 @@ class PixelCanvas3 {
         this.tileRevisionMap = new Map(); // tileId -> revision (클라이언트가 가진 리비전)
         
         // Dirty tiles 추적
-        this.dirtyTiles = new Set(); // 변경된 타일 ID 목록
+        this.dirtyTiles = new Set(); // 마지막 히스토리 기록 이후 변경된 타일 (히스토리용, saveHistory()가 비움)
+        this.unsavedTiles = new Set(); // 마지막 서버 저장 이후 변경된 타일 (저장용, 저장 성공 시에만 비움)
         this.pixelsMap = new Map(); // 현재 픽셀 상태 (타일 시스템용) - ⚠️ 불변식: constructor에서 항상 생성
         this.previousPixelsMap = new Map(); // 이전 상태 (dirty 계산용)
         
@@ -54,7 +56,7 @@ class PixelCanvas3 {
         
         // 줌 및 패닝
         this.zoom = 1.0; // 줌 레벨 (0.5 ~ 5.0)
-        this.minZoom = 0.5;
+        this.minZoom = 0.25; // 작은 화면(모바일)에서도 전체가 보이도록
         this.maxZoom = 5.0;
         this.panX = 0; // 패닝 X 오프셋
         this.panY = 0; // 패닝 Y 오프셋
@@ -377,6 +379,8 @@ class PixelCanvas3 {
         // CSS 표시 크기
         this.canvas.style.width = `${baseSize}px`;
         this.canvas.style.height = `${baseSize}px`;
+        // 터치 시 브라우저 스크롤/확대 대신 그리기·핀치 줌이 동작하도록
+        this.canvas.style.touchAction = 'none';
         
         // 컨텍스트 스케일 조정
         this.ctx.scale(dpr, dpr);
@@ -472,41 +476,31 @@ class PixelCanvas3 {
                     this.panX = this.touchStartPanX + deltaX;
                     this.panY = this.touchStartPanY + deltaY;
                     this.updateCanvasTransform();
-                } else {
-                    // 터치 드로잉
+                } else if (this.isDrawing) {
+                    // 터치 드로잉: 마우스와 같은 처리 경로 사용
                     const touch = e.touches[0];
-                    const rect = this.canvas.getBoundingClientRect();
-                    const scale = this.zoom;
-                    const x = (touch.clientX - rect.left - this.panX) / scale;
-                    const y = (touch.clientY - rect.top - this.panY) / scale;
-                    const pos = this.getPixelPosFromCoords(x, y);
-                    if (pos && this.isDrawing) {
-                        this.draw(pos.x, pos.y);
-                    }
+                    this.onMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
                 }
                 e.preventDefault();
             }
         });
         
-        // 터치 드로잉 시작
+        // 터치 드로잉 시작 (두 번째 손가락이 닿으면 그리기를 끝내고 핀치 줌으로 전환)
         this.canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && this.tool !== TOOLS.PAN) {
                 const touch = e.touches[0];
-                const rect = this.canvas.getBoundingClientRect();
-                const scale = this.zoom;
-                const x = (touch.clientX - rect.left - this.panX) / scale;
-                const y = (touch.clientY - rect.top - this.panY) / scale;
-                const pos = this.getPixelPosFromCoords(x, y);
-                if (pos) {
-                    this.startDrawing(pos.x, pos.y);
+                this.onMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0, shiftKey: false });
+                if (this.isDrawing) {
                     e.preventDefault();
                 }
+            } else if (e.touches.length === 2 && this.isDrawing) {
+                this.onMouseUp();
             }
         });
         
         this.canvas.addEventListener('touchend', (e) => {
             if (this.isDrawing) {
-                this.stopDrawing();
+                this.onMouseUp();
                 e.preventDefault();
             }
         });
@@ -532,8 +526,9 @@ class PixelCanvas3 {
         
         const wrapperWidth = this.wrapper.clientWidth;
         const wrapperHeight = this.wrapper.clientHeight;
-        const canvasWidth = this.canvas.width;
-        const canvasHeight = this.canvas.height;
+        // CSS 표시 크기 기준 (canvas.width는 devicePixelRatio가 곱해진 내부 해상도라 사용하면 안 됨)
+        const canvasWidth = this.width * this.basePixelSize;
+        const canvasHeight = this.height * this.basePixelSize;
         
         // 여유 공간을 두고 맞추기
         const padding = 40;
@@ -546,6 +541,7 @@ class PixelCanvas3 {
         this.panY = 0;
         
         this.updateCanvasTransform();
+        this.emitZoomChange();
     }
     
     /**
@@ -560,8 +556,9 @@ class PixelCanvas3 {
         const translateX = this.panX;
         const translateY = this.panY;
         
+        // wrapper(flex)가 캔버스 원본 크기 기준으로 가운데 정렬하므로 중심 기준으로 확대해야 잘리지 않음
         this.canvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-        this.canvas.style.transformOrigin = '0 0';
+        this.canvas.style.transformOrigin = '50% 50%';
     }
     
     /**
@@ -631,7 +628,8 @@ class PixelCanvas3 {
                     
                     if (feature && feature.geometry) {
                         this.territoryGeometry = feature.geometry;
-                        this.territoryBounds = this.calculateBounds(feature.geometry);
+                        // 그리드 영역: 지도와 같은 Mercator 기준 정사각형 (저장 시 bounds로 함께 저장됨)
+                        this.territoryBounds = getPixelGridBounds(this.calculateBounds(feature.geometry));
                         // TerritoryMask 클래스 사용
                         this.territoryMask = new TerritoryMask(
                             feature.geometry,
@@ -728,9 +726,10 @@ class PixelCanvas3 {
         if (!this.ctx) return;
         if (!this.territoryGeometry || !this.territoryBounds) return;
         
-        const { minLng, maxLng, minLat, maxLat } = this.territoryBounds;
-        const lngRange = maxLng - minLng;
-        const latRange = maxLat - minLat;
+        const toCanvas = (coord) => {
+            const g = lngLatToGrid(coord[0], coord[1], this.territoryBounds, this.width, this.height);
+            return { x: g.x * this.basePixelSize, y: g.y * this.basePixelSize };
+        };
         
         this.ctx.strokeStyle = '#4ecdc4';
         this.ctx.lineWidth = 2;
@@ -739,11 +738,7 @@ class PixelCanvas3 {
         
         if (this.territoryGeometry.type === 'Polygon') {
             this.territoryGeometry.coordinates[0].forEach((coord, idx) => {
-                const normalizedX = (coord[0] - minLng) / lngRange;
-                const normalizedY = (maxLat - coord[1]) / latRange;
-                
-                const x = normalizedX * this.width * this.basePixelSize;
-                const y = normalizedY * this.height * this.basePixelSize;
+                const { x, y } = toCanvas(coord);
                 
                 if (idx === 0) {
                     this.ctx.moveTo(x, y);
@@ -755,11 +750,7 @@ class PixelCanvas3 {
         } else if (this.territoryGeometry.type === 'MultiPolygon') {
             this.territoryGeometry.coordinates.forEach(polygon => {
                 polygon[0].forEach((coord, idx) => {
-                    const normalizedX = (coord[0] - minLng) / lngRange;
-                    const normalizedY = (maxLat - coord[1]) / latRange;
-                    
-                    const x = normalizedX * this.width * this.basePixelSize;
-                    const y = normalizedY * this.height * this.basePixelSize;
+                    const { x, y } = toCanvas(coord);
                     
                     if (idx === 0) {
                         this.ctx.moveTo(x, y);
@@ -912,18 +903,17 @@ class PixelCanvas3 {
                 this.pixels.clear();
                 this.pixelsMap.clear();
                 
+                // 저장된 픽셀은 마스크와 무관하게 모두 유지 (마스크 밖 픽셀을 버리면 그 타일 저장 시 서버에서도 지워짐)
                 for (const pixel of cachedData.data.pixels) {
                     const key = `${pixel.x},${pixel.y}`;
-                    if (!this.territoryMask || this.territoryMask.has(key)) {
-                        const color = pixel.c || pixel.color;
-                        if (color) { // null이 아닌 경우만 추가
-                            this.pixels.set(key, {
-                                color,
-                                userId: pixel.u || pixel.userId || 'system',
-                                timestamp: pixel.t || pixel.timestamp || Date.now()
-                            });
-                            this.pixelsMap.set(key, color);
-                        }
+                    const color = pixel.c || pixel.color;
+                    if (color) { // null이 아닌 경우만 추가
+                        this.pixels.set(key, {
+                            color,
+                            userId: pixel.u || pixel.userId || 'system',
+                            timestamp: pixel.t || pixel.timestamp || Date.now()
+                        });
+                        this.pixelsMap.set(key, color);
                     }
                 }
                 
@@ -937,6 +927,7 @@ class PixelCanvas3 {
                 }
                 this.changedPixels.clear();
                 this.dirtyTiles.clear();
+                this.unsavedTiles.clear();
                 
                 // 캐시된 메타데이터 사용
                 if (cachedData.metadata) {
@@ -1033,10 +1024,12 @@ class PixelCanvas3 {
             }
             
             // 3. 클라이언트 리비전 맵 생성
+            // 아직 아무 타일도 갖고 있지 않으므로 전부 0으로 요청해야 서버가 모든 타일을 보내줌
+            // (서버 metadata의 revision을 그대로 보내면 "변경 없음"으로 판단해 빈 캔버스가 열리고,
+            //  그 위에 그려 저장하면 기존 그림이 덮어써짐)
             const clientRevisions = {};
             for (const tileId of allTileIds) {
-                const revision = this.tileRevisionMap.get(tileId) || 0;
-                clientRevisions[tileId] = revision;
+                clientRevisions[tileId] = 0;
             }
             
             // 4. 서버에서 필요한 타일만 요청
@@ -1059,20 +1052,18 @@ class PixelCanvas3 {
                 // 타일 리비전 업데이트
                 this.tileRevisionMap.set(tile.tileId, tile.revision);
                 
-                // 타일 픽셀 적용
+                // 타일 픽셀 적용 (마스크 밖 픽셀도 유지: 버리면 그 타일 저장 시 서버에서도 지워짐)
                 for (const pixel of tile.pixels) {
                     const key = `${pixel.x},${pixel.y}`;
-                    if (!this.territoryMask || this.territoryMask.has(key)) {
-                        // 레거시 pixels 업데이트
-                        this.pixels.set(key, {
-                            color: pixel.color,
-                            userId: 'system',
-                            timestamp: Date.now()
-                        });
-                        
-                        // 새로운 pixelsMap 업데이트
-                        this.pixelsMap.set(key, pixel.color);
-                    }
+                    // 레거시 pixels 업데이트
+                    this.pixels.set(key, {
+                        color: pixel.color,
+                        userId: 'system',
+                        timestamp: Date.now()
+                    });
+                    
+                    // 새로운 pixelsMap 업데이트
+                    this.pixelsMap.set(key, pixel.color);
                 }
             }
             
@@ -1086,6 +1077,7 @@ class PixelCanvas3 {
             }
             this.changedPixels.clear();
             this.dirtyTiles.clear();
+            this.unsavedTiles.clear();
             
             // ⚠️ 핵심: 픽셀 데이터 로드 완료 확인 및 로깅
             if (this.pixels.size === 0) {
@@ -1489,7 +1481,8 @@ class PixelCanvas3 {
         if (!this.isInsideTerritory(x, y)) return;
         
         if (this.tool === TOOLS.BRUSH || this.tool === TOOLS.ERASER) {
-            if (this.brushSize > 1 && this.lastPos) {
+            // 빠르게 움직이면 이벤트 사이 칸이 비므로 1px 브러시도 선으로 이어 그림
+            if (this.lastPos) {
                 this.drawLine(this.lastPos.x, this.lastPos.y, x, y);
             } else {
                 this.drawPixel(x, y);
@@ -1513,8 +1506,8 @@ class PixelCanvas3 {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.lastPos = null;
-            // 자동저장 제거 - 수동 저장만 사용
-            // this.autoSave();
+            // 획이 끝날 때 히스토리 기록 (이 획이 하나의 Undo 단계가 됨)
+            this.saveHistory();
         }
     }
     
@@ -1551,8 +1544,9 @@ class PixelCanvas3 {
             // Dirty tile 추적 (실시간)
             const tileId = this.getTileId(x, y);
             this.dirtyTiles.add(tileId);
+            this.unsavedTiles.add(tileId);
             
-            this.hasUnsavedChangesFlag = true;
+            this.markDirty();
             this.drawPixelOnCanvas(x, y, null);
             this.updateStats();
         }
@@ -1646,10 +1640,46 @@ class PixelCanvas3 {
         // Dirty tile 추적 (실시간)
         const tileId = this.getTileId(x, y);
         this.dirtyTiles.add(tileId);
+        this.unsavedTiles.add(tileId);
         
-        this.hasUnsavedChangesFlag = true;
+        this.markDirty();
         this.drawPixelOnCanvas(x, y, color);
         this.updateStats();
+    }
+    
+    /**
+     * 히스토리를 남기지 않고 픽셀 값을 직접 바꿈 (Undo/Redo/전체 지우기용)
+     */
+    setPixelRaw(x, y, color) {
+        const key = `${x},${y}`;
+        if (color) {
+            this.pixels.set(key, {
+                color,
+                userId: firebaseService.getCurrentUser()?.uid || 'anonymous',
+                timestamp: Date.now()
+            });
+            this.pixelsMap.set(key, color);
+        } else {
+            this.pixels.delete(key);
+            this.pixelsMap.delete(key);
+        }
+        this.changedPixels.add(key);
+        this.unsavedTiles.add(this.getTileId(x, y));
+    }
+    
+    /**
+     * 저장되지 않은 변경 표시 (깨끗한 상태 → 변경 상태로 바뀔 때 한 번만 알림)
+     */
+    markDirty() {
+        const wasClean = !this.hasUnsavedChangesFlag;
+        this.hasUnsavedChangesFlag = true;
+        if (wasClean) {
+            eventBus.emit(EVENTS.PIXEL_UPDATE, {
+                type: 'saveStatus',
+                status: 'unsaved',
+                message: 'Unsaved changes'
+            });
+        }
     }
     
     /**
@@ -2057,8 +2087,9 @@ class PixelCanvas3 {
                 throw new Error('Refusing to save: canvas has pixels but payload is empty');
             }
             
-            // 2) 캔버스도 비고 payload도 비면 저장할 필요 없음
-            if (!hasPixelsOnCanvas && !hasPixelsInPayload) {
+            // 2) 캔버스도 비고 payload도 비고 지운 타일도 없으면 저장할 필요 없음
+            //    (전체 지우기/모두 지우개로 지운 경우는 빈 타일을 저장해야 하므로 허용)
+            if (!hasPixelsOnCanvas && !hasPixelsInPayload && this.unsavedTiles.size === 0 && this.dirtyTiles.size === 0) {
                 log.warn('[PixelCanvas3] ⚠️ Refusing to save: canvas and payload are both empty');
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'warning',
@@ -2073,10 +2104,11 @@ class PixelCanvas3 {
             
             // 타일 기반 저장 (128×128 아키텍처)
             try {
-                // ⚠️ 최적화: 실시간 추적된 dirtyTiles 사용 (전체 비교 최소화)
-                const dirtyTiles = this.dirtyTiles.size > 0 
-                    ? new Set(this.dirtyTiles) 
-                    : this.calculateDirtyTiles();
+                // 마지막 저장 이후 바뀐 모든 타일 (dirtyTiles는 히스토리 기록 때마다 비워지므로 단독 사용 금지)
+                const dirtyTiles = new Set([...this.unsavedTiles, ...this.dirtyTiles]);
+                if (dirtyTiles.size === 0) {
+                    for (const tileId of this.calculateDirtyTiles()) dirtyTiles.add(tileId);
+                }
                 
                 if (dirtyTiles.size > 0) {
                     // 2. 타일 추출
@@ -2089,6 +2121,7 @@ class PixelCanvas3 {
                     for (const updatedTile of saveResult.updatedTiles || []) {
                         this.tileRevisionMap.set(updatedTile.tileId, updatedTile.revision);
                         this.dirtyTiles.delete(updatedTile.tileId); // 성공한 타일은 dirty에서 제거
+                        this.unsavedTiles.delete(updatedTile.tileId);
                     }
                     
                     // 5. 이전 상태 업데이트 (성공 시에만 클리어)
@@ -2132,6 +2165,7 @@ class PixelCanvas3 {
                                     for (const updatedTile of retryResult.updatedTiles) {
                                         this.tileRevisionMap.set(updatedTile.tileId, updatedTile.revision);
                                         this.dirtyTiles.delete(updatedTile.tileId);
+                                        this.unsavedTiles.delete(updatedTile.tileId);
                                         
                                         // 메타데이터도 업데이트
                                         if (this.territoryMetadata) {
@@ -2156,6 +2190,7 @@ class PixelCanvas3 {
                     } else {
                         // Conflict가 없으면 모든 dirty tiles 클리어
                         this.dirtyTiles.clear();
+                        this.unsavedTiles.clear();
                     }
                 } else {
                     // 변경이 없으면 저장하지 않음
@@ -2318,9 +2353,8 @@ class PixelCanvas3 {
      * 저장되지 않은 변경사항이 있는지 확인
      */
     hasUnsavedChanges() {
-        if (!this.lastSavedState) return this.pixels.size > 0;
-        const currentState = JSON.stringify(this.encodePixels());
-        return currentState !== this.lastSavedState || this.hasUnsavedChangesFlag;
+        // 불러온 그림을 고치지 않았으면 false (이전에는 저장 기록이 없으면 그림만 있어도 true였음)
+        return this.hasUnsavedChangesFlag || this.unsavedTiles.size > 0;
     }
     
     /**
@@ -2520,20 +2554,37 @@ class PixelCanvas3 {
             return;
         }
         
-        // 타일 단위로 복원
-        for (const {tileId, before} of entry.tiles) {
-            if (before) {
-                // 변경 전 상태로 복원
-                this.restoreTile(tileId, before);
+        this.applyHistoryEntry(entry, 'before');
+        this.historyIndex--;
+    }
+    
+    /**
+     * 히스토리 엔트리를 before/after 상태로 적용 (Undo/Redo 공통)
+     * pixel-diff: tiles[].pixels[{x, y, before, after}], tile-snapshot: tiles[{tileId, before, after}]
+     */
+    applyHistoryEntry(entry, side) {
+        for (const tile of entry.tiles) {
+            if (entry.format === 'pixel-diff') {
+                for (const p of tile.pixels || []) {
+                    this.setPixelRaw(p.x, p.y, p[side]);
+                }
             } else {
-                // 타일이 비어있었던 경우, 해당 타일 영역의 픽셀 삭제
-                this.clearTile(tileId);
+                const snapshot = tile[side];
+                if (snapshot) {
+                    this.restoreTile(tile.tileId, snapshot);
+                } else {
+                    this.clearTile(tile.tileId);
+                }
+                this.unsavedTiles.add(tile.tileId);
             }
         }
         
-        this.historyIndex--;
+        // 되돌린 상태를 새 기준으로 삼음 (다음 획의 diff 기준)
+        this.dirtyTiles.clear();
         this.previousPixelsMap = new Map(this.pixelsMap);
+        this.markDirty();
         this.render();
+        this.updateStats();
     }
     
     /**
@@ -2553,19 +2604,7 @@ class PixelCanvas3 {
             return;
         }
         
-        // 타일 단위로 복원
-        for (const {tileId, after} of entry.tiles) {
-            if (after) {
-                // 변경 후 상태로 복원
-                this.restoreTile(tileId, after);
-            } else {
-                // 타일이 비어있게 된 경우
-                this.clearTile(tileId);
-            }
-        }
-        
-        this.previousPixelsMap = new Map(this.pixelsMap);
-        this.render();
+        this.applyHistoryEntry(entry, 'after');
     }
     
     /**
@@ -2861,10 +2900,16 @@ class PixelCanvas3 {
      */
     clear() {
         this.saveHistory();
-        this.pixels.clear();
+        // pixelsMap(저장 대상)까지 비우고 해당 타일을 저장 대상으로 표시해야 서버에도 반영됨
+        for (const key of [...this.pixelsMap.keys(), ...this.pixels.keys()]) {
+            const [x, y] = key.split(',').map(Number);
+            this.setPixelRaw(x, y, null);
+            this.dirtyTiles.add(this.getTileId(x, y));
+        }
+        this.markDirty();
+        this.saveHistory();
         this.render();
-        // 자동저장 제거 - 수동 저장만 사용
-        // this.autoSave();
+        this.updateStats();
     }
     
     /**
@@ -2919,9 +2964,11 @@ class PixelCanvas3 {
         if (this.tileCache) this.tileCache.clear();
         if (this.tileRevisionMap) this.tileRevisionMap.clear();
         if (this.dirtyTiles) this.dirtyTiles.clear();
+        if (this.unsavedTiles) this.unsavedTiles.clear();
         if (this.changedPixels) this.changedPixels.clear();
         if (this.needsResyncTiles) this.needsResyncTiles.clear();
         if (this.lastSavedPixels) this.lastSavedPixels.clear();
+        this.hasUnsavedChangesFlag = false;
         
         this.history = [];
         this.historyIndex = -1;

@@ -22,7 +22,7 @@ export const PROTECTION_PERIOD = 7 * 24 * 60 * 60 * 1000; // 7일
 
 class TerritoryManager {
     constructor() {
-        this.territories = new Map(); // territoryId -> { territory, fetchedAt, revision }
+        this.territories = new Map(); // territoryId -> territory
         this.currentTerritory = null;
         this.unsubscribers = [];
         this.processingTerritoryId = null; // 무한 루프 방지
@@ -382,9 +382,14 @@ class TerritoryManager {
         // territoryId 정규화 (괄호 제거 등) - 원본은 보존하고 정규화된 버전으로 조회
         const normalizedTerritoryId = territoryId ? this.normalizeTerritoryId(territoryId) : null;
         
-        // 영어 이름 결정 (우선순위: name_en > name > id)
-        const englishName = territory.name_en || 
-                           (typeof territory.name === 'string' ? territory.name : territory.name?.en) ||
+        // 영어 이름 결정 (우선순위: name_en > name > 지도 이름 > id)
+        // DB 이름이 ID 슬러그 그대로인 행이 있어 그 경우 지도 데이터(Natural Earth) 이름을 사용
+        const storedName = typeof territory.name === 'string' ? territory.name : territory.name?.en;
+        const mapName = territory.properties?.name || territory.properties?.name_en;
+        const englishName = territory.name_en ||
+                           (storedName && storedName !== originalTerritoryId ? storedName : null) ||
+                           mapName ||
+                           storedName ||
                            normalizedTerritoryId ||
                            originalTerritoryId ||
                            'Unknown Territory';
@@ -813,7 +818,13 @@ class TerritoryManager {
                     'ruler_firebase_uid',
                     'hasAuction',
                     'updatedAt',
-                    'protectionEndsAt'
+                    'protectionEndsAt',
+                    'name',
+                    'name_en',
+                    'country',
+                    'countryIso',
+                    'basePrice',
+                    'ruler_nickname'
                     // hasPixelArt, pixelCount, fillRatio, pixelUpdatedAt는 별도 API로 로드
                 ];
                 
@@ -867,12 +878,9 @@ class TerritoryManager {
             // loadOwnershipOverlay()에서 추가로 확인 및 업데이트
             
             for (const territory of standardTerritories) {
-                // ⚠️ 캐시 메타데이터 추가 (fetchedAt, revision)
-                this.territories.set(territory.id, {
-                    territory,
-                    fetchedAt: new Date(),
-                    revision: Date.now()
-                });
+                // 지도(World View)가 먼저 로드됐으면 지도 연결 정보를 잃지 않도록 옮겨 담음
+                this.preserveMapMapping(territory, this.getTerritory(territory.id));
+                this.territories.set(territory.id, territory);
             }
             
             console.log(`[TerritoryManager] ✅ Loaded ${standardTerritories.length} territories metadata from API`);
@@ -1103,8 +1111,8 @@ class TerritoryManager {
                 }
                 
                 // 기존 territory 가져오기
-                const existing = this.territories.get(territoryId);
-                if (existing && existing.territory) {
+                const existing = this.getTerritory(territoryId);
+                if (existing && existing.id) {
                     // ⚡ 안정성: 최신 updatedAt 우선 룰 (ms로 정규화하여 비교)
                     // ISO 문자열/Date 객체/epoch 등 모든 형식을 ms로 정규화
                     // ⚡ 안정성: invalid 값은 -Infinity로 처리하여 "항상 오래된 값"으로 취급
@@ -1125,7 +1133,7 @@ class TerritoryManager {
                         return -Infinity; // 알 수 없는 타입 = 항상 오래된 값
                     };
                     
-                    const existingUpdatedAt = normalizeToMs(existing.territory.updatedAt);
+                    const existingUpdatedAt = normalizeToMs(existing.updatedAt);
                     const newUpdatedAt = normalizeToMs(standardTerritory.updatedAt);
                     
                     if (newUpdatedAt < existingUpdatedAt) {
@@ -1134,7 +1142,7 @@ class TerritoryManager {
                     }
                     
                     // 소유권 정보 overlay (merge)
-                    const existingTerritory = existing.territory;
+                    const existingTerritory = existing;
                     
                     // ⚠️ 전문가 조언: ruler_firebase_uid를 우선 사용
                     if (standardTerritory.ruler) {
@@ -1155,11 +1163,8 @@ class TerritoryManager {
                     }
                 } else {
                     // 기존 territory가 없으면 새로 추가 (초기 로드에서 누락된 경우)
-                    this.territories.set(territoryId, {
-                        territory: standardTerritory,
-                        fetchedAt: new Date(),
-                        revision: Date.now()
-                    });
+                    this.preserveMapMapping(standardTerritory, existing);
+                    this.territories.set(territoryId, standardTerritory);
                     updatedCount++;
                 }
             };
@@ -2213,8 +2218,10 @@ class TerritoryManager {
      * ⚠️ CRITICAL: 서버 cron 실패 시 대비하여 클라이언트에서도 검증
      */
     isProtected(territoryId) {
-        const territory = this.territories.get(territoryId);
-        if (!territory || !territory.protectionEndsAt) return false;
+        const territory = this.getTerritory(territoryId);
+        if (!territory) return false;
+        // 평생 보호: protected 상태인데 종료일이 없음
+        if (!territory.protectionEndsAt) return territory.sovereignty === SOVEREIGNTY.PROTECTED && !!territory.ruler;
         
         const protectionEnd = territory.protectionEndsAt instanceof Date 
             ? territory.protectionEndsAt 
@@ -2462,8 +2469,28 @@ class TerritoryManager {
     /**
      * 영토 가져오기
      */
+    /**
+     * 기존 영토 객체의 지도 연결 정보(sourceId/featureId/geometry/properties)를 새 객체로 옮김
+     * (API 데이터로 교체할 때 이 정보가 사라지면 에디터가 영토 경계 없이 열리고 지도 오버레이도 실패함)
+     */
+    preserveMapMapping(target, previous) {
+        if (!target || !previous || target === previous) return;
+        const isEmpty = (value) => value === undefined || value === null ||
+            (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0);
+        for (const field of ['sourceId', 'featureId', 'geometry', 'properties']) {
+            if (!isEmpty(previous[field]) && isEmpty(target[field])) {
+                target[field] = previous[field];
+            }
+        }
+    }
+    
     getTerritory(territoryId) {
-        return this.territories.get(territoryId);
+        const entry = this.territories.get(territoryId);
+        // 초기 로드/오버레이 경로는 { territory, fetchedAt, revision } 형태로 저장하므로 영토 객체로 풀어서 반환
+        if (entry && entry.territory && entry.fetchedAt !== undefined) {
+            return entry.territory;
+        }
+        return entry;
     }
     
     /**

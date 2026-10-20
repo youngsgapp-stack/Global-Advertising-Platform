@@ -159,7 +159,7 @@ async function checkAuctionOwnershipTransfer(territoryId) {
         
         if (endedAuctionsResult.rows.length > 0) {
             console.log('\n최근 종료된 옥션:');
-            endedAuctionsResult.rows.forEach((auction, index) => {
+            for (const [index, auction] of endedAuctionsResult.rows.entries()) {
                 console.log(`\n  옥션 ${index + 1}:`);
                 console.log(`    - 옥션 ID: ${auction.id}`);
                 console.log(`    - 상태: ${auction.status}`);
@@ -183,7 +183,7 @@ async function checkAuctionOwnershipTransfer(territoryId) {
                         console.log(`    - 입찰자 Firebase UID: ${bidder.firebase_uid || 'N/A'}`);
                     }
                 }
-            });
+            }
         } else {
             console.log('\n최근 종료된 옥션: 없음');
         }

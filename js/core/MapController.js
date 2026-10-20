@@ -9,6 +9,57 @@ import { territoryManager } from './TerritoryManager.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { initPixelMapRenderer3 } from './PixelMapRenderer3.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
+import { resolveCollidingTerritoryId } from '../data/territory-id-collisions.js';
+
+function polygonsOf(geometry) {
+    if (geometry?.type === 'Polygon') return [geometry.coordinates];
+    if (geometry?.type === 'MultiPolygon') return geometry.coordinates;
+    return [];
+}
+
+function pointInRing([x, y], ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+}
+
+function pointInGeometry(point, geometry) {
+    return polygonsOf(geometry).some(([outer, ...holes]) =>
+        pointInRing(point, outer) && !holes.some(hole => pointInRing(point, hole)));
+}
+
+function ringArea(ring) {
+    let area = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        area += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+    }
+    return Math.abs(area / 2);
+}
+
+function geometryArea(geometry) {
+    return polygonsOf(geometry).reduce((sum, polygon) => sum + ringArea(polygon[0]), 0);
+}
+
+// 가장 큰 외곽선 안쪽의 한 점 (꼭짓점 평균이 바깥이면 마주보는 꼭짓점들의 중점 중 안쪽 점)
+function representativePoint(geometry) {
+    const outers = polygonsOf(geometry).map(polygon => polygon[0]);
+    if (!outers.length) return null;
+    const outer = outers.sort((a, b) => ringArea(b) - ringArea(a))[0];
+    const center = outer.reduce((acc, [x, y]) => [acc[0] + x / outer.length, acc[1] + y / outer.length], [0, 0]);
+    if (pointInRing(center, outer)) return center;
+    const n = outer.length;
+    for (let i = 0; i < n / 2; i++) {
+        const a = outer[i];
+        const b = outer[Math.floor(i + n / 2) % n];
+        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        if (pointInRing(mid, outer)) return mid;
+    }
+    return outer[0];
+}
 
 class MapController {
     constructor() {
@@ -880,61 +931,56 @@ class MapController {
         if (this.globalAdminLoaded && this.globalAdminData) {
             return this.globalAdminData;
         }
+        if (this.globalAdminLoadPromise) {
+            return this.globalAdminLoadPromise;
+        }
+        this.globalAdminLoadPromise = this.fetchGlobalAdminData().finally(() => {
+            this.globalAdminLoadPromise = null;
+        });
+        return this.globalAdminLoadPromise;
+    }
+    
+    /**
+     * Natural Earth Admin 1 데이터 다운로드
+     * 사이트에 올린 경량본(경계 극점 보존 단순화 + 사용하는 속성만, 원본과 feature 순서/이름 동일)을 우선 사용하고,
+     * 실패하면 원본(약 40MB)으로 대체
+     */
+    async fetchGlobalAdminData() {
+        const sources = [
+            { url: '/data/world-admin1.v1.json', timeoutMs: 60000 },
+            { url: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson', timeoutMs: 90000 }
+        ];
         
-            // Natural Earth Admin 1 데이터 (주/도 레벨)
-            const url = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
-            
-        // 재시도 로직 (최대 3회)
-        const maxRetries = 3;
-        let retryCount = 0;
-        
-        while (retryCount < maxRetries) {
-            try {
-                log.info(`Loading global admin boundaries data... (attempt ${retryCount + 1}/${maxRetries})`);
-                
-                // AbortController로 타임아웃 설정 (10초)
+        for (const { url, timeoutMs } of sources) {
+            for (let attempt = 1; attempt <= 2; attempt++) {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                const response = await fetch(url, {
-                    signal: controller.signal,
-                    cache: 'default' // 브라우저 캐시 사용
-                });
-                
-                clearTimeout(timeoutId);
-                
-            if (!response.ok) {
-                throw new Error(`Failed to fetch global admin data: ${response.status}`);
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    log.info(`Loading global admin boundaries from ${url} (attempt ${attempt})`);
+                    const response = await fetch(url, { signal: controller.signal, cache: 'default' });
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const data = await response.json();
+                    if (!Array.isArray(data?.features) || data.features.length === 0) {
+                        throw new Error('Empty admin boundaries data');
+                    }
+                    this.globalAdminData = data;
+                    this.globalAdminLoaded = true;
+                    log.info(`Global admin data loaded: ${data.features.length} regions`);
+                    return data;
+                } catch (error) {
+                    log.warn(`Failed to load global admin data from ${url} (attempt ${attempt}):`, error.name === 'AbortError' ? 'timeout' : error.message);
+                    if (attempt < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                } finally {
+                    clearTimeout(timeoutId);
+                }
             }
-            
-            this.globalAdminData = await response.json();
-            this.globalAdminLoaded = true;
-            
-            log.info(`Global admin data loaded: ${this.globalAdminData.features?.length} regions`);
-            return this.globalAdminData;
-            
-        } catch (error) {
-                retryCount++;
-                
-                if (error.name === 'AbortError') {
-                    log.warn(`Global admin data fetch timeout (attempt ${retryCount}/${maxRetries})`);
-                } else {
-                    log.warn(`Failed to load global admin data (attempt ${retryCount}/${maxRetries}):`, error.message);
-                }
-                
-                if (retryCount < maxRetries) {
-                    // 지수 백오프: 1초, 2초, 4초
-                    const delay = Math.pow(2, retryCount - 1) * 1000;
-                    log.info(`Retrying in ${delay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                } else {
-                    log.error('Failed to load global admin data after all retries:', error);
-                    // 실패해도 null 반환 (앱은 계속 작동)
-            return null;
-                }
-        }
         }
         
+        log.error('Failed to load global admin data from all sources');
         return null;
     }
     
@@ -1027,20 +1073,23 @@ class MapController {
             return null;
         }
         
-        // 정규화된 GeoJSON 반환
+        // 정규화된 GeoJSON 반환 (territory ID는 세계 화면과 같은 규칙으로 생성)
         return {
             type: 'FeatureCollection',
-            features: filtered.map((feature, index) => ({
-                ...feature,
-                id: index,
-                properties: {
-                    ...feature.properties,
-                    id: `${countryCode}-${index}`,
-                    name: feature.properties.name || feature.properties.name_en || feature.properties.admin || `Region ${index + 1}`,
-                    country: countryCode,
-                    sovereignty: 'unconquered'
-                }
-            }))
+            features: filtered.map((feature, index) => {
+                const globalIndex = this.globalAdminData.features.indexOf(feature);
+                return {
+                    ...feature,
+                    id: index,
+                    properties: {
+                        ...feature.properties,
+                        id: this.getWorldTerritoryId(feature, globalIndex),
+                        name: feature.properties.name || feature.properties.name_en || feature.properties.admin || `Region ${index + 1}`,
+                        country: countryCode,
+                        sovereignty: 'unconquered'
+                    }
+                };
+            })
         };
     }
     
@@ -1064,6 +1113,7 @@ class MapController {
                 if (response.ok) {
                     const data = await response.json();
                     const normalized = this.normalizeGeoJson(data, country);
+                    await this.alignLocalIdsWithWorld(normalized, country);
                     this.geoJsonCache.set(country, normalized);
                     log.info(`Local GeoJSON loaded for ${country}: ${normalized.features?.length} regions`);
                     return normalized;
@@ -1102,6 +1152,58 @@ class MapController {
             'japan': '/data/japan-prefectures-accurate.geojson'
         };
         return localMap[country] || null;
+    }
+    
+    /**
+     * 로컬 GeoJSON(미국/한국/일본)의 지역을 세계 지도(Natural Earth) 지역과 짝지어 같은 territory ID를 사용
+     * (한국 파일은 한글 이름이라 이름 기반 ID가 비고, 일본 파일은 이름이 없어 DB ID와 맞지 않음)
+     * 이름(영/한/일/현지어)으로 먼저 찾고, 없으면 대표 지점을 포함하는 가장 작은 지역으로 찾음
+     */
+    async alignLocalIdsWithWorld(data, country) {
+        const iso = { usa: 'USA', 'south-korea': 'KOR', japan: 'JPN' }[country];
+        if (!iso || !data?.features) return;
+        await this.loadGlobalAdminData();
+        if (!this.globalAdminData) return;
+        
+        const candidates = [];
+        this.globalAdminData.features.forEach((feature, index) => {
+            if (feature.properties?.adm0_a3 === iso) candidates.push({ feature, index });
+        });
+        
+        const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+        for (const feature of data.features) {
+            const p = feature.properties || {};
+            const localNames = [p.name, p.NAME, p.name_en, p.NAME_1, p.nam, p.nam_ja].filter(Boolean).map(norm);
+            let match = candidates.find(({ feature: w }) => {
+                const wp = w.properties;
+                return [wp.name, wp.name_en, wp.name_ko, wp.name_ja, wp.name_local, wp.woe_name]
+                    .filter(Boolean).map(norm).some(n => localNames.includes(n));
+            });
+            if (!match) {
+                const point = representativePoint(feature.geometry);
+                match = point && candidates
+                    .filter(({ feature: w }) => pointInGeometry(point, w.geometry))
+                    .sort((a, b) => geometryArea(a.feature.geometry) - geometryArea(b.feature.geometry))[0];
+            }
+            if (match) {
+                const id = this.getWorldTerritoryId(match.feature, match.index);
+                feature.properties.id = id;
+                feature.properties.territoryId = id;
+            }
+        }
+    }
+    
+    /**
+     * Natural Earth admin-1 feature의 territory ID (DB 기본키와 동일)
+     * 세계 화면과 국가 화면이 반드시 이 함수로 ID를 만들어야 같은 영토를 가리킴
+     * @param {object} feature - globalAdminData의 feature
+     * @param {number} globalIndex - globalAdminData.features 내 인덱스
+     */
+    getWorldTerritoryId(feature, globalIndex) {
+        const props = feature.properties || {};
+        const name = props.name || props.name_en || `Region ${globalIndex}`;
+        const baseId = this.normalizeTerritoryId(props.id || feature.id || `world-${globalIndex}`, name);
+        return resolveCollidingTerritoryId(baseId, props.adm0_a3);
     }
     
     /**
@@ -1149,13 +1251,14 @@ class MapController {
                 // 새로운 Territory ID 생성 시도 (COUNTRY_ISO3::ADMIN_CODE 형식)
                 let territoryId = null;
                 let legacyId = null;
+                let countryIso = null;
                 
                 // TerritoryIdUtils를 사용하여 새로운 ID 생성
                 try {
                     const props = feature.properties || {};
                     
                     // 1. countryIso 추출 (adm0_a3 우선)
-                    let countryIso = props.adm0_a3 || props.country_code || props.iso_a3;
+                    countryIso = props.adm0_a3 || props.country_code || props.iso_a3;
                     if (countryIso) {
                         countryIso = String(countryIso).toUpperCase().trim();
                         
@@ -1909,9 +2012,12 @@ class MapController {
             // 새로운 Territory ID 형식 사용
             finalTerritoryId = newTerritoryId;
             log.debug(`[MapController] Using new Territory ID format: ${finalTerritoryId}`);
+        } else if (typeof feature.properties?.id === 'string' && !/^\d+$/.test(feature.properties.id)) {
+            // 지도 레이어를 만들 때 정한 ID 그대로 사용 (getWorldTerritoryId: 국가 간 이름 충돌 접미사 포함)
+            finalTerritoryId = feature.properties.id;
         } else {
             // Legacy 형식: 이름 기반 정규화
-        const territoryName = feature.properties.name || feature.properties.NAME_1 || feature.properties.NAME_2;
+            const territoryName = feature.properties.name || feature.properties.NAME_1 || feature.properties.NAME_2;
             finalTerritoryId = this.normalizeTerritoryId(rawTerritoryId, territoryName, countryCode);
             log.debug(`[MapController] Using legacy Territory ID format: ${finalTerritoryId}`);
         }
@@ -2852,13 +2958,9 @@ class MapController {
                         countryColors.set(countryCode, this.stringToColor(countryCode));
                     }
                     
-                    // territoryId 정규화 (이름 기반)
+                    // territoryId 정규화 (이름 기반, 국가 간 이름 충돌 시 국가 접미사)
                     const name = feature.properties.name || feature.properties.name_en || `Region ${index}`;
-                    const territoryId = this.normalizeTerritoryId(
-                        feature.properties.id || feature.id || `world-${index}`,
-                        name,
-                        countryCode
-                    );
+                    const territoryId = this.getWorldTerritoryId(feature, index);
                     
                     // feature.id 확정
                     const featureId = index;

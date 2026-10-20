@@ -566,6 +566,11 @@ class ApiService {
         
         const result = await this.post(`/auctions/${auctionId}/bids`, payload);
         
+        // 입찰금은 서버에서 예치(차감)되므로 잔액 표시 갱신
+        import('./WalletService.js')
+            .then(({ walletService }) => walletService.refreshBalance())
+            .catch(err => log.warn('[ApiService] Failed to refresh balance after bid:', err));
+        
         // ?占쎈떟 ?占쎌떇 蹂??(?占쏀솚??
         if (result.bid) {
             return {

@@ -131,13 +131,13 @@ class TerritoryAdapter {
             status: normalizeStatus(apiResponse.status || null, apiResponse.sovereignty),
 
             // === 보호 기간 ===
-            protectionEndsAt: parseDate(apiResponse.protection_ends_at),
+            protectionEndsAt: parseDate(apiResponse.protection_ends_at || apiResponse.protectionEndsAt),
             protectionDays: apiResponse.protection_days || null,
 
             // === 가격 정보 ===
             // ⚠️ 전문가 조언 반영: last_winning_amount 포함 (Price 표시에 필요)
             last_winning_amount: apiResponse.last_winning_amount ? parseFloat(apiResponse.last_winning_amount) : null,
-            basePrice: parseFloat(apiResponse.base_price || apiResponse.price || 0),
+            basePrice: parseFloat(apiResponse.base_price || apiResponse.basePrice || apiResponse.price || 0),
             purchasedPrice: apiResponse.purchased_price ? parseFloat(apiResponse.purchased_price) : null,
 
             // === 관리자 관련 ===
@@ -146,6 +146,7 @@ class TerritoryAdapter {
             // === 지리 정보 ===
             country: apiResponse.country || null,
             countryCode: apiResponse.country_code || apiResponse.country || null,
+            countryIso: apiResponse.country_iso || apiResponse.countryIso || null,
 
             // === 이름 정보 ===
             name: this.normalizeName(apiResponse),
@@ -156,8 +157,8 @@ class TerritoryAdapter {
             properties: apiResponse.properties || {},
 
             // === 메타데이터 ===
-            createdAt: parseDate(apiResponse.created_at) || new Date(),
-            updatedAt: parseDate(apiResponse.updated_at) || new Date(),
+            createdAt: parseDate(apiResponse.created_at || apiResponse.createdAt) || new Date(),
+            updatedAt: parseDate(apiResponse.updated_at || apiResponse.updatedAt) || new Date(),
             history: apiResponse.history || [],
 
             // === 픽셀 아트 ===
@@ -185,6 +186,22 @@ class TerritoryAdapter {
                 local: apiResponse.name.local || apiResponse.name_local,
                 ko: apiResponse.name.ko || apiResponse.name_ko
             };
+        }
+
+        // 일부 DB 행은 이름 컬럼에 '{"ko":"콜로라도","en":"Colorado"}' 같은 JSON 문자열이 들어 있음
+        if (typeof apiResponse.name === 'string' && apiResponse.name.trim().startsWith('{')) {
+            try {
+                const parsed = JSON.parse(apiResponse.name);
+                if (parsed && typeof parsed === 'object') {
+                    return {
+                        en: parsed.en || apiResponse.name_en || parsed.local || apiResponse.id,
+                        local: parsed.local || apiResponse.name_local,
+                        ko: parsed.ko || apiResponse.name_ko
+                    };
+                }
+            } catch (error) {
+                // JSON이 아니면 일반 문자열로 처리
+            }
         }
 
         // 문자열인 경우

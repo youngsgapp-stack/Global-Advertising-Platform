@@ -526,6 +526,18 @@
     color: var(--color-text);
 }
 
+a.ad-visit-btn {
+    box-sizing: border-box;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    color: #0a0a1a;
+    font-weight: 700;
+}
+
+a.ad-visit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(78, 205, 196, 0.35);
+}
+
 .conquest-btn:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-glow-secondary);

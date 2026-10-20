@@ -710,6 +710,13 @@ class TerritoryDataService {
      * 전문가 제안: 모든 영토에 최소 시작가 적용 (0.5~1달러 상당)
      */
     calculateTerritoryPrice(territory, countryCode) {
+        // 서버에 저장된 정가(base_price)가 있으면 그대로 사용 (구매 시 서버가 이 값으로 검증함)
+        const props = territory?.properties || {};
+        const serverPrice = parseFloat(territory?.basePrice ?? territory?.base_price ?? props.basePrice ?? props.base_price);
+        if (serverPrice > 0) {
+            return Math.round(serverPrice);
+        }
+        
         // 픽셀 수 기반 가격 계산
         const pixelCount = this.calculatePixelCount(territory, countryCode);
         const econFactor = this.getEconomicFactor(countryCode);

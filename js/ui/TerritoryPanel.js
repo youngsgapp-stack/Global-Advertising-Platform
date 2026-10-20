@@ -14,6 +14,10 @@ import { apiService } from '../services/ApiService.js';
 import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
 import { rateLimiter, RATE_LIMIT_TYPE } from '../services/RateLimiter.js';
+import { setPendingIntent } from '../utils/PendingIntent.js';
+import { waitForPanelTerritory } from '../utils/TerritoryNavigator.js';
+import { showDialog, showFormDialog, escapeHtml } from './ConfirmDialog.js';
+import { clientPhase, phaseLabel } from '../utils/TerritoryPhase.js';
 
 // View Mode 정의 (전문가 조언 반영)
 const VIEW_MODE = {
@@ -949,15 +953,20 @@ class TerritoryPanel {
         // 소유자가 있는 경우 우선 (경매가 있어도 소유자 상태 표시)
         if (territory.ruler && territory.sovereignty !== SOVEREIGNTY.UNCONQUERED) {
             uiStatus = 'owned';
-            sovereigntyText = 'Owned';
-            sovereigntyIcon = '👑';
-            sovereigntyClass = isProtected ? 'protected' : 'ruled';
+            const label = phaseLabel(clientPhase(territory), {
+                protectionEndsAt: territory.protectionEndsAt,
+                isMine: territory.ruler === firebaseService.getCurrentUser()?.uid,
+                onAuction: hasActiveAuction
+            });
+            sovereigntyText = label.text;
+            sovereigntyIcon = label.icon;
+            sovereigntyClass = label.className;
         }
         // 경매 중인 경우 (소유자가 없는 경우만)
         else if (hasActiveAuction && !hasOwner) {
             uiStatus = 'auction';
-            sovereigntyText = 'On Auction';
-            sovereigntyIcon = '⏳';
+            sovereigntyText = 'On auction';
+            sovereigntyIcon = '🔥';
             sovereigntyClass = 'contested';
         }
         // 소유자가 없는 경우
@@ -1050,10 +1059,13 @@ class TerritoryPanel {
                         </span>
                     </div>
                     <div class="info-row highlight">
-                        <span class="info-label">💰 Price</span>
-                        <span class="info-value price">${territoryDataService.formatPrice(realPrice)}</span>
+                        <span class="info-label">💰 ${uiStatus === 'owned' ? 'Last price' : 'Price'}</span>
+                        <span class="info-value price">${territoryDataService.formatPrice(realPrice)}${uiStatus === 'owned' ? '' : ' / week'} <small style="opacity:0.7;">(${this.formatUsd(realPrice)})</small></span>
                     </div>
                 </div>
+                
+                <div id="territory-market-section" class="territory-market-section"></div>
+                <div id="territory-ad-section" class="territory-ad-section"></div>
                 
                 <!-- Pixel Info -->
                 <div class="pixel-info-card">
@@ -1092,7 +1104,7 @@ class TerritoryPanel {
         
         return `
             <div class="buffs-section">
-                <h3>⚡ 적용 버프</h3>
+                <h3>⚡ Active Buffs</h3>
                 <div class="buff-list">
                     ${buffs.map(buff => `
                         <div class="buff-item" style="border-color: ${buff.color}">
@@ -1527,7 +1539,7 @@ class TerritoryPanel {
                 // 아무도 소유하지 않음, 경매 없음
                 return `
                     <button class="action-btn conquest-btn" id="instant-conquest">
-                        🏴 Claim This Spot (${this.formatNumber(realPrice)} pt)
+                        🏴 Claim This Spot (from ${this.formatNumber(realPrice)} pt · ${this.formatUsd(realPrice)})
                     </button>
                     <button class="action-btn auction-btn" id="start-auction">
                         🏷️ Start Auction
@@ -1607,13 +1619,15 @@ class TerritoryPanel {
                 const isProtectedMine = territoryManager.isProtected(territory.id);
                 const protectionRemainingMine = isProtectedMine ? territoryManager.getProtectionRemaining(territory.id) : null;
                 
+                const isLifetimeMine = isProtectedMine && !territory.protectionEndsAt;
                 let mineIdleButtons = `
                     <button class="action-btn pixel-btn" id="open-pixel-editor">
                         🎨 Edit My Spot
                     </button>
-                    <button class="action-btn collab-btn" id="open-collaboration">
-                        👥 Open Collaboration
-                    </button>
+                    ${isLifetimeMine ? '' : `
+                    <button class="action-btn conquest-btn" id="extend-protection">
+                        🛡️ ${isProtectedMine ? 'Extend protection' : 'Protect again'}
+                    </button>`}
                     <button class="action-btn auction-btn" id="start-territory-auction">
                         🏷️ Start Auction
                     </button>
@@ -1624,7 +1638,7 @@ class TerritoryPanel {
                     mineIdleButtons += `
                         <div class="protected-info-notice">
                             <span class="protected-icon">🛡️</span>
-                            <span>Your territory is protected (${protectionRemainingMine.days || 0}d ${protectionRemainingMine.hours || 0}h remaining). Others can start auctions, but you can bid to defend.</span>
+                            <span>Protected for ${protectionRemainingMine.days || 0}d ${protectionRemainingMine.hours || 0}h more. Nobody can take it until then. In the last 7 days others may start a next-period auction, and you win ties.</span>
                         </div>
                     `;
                 }
@@ -1647,9 +1661,6 @@ class TerritoryPanel {
                     </div>
                     <button class="action-btn pixel-btn" id="open-pixel-editor">
                         🎨 Edit My Spot
-                    </button>
-                    <button class="action-btn collab-btn" id="open-collaboration">
-                        👥 Open Collaboration
                     </button>
                     <div class="action-option-card">
                         <div class="option-header">
@@ -1706,7 +1717,7 @@ class TerritoryPanel {
                     otherIdleButtons += `
                         <div class="protected-info-notice">
                             <span class="protected-icon">🛡️</span>
-                            <span>Territory is protected (${protectionRemainingOther.days || 0}d ${protectionRemainingOther.hours || 0}h remaining). You can start an auction, but the owner can bid to defend.</span>
+                            <span>Taken for ${protectionRemainingOther.days || 0}d ${protectionRemainingOther.hours || 0}h more. You can watch it, reserve the next turn or make an offer to the owner.</span>
                         </div>
                     `;
                 }
@@ -1767,6 +1778,9 @@ class TerritoryPanel {
     bindActions() {
         if (!this.container) return;
         
+        this.loadAdSection();
+        this.loadMarketSection();
+        
         // 기존 리스너 제거 (중복 방지)
         if (this._actionClickHandler) {
             this.container.removeEventListener('click', this._actionClickHandler);
@@ -1788,9 +1802,38 @@ class TerritoryPanel {
                 return;
             }
             
+            if (id === 'edit-ad-link') {
+                e.preventDefault();
+                this.editAdLink();
+                return;
+            }
+            
+            if (id === 'report-territory') {
+                e.preventDefault();
+                this.reportTerritory();
+                return;
+            }
+            
+            if (id === 'extend-protection') {
+                e.preventDefault();
+                this.extendProtection();
+                return;
+            }
+            
+            const marketAction = target.dataset?.marketAction;
+            if (marketAction) {
+                e.preventDefault();
+                this.handleMarketAction(marketAction, target.dataset);
+                return;
+            }
+            
             // 로그인 버튼
             if (id === 'login-to-conquer') {
                 e.preventDefault();
+                // 로그인 후 이 영토의 구매 화면으로 바로 이어가기
+                if (this.currentTerritory?.id) {
+                    setPendingIntent({ type: 'openTerritory', territoryId: this.currentTerritory.id, action: 'purchase' });
+                }
                 eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
                 return;
             }
@@ -1888,7 +1931,11 @@ class TerritoryPanel {
         
         const countryCode = t.country || t.properties?.adm0_a3?.toLowerCase() || 'unknown';
         const territoryName = this.extractName(t.name, countryCode) || t.id;
-        const shareUrl = `${window.location.origin}${window.location.pathname}?territory=${t.id}`;
+        // /s/:id 는 vercel.json rewrite로 서버의 미리보기 페이지(그림 이미지 OG 태그)로 연결됨. 로컬 개발 서버에는 없음
+        const isLocalHost = /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+        const shareUrl = isLocalHost
+            ? `${window.location.origin}${window.location.pathname}?territory=${encodeURIComponent(t.id)}`
+            : `${window.location.origin}/s/${encodeURIComponent(t.id)}`;
         const shareText = `🌍 Check out this territory: ${territoryName} on Own a Piece of Earth!`;
         const shareTitle = `Own a Piece of Earth - ${territoryName}`;
         
@@ -1985,6 +2032,9 @@ class TerritoryPanel {
                 type: 'warning',
                 message: 'Please sign in to purchase this territory'
             });
+            if (this.currentTerritory?.id) {
+                setPendingIntent({ type: 'openTerritory', territoryId: this.currentTerritory.id, action: 'purchase' });
+            }
             eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
             return;
         }
@@ -2088,61 +2138,30 @@ class TerritoryPanel {
     showPurchaseOptionsModal(basePrice, territoryName, activeAuction) {
         log.info('[TerritoryPanel] showPurchaseOptionsModal called', { basePrice, territoryName });
         
-        // 구매 옵션 정의
+        // 기간 배수는 서버(backend/routes/territories.js PURCHASE_PROTECTION_MULTIPLIERS)와 동일해야 함
         const purchaseOptions = [
-            {
-                id: 'week',
-                label: '1주일',
-                labelEn: '1 Week',
-                days: 7,
-                multiplier: 1.0,
-                icon: '📅',
-                description: '7일 보호 기간',
-                descriptionEn: '7 days protection'
-            },
-            {
-                id: 'month',
-                label: '1개월',
-                labelEn: '1 Month',
-                days: 30,
-                multiplier: 3.5,
-                icon: '📆',
-                description: '30일 보호 기간',
-                descriptionEn: '30 days protection'
-            },
-            {
-                id: 'year',
-                label: '1년',
-                labelEn: '1 Year',
-                days: 365,
-                multiplier: 30.0,
-                icon: '🗓️',
-                description: '365일 보호 기간',
-                descriptionEn: '365 days protection'
-            },
-            {
-                id: 'lifetime',
-                label: '평생',
-                labelEn: 'Lifetime',
-                days: null, // null = 평생
-                multiplier: 100.0,
-                icon: '👑',
-                description: '영구 보호',
-                descriptionEn: 'Permanent protection'
-            }
+            { id: 'week', label: '1 Week', days: 7, weeks: 1, multiplier: 1.0, icon: '📅', description: '7 days of protection' },
+            { id: 'month', label: '1 Month', days: 30, weeks: 30 / 7, multiplier: 3.5, icon: '📆', description: '30 days of protection' },
+            { id: 'year', label: '1 Year', days: 365, weeks: 365 / 7, multiplier: 30.0, icon: '🗓️', description: '365 days of protection' },
+            { id: 'lifetime', label: 'Lifetime', days: null, weeks: null, multiplier: 100.0, icon: '👑', description: 'Never expires' }
         ];
         
-        // 모달 HTML 생성
         const optionsHTML = purchaseOptions.map(option => {
             const price = Math.ceil(basePrice * option.multiplier);
-            const isLifetime = option.id === 'lifetime';
+            const perWeek = option.weeks ? Math.round(price / option.weeks) : null;
+            const savings = option.weeks && option.id !== 'week'
+                ? Math.round((1 - option.multiplier / option.weeks) * 100)
+                : 0;
+            const badge = option.id === 'year'
+                ? '<div class="option-badge">⭐ Best Value</div>'
+                : option.id === 'lifetime' ? '<div class="option-badge">👑 Forever</div>' : '';
             return `
                 <div class="purchase-option-card" data-option-id="${option.id}" data-days="${option.days || 'lifetime'}" data-price="${price}">
                     <div class="option-header">
                         <span class="option-icon">${option.icon}</span>
                         <div class="option-title">
                             <h3>${option.label}</h3>
-                            <span class="option-label-en">${option.labelEn}</span>
+                            <span class="option-label-en">${option.description}</span>
                         </div>
                     </div>
                     <div class="option-body">
@@ -2150,8 +2169,8 @@ class TerritoryPanel {
                             <span class="price-value">${this.formatNumber(price)}</span>
                             <span class="price-unit">pt</span>
                         </div>
-                        <div class="option-description">${option.description}</div>
-                        ${isLifetime ? '<div class="option-badge">⭐ Best Value</div>' : ''}
+                        <div class="option-description">${this.formatUsd(price)}${perWeek ? ` · ${this.formatNumber(perWeek)} pt/week` : ''}${savings > 0 ? ` · Save ${savings}%` : ''}</div>
+                        ${badge}
                     </div>
                 </div>
             `;
@@ -2162,20 +2181,20 @@ class TerritoryPanel {
                 <div class="modal-overlay"></div>
                 <div class="modal-content purchase-options-content">
                     <div class="modal-header">
-                        <h2>🏴 구매 옵션 선택</h2>
+                        <h2>🏴 Choose how long to own it</h2>
                         <button class="modal-close" id="close-purchase-options">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div class="territory-info-summary">
                             <span class="territory-name">${territoryName}</span>
-                            <span class="base-price">기본 가격: ${this.formatNumber(basePrice)} pt</span>
+                            <span class="base-price">${this.formatNumber(basePrice)} pt / week (${this.formatUsd(basePrice)}) · 10 pt = $1</span>
                         </div>
                         <div class="purchase-options-grid">
                             ${optionsHTML}
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" id="cancel-purchase-options">취소</button>
+                        <button class="btn btn-secondary" id="cancel-purchase-options">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -2318,6 +2337,52 @@ class TerritoryPanel {
     }
     
     /**
+     * 구매 성공 안내: 바로 꾸미기 / 공유 / 나중에
+     */
+    async showPurchaseSuccessDialog(territoryName, newBalance) {
+        const territory = this.currentTerritory;
+        const choice = await showDialog({
+            title: `🎉 ${territoryName} is yours!`,
+            lines: [
+                'Decorate it with pixel art or your own image so everyone sees it on the map.',
+                newBalance !== undefined && newBalance !== null ? `Remaining balance: ${this.formatNumber(newBalance)} pt` : ''
+            ].filter(Boolean),
+            buttons: [
+                { id: 'later', label: 'Later' },
+                { id: 'share', label: 'Copy share link' },
+                { id: 'decorate', label: 'Decorate now', primary: true }
+            ]
+        });
+        if (choice === 'decorate' && territory) {
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'pixelEditor', data: territory });
+        } else if (choice === 'share') {
+            this.shareTerritory('copy');
+        }
+    }
+    
+    /**
+     * 로그인 후 이어가기: 영토 패널이 열리면 구매 옵션 화면으로 이동
+     */
+    async resumeOpenTerritory(intent) {
+        const opened = await waitForPanelTerritory(this, intent.territoryId);
+        if (!opened || intent.action !== 'purchase') return;
+        const ruler = this.currentTerritory?.ruler;
+        const user = firebaseService.getCurrentUser();
+        if (ruler && ruler !== user?.uid) return;
+        await this.handleInstantConquest();
+    }
+    
+    /**
+     * 충전 후 이어가기: 기억해 둔 구매(영토/기간/가격)를 확인 단계부터 다시 진행
+     */
+    async resumePendingPurchase(intent) {
+        const opened = await waitForPanelTerritory(this, intent.territoryId);
+        if (!opened) return;
+        const activeAuction = auctionSystem.getAuctionByTerritory(intent.territoryId);
+        await this.processPurchaseWithOption(intent.price, intent.protectionDays ?? null, intent.territoryName, activeAuction);
+    }
+    
+    /**
      * 선택한 옵션으로 구매 처리
      * ⚠️ CRITICAL: 로딩 상태 표시 및 사용자 피드백 개선
      */
@@ -2341,12 +2406,6 @@ class TerritoryPanel {
         
         log.info(`[TerritoryPanel] ✅ User authenticated: ${user.uid}`);
         
-        // ⚠️ 로딩 상태 표시
-        eventBus.emit(EVENTS.UI_NOTIFICATION, {
-            type: 'info',
-            message: '🔄 구매 처리 중... 잠시만 기다려주세요.'
-        });
-        
         try {
             // 잔액 확인
             const { walletService } = await import('../services/WalletService.js');
@@ -2357,12 +2416,45 @@ class TerritoryPanel {
             if (currentBalance < price) {
                 const shortage = price - currentBalance;
                 log.warn(`[TerritoryPanel] ❌ Insufficient balance: shortage=${shortage}`);
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'error',
-                    message: `❌ 잔액이 부족합니다. ${this.formatNumber(shortage)} pt가 더 필요합니다.`
+                // 충전이 끝나면 이 구매를 이어서 진행하도록 기억 (app.js의 PAYMENT_SUCCESS 리스너가 재개)
+                setPendingIntent({
+                    type: 'purchase',
+                    territoryId: this.currentTerritory.id,
+                    price,
+                    protectionDays,
+                    territoryName
                 });
+                eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                    type: 'warning',
+                    message: `You need ${this.formatNumber(shortage)} more pt. Charge points and your purchase will continue.`
+                });
+                const { paymentService } = await import('../services/PaymentService.js');
+                paymentService.openChargeModal(shortage);
                 return;
             }
+            
+            // 결제 직전 확인 (카드를 누르자마자 결제되지 않도록)
+            const periodLabel = protectionDays ? `${protectionDays} days` : 'Lifetime';
+            const choice = await showDialog({
+                title: `Buy ${territoryName}?`,
+                lines: [
+                    `Protection: ${periodLabel}`,
+                    `Price: ${this.formatNumber(price)} pt (${this.formatUsd(price)})`,
+                    `Your balance: ${this.formatNumber(currentBalance)} pt → ${this.formatNumber(currentBalance - price)} pt`
+                ],
+                buttons: [
+                    { id: 'cancel', label: 'Cancel' },
+                    { id: 'buy', label: 'Buy now', primary: true }
+                ]
+            });
+            if (choice !== 'buy') {
+                return;
+            }
+            
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'info',
+                message: '🔄 Processing your purchase...'
+            });
             
             // ⚠️ 전문가 조언 반영: 원자성 보장 - 백엔드 구매 엔드포인트 사용
             log.info(`[TerritoryPanel] 💰 Processing purchase via API: ${price} pt for ${territoryName} (${protectionDays || 'lifetime'} days)`, {
@@ -2406,7 +2498,8 @@ class TerritoryPanel {
                 throw error;
             }
             
-            if (protectionDays === undefined || protectionDays === null || isNaN(protectionDays)) {
+            // null = 평생(lifetime) 옵션
+            if (protectionDays === undefined || (protectionDays !== null && isNaN(protectionDays))) {
                 const error = new Error(`Invalid protectionDays: ${protectionDays}`);
                 log.error(`[TerritoryPanel] ❌ Purchase validation failed:`, error);
                 throw error;
@@ -2658,7 +2751,7 @@ class TerritoryPanel {
                         // 사용자에게 알림
                         eventBus.emit(EVENTS.UI_NOTIFICATION, {
                             type: 'warning',
-                            message: `⚠️ ${territoryName} 구매가 완료되지 않았습니다. 다른 사용자가 먼저 구매했습니다.`
+                            message: `⚠️ ${territoryName} was bought by someone else first. Your purchase was not completed.`
                         });
                     }
                 } else {
@@ -2702,11 +2795,8 @@ class TerritoryPanel {
                 });
             }
             
-                // ⚠️ 사용자 피드백: 성공
-                eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                    type: 'success',
-                    message: `🎉 ${territoryName} 구매 완료! (잔액: ${purchaseResult.newBalance?.toLocaleString() || 'N/A'} pt)`
-                });
+                // ⚠️ 사용자 피드백: 성공 → 바로 꾸미기/공유로 안내
+                this.showPurchaseSuccessDialog(territoryName, purchaseResult.newBalance);
                 
             } catch (error) {
             log.error('[TerritoryPanel] ❌ Purchase failed:', {
@@ -3616,15 +3706,8 @@ class TerritoryPanel {
                 log.warn(`[TerritoryPanel] extractName - ⚠️ No local name found. nameObj.local: ${nameObj.local}, localLang: ${localLang}, nameObj[localLang]: ${localLang ? nameObj[localLang] : 'N/A'}, hasLocalMapping: ${nameObj.hasLocalMapping}`);
             }
             
-            // ⚠️ CRITICAL: hasLocalMapping이 true이면 영어와 같아도 "영어(현지어)" 형식으로 표시
-            if (nameObj.hasLocalMapping && localName && englishName) {
-                const result = `${String(englishName)}(${String(localName)})`;
-                log.info(`[TerritoryPanel] extractName - ✅ Returning formatted name (hasLocalMapping=true): ${result} (englishName: ${englishName}, localName: ${localName})`);
-                return result;
-            }
-            
             // 영어와 현지어가 다르고 둘 다 있으면 "영어(현지어)" 형식으로 반환
-            if (englishName && localName && englishName !== localName) {
+            if (englishName && localName && String(englishName).toLowerCase() !== String(localName).toLowerCase()) {
                 const result = `${String(englishName)}(${String(localName)})`;
                 log.info(`[TerritoryPanel] extractName - ✅ Returning formatted name: ${result} (englishName: ${englishName}, localName: ${localName})`);
                 return result;
@@ -3659,6 +3742,590 @@ class TerritoryPanel {
     formatNumber(num) {
         if (!num) return '0';
         return num.toLocaleString();
+    }
+    
+    /**
+     * 거래 영역 (관심 등록 / 대기 예약 / 구매 제안 / 광고판 예약 / 경매 시작 가능 여부)
+     * 규칙: backend/utils/territory-phase.js
+     */
+    async loadMarketSection({ refresh = false } = {}) {
+        const section = this.container?.querySelector('#territory-market-section');
+        const territoryId = this.currentTerritory?.id;
+        if (!section || !territoryId) return;
+        
+        this.marketCache = this.marketCache || new Map();
+        let info = this.marketCache.get(territoryId);
+        if (refresh || !info || Date.now() - info.fetchedAt > 15000) {
+            try {
+                info = { ...(await apiService.get(`/market/territories/${encodeURIComponent(territoryId)}`)), fetchedAt: Date.now() };
+                this.marketCache.set(territoryId, info);
+            } catch (error) {
+                log.debug('[TerritoryPanel] Market info unavailable:', error.message);
+                return;
+            }
+        }
+        if (this.currentTerritory?.id !== territoryId || !section.isConnected) return;
+        this.currentMarket = info;
+        this.applyMarketToPanel(info);
+        section.innerHTML = this.renderMarketSection(info);
+    }
+    
+    /** 서버 상태 기준으로 상태 표시와 기존 버튼(구매/경매) 보정 */
+    applyMarketToPanel(info) {
+        const badgeText = this.container.querySelector('.sovereignty-text');
+        const badgeIcon = this.container.querySelector('.sovereignty-icon');
+        if (badgeText && info.phase !== 'available') {
+            const label = phaseLabel(info.phase, {
+                protectionEndsAt: info.protectionEndsAt,
+                graceEndsAt: info.graceEndsAt,
+                isMine: info.isOwner,
+                onAuction: !!info.auction?.active
+            });
+            const myTurn = info.reservations?.myStatus === 'offered';
+            badgeText.textContent = myTurn ? 'Your turn to buy' : label.text;
+            if (badgeIcon) badgeIcon.textContent = myTurn ? '🎟️' : label.icon;
+        }
+        const auctionBtn = this.container.querySelector('#start-territory-auction, #start-auction');
+        if (auctionBtn) {
+            if (!info.auction?.canStart) {
+                auctionBtn.style.display = 'none';
+            } else if (info.auction.kind === 'next_period') {
+                auctionBtn.innerHTML = '🏷️ Start next-period auction';
+            } else if (info.auction.kind === 'owner_sale') {
+                auctionBtn.innerHTML = '🏷️ Sell by auction (you get 90%)';
+            }
+        }
+        if (info.phase === 'billboard') {
+            this.container.querySelector('#instant-conquest')?.style.setProperty('display', 'none');
+        }
+    }
+    
+    renderMarketSection(info) {
+        const user = firebaseService.getCurrentUser();
+        const fmtDate = (value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const btn = (action, label, extra = '') =>
+            `<button class="action-btn" id="market-${action}" data-market-action="${action}" ${extra} style="margin-top:6px;">${label}</button>`;
+        const parts = [];
+        
+        if (info.phase === 'billboard') {
+            parts.push(`
+                <div style="font-size:13px;opacity:0.85;">📅 This is a billboard spot. Book it by the week (${this.formatNumber(info.weeklyPrice)} pt · ${this.formatUsd(info.weeklyPrice)} per week). Your art and link show during your weeks.</div>
+                ${btn('billboard', '📅 Book weeks')}
+            `);
+        } else if (info.isOwner) {
+            const stats = [`👀 ${info.watchCount} watching`, `🎟️ ${info.reservations.count} waiting in line`];
+            parts.push(`<div style="font-size:13px;display:flex;justify-content:space-between;">${stats.map(s => `<span>${s}</span>`).join('')}</div>`);
+            if (info.offers.incoming.length > 0) {
+                parts.push(`<div style="margin-top:8px;font-weight:600;">💬 Offers for your spot</div>` + info.offers.incoming.map(o => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.05);font-size:13px;">
+                        <span><strong>${this.formatNumber(o.amount)} pt</strong> (${this.formatUsd(o.amount)}) from ${escapeHtml(o.buyer)}${o.message ? `<br><em style="opacity:0.8;">“${escapeHtml(o.message)}”</em>` : ''}<br><small style="opacity:0.6;">You get ${this.formatNumber(Math.floor(o.amount * (1 - info.offers.feeRate)))} pt · expires ${fmtDate(o.expiresAt)}</small></span>
+                        <span style="display:flex;flex-direction:column;gap:4px;">
+                            <button id="market-accept-${o.id}" data-market-action="accept-offer" data-offer-id="${o.id}" data-amount="${o.amount}" style="padding:4px 10px;border-radius:6px;border:none;background:#4ecdc4;color:#0a0a1a;font-weight:700;cursor:pointer;">Accept</button>
+                            <button id="market-decline-${o.id}" data-market-action="decline-offer" data-offer-id="${o.id}" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:none;color:inherit;cursor:pointer;">Decline</button>
+                        </span>
+                    </div>`).join(''));
+            }
+        } else if (info.phase !== 'available') {
+            const r = info.reservations;
+            if (r.myStatus === 'offered') {
+                parts.push(`
+                    <div style="padding:10px;border-radius:10px;background:rgba(78,205,196,0.15);font-size:13px;">🎉 <strong>It's your turn!</strong> You can buy this spot until ${fmtDate(r.offeredUntil)}. Your ${this.formatNumber(r.deposit)} pt deposit counts toward the price.</div>
+                    ${btn('claim', '🎟️ Buy it now')}
+                `);
+            } else if (r.myStatus === 'waiting') {
+                parts.push(`
+                    <div style="font-size:13px;">🎟️ You're <strong>#${r.myPosition}</strong> in line for the next turn.</div>
+                    ${btn('cancel-reservation', 'Leave the line (deposit refunded)', `data-reservation-id="${r.myId}"`)}
+                `);
+            } else if (r.canReserve) {
+                parts.push(btn('reserve', `🎟️ Reserve the next turn (${this.formatNumber(r.deposit)} pt deposit)`));
+            }
+            
+            if (info.offers.mine) {
+                parts.push(`
+                    <div style="font-size:13px;margin-top:8px;">💬 Your offer: <strong>${this.formatNumber(info.offers.mine.amount)} pt</strong> · waiting for the owner (until ${fmtDate(info.offers.mine.expiresAt)})</div>
+                    ${btn('cancel-offer', 'Cancel my offer (refunded)', `data-offer-id="${info.offers.mine.id}"`)}
+                `);
+            } else if (info.offers.canOffer) {
+                parts.push(btn('offer', '💬 Make an offer to the owner'));
+            }
+            
+            parts.push(btn('watch', info.watching ? `👀 Watching · ${info.watchCount}` : `👀 Notify me when it opens${info.watchCount ? ` · ${info.watchCount} watching` : ''}`));
+            
+            if (!info.auction?.canStart && info.auction?.reason && !info.auction?.active && r.myStatus !== 'offered') {
+                parts.push(`<div style="font-size:12px;opacity:0.65;margin-top:6px;">ℹ️ ${escapeHtml(info.auction.reason)}</div>`);
+            }
+        }
+        
+        if (!user && info.phase !== 'available' && !info.isOwner) {
+            parts.push(`<div style="font-size:12px;opacity:0.65;margin-top:6px;">Sign in to reserve, make offers or get notified.</div>`);
+        }
+        if (parts.length === 0) return '';
+        return `<div class="market-box" style="margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:10px;">${parts.join('')}</div>`;
+    }
+    
+    async handleMarketAction(action, data) {
+        const territoryId = this.currentTerritory?.id;
+        const info = this.currentMarket;
+        if (!territoryId || !info) return;
+        if (!firebaseService.getCurrentUser()) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'info', message: 'Please sign in first.' });
+            setPendingIntent({ type: 'openTerritory', territoryId });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        const base = `/market/territories/${encodeURIComponent(territoryId)}`;
+        const notify = (type, message) => eventBus.emit(EVENTS.UI_NOTIFICATION, { type, message });
+        const confirmed = async (title, lines, okLabel) => (await showDialog({
+            title, lines, buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'ok', label: okLabel, primary: true }]
+        })) === 'ok';
+        
+        try {
+            switch (action) {
+                case 'watch':
+                    if (info.watching) {
+                        await apiService.delete(`${base}/watch`);
+                        notify('info', 'Stopped watching this spot.');
+                    } else {
+                        await apiService.post(`${base}/watch`, {});
+                        notify('success', "👀 We'll let you know when this spot opens up.");
+                    }
+                    break;
+                case 'reserve':
+                    if (!await confirmed('🎟️ Reserve the next turn', [
+                        `Deposit: ${this.formatNumber(info.reservations.deposit)} pt (counts toward the price when you buy).`,
+                        `If the owner doesn't renew within 3 days after their time ends, you get 48 hours to buy it first.`,
+                        'Leave the line anytime before your turn for a full refund. If you skip your turn, the deposit is kept.'
+                    ], 'Reserve')) return;
+                    {
+                        const result = await apiService.post(`${base}/reservations`, {});
+                        notify('success', `🎟️ You're #${result.position} in line.`);
+                    }
+                    break;
+                case 'cancel-reservation':
+                    if (!await confirmed('Leave the line?', ['Your deposit will be refunded.'], 'Leave')) return;
+                    await apiService.delete(`/market/reservations/${data.reservationId}`);
+                    notify('info', 'You left the line. Deposit refunded.');
+                    break;
+                case 'claim': {
+                    const options = [['7', '1 Week', 1], ['30', '1 Month', 3.5], ['365', '1 Year', 30], ['lifetime', 'Lifetime', 100]].map(([value, label, multiplier]) => {
+                        const price = Math.ceil(info.weeklyPrice * multiplier);
+                        const pay = Math.max(0, price - info.reservations.deposit);
+                        return { value, label: `${label} · ${this.formatNumber(price)} pt (you pay ${this.formatNumber(pay)} pt)` };
+                    });
+                    const choice = await showFormDialog({
+                        title: '🎟️ Buy your reserved spot',
+                        lines: [`Balance: ${this.formatNumber(walletService.getBalance())} pt`],
+                        fields: [{ name: 'period', label: 'How long?', type: 'select', value: '30', options }],
+                        buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'buy', label: 'Buy', primary: true }]
+                    });
+                    if (!choice || choice.button !== 'buy') return;
+                    await apiService.post(`${base}/reservations/claim`, {
+                        protectionDays: choice.values.period === 'lifetime' ? null : Number(choice.values.period)
+                    });
+                    notify('success', '🎉 The spot is yours! Decorate it now.');
+                    eventBus.emit(EVENTS.TERRITORY_UPDATE, { territoryId });
+                    break;
+                }
+                case 'offer': {
+                    const result = await showFormDialog({
+                        title: '💬 Make an offer',
+                        lines: [
+                            `Offers start from ${this.formatNumber(info.offers.minAmount)} pt (one week's price).`,
+                            'Your points are held until the owner answers (up to 7 days). If they decline or don\'t answer, you get them back.'
+                        ],
+                        fields: [
+                            { name: 'amount', label: 'Your offer (pt)', type: 'text', value: String(info.offers.minAmount * 2), maxLength: 9 },
+                            { name: 'message', label: 'Message to the owner (optional)', type: 'textarea', maxLength: 200 }
+                        ],
+                        buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'send', label: 'Send offer', primary: true }]
+                    });
+                    if (!result || result.button !== 'send') return;
+                    const amount = parseInt(String(result.values.amount).replace(/[^\d]/g, ''), 10);
+                    if (!amount) {
+                        notify('warning', 'Please enter a valid amount.');
+                        return;
+                    }
+                    await apiService.post(`${base}/offers`, { amount, message: result.values.message });
+                    notify('success', `💬 Offer sent: ${this.formatNumber(amount)} pt`);
+                    break;
+                }
+                case 'cancel-offer':
+                    await apiService.post(`/market/offers/${data.offerId}/cancel`, {});
+                    notify('info', 'Offer cancelled. Points refunded.');
+                    break;
+                case 'accept-offer': {
+                    const amount = Number(data.amount);
+                    if (!await confirmed('Sell your spot?', [
+                        `You'll get ${this.formatNumber(Math.floor(amount * (1 - info.offers.feeRate)))} pt (${Math.round(info.offers.feeRate * 100)}% fee).`,
+                        'The buyer gets your remaining time. This cannot be undone.'
+                    ], 'Sell')) return;
+                    await apiService.post(`/market/offers/${data.offerId}/accept`, {});
+                    notify('success', '✅ Sold! The points are in your wallet.');
+                    eventBus.emit(EVENTS.TERRITORY_UPDATE, { territoryId });
+                    break;
+                }
+                case 'decline-offer':
+                    await apiService.post(`/market/offers/${data.offerId}/decline`, {});
+                    notify('info', 'Offer declined.');
+                    break;
+                case 'billboard':
+                    await this.openBillboardBooking();
+                    return;
+                default:
+                    return;
+            }
+        } catch (error) {
+            if (error.status === 402) {
+                notify('warning', 'Not enough points. Top up to continue.');
+                const { paymentService } = await import('../services/PaymentService.js');
+                paymentService.openChargeModal();
+                return;
+            }
+            notify('error', error.message || 'Something went wrong');
+            return;
+        }
+        walletService.refreshBalance?.().catch(() => {});
+        await this.refreshAfterMarketChange();
+    }
+    
+    async refreshAfterMarketChange() {
+        const territoryId = this.currentTerritory?.id;
+        this.marketCache?.delete(territoryId);
+        if (window.BillionaireApp?.refreshTerritoryFromServer) {
+            await window.BillionaireApp.refreshTerritoryFromServer(territoryId);
+        }
+        await this.loadMarketSection({ refresh: true });
+    }
+    
+    async openBillboardBooking() {
+        const territoryId = this.currentTerritory?.id;
+        let calendar;
+        try {
+            calendar = await apiService.get(`/market/territories/${encodeURIComponent(territoryId)}/billboard`);
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Could not load the calendar' });
+            return;
+        }
+        const label = (week) => {
+            const start = new Date(`${week.weekStart}T00:00:00Z`);
+            const end = new Date(start.getTime() + 6 * 86400000);
+            const range = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`;
+            if (week.status === 'mine') return `${range} · ✅ yours`;
+            if (week.status === 'booked') return `${range} · booked by ${week.bookedBy}`;
+            return `${range} · ${this.formatNumber(week.price)} pt`;
+        };
+        const myCancellable = calendar.weeks.filter(w => w.canCancel);
+        const result = await showFormDialog({
+            title: '📅 Book billboard weeks',
+            lines: [
+                `${this.formatNumber(calendar.weeklyPrice)} pt (${this.formatUsd(calendar.weeklyPrice)}) per week. Weeks start Monday 00:00 UTC.`,
+                `During your weeks you can draw on the spot and add your link. Cancel up to ${calendar.cancelHours} hours before a week starts for a full refund.`
+            ],
+            fields: [{
+                name: 'weeks', label: 'Pick weeks', type: 'checkboxes',
+                options: calendar.weeks.map(w => ({ value: w.weekStart, label: label(w), disabled: w.status !== 'free' }))
+            }],
+            buttons: [
+                ...(myCancellable.length ? [{ id: 'manage', label: 'Cancel a booking' }] : []),
+                { id: 'close', label: 'Close' },
+                { id: 'book', label: 'Book', primary: true }
+            ]
+        });
+        if (!result) return;
+        try {
+            if (result.button === 'book') {
+                const weeks = result.values.weeks || [];
+                if (weeks.length === 0) return;
+                const total = weeks.length * calendar.weeklyPrice;
+                if (walletService.getBalance() < total) {
+                    eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'warning', message: `You need ${this.formatNumber(total - walletService.getBalance())} more pt.` });
+                    const { paymentService } = await import('../services/PaymentService.js');
+                    paymentService.openChargeModal(total - walletService.getBalance());
+                    return;
+                }
+                await apiService.post(`/market/territories/${encodeURIComponent(territoryId)}/billboard/bookings`, { weeks });
+                eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'success', message: `📅 Booked ${weeks.length} week(s) for ${this.formatNumber(total)} pt` });
+            } else if (result.button === 'manage') {
+                const pick = await showFormDialog({
+                    title: 'Cancel a booking',
+                    fields: [{ name: 'booking', label: 'Which week?', type: 'select', value: String(myCancellable[0].bookingId), options: myCancellable.map(w => ({ value: String(w.bookingId), label: label(w) })) }],
+                    buttons: [{ id: 'close', label: 'Keep' }, { id: 'cancel', label: 'Cancel booking (refund)', primary: true }]
+                });
+                if (!pick || pick.button !== 'cancel') return;
+                await apiService.delete(`/market/bookings/${pick.values.booking}`);
+                eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'info', message: 'Booking cancelled and refunded.' });
+            } else {
+                return;
+            }
+            walletService.refreshBalance?.().catch(() => {});
+            await this.refreshAfterMarketChange();
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Booking failed' });
+        }
+    }
+    
+    /**
+     * 영토 광고 링크 영역 (방문 버튼 / 주인용 링크 편집·클릭 수 / 신고)
+     * 패널을 다시 그릴 때마다 호출되므로 30초 동안 응답을 재사용
+     */
+    async loadAdSection({ refresh = false } = {}) {
+        const section = this.container?.querySelector('#territory-ad-section');
+        const territoryId = this.currentTerritory?.id;
+        if (!section || !territoryId) return;
+        
+        this.adInfoCache = this.adInfoCache || new Map();
+        let info = this.adInfoCache.get(territoryId);
+        if (refresh || !info || Date.now() - info.fetchedAt > 30000) {
+            try {
+                const data = await apiService.getTerritory(territoryId);
+                info = {
+                    url: data?.ad_url || null,
+                    title: data?.ad_title || null,
+                    clicks: Number(data?.ad_clicks) || 0,
+                    views: Number(data?.view_count) || 0,
+                    fetchedAt: Date.now()
+                };
+            } catch (error) {
+                info = { url: null, title: null, clicks: 0, views: 0, fetchedAt: Date.now() };
+            }
+            this.adInfoCache.set(territoryId, info);
+        }
+        
+        if (this.currentTerritory?.id !== territoryId || !section.isConnected) return;
+        section.innerHTML = this.renderAdSection(this.currentTerritory, info);
+    }
+    
+    renderAdSection(territory, info) {
+        const user = firebaseService.getCurrentUser();
+        const hasOwner = !!territory.ruler;
+        const isOwner = hasOwner && user?.uid === territory.ruler;
+        const goUrl = `${apiService.baseUrl}/territories/${encodeURIComponent(territory.id)}/go`;
+        let domain = '';
+        try {
+            domain = info.url ? new URL(info.url).hostname.replace(/^www\./, '') : '';
+        } catch (error) {
+            domain = '';
+        }
+        
+        const visit = info.url ? `
+            <a class="action-btn ad-visit-btn" href="${escapeHtml(goUrl)}" target="_blank" rel="noopener noreferrer nofollow"
+               style="display:block;text-align:center;text-decoration:none;margin:10px 0 4px;">
+                🔗 ${escapeHtml(info.title || `Visit ${domain}`)}
+            </a>
+            <div style="font-size:12px;opacity:0.65;text-align:center;">${escapeHtml(domain)}</div>
+        ` : '';
+        
+        const ownerTools = isOwner ? `
+            <div class="ad-owner-tools" style="margin-top:10px;padding:10px 12px;border:1px dashed rgba(78,205,196,0.4);border-radius:10px;font-size:13px;">
+                <div style="display:flex;justify-content:space-between;gap:8px;">
+                    <span>👀 ${this.formatNumber(info.views)} views</span>
+                    <span>🖱️ ${this.formatNumber(info.clicks)} link clicks</span>
+                </div>
+                <button class="action-btn" id="edit-ad-link" style="margin-top:8px;width:100%;">
+                    ${info.url ? '✏️ Edit my link' : '🔗 Add a link to your website'}
+                </button>
+                ${info.url ? '' : '<div style="margin-top:6px;opacity:0.7;">Visitors can click through to your site. You can see the click count here.</div>'}
+            </div>
+        ` : '';
+        
+        const report = hasOwner && !isOwner ? `
+            <div style="text-align:right;margin-top:6px;">
+                <button id="report-territory" style="background:none;border:none;color:#9fb0c3;font-size:12px;cursor:pointer;text-decoration:underline;">🚩 Report this spot</button>
+            </div>
+        ` : '';
+        
+        return visit + ownerTools + report;
+    }
+    
+    async editAdLink() {
+        const territoryId = this.currentTerritory?.id;
+        if (!territoryId) return;
+        const current = this.adInfoCache?.get(territoryId) || {};
+        const result = await showFormDialog({
+            title: '🔗 Your spot link',
+            lines: ['Visitors who open your spot will see a button to your website.'],
+            fields: [
+                { name: 'url', label: 'Website address', type: 'url', value: current.url || '', placeholder: 'https://your-site.com', maxLength: 500 },
+                { name: 'title', label: 'Button text (optional, up to 80 characters)', type: 'text', value: current.title || '', placeholder: 'e.g. Visit our cafe ☕', maxLength: 80 }
+            ],
+            buttons: [
+                ...(current.url ? [{ id: 'remove', label: 'Remove link', danger: true }] : []),
+                { id: 'cancel', label: 'Cancel' },
+                { id: 'save', label: 'Save', primary: true }
+            ]
+        });
+        if (!result || result.button === 'cancel') return;
+        
+        const payload = result.button === 'remove'
+            ? { url: '', title: '' }
+            : { url: result.values.url.trim(), title: result.values.title.trim() };
+        if (result.button === 'save' && !payload.url) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'warning', message: 'Please enter your website address.' });
+            return;
+        }
+        
+        try {
+            const response = await apiService.put(`/territories/${encodeURIComponent(territoryId)}/ad`, payload);
+            const info = this.adInfoCache.get(territoryId) || { clicks: 0, views: 0 };
+            this.adInfoCache.set(territoryId, { ...info, url: response.adUrl, title: response.adTitle, fetchedAt: Date.now() });
+            this.loadAdSection();
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: response.adUrl ? '🔗 Link saved! Visitors can now click through.' : 'Link removed.'
+            });
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Failed to save link' });
+        }
+    }
+    
+    /**
+     * 보호 기간 연장 (가격은 구매와 같은 기간 배수, 실제 차감액은 서버가 계산)
+     */
+    async extendProtection() {
+        const territory = this.currentTerritory;
+        if (!territory?.id) return;
+        const countryCode = territory.country || 'unknown';
+        const basePrice = Number(territory.market_base_price || territory.marketBasePrice) ||
+            territoryDataService.calculateTerritoryPrice(territory, countryCode);
+        const options = [
+            { value: '7', label: '1 Week', multiplier: 1.0 },
+            { value: '30', label: '1 Month (save 18%)', multiplier: 3.5 },
+            { value: '365', label: '1 Year (save 42%)', multiplier: 30.0 },
+            { value: 'lifetime', label: 'Lifetime', multiplier: 100.0 }
+        ].map(o => {
+            const price = Math.ceil(basePrice * o.multiplier);
+            return { value: o.value, price, label: `${o.label} · ${this.formatNumber(price)} pt (${this.formatUsd(price)})` };
+        });
+        const endsAt = territory.protectionEndsAt ? new Date(territory.protectionEndsAt) : null;
+        const result = await showFormDialog({
+            title: '🛡️ Extend protection',
+            lines: [
+                endsAt && endsAt > new Date()
+                    ? `Current protection ends ${endsAt.toLocaleDateString()}. The extra time is added after that.`
+                    : 'Your protection has ended. Protect your spot again so nobody can take it cheaply.',
+                `Your balance: ${this.formatNumber(walletService.getBalance())} pt`
+            ],
+            fields: [{ name: 'period', label: 'How long?', type: 'select', value: '30', options }],
+            buttons: [
+                { id: 'cancel', label: 'Cancel' },
+                { id: 'extend', label: 'Extend', primary: true }
+            ]
+        });
+        if (!result || result.button !== 'extend') return;
+        
+        const chosen = options.find(o => o.value === result.values.period) || options[0];
+        if (walletService.getBalance() < chosen.price) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'warning',
+                message: `You need ${this.formatNumber(chosen.price - walletService.getBalance())} more pt.`
+            });
+            const { paymentService } = await import('../services/PaymentService.js');
+            paymentService.openChargeModal(chosen.price - walletService.getBalance());
+            return;
+        }
+        
+        try {
+            const response = await apiService.post(`/territories/${encodeURIComponent(territory.id)}/extend`, {
+                protectionDays: chosen.value === 'lifetime' ? null : Number(chosen.value)
+            });
+            const protectionEndsAt = response.protectionEndsAt ? new Date(response.protectionEndsAt) : null;
+            for (const target of new Set([territory, territoryManager.getTerritory(territory.id)])) {
+                if (!target) continue;
+                target.sovereignty = SOVEREIGNTY.PROTECTED;
+                target.protectionEndsAt = protectionEndsAt;
+            }
+            await walletService.refreshBalance?.();
+            eventBus.emit(EVENTS.UI_NOTIFICATION, {
+                type: 'success',
+                message: response.protectionEndsAt
+                    ? `🛡️ Protected until ${new Date(response.protectionEndsAt).toLocaleDateString()} (−${this.formatNumber(response.price)} pt)`
+                    : `👑 Lifetime protection activated (−${this.formatNumber(response.price)} pt)`
+            });
+            await this.render();
+            this.bindActions();
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Failed to extend protection' });
+        }
+    }
+    
+    /**
+     * 로그인 직후: 3일 안에 보호가 끝나거나 이미 끝난 내 땅을 알려줌 (세션당 1번)
+     */
+    async remindExpiringProtection() {
+        if (sessionStorage.getItem('expiryReminderShown')) return;
+        try {
+            const expiring = await apiService.get('/users/me/territories/expiring?days=3');
+            if (!Array.isArray(expiring) || expiring.length === 0) return;
+            sessionStorage.setItem('expiryReminderShown', '1');
+            const first = expiring[0];
+            const name = this.extractName(first.name) || first.id;
+            const daysLeft = first.protectionEndsAt
+                ? Math.ceil((new Date(first.protectionEndsAt) - Date.now()) / 86400000)
+                : 0;
+            const status = first.expired || daysLeft <= 0 ? 'has ended' : `ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+            const more = expiring.length > 1 ? ` (+${expiring.length - 1} more spot${expiring.length > 2 ? 's' : ''})` : '';
+            const choice = await showDialog({
+                title: '🛡️ Protection reminder',
+                lines: [`Protection for ${name} ${status}${more}.`, 'Without protection, others can challenge your spot in an auction.'],
+                buttons: [
+                    { id: 'later', label: 'Later' },
+                    { id: 'extend', label: 'Extend now', primary: true }
+                ]
+            });
+            if (choice !== 'extend') return;
+            const { openTerritoryById } = await import('../utils/TerritoryNavigator.js');
+            if (await openTerritoryById(first.id) && await waitForPanelTerritory(this, first.id)) {
+                await this.extendProtection();
+            }
+        } catch (error) {
+            log.debug('[TerritoryPanel] Expiry reminder skipped:', error.message);
+        }
+    }
+    
+    async reportTerritory() {
+        const territoryId = this.currentTerritory?.id;
+        if (!territoryId) return;
+        if (!firebaseService.getCurrentUser()) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'warning', message: 'Please sign in to report a spot.' });
+            eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'login' });
+            return;
+        }
+        const result = await showFormDialog({
+            title: '🚩 Report this spot',
+            lines: ['Our team will review it. Thanks for keeping the map friendly.'],
+            fields: [
+                {
+                    name: 'reason', label: 'What is wrong?', type: 'select', value: 'art',
+                    options: [
+                        { value: 'art', label: 'Inappropriate pixel art' },
+                        { value: 'link', label: 'Harmful or misleading link' },
+                        { value: 'spam', label: 'Spam' },
+                        { value: 'other', label: 'Something else' }
+                    ]
+                },
+                { name: 'details', label: 'Details (optional)', type: 'textarea', maxLength: 500 }
+            ],
+            buttons: [
+                { id: 'cancel', label: 'Cancel' },
+                { id: 'send', label: 'Send report', primary: true }
+            ]
+        });
+        if (!result || result.button !== 'send') return;
+        try {
+            await apiService.post(`/territories/${encodeURIComponent(territoryId)}/report`, result.values);
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'success', message: 'Report sent. Thank you!' });
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Failed to send report' });
+        }
+    }
+    
+    /**
+     * 포인트를 달러로 표시 (10 pt = $1)
+     */
+    formatUsd(points) {
+        const usd = (Number(points) || 0) / 10;
+        return `$${usd.toLocaleString('en-US', { maximumFractionDigits: usd % 1 ? 1 : 0 })}`;
     }
     
     formatDate(date) {

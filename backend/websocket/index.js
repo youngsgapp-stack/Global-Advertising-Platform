@@ -119,6 +119,7 @@ export function broadcastBidUpdate(data) {
             amount: data.amount,
             bidderId: data.bidderId,
             bidderNickname: data.bidderNickname,
+            endTime: data.endTime || null,
             timestamp: new Date().toISOString(),
         }
     });
