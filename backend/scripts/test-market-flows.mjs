@@ -8,6 +8,8 @@ import pg from 'pg';
 import { readFileSync } from 'fs';
 
 const SCHEMA = 'market_test';
+// 트랜잭션 풀러(6543)는 SET search_path를 운영 서버 연결과 공유하므로 반드시 세션 모드(5432)로 접속
+process.env.DATABASE_URL = process.env.DATABASE_URL.replace(':6543/', ':5432/');
 const admin = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 await admin.connect();
 await admin.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
@@ -268,6 +270,7 @@ try {
     results.push(`ERROR ${error.stack}`);
 } finally {
     await admin.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
+    await admin.query('RESET search_path');
     await admin.end();
     console.log(results.join('\n'));
     console.log(`\n${results.filter(x => x.startsWith('PASS')).length} passed, ${results.filter(x => !x.startsWith('PASS')).length} failed`);

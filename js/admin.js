@@ -500,6 +500,16 @@ class AdminDashboard {
                 { label: '주인 있는 땅', value: (t.ownedTerritories || 0).toLocaleString() },
                 { label: '누적 충전 포인트', value: `${(t.chargedPtTotal || 0).toLocaleString()} pt` }
             ];
+            const s = data.storage;
+            if (s) {
+                const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+                const usedPct = s.dbLimitBytes ? Math.round((s.dbBytes / s.dbLimitBytes) * 100) : 0;
+                const warn = usedPct >= 70 ? ' ⚠️' : '';
+                kpis.push(
+                    { label: `HD 사진 (${s.hdStorage === 'firebase' ? 'Firebase' : 'DB'} 저장)`, value: `${s.hdCount.toLocaleString()}장`, sub: s.hdStorage === 'firebase' ? 'Firebase 사용 중' : `${mb(s.hdDbBytes)}MB` },
+                    { label: 'DB 사용량 (무료 한도 기준)', value: `${usedPct}%${warn}`, sub: `${mb(s.dbBytes)} / ${mb(s.dbLimitBytes)}MB` }
+                );
+            }
             kpiEl.innerHTML = kpis.map(k => `
                 <div class="stat-card"><div class="stat-info">
                     <span class="stat-value">${k.value}</span>
