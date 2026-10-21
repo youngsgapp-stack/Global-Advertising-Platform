@@ -7,17 +7,14 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
 import { isAdminUser } from '../middleware/admin.js';
-import { adjustWalletBalance } from '../utils/wallet-utils.js';
-import { capturePayPalOrder, pointsForUsdAmount } from '../utils/paypal.js';
+import { createPayPalOrder, pointsForUsdAmount } from '../utils/paypal.js';
+import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND } from '../utils/paypal-credit.js';
 
 const router = express.Router();
 
 // 신규 가입 지갑 스타터 포인트 (최저가 영토 1곳 1주일 = 50pt)
 const STARTER_BALANCE = 50;
 
-// 친구 초대 보상: 초대받은 사람이 처음 PayPal 충전을 하면 1회 지급 (가짜 계정으로 포인트를 모으지 못하도록)
-const REFERRAL_REWARD_REFERRER = 100;
-const REFERRAL_REWARD_FRIEND = 50;
 const REFERRAL_ATTACH_WINDOW_DAYS = 7;
 const SITE_URL = process.env.SITE_URL || 'https://www.worldadvertisingmap.com';
 const REFERRAL_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -28,50 +25,6 @@ function generateReferralCode() {
         code += REFERRAL_CODE_CHARS[Math.floor(Math.random() * REFERRAL_CODE_CHARS.length)];
     }
     return code;
-}
-
-/**
- * 초대받은 사용자의 첫 충전 시 양쪽에 보상 지급 (이미 지급했으면 아무것도 안 함)
- * @returns {Promise<number>} 이 사용자에게 지급된 보너스 포인트
- */
-async function grantReferralRewardIfEligible(userId) {
-    const client = await getPool().connect();
-    try {
-        await client.query('BEGIN');
-        const result = await client.query(
-            `SELECT referred_by, referral_rewarded_at FROM users WHERE id = $1 FOR UPDATE`,
-            [userId]
-        );
-        const row = result.rows[0];
-        if (!row?.referred_by || row.referral_rewarded_at) {
-            await client.query('ROLLBACK');
-            return 0;
-        }
-        const reference = `referral:${userId}`;
-        await adjustWalletBalance(client, row.referred_by, REFERRAL_REWARD_REFERRER, {
-            type: 'referral_bonus',
-            description: 'Friend invite reward (your friend made their first top-up)',
-            referenceId: reference
-        });
-        await adjustWalletBalance(client, userId, REFERRAL_REWARD_FRIEND, {
-            type: 'referral_bonus',
-            description: 'Welcome bonus for joining with an invite',
-            referenceId: reference
-        });
-        await client.query(`UPDATE users SET referral_rewarded_at = NOW() WHERE id = $1`, [userId]);
-        await client.query('COMMIT');
-        await invalidateUserCache(userId);
-        await invalidateUserCache(row.referred_by);
-        return REFERRAL_REWARD_FRIEND;
-    } catch (error) {
-        await client.query('ROLLBACK');
-        if (error.code !== '42703') {
-            console.error('[Users] Referral reward error:', error.message);
-        }
-        return 0;
-    } finally {
-        client.release();
-    }
 }
 
 /**
@@ -314,41 +267,6 @@ router.put('/me/wallet', async (req, res) => {
 });
 
 /**
- * 결제 기록 저장 (실패해도 충전 처리에는 영향 없음)
- */
-async function recordPayment(orderId, fields) {
-    try {
-        await query(
-            `INSERT INTO payments (order_id, user_id, amount_usd, currency, points, status, capture_id, payer_id, error)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (order_id) DO UPDATE SET
-                user_id = COALESCE(EXCLUDED.user_id, payments.user_id),
-                amount_usd = COALESCE(EXCLUDED.amount_usd, payments.amount_usd),
-                currency = COALESCE(EXCLUDED.currency, payments.currency),
-                points = COALESCE(EXCLUDED.points, payments.points),
-                status = CASE WHEN payments.status = 'credited' THEN payments.status ELSE EXCLUDED.status END,
-                capture_id = COALESCE(EXCLUDED.capture_id, payments.capture_id),
-                payer_id = COALESCE(EXCLUDED.payer_id, payments.payer_id),
-                error = CASE WHEN payments.status = 'credited' THEN payments.error ELSE EXCLUDED.error END,
-                updated_at = NOW()`,
-            [
-                orderId,
-                fields.userId ?? null,
-                fields.amount ?? null,
-                fields.currency ?? null,
-                fields.points ?? null,
-                fields.status,
-                fields.captureId ?? null,
-                fields.payerId ?? null,
-                fields.error ? String(fields.error).slice(0, 1000) : null
-            ]
-        );
-    } catch (error) {
-        console.error('[Users] Failed to record payment:', { orderId, status: fields.status, error: error.message });
-    }
-}
-
-/**
  * POST /api/users/me/wallet/paypal-capture
  * PayPal 주문을 서버에서 캡처/검증하고, 실제 결제 금액 기준으로 포인트 충전
  */
@@ -373,92 +291,38 @@ router.post('/me/wallet/paypal-capture', async (req, res) => {
         console.error('[Users] PayPal capture user lookup error:', error);
         return res.status(500).json({ error: 'Failed to process payment' });
     }
-    const referenceId = `paypal:${orderID}`;
     
-    let payment;
-    try {
-        payment = await capturePayPalOrder(orderID);
-    } catch (error) {
-        console.error('[Users] PayPal capture error:', { orderID, code: error.code, message: error.message });
-        await recordPayment(orderID, { userId, status: 'failed', error: `${error.code || ''} ${error.message}`.trim() });
-        const status = error.code === 'PAYPAL_NOT_CONFIGURED' ? 503 : 402;
-        return res.status(status).json({ error: error.message, code: error.code });
-    }
-    
-    const paymentFields = {
-        userId,
-        amount: payment.amount,
-        currency: payment.currency,
-        captureId: payment.captureId,
-        payerId: payment.payerId
-    };
-    
-    if (payment.currency !== 'USD') {
-        console.error('[Users] PayPal capture currency mismatch:', { orderID, currency: payment.currency });
-        await recordPayment(orderID, { ...paymentFields, status: 'rejected', error: `Unsupported currency: ${payment.currency}` });
-        return res.status(400).json({ error: `Unsupported currency: ${payment.currency}` });
-    }
-    
-    const points = pointsForUsdAmount(payment.amount);
+    const result = await creditPayPalOrder(orderID, { userId, source: 'client' });
+    res.status(result.status).json(result.body);
+});
+
+/**
+ * POST /api/users/me/wallet/paypal-order
+ * 충전 주문 생성 (주문에 사용자 id를 새겨서, 결제 후 창이 닫혀도 웹훅으로 충전되게 함)
+ */
+router.post('/me/wallet/paypal-order', async (req, res) => {
+    const amount = Math.round(parseFloat(req.body?.amount) * 100) / 100;
+    const points = pointsForUsdAmount(amount);
     if (points <= 0) {
-        console.error('[Users] PayPal capture amount out of range:', { orderID, amount: payment.amount });
-        await recordPayment(orderID, { ...paymentFields, status: 'rejected', error: `Unsupported payment amount: ${payment.amount}` });
-        return res.status(400).json({ error: `Unsupported payment amount: ${payment.amount}` });
+        return res.status(400).json({ error: 'Invalid amount' });
     }
     
-    const client = await getPool().connect();
     try {
-        await client.query('BEGIN');
-        // 같은 주문의 동시 요청 직렬화 (중복 충전 방지)
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [referenceId]);
-        
-        const existing = await client.query(
-            `SELECT user_id FROM wallet_transactions WHERE reference_id = $1 AND type = 'charge' LIMIT 1`,
-            [referenceId]
-        );
-        
-        if (existing.rows.length > 0) {
-            await client.query('ROLLBACK');
-            const walletResult = await query(`SELECT balance FROM wallets WHERE user_id = $1`, [userId]);
-            return res.json({
-                success: true,
-                alreadyProcessed: true,
-                orderID,
-                points: 0,
-                balance: parseFloat(walletResult.rows[0]?.balance || 0)
-            });
+        const userResult = await query(`SELECT id FROM users WHERE firebase_uid = $1`, [req.user.uid]);
+        const userId = userResult.rows[0]?.id;
+        if (!userId) {
+            return res.status(404).json({ error: 'User not found' });
         }
-        
-        const { balance } = await adjustWalletBalance(client, userId, points, {
-            type: 'charge',
-            description: `PayPal charge: $${payment.amount}`,
-            referenceId
+        const orderID = await createPayPalOrder({
+            amount,
+            customId: userId,
+            description: `${points.toLocaleString('en-US')} points - World Ad Map`
         });
-        
-        await client.query('COMMIT');
-        await invalidateUserCache(userId);
-        await recordPayment(orderID, { ...paymentFields, points, status: 'credited' });
-        const referralBonus = await grantReferralRewardIfEligible(userId);
-        
-        console.log('[Users] PayPal charge completed:', { orderID, userId, amount: payment.amount, points, balance, referralBonus });
-        res.json({
-            success: true,
-            orderID,
-            amount: payment.amount,
-            points,
-            referralBonus,
-            balance: balance + referralBonus
-        });
+        res.json({ success: true, orderID });
     } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('[Users] PayPal charge DB error (payment captured!):', { orderID, userId, amount: payment.amount, error: error.message });
-        await recordPayment(orderID, { ...paymentFields, points, status: 'credit_failed', error: error.message });
-        res.status(500).json({
-            error: 'Payment captured but points could not be added. Please contact support with your order ID.',
-            orderID
-        });
-    } finally {
-        client.release();
+        console.error('[Users] PayPal order creation error:', { code: error.code, message: error.message, details: error.details });
+        const status = error.code === 'PAYPAL_NOT_CONFIGURED' ? 503 : 502;
+        res.status(status).json({ error: 'Could not start the PayPal payment. Please try again.' });
     }
 });
 

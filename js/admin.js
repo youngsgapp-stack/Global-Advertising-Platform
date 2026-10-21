@@ -901,15 +901,20 @@ class AdminDashboard {
                 credited: '<span class="badge badge-success">충전 완료</span>',
                 credit_failed: '<span class="badge badge-danger">포인트 미지급</span>',
                 failed: '<span class="badge badge-secondary">결제 실패</span>',
-                rejected: '<span class="badge badge-warning">금액/통화 거절</span>'
+                rejected: '<span class="badge badge-warning">금액/통화 거절</span>',
+                refunded: '<span class="badge badge-warning">PayPal 환불됨</span>',
+                reversed: '<span class="badge badge-danger">지불 거절(차지백)</span>'
             };
             
             tbody.innerHTML = payments.map(p => {
                 const time = p.createdAt ? new Date(p.createdAt).toLocaleString('ko-KR') : '-';
                 const amount = p.amountUsd !== null && p.amountUsd !== undefined ? `$${p.amountUsd.toLocaleString()}` : '-';
-                const action = p.status === 'credit_failed' && p.userId
-                    ? `<button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${p.userId}', ${p.points || 0}, 'PayPal ${p.orderId} 미지급분 수동 지급')">포인트 지급</button>`
-                    : (p.userId ? `<button class="btn btn-sm" onclick="adminDashboard.viewUser('${p.userId}')">사용자</button>` : '');
+                let action = p.userId ? `<button class="btn btn-sm" onclick="adminDashboard.viewUser('${p.userId}')">사용자</button>` : '';
+                if (p.status === 'credit_failed' && p.userId) {
+                    action = `<button class="btn btn-sm btn-primary" onclick="adminDashboard.addPoints('${p.userId}', ${p.points || 0}, 'PayPal ${p.orderId} 미지급분 수동 지급')">포인트 지급</button>`;
+                } else if ((p.status === 'refunded' || p.status === 'reversed') && p.userId) {
+                    action = `<button class="btn btn-sm btn-danger" onclick="adminDashboard.addPoints('${p.userId}', ${p.points || 0}, 'PayPal ${p.orderId} 환불분 회수 (차감 선택)')">포인트 회수</button>`;
+                }
                 return `
                     <tr>
                         <td>${time}</td>

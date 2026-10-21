@@ -1,0 +1,69 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.65;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    color: #333;
+    background: #f5f6f8;
+}
+.container {
+    background: #fff;
+    padding: 36px 40px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.top-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 24px;
+    font-size: 14px;
+}
+.top-nav a { color: #2b7bd6; text-decoration: none; }
+.top-nav a:hover { text-decoration: underline; }
+.top-nav .current { font-weight: 600; color: #2c3e50; }
+.top-nav .lang { margin-left: auto; }
+h1 {
+    color: #2c3e50;
+    border-bottom: 3px solid #3498db;
+    padding-bottom: 10px;
+    margin: 0 0 8px;
+}
+h2 {
+    color: #34495e;
+    margin-top: 36px;
+    font-size: 1.3em;
+    border-left: 4px solid #3498db;
+    padding-left: 12px;
+}
+h3 { color: #555; margin-top: 22px; font-size: 1.05em; }
+.updated { color: #777; font-size: 0.9em; margin-bottom: 24px; }
+ul, ol { padding-left: 24px; }
+li { margin: 6px 0; }
+table { border-collapse: collapse; margin: 10px 0 16px; }
+th, td { border: 1px solid #e1e4e8; padding: 6px 12px; text-align: left; }
+th { background: #f3f6f9; }
+.note, .warn, .info {
+    padding: 14px 16px;
+    border-radius: 6px;
+    margin: 16px 0;
+}
+.note { background: #fff8e1; border-left: 4px solid #f5b400; }
+.warn { background: #fdecee; border-left: 4px solid #dc3545; }
+.info { background: #e8f4fb; border-left: 4px solid #17a2b8; }
+.faq-item {
+    background: #f8f9fa;
+    border-left: 4px solid #3498db;
+    padding: 16px 20px;
+    margin: 14px 0;
+    border-radius: 6px;
+}
+.faq-question { font-weight: 700; color: #2c3e50; margin-bottom: 8px; }
+.faq-item p { margin: 6px 0; }
+a { color: #2b7bd6; }
+.footer { margin-top: 36px; font-size: 14px; color: #777; }
+@media (max-width: 640px) {
+    .container { padding: 22px 18px; }
+}

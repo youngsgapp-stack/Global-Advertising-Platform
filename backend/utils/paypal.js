@@ -1,6 +1,7 @@
 /**
  * PayPal 서버 연동 (포인트 충전 검증용)
  * 필요 환경변수: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_ENVIRONMENT ('production' | 'sandbox')
+ * 웹훅: PAYPAL_WEBHOOK_ID (PayPal 개발자 대시보드에서 웹훅 등록 후 받은 ID)
  */
 
 // js/services/PaymentService.js의 POINT_PACKAGES / CUSTOM_AMOUNT_CONFIG와 동일하게 유지
@@ -64,17 +65,85 @@ async function getAccessToken(baseUrl) {
     return data.access_token;
 }
 
-/**
- * 주문을 캡처하고 (이미 캡처된 주문이면 조회) 검증된 결제 정보를 반환
- * @returns {Promise<{ orderId: string, amount: number, currency: string, captureId: string|null, payerId: string|null }>}
- */
-export async function capturePayPalOrder(orderId) {
-    const baseUrl = getPayPalBaseUrl();
+async function authHeaders(baseUrl) {
     const accessToken = await getAccessToken(baseUrl);
-    const headers = {
+    return {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
     };
+}
+
+/**
+ * 충전 주문 생성. customId(사용자 DB id)를 주문에 새겨 두면 브라우저가 중간에 닫혀도 웹훅이 누구에게 충전할지 알 수 있음
+ * @returns {Promise<string>} PayPal 주문 ID
+ */
+export async function createPayPalOrder({ amount, customId, description }) {
+    const baseUrl = getPayPalBaseUrl();
+    const headers = await authHeaders(baseUrl);
+    const response = await fetch(`${baseUrl}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: { ...headers, 'PayPal-Request-Id': `order-${customId}-${Date.now()}` },
+        body: JSON.stringify({
+            intent: 'CAPTURE',
+            purchase_units: [{
+                amount: { currency_code: 'USD', value: Number(amount).toFixed(2) },
+                description: String(description || 'Point charge').slice(0, 127),
+                custom_id: customId
+            }]
+        })
+    });
+    if (!response.ok) {
+        const error = new Error(`PayPal order creation failed (${response.status})`);
+        error.code = 'PAYPAL_ORDER_FAILED';
+        error.details = await response.text().catch(() => '');
+        throw error;
+    }
+    const order = await response.json();
+    return order.id;
+}
+
+/**
+ * 웹훅 서명 검증 (원본 body 문자열을 그대로 넘겨야 숫자/공백이 바뀌지 않음)
+ */
+export async function verifyPayPalWebhook(headers, rawBody) {
+    const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+    if (!webhookId) {
+        return false;
+    }
+    const baseUrl = getPayPalBaseUrl();
+    const meta = {
+        auth_algo: headers['paypal-auth-algo'],
+        cert_url: headers['paypal-cert-url'],
+        transmission_id: headers['paypal-transmission-id'],
+        transmission_sig: headers['paypal-transmission-sig'],
+        transmission_time: headers['paypal-transmission-time'],
+        webhook_id: webhookId
+    };
+    if (!meta.transmission_id || !meta.transmission_sig) {
+        return false;
+    }
+    const body = `${JSON.stringify(meta).slice(0, -1)},"webhook_event":${rawBody}}`;
+    const response = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
+        method: 'POST',
+        headers: await authHeaders(baseUrl),
+        body
+    });
+    if (!response.ok) {
+        const error = new Error(`PayPal webhook verification request failed (${response.status})`);
+        error.code = 'PAYPAL_VERIFY_FAILED';
+        throw error;
+    }
+    const result = await response.json();
+    return result.verification_status === 'SUCCESS';
+}
+
+/**
+ * 주문을 캡처하고 (이미 캡처된 주문이면 조회) 검증된 결제 정보를 반환
+ * @returns {Promise<{ orderId: string, amount: number, currency: string, captureId: string|null, payerId: string|null, customId: string|null }>}
+ */
+export async function capturePayPalOrder(orderId) {
+    const baseUrl = getPayPalBaseUrl();
+    const headers = await authHeaders(baseUrl);
     
     let order;
     const captureResponse = await fetch(`${baseUrl}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
@@ -112,11 +181,20 @@ export async function capturePayPalOrder(orderId) {
         throw error;
     }
     
+    let customId = order.purchase_units?.[0]?.custom_id || capture.custom_id || null;
+    if (!customId) {
+        const orderResponse = await fetch(`${baseUrl}/v2/checkout/orders/${encodeURIComponent(orderId)}`, { headers });
+        if (orderResponse.ok) {
+            customId = (await orderResponse.json()).purchase_units?.[0]?.custom_id || null;
+        }
+    }
+    
     return {
         orderId: order.id,
         amount: parseFloat(capture.amount?.value || 0),
         currency: capture.amount?.currency_code,
         captureId: capture.id || null,
-        payerId: order.payer?.payer_id || null
+        payerId: order.payer?.payer_id || null,
+        customId
     };
 }
