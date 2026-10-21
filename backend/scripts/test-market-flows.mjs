@@ -8,6 +8,8 @@ import pg from 'pg';
 import { readFileSync } from 'fs';
 
 const SCHEMA = 'market_test';
+// 트랜잭션 풀러(6543)는 SET search_path를 운영 서버 연결과 공유하므로 반드시 세션 모드(5432)로 접속
+process.env.DATABASE_URL = process.env.DATABASE_URL.replace(':6543/', ':5432/');
 const admin = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 await admin.connect();
 await admin.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
@@ -16,7 +18,7 @@ for (const table of ['users', 'wallets', 'wallet_transactions', 'territories', '
     await admin.query(`CREATE TABLE ${SCHEMA}.${table} (LIKE public.${table} INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`);
 }
 await admin.query(`SET search_path TO ${SCHEMA}`);
-for (const file of ['006_add_territory_ads_and_reports.sql', '007_add_referrals.sql', '008_add_market_features.sql']) {
+for (const file of ['006_add_territory_ads_and_reports.sql', '007_add_referrals.sql', '008_add_market_features.sql', '009_add_hd_images.sql']) {
     await admin.query(readFileSync(`db/migrations/${file}`, 'utf8'));
 }
 
@@ -37,6 +39,8 @@ try {
     const { auctionsRouter } = await import('../routes/auctions.js');
     const { territoriesRouter } = await import('../routes/territories.js');
     const { endExpiredAuctions } = await import('../routes/cron.js');
+    const { hdRouter } = await import('../routes/hd.js');
+    const { encodePng } = await import('../utils/png.js');
     
     const app = express();
     app.use(express.json());
@@ -48,6 +52,7 @@ try {
     app.use('/api/market', marketRouter);
     app.use('/api/auctions', auctionsRouter);
     app.use('/api/territories', territoriesRouter);
+    app.use('/api/hd', hdRouter);
     const server = app.listen(0);
     const base = `http://127.0.0.1:${server.address().port}/api`;
     const call = async (uid, method, path, body) => {
@@ -222,7 +227,37 @@ try {
     m = await call(null, 'GET', '/market/territories/zz-free');
     check('Watch count visible', m.data?.watchCount === 1);
     
-    // 9) 장부 검증: 모든 지갑 잔액 = 10,000 + 거래 합계
+    // 9) HD 사진: 짧은 기간은 유료 해제, 평생은 무료, 이상한 파일 거절, 주인 바뀌면 자동 삭제
+    const png = encodePng(8, 8, new Uint8Array(8 * 8 * 4).fill(200));
+    const putImage = (uid, territoryId, body, type = 'image/png') => fetch(`${base}/hd/territories/${territoryId}/image`, {
+        method: 'PUT', headers: { 'Content-Type': type, 'x-test-uid': uid }, body
+    }).then(async res => ({ status: res.status, data: await res.json().catch(() => null) }));
+    // zz-open: B가 제안 수락으로 받은 땅 (보호 7일+) → 무료 아님
+    let hd = await call('uid-B', 'GET', '/hd/territories/zz-open');
+    check('Short-period owner is not free (unlock price = half a week, min 50)', hd.data?.isOwner && !hd.data.entitled && hd.data.unlockPrice === 50, JSON.stringify(hd.data));
+    r = await putImage('uid-B', 'zz-open', png);
+    check('Upload blocked until unlocked', r.status === 402);
+    const bBeforeUnlock = await balance('B');
+    r = await call('uid-B', 'POST', '/hd/territories/zz-open/unlock');
+    check('Unlock charges 50 pt', r.status === 200 && bBeforeUnlock - (await balance('B')) === 50, r.data?.error);
+    r = await putImage('uid-B', 'zz-open', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'image/png');
+    check('Non-image (SVG disguised as PNG) rejected', r.status === 400);
+    r = await putImage('uid-C', 'zz-open', png);
+    check('Non-owner cannot upload', r.status === 403);
+    r = await putImage('uid-B', 'zz-open', png);
+    check('Owner uploads HD photo', r.status === 200 && /\/api\/hd\/territories\/zz-open\/image\?v=/.test(r.data?.url || ''), r.data?.error);
+    const served = await fetch(`${base}/hd/territories/zz-open/image`);
+    check('Photo is served as PNG with long cache', served.status === 200 && served.headers.get('content-type') === 'image/png' && /immutable/.test(served.headers.get('cache-control') || ''));
+    const list = await call(null, 'GET', '/hd/images');
+    check('Public list includes the photo', list.data?.some(i => i.territoryId === 'zz-open'));
+    hd = await call('uid-B', 'GET', '/hd/territories/zz-life');
+    check('Lifetime owner gets HD for free', hd.data?.entitled && hd.data.freeReason === 'lifetime', JSON.stringify(hd.data));
+    await query(`UPDATE territories SET ruler_id = $1 WHERE id = 'zz-open'`, [ids.C]);
+    const after = (await query(`SELECT hd_image_url, hd_unlocked_by FROM territories WHERE id = 'zz-open'`)).rows[0];
+    const stillStored = (await query(`SELECT COUNT(*) AS n FROM territory_hd_images WHERE territory_id = 'zz-open'`)).rows[0].n;
+    check('Owner change clears the photo and the unlock', !after.hd_image_url && !after.hd_unlocked_by && stillStored === '0');
+    
+    // 10) 장부 검증: 모든 지갑 잔액 = 10,000 + 거래 합계
     const ledger = await query(
         `SELECT w.user_id, w.balance, COALESCE(SUM(t.amount), 0) AS total
          FROM wallets w LEFT JOIN wallet_transactions t ON t.wallet_id = w.id GROUP BY w.user_id, w.balance`
@@ -235,6 +270,7 @@ try {
     results.push(`ERROR ${error.stack}`);
 } finally {
     await admin.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
+    await admin.query('RESET search_path');
     await admin.end();
     console.log(results.join('\n'));
     console.log(`\n${results.filter(x => x.startsWith('PASS')).length} passed, ${results.filter(x => !x.startsWith('PASS')).length} failed`);

@@ -73,12 +73,12 @@ export async function initDatabase() {
     }
     
     // 연결 문자열 앞부분만 표시 (보안)
-    const preview = cleanConnectionString.substring(0, Math.min(50, cleanConnectionString.indexOf('@') + 10)) + '...';
+    const preview = cleanConnectionString.replace(/^(postgres(?:ql)?:\/\/[^:]+:)[^@]*@/, '$1***@').replace(/@([^/:?]+).*/, '@$1/...');
     console.log('   Preview:', preview);
     
     if (!cleanConnectionString.startsWith('postgresql://') && !cleanConnectionString.startsWith('postgres://')) {
         console.error('❌ [DB Init] DATABASE_URL must start with postgresql:// or postgres://');
-        console.error('   Current value (first 50 chars):', cleanConnectionString.substring(0, 50));
+        console.error('   Current value starts with:', cleanConnectionString.substring(0, 12));
         throw new Error('Invalid DATABASE_URL format - must start with postgresql:// or postgres://');
     }
     

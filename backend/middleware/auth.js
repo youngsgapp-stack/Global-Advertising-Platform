@@ -7,7 +7,7 @@
 let admin = null;
 let getAuth = null;
 
-async function getFirebaseAdmin() {
+export async function getFirebaseAdmin() {
     if (!admin) {
         const firebaseAdmin = await import('firebase-admin');
         admin = firebaseAdmin.default;

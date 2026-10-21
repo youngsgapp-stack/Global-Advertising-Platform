@@ -6,6 +6,7 @@
 import { CONFIG, log } from './config.js';
 import { eventBus, EVENTS } from './core/EventBus.js';
 import { mapController } from './core/MapController.js';
+import { hdImageLayer } from './core/HdImageLayer.js';
 import { territoryManager } from './core/TerritoryManager.js';
 import { firebaseService } from './services/FirebaseService.js';
 import { walletService, WALLET_EVENTS } from './services/WalletService.js';
@@ -239,6 +240,7 @@ class BillionaireApp {
             this.initialized = true;
             log.info('App initialized successfully!');
             eventBus.emit(EVENTS.APP_READY, {});
+            hdImageLayer.initialize(mapController.map);
             
             // 공유 링크(?territory=<id>)로 들어오면 해당 영토로 이동해 패널 열기
             const sharedTerritoryId = new URLSearchParams(window.location.search).get('territory');

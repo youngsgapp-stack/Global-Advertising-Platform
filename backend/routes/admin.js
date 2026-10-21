@@ -2043,6 +2043,13 @@ router.get('/revenue-summary', async (req, res) => {
             )
         ]);
         
+        // 저장 공간: DB 전체 크기 + HD 사진 수/용량 (Supabase 무료 한도 500MB 기준으로 표시)
+        const storage = await query(
+            `SELECT pg_database_size(current_database()) AS db_bytes,
+                    (SELECT COUNT(*) FROM territories WHERE hd_image_url IS NOT NULL) AS hd_count,
+                    (SELECT COALESCE(SUM(octet_length(data)), 0) FROM territory_hd_images) AS hd_db_bytes`
+        ).then(r => r.rows[0]).catch(() => ({ db_bytes: 0, hd_count: 0, hd_db_bytes: 0 }));
+        
         const paymentsByDay = new Map(dailyPayments.rows.map(r => [r.day, r]));
         const t = totals.rows[0];
         const users = parseInt(t.users, 10) || 0;
@@ -2076,6 +2083,13 @@ router.get('/revenue-summary', async (req, res) => {
                 payConversion: users ? payingUsers / users : 0,
                 buyConversion: users ? buyers / users : 0,
                 arppu: payingUsers ? periodUsd / payingUsers : 0
+            },
+            storage: {
+                dbBytes: Number(storage.db_bytes) || 0,
+                dbLimitBytes: Number(process.env.DB_STORAGE_LIMIT_MB || 500) * 1024 * 1024,
+                hdCount: parseInt(storage.hd_count, 10) || 0,
+                hdDbBytes: Number(storage.hd_db_bytes) || 0,
+                hdStorage: process.env.HD_STORAGE === 'firebase' ? 'firebase' : 'database'
             }
         });
     } catch (error) {
@@ -2237,6 +2251,8 @@ router.post('/reports/:id/resolve', async (req, res) => {
         
         if (action === 'remove_art' || action === 'remove_all') {
             await deleteTerritoryPixels(territoryId);
+            const { removeTerritoryHdImage } = await import('./hd.js');
+            await removeTerritoryHdImage(territoryId).catch(error => console.warn('[Admin] HD image removal failed:', error.message));
         }
         if (action === 'remove_link' || action === 'block_link' || action === 'remove_all') {
             await query(
