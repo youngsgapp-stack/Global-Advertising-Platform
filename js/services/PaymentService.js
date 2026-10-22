@@ -1073,26 +1073,11 @@ class PaymentService {
                             description: description
                         });
                         
-                        // 서버 API로 Order 생성 (통합 API 사용)
-                        const response = await fetch('/api/paypal', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                action: 'create-order',
-                                amount: formattedAmount,
-                                currency: 'USD',
-                                description: description
-                            })
+                        // 백엔드가 주문에 내 계정을 새겨서 생성 (결제 후 창이 닫혀도 PayPal 웹훅으로 자동 충전)
+                        const { apiService } = await import('./ApiService.js');
+                        const result = await apiService.post('/users/me/wallet/paypal-order', {
+                            amount: formattedAmount
                         });
-                        
-                        if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(errorData.error || 'Failed to create PayPal order');
-                        }
-                        
-                        const result = await response.json();
                         
                         if (!result.success || !result.orderID) {
                             throw new Error(result.error || 'Invalid response from server');
@@ -1901,7 +1886,9 @@ class PaymentService {
                 isPartialSuccess = true;
                 errorMessage = error.message; // Use message including orderID as advised
             } else if (error.message.includes('network') || error.message.includes('Network')) {
-                errorMessage = 'Network error. Please check your connection and try again.';
+                errorMessage = orderID
+                    ? `Connection problem. If PayPal charged you, your points will be added automatically within a few minutes (Order ID: ${orderID}).`
+                    : 'Network error. Please check your connection and try again.';
             } else if (error.message.includes('permission') || error.message.includes('Permission')) {
                 errorMessage = 'Permission denied. Please check your account settings.';
             } else if (error.message.includes('insufficient') || error.message.includes('balance')) {
@@ -1921,7 +1908,7 @@ class PaymentService {
         } else if (orderID) {
             // orderID가 있으면 결제는 진행됐을 가능성이 있음
             isPartialSuccess = true;
-            errorMessage = `결제 처리 중 오류가 발생했습니다. 주문번호: ${orderID}. 결제는 완료되었을 수 있으니 잠시 후 포인트를 확인해주세요. 문제가 지속되면 관리자에게 문의해주세요.`;
+            errorMessage = `Something went wrong while finishing your payment (Order ID: ${orderID}). If PayPal charged you, your points will be added automatically within a few minutes. If they don't show up, please contact support.`;
         }
         
         // 디버그 모드일 때 상세 정보 표시
