@@ -1,8 +1,6 @@
 /**
- * 픽셀 에디터 리소스: 아이콘(SVG), 팔레트, 스티커, 픽셀 글자 변환, 지도 밑그림 주소
+ * 픽셀 에디터 리소스: 아이콘(SVG), 팔레트, 스티커, 픽셀 글자 변환
  */
-
-import { CONFIG } from '../../config.js';
 
 const svg = (paths, extra = '') => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${paths}</svg>`;
 
@@ -223,43 +221,4 @@ export function rasterizeText(text, { fontId = 'pixel', scale = 1, color = '#000
         h: (maxY - minY + 1) * scale + pad * 2,
         cells
     };
-}
-
-export const UNDERLAY_STYLES = [
-    { id: 'satellite', name: 'Satellite', style: 'mapbox/satellite-streets-v12' },
-    { id: 'streets', name: 'Map', style: 'mapbox/streets-v12' },
-    { id: 'off', name: 'Off', style: null }
-];
-
-/**
- * 픽셀 그리드 영역(Mercator 정사각형)과 똑같이 맞는 Mapbox 정적 지도 주소
- * 지도 범위를 벗어나는 아주 큰 영토는 정확히 맞출 수 없어 null
- */
-export function underlayURL(bounds, styleId, size = 1024) {
-    const style = UNDERLAY_STYLES.find(s => s.id === styleId)?.style;
-    const token = CONFIG.MAPBOX?.ACCESS_TOKEN;
-    if (!style || !token || !bounds) return null;
-    const { minLng, minLat, maxLng, maxLat } = bounds;
-    if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null;
-    if (minLng < -180 || maxLng > 180 || minLat < -85.05 || maxLat > 85.05) return null;
-    const bbox = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(6)).join(',');
-    return `https://api.mapbox.com/styles/v1/${style}/static/[${bbox}]/${size}x${size}?padding=0&logo=false&attribution=false&access_token=${encodeURIComponent(token)}`;
-}
-
-const underlayCache = new Map();
-export function loadUnderlayImage(url) {
-    if (!url) return Promise.resolve(null);
-    if (underlayCache.has(url)) return underlayCache.get(url);
-    const promise = new Promise((resolve) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => {
-            underlayCache.delete(url);
-            resolve(null);
-        };
-        img.src = url;
-    });
-    underlayCache.set(url, promise);
-    return promise;
 }

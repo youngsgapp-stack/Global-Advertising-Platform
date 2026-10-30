@@ -147,8 +147,6 @@ class PixelCanvas3 {
         this.stage = null;
         this.overlayCanvas = null;
         this.overlayCtx = null;
-        this.underlayImage = null;
-        this.underlayOpacity = 0.6;
         this.showGrid = false;
         this.mirror = false;
         this.shapeFilled = false;
@@ -389,7 +387,6 @@ class PixelCanvas3 {
             this.wrapper = parent;
             this.overlayCanvas = null;
         }
-        this.underlayImage = null;
         this.boundaryPath = null;
         
         // territory 객체 저장
@@ -864,37 +861,7 @@ class PixelCanvas3 {
         this.backgroundColor = color;
         this.checkerSize = checkerSize;
     }
-    
-    /**
-     * 지도 밑그림 (픽셀 그리드와 같은 Mercator 정사각형으로 받은 정적 지도 이미지). null이면 끔
-     */
-    setUnderlay(image, opacity = null) {
-        this.underlayImage = image || null;
-        if (opacity !== null) this.underlayOpacity = Math.max(0, Math.min(1, opacity));
-        this.render();
-    }
-    
-    /**
-     * 밑그림이 깔린 빈 칸을 칠함: 영토 안은 배경색을 옅게 덮어 지도가 비쳐 보이게, 밖은 어둡게
-     */
-    shadeEmptyCell(x, y) {
-        const size = this.basePixelSize;
-        const inside = !this.territoryMask || this.territoryMask.has(`${x},${y}`);
-        if (inside) {
-            if (this.backgroundMode === 'checker') {
-                const light = (Math.floor(x / this.checkerSize) + Math.floor(y / this.checkerSize)) % 2 === 0;
-                this.ctx.fillStyle = light ? '#e0e0e0' : '#c0c0c0';
-            } else {
-                this.ctx.fillStyle = this.backgroundColor || '#1a1a1a';
-            }
-            this.ctx.globalAlpha = 1 - this.underlayOpacity;
-        } else {
-            this.ctx.fillStyle = '#05070c';
-            this.ctx.globalAlpha = 0.78;
-        }
-        this.ctx.fillRect(x * size, y * size, size, size);
-        this.ctx.globalAlpha = 1;
-    }
+
     
     /**
      * 영토 마스크 배경 그리기 (스탬프 프리뷰용)
@@ -965,16 +932,6 @@ class PixelCanvas3 {
         if (!this.ctx) return;
         
         const size = this.basePixelSize;
-        
-        if (this.underlayImage) {
-            this.ctx.drawImage(this.underlayImage, 0, 0, this.width * size, this.height * size);
-            for (let y = 0; y < this.height; y++) {
-                for (let x = 0; x < this.width; x++) {
-                    this.shadeEmptyCell(x, y);
-                }
-            }
-            return;
-        }
         
         if (this.backgroundMode === 'checker') {
             // 체커보드 배경
@@ -2166,15 +2123,6 @@ class PixelCanvas3 {
         if (!this.ctx) return;
         
         const size = this.basePixelSize;
-        
-        if (color === null && this.underlayImage) {
-            const img = this.underlayImage;
-            const sw = img.naturalWidth / this.width;
-            const sh = img.naturalHeight / this.height;
-            this.ctx.drawImage(img, x * sw, y * sh, sw, sh, x * size, y * size, size, size);
-            this.shadeEmptyCell(x, y);
-            return;
-        }
         
         if (color === null) {
             // 삭제된 픽셀: 배경색으로 그리기 (배경 설정 반영)
@@ -3517,7 +3465,6 @@ class PixelCanvas3 {
         this.lastSaveTime = null;
         this.originalOwnerId = null;
         this.isLegacyMode = false; // 레거시 모드 플래그 초기화
-        this.underlayImage = null;
         this.boundaryPath = null;
         this.stamp = null;
         this.hoverPos = null;
