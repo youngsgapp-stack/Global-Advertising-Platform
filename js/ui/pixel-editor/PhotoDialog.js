@@ -315,7 +315,7 @@ export class PhotoDialog {
             note.hidden = false;
             note.textContent = hd?.hasImage
                 ? 'This replaces your current HD photo. It goes live on the map right away.'
-                : 'It goes live on the map right away and is shown instead of your pixel art. You can remove it later.';
+                : 'It goes live on the map right away as the background. Text, stickers and pixels you draw show on top of it.';
         }
         this.$('[data-apply-label]').textContent = label;
         const disabled = !this.image || this.busy || (this.mode === 'hd' && (!hd || hd.unavailable || hd.isOwner === false));

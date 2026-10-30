@@ -147,6 +147,7 @@ class PixelCanvas3 {
         this.stage = null;
         this.overlayCanvas = null;
         this.overlayCtx = null;
+        this.backgroundImage = null; // HD 사진 (영토 모양으로 잘린 이미지). 픽셀은 그 위에 그려짐
         this.showGrid = false;
         this.mirror = false;
         this.shapeFilled = false;
@@ -861,6 +862,12 @@ class PixelCanvas3 {
         this.backgroundColor = color;
         this.checkerSize = checkerSize;
     }
+    
+    /** HD 사진을 배경으로 (지도에서도 사진 위에 픽셀이 겹쳐 보임). null이면 해제 */
+    setBackgroundImage(image) {
+        this.backgroundImage = image || null;
+        this.render();
+    }
 
     
     /**
@@ -971,6 +978,12 @@ class PixelCanvas3 {
                     this.ctx.fillRect(x * size, y * size, size, size);
                 }
             }
+        }
+        
+        if (this.backgroundImage) {
+            this.ctx.imageSmoothingEnabled = true;
+            this.ctx.drawImage(this.backgroundImage, 0, 0, this.width * size, this.height * size);
+            this.ctx.imageSmoothingEnabled = false;
         }
     }
     
@@ -2151,6 +2164,16 @@ class PixelCanvas3 {
         }
         
         this.ctx.fillRect(x * size, y * size, size, size);
+        
+        // 지운 칸은 HD 사진 배경을 다시 보여 줌
+        if (color === null && this.backgroundImage) {
+            const img = this.backgroundImage;
+            const sw = img.naturalWidth / this.width;
+            const sh = img.naturalHeight / this.height;
+            this.ctx.imageSmoothingEnabled = true;
+            this.ctx.drawImage(img, x * sw, y * sh, sw, sh, x * size, y * size, size, size);
+            this.ctx.imageSmoothingEnabled = false;
+        }
     }
     
     /**
@@ -2682,7 +2705,8 @@ class PixelCanvas3 {
             
             const territory = territoryManager.getTerritory(this.territoryId);
             if (territory) {
-                const imageDataUrl = this.toDataURL();
+                // 지도에는 그린 픽셀만 (배경색·HD 사진 제외). 캔버스에 다른 도메인의 HD 사진이 그려져 있으면 canvas.toDataURL()은 보안 오류로 실패함
+                const imageDataUrl = this.toPixelPNG(this.basePixelSize);
                 
                 eventBus.emit(EVENTS.PIXEL_CANVAS_SAVED, {
                     territoryId: this.territoryId,
@@ -3466,6 +3490,7 @@ class PixelCanvas3 {
         this.originalOwnerId = null;
         this.isLegacyMode = false; // 레거시 모드 플래그 초기화
         this.boundaryPath = null;
+        this.backgroundImage = null;
         this.stamp = null;
         this.hoverPos = null;
         this.shapeStart = null;

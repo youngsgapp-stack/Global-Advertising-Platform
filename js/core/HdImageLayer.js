@@ -45,7 +45,7 @@ class HdImageLayer {
         map.on('moveend', schedule);
         map.on('idle', () => {
             if (this.shown.size === 0 && this.images.size > 0) schedule();
-            this.keepAbovePixelArt();
+            this.keepBelowPixelArt();
         });
         map.on('styledata', () => {
             if (this.shown.size > 0 && ![...this.shown.keys()].every(id => map.getSource(`hd-${id}`))) {
@@ -139,22 +139,27 @@ class HdImageLayer {
         }
     }
     
-    /** 픽셀 그림처럼 영토 색 위·경계선 아래에 둠 (keepAbovePixelArt가 픽셀 그림보다 위로 다시 맞춤) */
+    /**
+     * HD 사진은 영토 색 위, 픽셀 그림 아래 (사진을 배경으로 깔고 그 위에 픽셀 글자·스티커를 얹을 수 있게)
+     * 픽셀 그림이 없으면 경계선 바로 아래
+     */
     hdBeforeLayer() {
+        const firstPixel = this.map.getStyle()?.layers?.find(layer => layer.id.startsWith('pixel-overlay-'))?.id;
+        if (firstPixel) return firstPixel;
         if (this.map.getLayer(`${WORLD_SOURCE}-line`)) return `${WORLD_SOURCE}-line`;
         return this.map.getLayer(`${WORLD_SOURCE}-fill`) ? `${WORLD_SOURCE}-fill` : undefined;
     }
     
-    /** 픽셀 그림 레이어가 나중에 다시 그려져도 HD 사진이 그 위에 오도록 (순서가 틀렸을 때만 옮김) */
-    keepAbovePixelArt() {
+    /** 픽셀 그림 레이어가 나중에 생겨도 HD 사진이 그 아래에 있도록 (순서가 틀렸을 때만 옮김) */
+    keepBelowPixelArt() {
         if (!this.map || this.shown.size === 0) return;
         const order = this.map.getStyle()?.layers?.map(layer => layer.id) || [];
-        const lastPixelIndex = order.reduce((max, id, index) => (id.startsWith('pixel-overlay-') ? index : max), -1);
-        const beforeLayer = this.hdBeforeLayer();
+        const firstPixelIndex = order.findIndex(id => id.startsWith('pixel-overlay-'));
+        if (firstPixelIndex === -1) return;
         for (const territoryId of this.shown.keys()) {
             const layerId = `hd-${territoryId}`;
-            if (order.indexOf(layerId) !== -1 && order.indexOf(layerId) < lastPixelIndex) {
-                this.map.moveLayer(layerId, beforeLayer);
+            if (order.indexOf(layerId) > firstPixelIndex) {
+                this.map.moveLayer(layerId, order[firstPixelIndex]);
             }
         }
     }

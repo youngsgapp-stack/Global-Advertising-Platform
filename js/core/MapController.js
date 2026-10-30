@@ -119,6 +119,8 @@ class MapController {
             
             // 지도 로드 완료 대기
             await this.waitForMapLoad();
+            this.map.on('idle', () => this.syncOwnedFeatureStates());
+            eventBus.on(EVENTS.TERRITORY_UPDATE, () => setTimeout(() => this.syncOwnedFeatureStates(), 300));
             
             // 네비게이션 컨트롤 추가
             this.map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
@@ -145,6 +147,35 @@ class MapController {
             eventBus.emit(EVENTS.APP_ERROR, { type: 'map', error });
             return false;
         }
+    }
+    
+    /**
+     * 주인이 있는 영토에 feature-state owned=true (땅 색을 칠하지 않는 데 사용)
+     * idle마다 불리지만 바뀐 영토만 setFeatureState 하므로 가벼움
+     */
+    syncOwnedFeatureStates() {
+        const source = this.map?.getSource('world-territories');
+        const features = source?._data?.features;
+        if (!features) return;
+        const owned = new Set();
+        for (const territory of territoryManager.territories?.values?.() || []) {
+            if (territory?.ruler) owned.add(territory.id);
+        }
+        // 소스가 새로 만들어지면 feature-state가 사라지므로 처음부터 다시 표시
+        if (this.ownedSourceData !== source._data) {
+            this.ownedSourceData = source._data;
+            this.ownedTerritoryIds = new Set();
+        }
+        const previous = this.ownedTerritoryIds;
+        for (const feature of features) {
+            const id = feature.properties?.id;
+            if (feature.id == null || id == null) continue;
+            const isOwned = owned.has(id);
+            if (isOwned !== previous.has(id)) {
+                this.map.setFeatureState({ source: 'world-territories', id: feature.id }, { owned: isOwned });
+            }
+        }
+        this.ownedTerritoryIds = owned;
     }
     
     /**
@@ -795,6 +826,8 @@ class MapController {
                                             ],
                                             'fill-opacity': [
                                                 'case',
+                                                // 주인이 있는 땅은 나라 색을 칠하지 않음 (지도가 그대로 보이게)
+                                                ['boolean', ['feature-state', 'owned'], false], 0,
                                                 // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
                                                 ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
                                                 // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절
@@ -1677,6 +1710,8 @@ class MapController {
                 ],
                 'fill-opacity': [
                     'case',
+                    // 주인이 있는 땅은 나라 색을 칠하지 않음 (지도가 그대로 보이게)
+                    ['boolean', ['feature-state', 'owned'], false], 0,
                     // 전문가 조언 반영: properties 기반 접근 (feature-state와 병행)
                     // properties.hasPixelArt를 우선 확인 (더 안정적)
                     ['boolean', ['get', 'hasPixelArt'], false], 0,
@@ -3056,6 +3091,8 @@ class MapController {
                         ],
                         'fill-opacity': [
                             'case',
+                            // 주인이 있는 땅은 나라 색을 칠하지 않음 (지도가 그대로 보이게)
+                            ['boolean', ['feature-state', 'owned'], false], 0,
                             // hasPixelArt가 true면 배경색 완전히 투명 (픽셀 아트만 표시)
                             ['boolean', ['feature-state', 'hasPixelArt'], false], 0,
                             // 픽셀 아트가 없는 경우: hover/selected 상태에 따라 투명도 조절

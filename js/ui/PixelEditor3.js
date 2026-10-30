@@ -237,7 +237,7 @@ class PixelEditor3 {
                 
                 <div class="pe-banner" id="pe-hd-banner" hidden>
                     ${ICONS.image}
-                    <span>Your <b>HD photo</b> is what people see on the map (preview at bottom right). Pixels drawn here stay hidden until you remove it.</span>
+                    <span>Your <b>HD photo</b> is the background. Text, stickers and pixels you draw here show on top of it on the map.</span>
                     <button type="button" id="pe-hd-remove">Remove HD photo</button>
                 </div>
                 
@@ -491,15 +491,20 @@ class PixelEditor3 {
     setHdBanner(show, url = null) {
         const banner = this.$('#pe-hd-banner');
         if (banner) banner.hidden = !show;
-        // 지도에는 HD 사진이 보이므로 미리보기 카드에도 같은 사진을 보여 줌
+        // HD 사진을 캔버스 배경과 미리보기에 깔고, 그 위에 픽셀을 그림 (지도에서도 같은 순서)
         this.hdImage = null;
+        pixelCanvas3.setBackgroundImage(null);
         if (show && url) {
+            const territoryId = this.currentTerritory?.id;
             const img = new Image();
             img.onload = () => {
-                if (this.hdImage === img) this.schedulePreview();
+                if (this.hdImage !== img || !this.isOpen || this.currentTerritory?.id !== territoryId) return;
+                pixelCanvas3.setBackgroundImage(img);
+                this.schedulePreview();
             };
             img.src = url;
             this.hdImage = img;
+            this.setEmptyCard(false);
         }
         this.schedulePreview();
     }
@@ -521,7 +526,7 @@ class PixelEditor3 {
         if (!territoryId) return;
         const choice = await showDialog({
             title: 'Remove HD photo?',
-            lines: ['Your pixel art will show on the map again.'],
+            lines: ['Only your pixel art will show on the map.'],
             buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'ok', label: 'Remove', primary: true }]
         });
         if (choice !== 'ok') return;
@@ -530,7 +535,7 @@ class PixelEditor3 {
             const { hdImageLayer } = await import('../core/HdImageLayer.js');
             hdImageLayer.setImage(territoryId, null);
             this.setHdBanner(false);
-            this.notify('HD photo removed. Your pixel art is back on the map.');
+            this.notify('HD photo removed. Only your pixel art shows on the map now.');
         } catch (error) {
             this.notify(error.message || 'Could not remove the HD photo.', 'error');
         }
@@ -1227,12 +1232,11 @@ class PixelEditor3 {
         const cell = css / pixelCanvas3.width;
         if (this.hdImage?.complete && this.hdImage.naturalWidth) {
             ctx.drawImage(this.hdImage, 0, 0, css, css);
-        } else {
-            for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
-                const [x, y] = key.split(',').map(Number);
-                ctx.fillStyle = color;
-                ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
-            }
+        }
+        for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
+            const [x, y] = key.split(',').map(Number);
+            ctx.fillStyle = color;
+            ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
         }
         if (pixelCanvas3.boundaryPath) {
             ctx.save();
