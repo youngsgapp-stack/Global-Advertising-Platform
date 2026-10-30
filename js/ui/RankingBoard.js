@@ -10,12 +10,17 @@ import { rankingSystem, RANKING_TYPE } from '../features/RankingSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryManager } from '../core/TerritoryManager.js';
 import { pixelDataService } from '../services/PixelDataService.js';
+import { apiService } from '../services/ApiService.js';
+import { openTerritoryById } from '../utils/TerritoryNavigator.js';
+
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const REACTION_EMOJI = { heart: '❤️', fire: '🔥', laugh: '😂', wow: '😮', clap: '👏' };
 
 class RankingBoard {
     constructor() {
         this.container = null;
         this.isOpen = false;
-        this.currentTab = 'global_coverage'; // 기본 탭 변경
+        this.currentTab = 'weekly'; // 기본 탭: 이번 주 랭킹
         this.userProfilesCache = new Map(); // 사용자 프로필 캐시
         this.thumbnailCache = new Map(); // 썸네일 캐시 (userId -> thumbnail URL)
     }
@@ -29,7 +34,16 @@ class RankingBoard {
         if (this.container) {
             this.render();
             this.setupEventListeners();
+            this.switchTab('weekly');
         }
+        
+        // 이번 주 랭킹 항목을 누르면 그 땅으로 이동 (보드·전체 화면 모달 공통)
+        document.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-weekly-territory]');
+            if (!item) return;
+            item.closest('.ranking-modal')?.remove();
+            openTerritoryById(item.dataset.weeklyTerritory);
+        });
         
         log.info('RankingBoard initialized');
     }
@@ -88,7 +102,8 @@ class RankingBoard {
             </div>
             
             <div class="ranking-tabs">
-                <button class="ranking-tab active" data-tab="global_coverage">Coverage</button>
+                <button class="ranking-tab active" data-tab="weekly">This week</button>
+                <button class="ranking-tab" data-tab="global_coverage">Coverage</button>
                 <button class="ranking-tab" data-tab="most_viewed">Trending</button>
                 <button class="ranking-tab" data-tab="collectors">Collectors</button>
                 <button class="ranking-tab" data-tab="galleries">Galleries</button>
@@ -97,7 +112,7 @@ class RankingBoard {
             
             <div class="ranking-content">
                 <div class="ranking-list" id="ranking-list">
-                    ${this.renderGlobalCoverageRanking()}
+                    <div class="ranking-empty">Loading...</div>
                 </div>
             </div>
             
@@ -149,6 +164,9 @@ class RankingBoard {
         
         try {
             switch (tabName) {
+                case 'weekly':
+                    listContainer.innerHTML = await this.renderWeeklyBoard();
+                    break;
                 case 'global_coverage':
                     listContainer.innerHTML = await this.renderGlobalCoverageRanking();
                     break;
@@ -172,6 +190,51 @@ class RankingBoard {
             log.error('[RankingBoard] Failed to switch tab:', error);
             listContainer.innerHTML = '<div class="ranking-empty">Failed to load data.<br><small>Please try again.</small></div>';
         }
+    }
+    
+    /**
+     * 이번 주 랭킹: 많이 본 곳 / 반응 많은 곳 / 새로 산 곳 / 명예의 전당(역대 조회수)
+     */
+    async renderWeeklyBoard() {
+        let data;
+        try {
+            data = await apiService.get('/social/weekly');
+        } catch (error) {
+            log.warn('[RankingBoard] Weekly rankings unavailable:', error.message);
+            return '<div class="ranking-empty">Rankings are not available right now.<br><small>Please try again in a moment.</small></div>';
+        }
+        const country = (code) => {
+            const info = CONFIG.COUNTRIES?.[code] || CONFIG.COUNTRIES?.[String(code || '').toUpperCase()];
+            return info ? `${info.flag || ''} ${info.name || code}` : String(code || '').toUpperCase();
+        };
+        const ago = (date) => {
+            const hours = Math.max(0, Math.round((Date.now() - new Date(date).getTime()) / 3600000));
+            if (hours < 1) return 'just now';
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.round(hours / 24);
+            return `${days} day${days === 1 ? '' : 's'} ago`;
+        };
+        const medal = (i) => ['🥇', '🥈', '🥉'][i] || String(i + 1);
+        const item = (row, i, metric) => `
+            <div class="weekly-item" data-weekly-territory="${escapeHtml(row.id)}" title="Open this spot">
+                <span class="weekly-rank ${i < 3 ? 'top' : ''}">${medal(i)}</span>
+                <div class="weekly-main">
+                    <div class="weekly-name">${escapeHtml(row.name)}</div>
+                    <div class="weekly-sub">${escapeHtml(country(row.country))}${row.owner ? ` · by ${escapeHtml(row.owner)}` : ' · available'}</div>
+                </div>
+                <span class="weekly-metric">${metric}</span>
+            </div>`;
+        const section = (title, rows, metric, empty) => `
+            <div class="weekly-section">
+                <h4>${title}</h4>
+                ${rows?.length ? rows.slice(0, 5).map((row, i) => item(row, i, metric(row))).join('') : `<div class="weekly-empty">${empty}</div>`}
+            </div>`;
+        return [
+            section('🔥 Most viewed this week', data.mostViewed, r => `👀 ${this.formatNumber(r.views)}`, 'No views yet this week. Go explore the map!'),
+            section('❤️ Most loved this week', data.mostLoved, r => `${REACTION_EMOJI[r.top_emoji] || '❤️'} ${this.formatNumber(r.reactions)}`, 'No reactions yet. Open a spot you like and react!'),
+            section('✨ New this week', data.newest, r => ago(r.acquired_at), 'No new spots this week yet.'),
+            section('🏆 Hall of fame', data.hallOfFame, r => `👀 ${this.formatNumber(r.views)}`, 'Nothing here yet.')
+        ].join('');
     }
     
     /**
@@ -834,6 +897,9 @@ class RankingBoard {
                         
                         // 콘텐츠 업데이트
                         switch (tabName) {
+                            case 'weekly':
+                                modalListContainer.innerHTML = await this.renderWeeklyBoard();
+                                break;
                             case 'global_coverage':
                                 modalListContainer.innerHTML = this.renderGlobalCoverageRanking();
                                 break;

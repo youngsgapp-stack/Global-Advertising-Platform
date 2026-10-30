@@ -2147,3 +2147,152 @@ a.ad-visit-btn:hover {
     font-size: var(--font-size-sm);
 }
 
+
+/* ===== 방문자 반응·조회수 (영토 패널) ===== */
+.social-card {
+    margin: 12px 0;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.social-views {
+    font-size: 13px;
+    color: var(--color-text-secondary, #ccc);
+}
+
+.social-views b {
+    color: var(--color-text, #fff);
+    font-size: 15px;
+}
+
+.social-views span {
+    opacity: 0.6;
+}
+
+.social-reactions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.reaction-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--color-text, #fff);
+    cursor: pointer;
+    font-size: 15px;
+    transition: transform 0.12s, border-color 0.15s, background 0.15s;
+}
+
+.reaction-btn b {
+    font-size: 12px;
+    font-weight: 700;
+    opacity: 0.8;
+}
+
+.reaction-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.reaction-btn:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.reaction-btn.mine {
+    border-color: var(--color-primary, #4ecdc4);
+    background: rgba(78, 205, 196, 0.16);
+}
+
+.reaction-btn:disabled {
+    cursor: default;
+    opacity: 0.85;
+}
+
+.social-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    opacity: 0.6;
+    text-align: center;
+}
+
+/* ===== 이번 주 랭킹 (Top Spaces) ===== */
+.weekly-section {
+    margin-bottom: 14px;
+}
+
+.weekly-section h4 {
+    margin: 4px 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-text-secondary, #ccc);
+}
+
+.weekly-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.weekly-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.weekly-rank {
+    width: 22px;
+    text-align: center;
+    font-weight: 800;
+    font-size: 13px;
+    opacity: 0.7;
+}
+
+.weekly-rank.top {
+    opacity: 1;
+}
+
+.weekly-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.weekly-name {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.weekly-sub {
+    font-size: 12px;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.weekly-metric {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.weekly-empty {
+    padding: 8px 10px;
+    font-size: 12px;
+    opacity: 0.55;
+}

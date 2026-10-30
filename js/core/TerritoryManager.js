@@ -1362,9 +1362,8 @@ class TerritoryManager {
             // territoryId가 없으면 territory.id에서 가져오기
             const territoryId = data.territoryId || territory.id;
             
-            // 영토 조회수 증가 (로그인한 사용자만, 비동기, 에러 무시)
-            const currentUser = firebaseService.getCurrentUser();
-            if (territoryId && currentUser) {
+            // 영토 조회수 증가 (손님 포함, 서버가 같은 사람은 하루 한 번만 셈, 에러 무시)
+            if (territoryId) {
                 this.incrementViewCount(territoryId).catch(err => {
                     log.debug(`[TerritoryManager] Failed to increment view count for ${territoryId}:`, err.message);
                 });
@@ -1665,9 +1664,8 @@ class TerritoryManager {
             this.territories.set(territoryId, territory);
             this.currentTerritory = territory;
             
-            // 영토 조회수 증가 (로그인한 사용자만, 비동기, 에러 무시)
-            const currentUser = firebaseService.getCurrentUser();
-            if (currentUser) {
+            // 영토 조회수 증가 (손님 포함, 서버가 같은 사람은 하루 한 번만 셈, 에러 무시)
+            if (territoryId) {
                 this.incrementViewCount(territoryId).catch(err => {
                     log.debug(`[TerritoryManager] Failed to increment view count for ${territoryId}:`, err.message);
                 });
@@ -2378,7 +2376,11 @@ class TerritoryManager {
         try {
             // API를 통해 조회수 증가 (백엔드에서 atomic increment 처리)
             try {
-                await apiService.post(`/territories/${territoryId}/view`, {});
+                // 같은 탭에서 같은 땅을 여러 번 눌러도 요청은 한 번만
+                this.viewedThisSession = this.viewedThisSession || new Set();
+                if (this.viewedThisSession.has(territoryId)) return;
+                this.viewedThisSession.add(territoryId);
+                await apiService.post(`/social/territories/${encodeURIComponent(territoryId)}/view`, {});
                 
                 // 로컬 캐시 업데이트
                 const localTerritory = this.territories.get(territoryId);

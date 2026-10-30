@@ -1064,6 +1064,7 @@ class TerritoryPanel {
                     </div>
                 </div>
                 
+                <div id="territory-social-section" class="territory-social-section"></div>
                 <div id="territory-market-section" class="territory-market-section"></div>
                 <div id="territory-ad-section" class="territory-ad-section"></div>
                 
@@ -1780,6 +1781,7 @@ class TerritoryPanel {
         
         this.loadAdSection();
         this.loadMarketSection();
+        this.loadSocialSection();
         
         // 기존 리스너 제거 (중복 방지)
         if (this._actionClickHandler) {
@@ -1788,6 +1790,13 @@ class TerritoryPanel {
         
         // 이벤트 위임: container에 단일 리스너로 모든 버튼 클릭 처리
         this._actionClickHandler = (e) => {
+            const reactionBtn = e.target.closest('[data-reaction]');
+            if (reactionBtn && this.container.contains(reactionBtn)) {
+                e.preventDefault();
+                this.toggleReaction(reactionBtn.dataset.reaction);
+                return;
+            }
+            
             // 버튼이나 클릭 가능한 요소를 찾음
             const target = e.target.closest('button[id], [id].action-btn, [id].auction-btn');
             if (!target) return;
@@ -4069,6 +4078,81 @@ class TerritoryPanel {
      * 영토 광고 링크 영역 (방문 버튼 / 주인용 링크 편집·클릭 수 / 신고)
      * 패널을 다시 그릴 때마다 호출되므로 30초 동안 응답을 재사용
      */
+    /**
+     * 방문자 반응·조회수 영역: 이번 주/전체 조회수, 반응 5종 (한 사람당 하나, 자기 땅에는 못 누름)
+     */
+    async loadSocialSection() {
+        const section = this.container?.querySelector('#territory-social-section');
+        const territoryId = this.currentTerritory?.id;
+        if (!section || !territoryId) return;
+        try {
+            const info = await apiService.get(`/social/territories/${encodeURIComponent(territoryId)}`);
+            if (this.currentTerritory?.id !== territoryId || !section.isConnected) return;
+            this.currentSocial = info;
+            section.innerHTML = this.renderSocialSection(this.currentTerritory, info);
+        } catch (error) {
+            log.debug('[TerritoryPanel] Social info unavailable:', error.message);
+        }
+    }
+    
+    renderSocialSection(territory, info) {
+        const reactions = [['heart', '❤️'], ['fire', '🔥'], ['laugh', '😂'], ['wow', '😮'], ['clap', '👏']];
+        const week = this.formatNumber(info.views?.week || 0);
+        const total = this.formatNumber(info.views?.total || 0);
+        const user = firebaseService.getCurrentUser();
+        let hint = '';
+        if (!territory.ruler) {
+            hint = '';
+        } else if (info.isOwner) {
+            hint = info.totalReactions > 0 ? `${this.formatNumber(info.totalReactions)} people reacted to your spot` : 'Reactions from visitors show up here';
+        } else if (!user) {
+            hint = 'Log in to react';
+        } else if (!info.myReaction) {
+            hint = 'Like it? Leave a reaction for the owner';
+        }
+        const buttons = territory.ruler ? `
+            <div class="social-reactions">
+                ${reactions.map(([id, emoji]) => `
+                    <button type="button" class="reaction-btn ${info.myReaction === id ? 'mine' : ''}" data-reaction="${id}" ${info.isOwner ? 'disabled' : ''} title="${id}">
+                        <span>${emoji}</span><b>${this.formatNumber(info.reactions?.[id] || 0)}</b>
+                    </button>`).join('')}
+            </div>` : '';
+        return `
+            <div class="social-card">
+                <div class="social-views">👀 <b>${week}</b> view${info.views?.week === 1 ? '' : 's'} this week <span>· ${total} total</span></div>
+                ${buttons}
+                ${hint ? `<div class="social-hint">${escapeHtml(hint)}</div>` : ''}
+            </div>
+        `;
+    }
+    
+    async toggleReaction(emoji) {
+        const territory = this.currentTerritory;
+        const info = this.currentSocial;
+        if (!territory?.id || !info || this.reactionBusy) return;
+        if (!firebaseService.getCurrentUser()) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'info', message: 'Log in to leave a reaction.' });
+            return;
+        }
+        if (info.isOwner) return;
+        this.reactionBusy = true;
+        try {
+            const path = `/social/territories/${encodeURIComponent(territory.id)}/reaction`;
+            const next = info.myReaction === emoji
+                ? await apiService.delete(path)
+                : await apiService.put(path, { emoji });
+            if (this.currentTerritory?.id === territory.id) {
+                this.currentSocial = next;
+                const section = this.container?.querySelector('#territory-social-section');
+                if (section) section.innerHTML = this.renderSocialSection(this.currentTerritory, next);
+            }
+        } catch (error) {
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: error.message || 'Could not save your reaction.' });
+        } finally {
+            this.reactionBusy = false;
+        }
+    }
+    
     async loadAdSection({ refresh = false } = {}) {
         const section = this.container?.querySelector('#territory-ad-section');
         const territoryId = this.currentTerritory?.id;

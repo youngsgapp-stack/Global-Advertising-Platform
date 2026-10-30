@@ -117,6 +117,7 @@ import { adminRouter } from './routes/admin.js';
 import { shareRouter } from './routes/share.js';
 import { marketRouter, processMarketJobs } from './routes/market.js';
 import { hdRouter } from './routes/hd.js';
+import { socialRouter, cleanupSocialData } from './routes/social.js';
 import { paypalWebhookHandler } from './routes/paypal-webhook.js';
 import cronRouter, { endExpiredAuctions, expireProtections } from './routes/cron.js';
 
@@ -150,6 +151,7 @@ function startBackgroundJobs() {
     schedule('endExpiredAuctions', 60 * 1000, endExpiredAuctions);
     schedule('expireProtections', 30 * 60 * 1000, expireProtections);
     schedule('marketJobs', 60 * 1000, processMarketJobs);
+    schedule('socialCleanup', 6 * 60 * 60 * 1000, cleanupSocialData);
     console.log('[Jobs] Background jobs started (auction end: every 1 min, protection expiry: every 30 min)');
 }
 
@@ -303,6 +305,9 @@ app.use('/api/market', optionalAuthenticateToken, marketRouter);
 
 // HD 사진 (영토 모양으로 잘린 고화질 사진)
 app.use('/api/hd', optionalAuthenticateToken, hdRouter);
+
+// 방문자 반응·조회수·주간 랭킹 (공개, 반응 누르기만 로그인 필요)
+app.use('/api/social', optionalAuthenticateToken, socialRouter);
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);
