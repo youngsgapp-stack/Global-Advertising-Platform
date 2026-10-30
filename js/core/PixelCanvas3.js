@@ -1064,6 +1064,22 @@ class PixelCanvas3 {
             // 2. 캐시가 없으면 서버에서 로드
             // 1. 영토 메타데이터 로드 (실패해도 기본값으로 계속 진행)
             // ⚠️ 운영 안전 정책: metadata는 최적화/동기화용이고, tiles 데이터가 있으면 무조건 화면은 떠야 함
+            // 필요한 타일 ID 목록 (전부). 아직 아무 타일도 갖고 있지 않으므로 리비전은 전부 0으로 요청해야
+            // 서버가 모든 타일을 보내줌 (서버 metadata의 revision을 보내면 "변경 없음"으로 빈 캔버스가 열리고,
+            // 그 위에 그려 저장하면 기존 그림이 덮어써짐). 메타데이터와 동시에 요청해 기다리는 시간을 줄임
+            const allTileIds = [];
+            for (let ty = 0; ty < this.tilesY; ty++) {
+                for (let tx = 0; tx < this.tilesX; tx++) {
+                    allTileIds.push(`${this.territoryId}:${tx}:${ty}`);
+                }
+            }
+            const clientRevisions = {};
+            for (const tileId of allTileIds) {
+                clientRevisions[tileId] = 0;
+            }
+            const tilesPromise = pixelDataService.loadTiles(this.territoryId, allTileIds, clientRevisions);
+            tilesPromise.catch(() => {});
+            
             try {
                 this.territoryMetadata = await pixelDataService.loadTerritoryMetadata(this.territoryId);
             } catch (metadataError) {
@@ -1116,30 +1132,8 @@ class PixelCanvas3 {
                 }
             }
             
-            // 2. 필요한 타일 ID 목록 생성 (모든 타일 또는 뷰포트 기반)
-            const allTileIds = [];
-            for (let ty = 0; ty < this.tilesY; ty++) {
-                for (let tx = 0; tx < this.tilesX; tx++) {
-                    const tileId = `${this.territoryId}:${tx}:${ty}`;
-                    allTileIds.push(tileId);
-                }
-            }
-            
-            // 3. 클라이언트 리비전 맵 생성
-            // 아직 아무 타일도 갖고 있지 않으므로 전부 0으로 요청해야 서버가 모든 타일을 보내줌
-            // (서버 metadata의 revision을 그대로 보내면 "변경 없음"으로 판단해 빈 캔버스가 열리고,
-            //  그 위에 그려 저장하면 기존 그림이 덮어써짐)
-            const clientRevisions = {};
-            for (const tileId of allTileIds) {
-                clientRevisions[tileId] = 0;
-            }
-            
-            // 4. 서버에서 필요한 타일만 요청
-            const tilesResponse = await pixelDataService.loadTiles(
-                this.territoryId,
-                allTileIds,
-                clientRevisions
-            );
+            // 4. 메타데이터와 함께 요청해 둔 타일 응답 받기
+            const tilesResponse = await tilesPromise;
             
             // 5. 타일 데이터를 pixelsMap에 적용
             this.pixels.clear();

@@ -36,6 +36,20 @@ const TILE_SYSTEM_LIMITS = {
     SOLID_COLOR_THRESHOLD: 200          // 단색 타일 최적화 임계값
 };
 
+/**
+ * 타일 데이터 여러 개를 한 번에 읽음 (하나씩 읽으면 Redis 왕복마다 ~0.1초라 64타일이면 수 초가 걸림)
+ * @returns {Promise<Map<string, any>>} tileId → tile_data (없으면 null)
+ */
+async function loadTileDataMany(tileIds) {
+    const CHUNK = 16;
+    const chunks = [];
+    for (let i = 0; i < tileIds.length; i += CHUNK) chunks.push(tileIds.slice(i, i + CHUNK));
+    const results = await Promise.all(chunks.map(chunk => redis.mget(chunk.map(id => `tile_data:${id}`))));
+    const map = new Map();
+    chunks.forEach((chunk, ci) => chunk.forEach((id, i) => map.set(id, results[ci]?.[i] ?? null)));
+    return map;
+}
+
 // 상위 레벨 라우터 (독립 라우트) - /api/pixels/* 경로용
 const topLevelRouter = express.Router();
 
@@ -503,11 +517,12 @@ router.get('/', async (req, res) => {
             let tilesEmpty = 0;
             let tilesError = 0;
             
+            const prefetchedTiles = await loadTileDataMany(tileIds);
             for (const tileId of tileIds) {
                 const tileKey = `tile_data:${tileId}`;
                 let tileDataRaw;
                 try {
-                    tileDataRaw = await redis.get(tileKey);
+                    tileDataRaw = prefetchedTiles.get(tileId);
                 } catch (getError) {
                     logger.warn(`[Pixels][GET] ⚠️ Failed to get tile data for ${tileId}`, {
                         reqId,
@@ -1467,10 +1482,10 @@ router.get('/tiles', async (req, res) => {
         const tilesData = [];
         const unchanged = [];
         
-        // 각 타일 조회
+        // 각 타일 조회 (한 번에 읽어 옴)
+        const tileDataMap = await loadTileDataMany(requestedTiles);
         for (const tileId of requestedTiles) {
-            const tileKey = `tile_data:${tileId}`;
-            const tileData = await redis.get(tileKey);
+            const tileData = tileDataMap.get(tileId);
             
             if (!tileData) {
                 // 타일이 없으면 건너뛰기
