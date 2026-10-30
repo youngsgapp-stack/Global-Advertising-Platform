@@ -5,8 +5,8 @@
 
 const CACHE_NAME = 'own-piece-v2';
 // ⚠️ CSS는 cache-first라 CSS를 수정하면 반드시 버전을 올려야 방문자에게 반영됨
-const STATIC_CACHE_VERSION = '1.0.11'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
-const DYNAMIC_CACHE_VERSION = '1.0.11';
+const STATIC_CACHE_VERSION = '1.0.12'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
+const DYNAMIC_CACHE_VERSION = '1.0.12';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
@@ -34,9 +34,8 @@ const NETWORK_FIRST_PATTERNS = [
     /mapbox\.com/
 ];
 
-// 캐시 우선 (정적 리소스) - JavaScript 제외 (네트워크 우선)
+// 캐시 우선 (정적 리소스) - JavaScript·CSS 제외 (CSS를 캐시에서 먼저 주면 업데이트 후에도 옛 디자인이 남음)
 const CACHE_FIRST_PATTERNS = [
-    /\.css$/,
     /\.png$/,
     /\.jpg$/,
     /\.jpeg$/,
