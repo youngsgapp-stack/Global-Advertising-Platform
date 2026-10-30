@@ -54,14 +54,22 @@
 }
 
 /* === 랭킹 탭 === */
+/* 좁은 패널에서도 탭 글자가 겹치지 않도록 한 줄로 두고 옆으로 밀어서 봄 */
 .ranking-tabs {
     display: flex;
     border-bottom: var(--border-subtle);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.ranking-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .ranking-tab {
-    flex: 1;
-    padding: var(--spacing-sm);
+    flex: 1 0 auto;
+    white-space: nowrap;
+    padding: var(--spacing-sm) 10px;
     background: none;
     border: none;
     color: var(--color-text-secondary);
