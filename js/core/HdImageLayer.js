@@ -123,7 +123,7 @@ class HdImageLayer {
                 url,
                 coordinates: [[minLng, maxLat], [maxLng, maxLat], [maxLng, minLat], [minLng, minLat]]
             });
-            const beforeLayer = this.map.getLayer(`${WORLD_SOURCE}-fill`) ? `${WORLD_SOURCE}-fill` : undefined;
+            const beforeLayer = this.hdBeforeLayer();
             this.map.addLayer({
                 id: sourceId,
                 type: 'raster',
@@ -139,12 +139,18 @@ class HdImageLayer {
         }
     }
     
+    /** 픽셀 그림처럼 영토 색 위·경계선 아래에 둠 (keepAbovePixelArt가 픽셀 그림보다 위로 다시 맞춤) */
+    hdBeforeLayer() {
+        if (this.map.getLayer(`${WORLD_SOURCE}-line`)) return `${WORLD_SOURCE}-line`;
+        return this.map.getLayer(`${WORLD_SOURCE}-fill`) ? `${WORLD_SOURCE}-fill` : undefined;
+    }
+    
     /** 픽셀 그림 레이어가 나중에 다시 그려져도 HD 사진이 그 위에 오도록 (순서가 틀렸을 때만 옮김) */
     keepAbovePixelArt() {
         if (!this.map || this.shown.size === 0) return;
         const order = this.map.getStyle()?.layers?.map(layer => layer.id) || [];
         const lastPixelIndex = order.reduce((max, id, index) => (id.startsWith('pixel-overlay-') ? index : max), -1);
-        const beforeLayer = this.map.getLayer(`${WORLD_SOURCE}-fill`) ? `${WORLD_SOURCE}-fill` : undefined;
+        const beforeLayer = this.hdBeforeLayer();
         for (const territoryId of this.shown.keys()) {
             const layerId = `hd-${territoryId}`;
             if (order.indexOf(layerId) !== -1 && order.indexOf(layerId) < lastPixelIndex) {

@@ -1409,9 +1409,12 @@ class PixelMapRenderer3 {
                 });
             }
             
-            // 레이어 추가 (존재 확인 후, 영토 fill 레이어 위에 배치)
+            // 레이어 추가: 영토 색(fill) 위, 경계선(line) 아래. fill 아래에 두면 hasPixelArt 상태가
+            // 늦게 들어오거나 빠졌을 때 땅 색이 그림을 덮어 흐려짐
             if (!this.map.getLayer(layerId)) {
-                const beforeLayer = `${territory.sourceId}-fill`;
+                const beforeLayer = this.map.getLayer(`${territory.sourceId}-line`)
+                    ? `${territory.sourceId}-line`
+                    : `${territory.sourceId}-fill`;
                 
                 // beforeLayer가 존재하는지 확인
                 if (!this.map.getLayer(beforeLayer)) {
