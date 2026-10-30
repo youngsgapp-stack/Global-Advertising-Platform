@@ -21,8 +21,14 @@ export const TOOLS = {
     ERASER: 'eraser',
     FILL: 'fill',
     PICKER: 'picker',
+    LINE: 'line',
+    RECT: 'rect',
+    ELLIPSE: 'ellipse',
+    STAMP: 'stamp', // 글자·스티커 찍기
     PAN: 'pan' // 이동 도구
 };
+
+const SHAPE_TOOLS = new Set([TOOLS.LINE, TOOLS.RECT, TOOLS.ELLIPSE]);
 
 class PixelCanvas3 {
     constructor() {
@@ -136,6 +142,25 @@ class PixelCanvas3 {
         // ⚠️ 재동기화 추적: invalid payload 무시 시 자동 복구용
         this.needsResyncTiles = new Set(); // 재동기화가 필요한 tileId 목록
         this.resyncTimer = null; // 재동기화 타이머
+        
+        // 리뉴얼 에디터: 캔버스+미리보기 레이어를 함께 움직이는 stage, 지도 밑그림, 보조 기능
+        this.stage = null;
+        this.overlayCanvas = null;
+        this.overlayCtx = null;
+        this.underlayImage = null;
+        this.underlayOpacity = 0.6;
+        this.showGrid = false;
+        this.mirror = false;
+        this.shapeFilled = false;
+        this.shapeStart = null;
+        this.shapeEnd = null;
+        this.shapeConstrain = false;
+        this.stamp = null; // { w, h, cells: [{ dx, dy, color }] }
+        this.hoverPos = null;
+        this.overlayFrame = null;
+        this.batching = false;
+        this.viewPadding = { x: 40, y: 40 };
+        this.viewOffsetY = 0;
     }
     
     /**
@@ -353,8 +378,19 @@ class PixelCanvas3 {
         // ⚠️ 픽셀 표시 캔버스는 무조건 nearest-neighbor (스무딩 OFF)
         this.ctx.imageSmoothingEnabled = false;
         
-        // 캔버스 래퍼 찾기
-        this.wrapper = this.canvas.parentElement;
+        // 캔버스 래퍼 찾기 (리뉴얼 에디터는 캔버스+미리보기 레이어를 .pe-stage로 묶어 함께 확대/이동)
+        const parent = this.canvas.parentElement;
+        if (parent?.classList.contains('pe-stage')) {
+            this.stage = parent;
+            this.wrapper = parent.parentElement;
+            this.overlayCanvas = parent.querySelector('canvas.pe-overlay');
+        } else {
+            this.stage = this.canvas;
+            this.wrapper = parent;
+            this.overlayCanvas = null;
+        }
+        this.underlayImage = null;
+        this.boundaryPath = null;
         
         // territory 객체 저장
         this.territory = territory || territoryManager.getTerritory(territoryId);
@@ -388,6 +424,18 @@ class PixelCanvas3 {
         // ⚠️ 스케일 후에도 스무딩 OFF 유지
         this.ctx.imageSmoothingEnabled = false;
         
+        if (this.overlayCanvas) {
+            this.overlayCanvas.width = baseSize * dpr;
+            this.overlayCanvas.height = baseSize * dpr;
+            this.overlayCanvas.style.width = `${baseSize}px`;
+            this.overlayCanvas.style.height = `${baseSize}px`;
+            this.overlayCtx = this.overlayCanvas.getContext('2d');
+            this.overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            this.overlayCtx.imageSmoothingEnabled = false;
+        } else {
+            this.overlayCtx = null;
+        }
+        
         // 배경 및 경계선 그리기
         this.drawBackground();
         this.drawTerritoryBoundary();
@@ -399,11 +447,13 @@ class PixelCanvas3 {
         // ⚠️ metadata는 여기서 로드되지만, 캔버스 좌표계는 이미 위에서 고정됨
         await this.loadTiles();
         
-        // 이벤트 리스너
+        // 이벤트 리스너 (DOM 리스너는 캔버스당 한 번만, 다시 열 때마다 겹쳐 붙으면 한 번에 여러 번 그려짐)
         this.setupEvents();
-        
-        // 터치 이벤트 설정 (모바일)
-        this.setupTouchEvents();
+        if (!this.canvas._pc3TouchBound) {
+            this.canvas._pc3TouchBound = true;
+            this.setupTouchEvents();
+        }
+        this.emitHistory();
         
         // 미완성 세션 확인 및 복원
         await this.checkAndRestoreSession();
@@ -446,6 +496,10 @@ class PixelCanvas3 {
                     touch2.clientY - touch1.clientY
                 );
                 this.touchStartZoom = this.zoom;
+                this.touchStartX = (touch1.clientX + touch2.clientX) / 2;
+                this.touchStartY = (touch1.clientY + touch2.clientY) / 2;
+                this.touchStartPanX = this.panX;
+                this.touchStartPanY = this.panY;
                 e.preventDefault();
             } else if (e.touches.length === 1) {
                 const touch = e.touches[0];
@@ -466,6 +520,9 @@ class PixelCanvas3 {
                 );
                 const scale = distance / this.touchStartDistance;
                 const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.touchStartZoom * scale));
+                // 두 손가락: 벌리면 확대, 같이 움직이면 이동
+                this.panX = this.touchStartPanX + ((touch1.clientX + touch2.clientX) / 2 - this.touchStartX);
+                this.panY = this.touchStartPanY + ((touch1.clientY + touch2.clientY) / 2 - this.touchStartY);
                 this.setZoom(newZoom);
                 e.preventDefault();
             } else if (e.touches.length === 1) {
@@ -503,6 +560,15 @@ class PixelCanvas3 {
                 this.onMouseUp();
                 e.preventDefault();
             }
+            // 두 손가락 중 하나만 떼면 남은 손가락 기준으로 이동을 이어감
+            if (e.touches.length === 1) {
+                this.touchStartX = e.touches[0].clientX;
+                this.touchStartY = e.touches[0].clientY;
+                this.touchStartPanX = this.panX;
+                this.touchStartPanY = this.panY;
+            }
+            this.hoverPos = null;
+            this.scheduleOverlay();
         });
     }
     
@@ -530,15 +596,15 @@ class PixelCanvas3 {
         const canvasWidth = this.width * this.basePixelSize;
         const canvasHeight = this.height * this.basePixelSize;
         
-        // 여유 공간을 두고 맞추기
-        const padding = 40;
-        const scaleX = (wrapperWidth - padding) / canvasWidth;
-        const scaleY = (wrapperHeight - padding) / canvasHeight;
+        // 여유 공간을 두고 맞추기 (떠 있는 도구 막대가 가리는 만큼은 viewPadding/viewOffsetY로 비켜 줌)
+        const padding = this.viewPadding || { x: 40, y: 40 };
+        const scaleX = (wrapperWidth - padding.x) / canvasWidth;
+        const scaleY = (wrapperHeight - padding.y) / canvasHeight;
         const scale = Math.min(scaleX, scaleY, this.maxZoom);
         
         this.zoom = Math.max(scale, this.minZoom);
         this.panX = 0;
-        this.panY = 0;
+        this.panY = this.viewOffsetY || 0;
         
         this.updateCanvasTransform();
         this.emitZoomChange();
@@ -557,8 +623,10 @@ class PixelCanvas3 {
         const translateY = this.panY;
         
         // wrapper(flex)가 캔버스 원본 크기 기준으로 가운데 정렬하므로 중심 기준으로 확대해야 잘리지 않음
-        this.canvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-        this.canvas.style.transformOrigin = '50% 50%';
+        const target = this.stage || this.canvas;
+        target.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        target.style.transformOrigin = '50% 50%';
+        this.scheduleOverlay();
     }
     
     /**
@@ -731,6 +799,29 @@ class PixelCanvas3 {
             return { x: g.x * this.basePixelSize, y: g.y * this.basePixelSize };
         };
         
+        // 미리보기 레이어가 있으면 경계선은 그 위에 그림 (본 캔버스에 그리면 칠한 칸이 선을 덮어 지워짐)
+        if (this.overlayCtx) {
+            if (!this.boundaryPath) {
+                const path = new Path2D();
+                const addRing = (ring) => {
+                    ring.forEach((coord, idx) => {
+                        const { x, y } = toCanvas(coord);
+                        if (idx === 0) path.moveTo(x, y);
+                        else path.lineTo(x, y);
+                    });
+                    path.closePath();
+                };
+                if (this.territoryGeometry.type === 'Polygon') {
+                    this.territoryGeometry.coordinates.forEach(addRing);
+                } else if (this.territoryGeometry.type === 'MultiPolygon') {
+                    this.territoryGeometry.coordinates.forEach(polygon => polygon.forEach(addRing));
+                }
+                this.boundaryPath = path;
+            }
+            this.scheduleOverlay();
+            return;
+        }
+        
         this.ctx.strokeStyle = '#4ecdc4';
         this.ctx.lineWidth = 2;
         
@@ -772,6 +863,37 @@ class PixelCanvas3 {
         this.backgroundMode = mode;
         this.backgroundColor = color;
         this.checkerSize = checkerSize;
+    }
+    
+    /**
+     * 지도 밑그림 (픽셀 그리드와 같은 Mercator 정사각형으로 받은 정적 지도 이미지). null이면 끔
+     */
+    setUnderlay(image, opacity = null) {
+        this.underlayImage = image || null;
+        if (opacity !== null) this.underlayOpacity = Math.max(0, Math.min(1, opacity));
+        this.render();
+    }
+    
+    /**
+     * 밑그림이 깔린 빈 칸을 칠함: 영토 안은 배경색을 옅게 덮어 지도가 비쳐 보이게, 밖은 어둡게
+     */
+    shadeEmptyCell(x, y) {
+        const size = this.basePixelSize;
+        const inside = !this.territoryMask || this.territoryMask.has(`${x},${y}`);
+        if (inside) {
+            if (this.backgroundMode === 'checker') {
+                const light = (Math.floor(x / this.checkerSize) + Math.floor(y / this.checkerSize)) % 2 === 0;
+                this.ctx.fillStyle = light ? '#e0e0e0' : '#c0c0c0';
+            } else {
+                this.ctx.fillStyle = this.backgroundColor || '#1a1a1a';
+            }
+            this.ctx.globalAlpha = 1 - this.underlayOpacity;
+        } else {
+            this.ctx.fillStyle = '#05070c';
+            this.ctx.globalAlpha = 0.78;
+        }
+        this.ctx.fillRect(x * size, y * size, size, size);
+        this.ctx.globalAlpha = 1;
     }
     
     /**
@@ -843,6 +965,16 @@ class PixelCanvas3 {
         if (!this.ctx) return;
         
         const size = this.basePixelSize;
+        
+        if (this.underlayImage) {
+            this.ctx.drawImage(this.underlayImage, 0, 0, this.width * size, this.height * size);
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    this.shadeEmptyCell(x, y);
+                }
+            }
+            return;
+        }
         
         if (this.backgroundMode === 'checker') {
             // 체커보드 배경
@@ -1330,23 +1462,31 @@ class PixelCanvas3 {
     setupEvents() {
         if (!this.canvas) return;
         
-        // 마우스 이벤트
-        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        this.canvas.addEventListener('mouseup', () => this.onMouseUp());
-        this.canvas.addEventListener('mouseleave', () => this.onMouseUp());
-        
-        // 휠 줌
-        this.canvas.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            this.setZoom(this.zoom * delta);
-        });
-        
-        // 패닝 (우클릭 드래그 또는 Shift + 드래그)
-        this.canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
+        if (!this.canvas._pc3MouseBound) {
+            this.canvas._pc3MouseBound = true;
+            
+            this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+            this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+            // 캔버스 밖에서 버튼을 떼도 획/도형이 끝나도록 window에서 받음
+            window.addEventListener('mouseup', (e) => {
+                if (this.canvas && (this.isDrawing || this.isPanning)) this.onMouseUp(e);
+            });
+            this.canvas.addEventListener('mouseleave', () => {
+                this.hoverPos = null;
+                this.scheduleOverlay();
+            });
+            
+            // 휠 줌 (마우스가 가리키는 곳을 중심으로)
+            this.canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                this.zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / 1.15 : 1.15);
+            }, { passive: false });
+            
+            // 우클릭/가운데 버튼 드래그는 이동
+            this.canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+            });
+        }
         
         // WebSocket 타일 업데이트 리스너
         // ⚠️ 중복 등록 방지: 기존 리스너가 있으면 먼저 제거
@@ -1364,26 +1504,26 @@ class PixelCanvas3 {
         eventBus.on('pixel:tiles:updated', this.tileUpdateListener);
         
         // 터치 이벤트는 setupTouchEvents()에서 처리
-        
-        // 키보드 단축키
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                this.undo();
-            } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-                e.preventDefault();
-                this.redo();
-            } else if (e.key === ' ' || e.key === 'Space') {
-                e.preventDefault();
-                this.canvas.style.cursor = 'grab';
-            }
-        });
-        
-        document.addEventListener('keyup', (e) => {
-            if (e.key === ' ' || e.key === 'Space') {
-                this.canvas.style.cursor = 'crosshair';
-            }
-        });
+        // 키보드 단축키는 PixelEditor3가 처리 (여기서도 받으면 Ctrl+Z 한 번에 두 단계가 되돌려짐)
+    }
+    
+    /**
+     * 화면의 한 점(clientX/Y)을 고정한 채 확대/축소
+     */
+    zoomAt(clientX, clientY, factor) {
+        if (!this.wrapper) {
+            this.setZoom(this.zoom * factor);
+            return;
+        }
+        const rect = this.wrapper.getBoundingClientRect();
+        const px = clientX - (rect.left + rect.width / 2);
+        const py = clientY - (rect.top + rect.height / 2);
+        const oldZoom = this.zoom;
+        const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, oldZoom * factor));
+        if (newZoom === oldZoom) return;
+        this.panX = px - (px - this.panX) * (newZoom / oldZoom);
+        this.panY = py - (py - this.panY) * (newZoom / oldZoom);
+        this.setZoom(newZoom);
     }
     
     /**
@@ -1433,8 +1573,8 @@ class PixelCanvas3 {
      * 마우스 다운
      */
     onMouseDown(e) {
-        // 이동 도구 모드 또는 패닝 모드 (우클릭 또는 Shift+드래그)
-        if (this.tool === TOOLS.PAN || e.button === 2 || (e.button === 0 && e.shiftKey)) {
+        // 이동 도구, 우클릭, 가운데 버튼 드래그는 화면 이동 (Shift는 도형 비율 고정에 씀)
+        if (this.tool === TOOLS.PAN || e.button === 1 || e.button === 2) {
             this.isPanning = true;
             this.panStartX = e.clientX - this.panX;
             this.panStartY = e.clientY - this.panY;
@@ -1443,24 +1583,51 @@ class PixelCanvas3 {
             }
             return;
         }
+        if (e.button !== undefined && e.button !== 0) return;
         
-        // 드로잉 모드
-        const { x, y } = this.getPixelPos(e);
-        if (!this.isValidPos(x, y)) return;
-        if (!this.isInsideTerritory(x, y)) return;
+        const raw = this.getPixelPos(e);
+        const inCanvas = this.isValidPos(raw.x, raw.y);
+        const pos = inCanvas ? raw : this.getPixelPosClamped(e);
+        this.hoverPos = inCanvas ? raw : null;
+        
+        if (SHAPE_TOOLS.has(this.tool)) {
+            this.isDrawing = true;
+            this.saveHistory();
+            this.shapeStart = pos;
+            this.shapeEnd = pos;
+            this.shapeConstrain = !!e.shiftKey;
+            this.scheduleOverlay();
+            return;
+        }
+        
+        if (this.tool === TOOLS.STAMP) {
+            // 누른 채로 위치를 맞추고, 손을 떼는 곳에 찍음 (터치에서도 미리보기를 보며 놓을 수 있게)
+            if (!this.stamp) return;
+            this.isDrawing = true;
+            this.hoverPos = pos;
+            this.scheduleOverlay();
+            return;
+        }
+        
+        if (!inCanvas) return;
+        
+        if (this.tool === TOOLS.PICKER) {
+            this.pickColor(raw.x, raw.y);
+            return;
+        }
+        // 채우기는 영토 안에서만 시작, 브러시/지우개는 경계 밖에서 시작해 안으로 그어도 그려지게 함
+        if (this.tool === TOOLS.FILL && !this.isInsideTerritory(raw.x, raw.y)) return;
         
         this.isDrawing = true;
         this.saveHistory();
         
         if (this.tool === TOOLS.FILL) {
-            this.floodFill(x, y);
-        } else if (this.tool === TOOLS.PICKER) {
-            this.pickColor(x, y);
+            this.batch(() => this.floodFill(raw.x, raw.y));
         } else {
-            this.drawPixel(x, y);
+            this.drawPixel(raw.x, raw.y);
         }
         
-        this.lastPos = { x, y };
+        this.lastPos = { x: raw.x, y: raw.y };
     }
     
     /**
@@ -1474,22 +1641,30 @@ class PixelCanvas3 {
             return;
         }
         
-        if (!this.isDrawing) return;
+        const raw = this.getPixelPos(e);
+        const inCanvas = this.isValidPos(raw.x, raw.y);
+        this.hoverPos = inCanvas ? raw : null;
         
-        const { x, y } = this.getPixelPos(e);
-        if (!this.isValidPos(x, y)) return;
-        if (!this.isInsideTerritory(x, y)) return;
-        
-        if (this.tool === TOOLS.BRUSH || this.tool === TOOLS.ERASER) {
-            // 빠르게 움직이면 이벤트 사이 칸이 비므로 1px 브러시도 선으로 이어 그림
-            if (this.lastPos) {
-                this.drawLine(this.lastPos.x, this.lastPos.y, x, y);
-            } else {
-                this.drawPixel(x, y);
+        if (this.isDrawing) {
+            if (SHAPE_TOOLS.has(this.tool)) {
+                this.shapeEnd = inCanvas ? raw : this.getPixelPosClamped(e);
+                this.shapeConstrain = !!e.shiftKey;
+            } else if (this.tool === TOOLS.STAMP) {
+                this.hoverPos = inCanvas ? raw : this.getPixelPosClamped(e);
+            } else if ((this.tool === TOOLS.BRUSH || this.tool === TOOLS.ERASER) && inCanvas) {
+                // 빠르게 움직이면 이벤트 사이 칸이 비므로 선으로 이어 그림 (영토 밖 칸은 setPixel이 건너뜀)
+                this.batch(() => {
+                    if (this.lastPos) {
+                        this.drawLine(this.lastPos.x, this.lastPos.y, raw.x, raw.y);
+                    } else {
+                        this.drawPixel(raw.x, raw.y);
+                    }
+                });
+                this.lastPos = { x: raw.x, y: raw.y };
             }
         }
         
-        this.lastPos = { x, y };
+        this.scheduleOverlay();
     }
     
     /**
@@ -1499,16 +1674,335 @@ class PixelCanvas3 {
         if (this.isPanning) {
             this.isPanning = false;
             if (this.canvas) {
-                this.canvas.style.cursor = 'crosshair';
+                this.canvas.style.cursor = this.tool === TOOLS.PAN ? 'grab' : 'crosshair';
             }
         }
         
+        if (!this.isDrawing) return;
+        this.isDrawing = false;
+        this.lastPos = null;
+        
+        if (SHAPE_TOOLS.has(this.tool) && this.shapeStart) {
+            const cells = this.getShapeCells();
+            this.batch(() => {
+                for (const key of cells) {
+                    const [x, y] = key.split(',').map(Number);
+                    this.setPixel(x, y, this.color);
+                }
+            });
+            this.shapeStart = null;
+            this.shapeEnd = null;
+        } else if (this.tool === TOOLS.STAMP && this.stamp && this.hoverPos) {
+            this.saveHistory();
+            this.placeStamp(this.hoverPos.x, this.hoverPos.y);
+            eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'stampPlaced' });
+        }
+        
+        // 획이 끝날 때 히스토리 기록 (이 획이 하나의 Undo 단계가 됨)
+        this.saveHistory();
+        this.scheduleOverlay();
+    }
+    
+    /**
+     * 캔버스 밖을 가리켜도 가장 가까운 칸으로 (도형을 캔버스 끝까지 그릴 때)
+     */
+    getPixelPosClamped(e) {
+        if (!this.canvas) return { x: 0, y: 0 };
+        const rect = this.canvas.getBoundingClientRect();
+        const cell = rect.width / this.width;
+        const x = Math.floor((e.clientX - rect.left) / cell);
+        const y = Math.floor((e.clientY - rect.top) / cell);
+        return {
+            x: Math.max(0, Math.min(this.width - 1, x)),
+            y: Math.max(0, Math.min(this.height - 1, y))
+        };
+    }
+    
+    /**
+     * 여러 칸을 한꺼번에 칠할 때 통계 이벤트를 마지막에 한 번만 보냄
+     */
+    batch(fn) {
+        const wasBatching = this.batching;
+        this.batching = true;
+        try {
+            fn();
+        } finally {
+            this.batching = wasBatching;
+        }
+        if (!wasBatching) this.updateStats();
+    }
+    
+    /**
+     * 좌우 대칭이 켜져 있으면 거울 위치에도 같은 작업
+     */
+    forEachMirrored(x, y, fn) {
+        fn(x, y);
+        if (this.mirror) {
+            const mx = this.width - 1 - x;
+            if (mx !== x) fn(mx, y);
+        }
+    }
+    
+    /**
+     * 브러시 한 번 찍을 때 칠해지는 칸들 (원형, 크기 1이면 한 칸)
+     */
+    brushFootprint(x, y, size = this.brushSize) {
+        const cells = [];
+        if (size <= 1) {
+            cells.push([x, y]);
+            return cells;
+        }
+        const radius = Math.floor(size / 2);
+        const r2 = radius * radius;
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if (dx * dx + dy * dy > r2) continue;
+                cells.push([x + dx, y + dy]);
+            }
+        }
+        return cells;
+    }
+    
+    /**
+     * 지금 그리는 도형이 칠할 칸 (대칭 포함, "x,y" 문자열 Set)
+     */
+    getShapeCells() {
+        const cells = new Set();
+        if (!this.shapeStart || !this.shapeEnd) return cells;
+        let { x: x0, y: y0 } = this.shapeStart;
+        let { x: x1, y: y1 } = this.shapeEnd;
+        
+        if (this.shapeConstrain) {
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+            if (this.tool === TOOLS.LINE) {
+                // 0° / 45° / 90°로 고정
+                const adx = Math.abs(dx), ady = Math.abs(dy);
+                if (adx > ady * 2) y1 = y0;
+                else if (ady > adx * 2) x1 = x0;
+                else {
+                    const d = Math.max(adx, ady);
+                    x1 = x0 + Math.sign(dx) * d;
+                    y1 = y0 + Math.sign(dy) * d;
+                }
+            } else {
+                // 정사각형 / 정원
+                const d = Math.max(Math.abs(dx), Math.abs(dy));
+                x1 = x0 + (Math.sign(dx) || 1) * d;
+                y1 = y0 + (Math.sign(dy) || 1) * d;
+            }
+        }
+        
+        const add = (x, y) => {
+            for (const [bx, by] of this.brushFootprint(x, y)) {
+                this.forEachMirrored(bx, by, (mx, my) => {
+                    if (this.isValidPos(mx, my)) cells.add(`${mx},${my}`);
+                });
+            }
+        };
+        const addPlain = (x, y) => {
+            this.forEachMirrored(x, y, (mx, my) => {
+                if (this.isValidPos(mx, my)) cells.add(`${mx},${my}`);
+            });
+        };
+        
+        if (this.tool === TOOLS.LINE) {
+            this.forLinePoints(x0, y0, x1, y1, add);
+            return cells;
+        }
+        
+        const left = Math.min(x0, x1), right = Math.max(x0, x1);
+        const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+        
+        if (this.tool === TOOLS.RECT) {
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    const edge = x === left || x === right || y === top || y === bottom;
+                    if (this.shapeFilled) addPlain(x, y);
+                    else if (edge) add(x, y);
+                }
+            }
+            return cells;
+        }
+        
+        // 타원: 칸 중심이 타원 안이면 채움, 테두리는 바깥 이웃이 있는 칸
+        const cx = (left + right) / 2;
+        const cy = (top + bottom) / 2;
+        const rx = (right - left) / 2 + 0.5;
+        const ry = (bottom - top) / 2 + 0.5;
+        const inside = (x, y) => ((x - cx) ** 2) / (rx * rx) + ((y - cy) ** 2) / (ry * ry) <= 1;
+        for (let y = top; y <= bottom; y++) {
+            for (let x = left; x <= right; x++) {
+                if (!inside(x, y)) continue;
+                if (this.shapeFilled) {
+                    addPlain(x, y);
+                } else if (!inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1)) {
+                    add(x, y);
+                }
+            }
+        }
+        return cells;
+    }
+    
+    forLinePoints(x1, y1, x2, y2, fn) {
+        const dx = Math.abs(x2 - x1);
+        const dy = Math.abs(y2 - y1);
+        const sx = x1 < x2 ? 1 : -1;
+        const sy = y1 < y2 ? 1 : -1;
+        let err = dx - dy;
+        let x = x1;
+        let y = y1;
+        while (true) {
+            fn(x, y);
+            if (x === x2 && y === y2) break;
+            const e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x += sx; }
+            if (e2 < dx) { err += dx; y += sy; }
+        }
+    }
+    
+    /**
+     * 글자/스티커 도장 설정 (null이면 해제)
+     */
+    setStamp(stamp) {
+        this.stamp = stamp && stamp.cells?.length ? stamp : null;
+        this.scheduleOverlay();
+    }
+    
+    stampOrigin(x, y) {
+        return { ox: x - Math.floor(this.stamp.w / 2), oy: y - Math.floor(this.stamp.h / 2) };
+    }
+    
+    placeStamp(x, y) {
+        if (!this.stamp) return;
+        const { ox, oy } = this.stampOrigin(x, y);
+        this.batch(() => {
+            for (const c of this.stamp.cells) {
+                const px = ox + c.dx;
+                const py = oy + c.dy;
+                if (this.isValidPos(px, py)) this.setPixel(px, py, c.color);
+            }
+        });
+    }
+    
+    /**
+     * 미리보기 레이어 (격자, 브러시 위치, 도형·도장 미리보기). 마우스 이동마다 부르므로 프레임당 한 번만 그림
+     */
+    scheduleOverlay() {
+        if (!this.overlayCtx || this.overlayFrame) return;
+        this.overlayFrame = requestAnimationFrame(() => {
+            this.overlayFrame = null;
+            this.renderOverlay();
+        });
+    }
+    
+    renderOverlay() {
+        const ctx = this.overlayCtx;
+        if (!ctx) return;
+        const s = this.basePixelSize;
+        const W = this.width;
+        const H = this.height;
+        ctx.clearRect(0, 0, W * s, H * s);
+        
+        if (this.boundaryPath) {
+            const lw = Math.max(1, 1.5 / Math.max(this.zoom, 0.01));
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+            ctx.lineWidth = lw * 2.2;
+            ctx.stroke(this.boundaryPath);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+            ctx.lineWidth = lw;
+            ctx.stroke(this.boundaryPath);
+        }
+        
+        if (this.showGrid) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+            ctx.lineWidth = Math.max(0.5, 1 / Math.max(this.zoom, 0.01));
+            ctx.beginPath();
+            for (let i = 0; i <= W; i++) {
+                ctx.moveTo(i * s, 0);
+                ctx.lineTo(i * s, H * s);
+            }
+            for (let i = 0; i <= H; i++) {
+                ctx.moveTo(0, i * s);
+                ctx.lineTo(W * s, i * s);
+            }
+            ctx.stroke();
+            if (this.mirror) {
+                ctx.strokeStyle = 'rgba(255, 196, 0, 0.5)';
+                ctx.beginPath();
+                ctx.moveTo((W / 2) * s, 0);
+                ctx.lineTo((W / 2) * s, H * s);
+                ctx.stroke();
+            }
+        } else if (this.mirror) {
+            ctx.strokeStyle = 'rgba(255, 196, 0, 0.45)';
+            ctx.lineWidth = Math.max(1, 1.5 / Math.max(this.zoom, 0.01));
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo((W / 2) * s, 0);
+            ctx.lineTo((W / 2) * s, H * s);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
+        const fillCells = (cells, color, alpha) => {
+            ctx.globalAlpha = alpha;
+            for (const [x, y, c] of cells) {
+                ctx.fillStyle = c || color;
+                ctx.fillRect(x * s, y * s, s, s);
+            }
+            ctx.globalAlpha = 1;
+        };
+        
+        if (this.isDrawing && SHAPE_TOOLS.has(this.tool)) {
+            const cells = [...this.getShapeCells()]
+                .map(k => k.split(',').map(Number))
+                .filter(([x, y]) => this.isInsideTerritory(x, y));
+            fillCells(cells, this.color, 0.85);
+            return;
+        }
+        
+        if (this.tool === TOOLS.STAMP && this.stamp && this.hoverPos) {
+            const { ox, oy } = this.stampOrigin(this.hoverPos.x, this.hoverPos.y);
+            const cells = this.stamp.cells.map(c => [ox + c.dx, oy + c.dy, c.color]);
+            fillCells(cells, this.color, 0.8);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = Math.max(1, 1.5 / Math.max(this.zoom, 0.01));
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(ox * s, oy * s, this.stamp.w * s, this.stamp.h * s);
+            ctx.setLineDash([]);
+            return;
+        }
+        
+        if (this.hoverPos && !this.isDrawing && !this.isPanning &&
+            (this.tool === TOOLS.BRUSH || this.tool === TOOLS.ERASER || SHAPE_TOOLS.has(this.tool))) {
+            const cells = [];
+            for (const [bx, by] of this.brushFootprint(this.hoverPos.x, this.hoverPos.y)) {
+                this.forEachMirrored(bx, by, (mx, my) => cells.push([mx, my]));
+            }
+            if (this.tool === TOOLS.ERASER) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.lineWidth = Math.max(1, 1.5 / Math.max(this.zoom, 0.01));
+                for (const [x, y] of cells) ctx.strokeRect(x * s + 0.5, y * s + 0.5, s - 1, s - 1);
+            } else {
+                fillCells(cells, this.color, 0.55);
+            }
+        }
+    }
+    
+    /**
+     * 도장/도형 등 그리기 상태 초기화 (도구를 바꿀 때)
+     */
+    resetToolState() {
+        this.shapeStart = null;
+        this.shapeEnd = null;
         if (this.isDrawing) {
             this.isDrawing = false;
             this.lastPos = null;
-            // 획이 끝날 때 히스토리 기록 (이 획이 하나의 Undo 단계가 됨)
             this.saveHistory();
         }
+        this.scheduleOverlay();
     }
     
     /**
@@ -1548,7 +2042,7 @@ class PixelCanvas3 {
             
             this.markDirty();
             this.drawPixelOnCanvas(x, y, null);
-            this.updateStats();
+            if (!this.batching) this.updateStats();
         }
     }
     
@@ -1559,38 +2053,19 @@ class PixelCanvas3 {
      * @param {string} mode - 'paint' 또는 'erase'
      */
     applyBrushStroke(x, y, mode = 'paint') {
-        if (!this.isInsideTerritory(x, y)) return;
-        
-        if (this.brushSize === 1) {
-            // 단일 픽셀
-            if (mode === 'erase') {
-                this.clearPixel(x, y);
-            } else {
-                this.setPixel(x, y, this.color);
-            }
-        } else {
-            // 반경 기반 브러시 (원형)
-            const radius = Math.floor(this.brushSize / 2);
-            const radiusSquared = radius * radius;
-            
-            for (let dy = -radius; dy <= radius; dy++) {
-                for (let dx = -radius; dx <= radius; dx++) {
-                    // 원형 마스크: 거리 체크 (sqrt 제거, r² 방식)
-                    if (dx * dx + dy * dy > radiusSquared) continue;
-                    
-                    const nx = x + dx;
-                    const ny = y + dy;
-                    
-                    if (this.isValidPos(nx, ny) && this.isInsideTerritory(nx, ny)) {
-                        if (mode === 'erase') {
-                            this.clearPixel(nx, ny);
-                        } else {
-                            this.setPixel(nx, ny, this.color);
-                        }
+        // 브러시 중심이 영토 밖이어도 가장자리 칸은 칠해지도록 칸마다 검사 (setPixel/clearPixel이 밖은 건너뜀)
+        this.batch(() => {
+            for (const [bx, by] of this.brushFootprint(x, y)) {
+                this.forEachMirrored(bx, by, (nx, ny) => {
+                    if (!this.isValidPos(nx, ny)) return;
+                    if (mode === 'erase') {
+                        this.clearPixel(nx, ny);
+                    } else {
+                        this.setPixel(nx, ny, this.color);
                     }
-                }
+                });
             }
-        }
+        });
     }
     
     /**
@@ -1644,7 +2119,7 @@ class PixelCanvas3 {
         
         this.markDirty();
         this.drawPixelOnCanvas(x, y, color);
-        this.updateStats();
+        if (!this.batching) this.updateStats();
     }
     
     /**
@@ -1691,6 +2166,15 @@ class PixelCanvas3 {
         if (!this.ctx) return;
         
         const size = this.basePixelSize;
+        
+        if (color === null && this.underlayImage) {
+            const img = this.underlayImage;
+            const sw = img.naturalWidth / this.width;
+            const sh = img.naturalHeight / this.height;
+            this.ctx.drawImage(img, x * sw, y * sh, sw, sh, x * size, y * size, size, size);
+            this.shadeEmptyCell(x, y);
+            return;
+        }
         
         if (color === null) {
             // 삭제된 픽셀: 배경색으로 그리기 (배경 설정 반영)
@@ -1838,8 +2322,9 @@ class PixelCanvas3 {
         // 일반 렌더링에서는 호출하지 않음 (Base Pixels를 가리지 않도록)
         
         // ===== 레이어 3: Tool Overlay (동적) =====
-        // 스탬프 프리뷰, transform box 등은 별도 메서드에서 처리
-        // (이미지 업로드 기능 구현 시 추가)
+        // 격자·브러시 위치·도형/도장 미리보기는 별도 캔버스(renderOverlay)에 그림
+        this.scheduleOverlay();
+        eventBus.emit(EVENTS.PIXEL_UPDATE, { type: 'rendered' });
     }
     
     /**
@@ -2508,6 +2993,18 @@ class PixelCanvas3 {
         
         // dirtyTiles 초기화 (저장 완료)
         this.dirtyTiles.clear();
+        this.emitHistory();
+    }
+    
+    /**
+     * 되돌리기/다시 실행 버튼 활성 상태 알림
+     */
+    emitHistory() {
+        eventBus.emit(EVENTS.PIXEL_UPDATE, {
+            type: 'historyChanged',
+            canUndo: this.historyIndex >= 0,
+            canRedo: this.historyIndex < this.history.length - 1
+        });
     }
     
     /**
@@ -2556,6 +3053,7 @@ class PixelCanvas3 {
         
         this.applyHistoryEntry(entry, 'before');
         this.historyIndex--;
+        this.emitHistory();
     }
     
     /**
@@ -2605,6 +3103,7 @@ class PixelCanvas3 {
         }
         
         this.applyHistoryEntry(entry, 'after');
+        this.emitHistory();
     }
     
     /**
@@ -2867,18 +3366,35 @@ class PixelCanvas3 {
      * 도구 설정
      */
     setTool(tool) {
+        if (tool !== this.tool) this.resetToolState();
         this.tool = tool;
         
         // 커서 변경
         if (this.canvas) {
             if (tool === TOOLS.PAN) {
                 this.canvas.style.cursor = 'grab';
-            } else if (tool === TOOLS.PICKER) {
-                this.canvas.style.cursor = 'crosshair';
+            } else if (tool === TOOLS.STAMP) {
+                this.canvas.style.cursor = 'copy';
             } else {
                 this.canvas.style.cursor = 'crosshair';
             }
         }
+        this.scheduleOverlay();
+    }
+    
+    setGrid(show) {
+        this.showGrid = !!show;
+        this.scheduleOverlay();
+    }
+    
+    setMirror(on) {
+        this.mirror = !!on;
+        this.scheduleOverlay();
+    }
+    
+    setShapeFilled(filled) {
+        this.shapeFilled = !!filled;
+        this.scheduleOverlay();
     }
     
     /**
@@ -2917,6 +3433,22 @@ class PixelCanvas3 {
      */
     toDataURL() {
         return this.canvas.toDataURL('image/png');
+    }
+    
+    /**
+     * 그린 픽셀만 투명 배경 PNG로 (지도 밑그림·배경 제외)
+     */
+    toPixelPNG(scale = 8) {
+        const out = document.createElement('canvas');
+        out.width = this.width * scale;
+        out.height = this.height * scale;
+        const ctx = out.getContext('2d');
+        for (const [key, color] of this.pixelsMap.entries()) {
+            const [x, y] = key.split(',').map(Number);
+            ctx.fillStyle = color;
+            ctx.fillRect(x * scale, y * scale, scale, scale);
+        }
+        return out.toDataURL('image/png');
     }
     
     /**
@@ -2985,6 +3517,19 @@ class PixelCanvas3 {
         this.lastSaveTime = null;
         this.originalOwnerId = null;
         this.isLegacyMode = false; // 레거시 모드 플래그 초기화
+        this.underlayImage = null;
+        this.boundaryPath = null;
+        this.stamp = null;
+        this.hoverPos = null;
+        this.shapeStart = null;
+        this.shapeEnd = null;
+        this.isDrawing = false;
+        this.isPanning = false;
+        if (this.overlayFrame) {
+            cancelAnimationFrame(this.overlayFrame);
+            this.overlayFrame = null;
+        }
+        this.overlayCtx?.clearRect(0, 0, this.width * this.basePixelSize, this.height * this.basePixelSize);
         
         if (this.saveTimeout) {
             clearTimeout(this.saveTimeout);

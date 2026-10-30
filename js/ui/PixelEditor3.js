@@ -1,7 +1,6 @@
 /**
- * PixelEditor3 - 완전히 새로운 픽셀 에디터 UI
- * 모던하고 깔끔한 디자인
- * Version: 2025-01-03-fix-async-close
+ * PixelEditor3 - 지도 위에 그리는 픽셀 에디터
+ * 화면 전체 캔버스 + 실제 지도 밑그림 + 떠 있는 도구 막대, 지도 미리보기
  */
 
 import { CONFIG, log } from '../config.js';
@@ -9,1174 +8,1254 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 import { pixelCanvas3, TOOLS } from '../core/PixelCanvas3.js';
 import { loadBg, subscribeBg, setBg } from '../stores/BackgroundStore.js';
 import { imageStampModal } from './ImageStampModal.js';
+import {
+    ICONS, PALETTES, STICKERS, TEXT_FONTS, UNDERLAY_STYLES,
+    stickerToStamp, stickerPreviewURL, rasterizeText, ensurePixelFonts,
+    underlayURL, loadUnderlayImage
+} from './pixel-editor/PixelEditorAssets.js';
 
-/**
- * ViewTransform - World ↔ Screen 좌표계 변환 통일 클래스
- * 
- * 정석 파이프라인:
- * - World: 픽셀 그리드 좌표 (0..gridSize)
- * - Screen: CSS 픽셀 좌표 (DOM overlay도 동일하게 사용)
- * - Canvas buffer: CSS px × DPR (내부용, drawImage 계산에만 사용)
- */
-class ViewTransform {
-    constructor(pixelSize = 4) {
-        this.scale = pixelSize;  // world -> screen 변환 스케일
-        this.tx = 0;              // screen px (pan offset)
-        this.ty = 0;
-    }
-    
-    /**
-     * World 좌표를 Screen 좌표로 변환
-     */
-    worldToScreen(x, y) {
-        return {
-            x: x * this.scale + this.tx,
-            y: y * this.scale + this.ty
-        };
-    }
-    
-    /**
-     * Screen 좌표를 World 좌표로 변환
-     */
-    screenToWorld(x, y) {
-        return {
-            x: (x - this.tx) / this.scale,
-            y: (y - this.ty) / this.scale
-        };
-    }
-    
-    /**
-     * World 사각형을 Screen 사각형으로 변환
-     */
-    rectWorldToScreen(rect) {
-        const p0 = this.worldToScreen(rect.x, rect.y);
-        return {
-            x: p0.x,
-            y: p0.y,
-            width: rect.width * this.scale,
-            height: rect.height * this.scale
-        };
-    }
-    
-    /**
-     * Screen 사각형을 World 사각형으로 변환
-     */
-    rectScreenToWorld(rect) {
-        const p0 = this.screenToWorld(rect.x, rect.y);
-        return {
-            x: p0.x,
-            y: p0.y,
-            width: rect.width / this.scale,
-            height: rect.height / this.scale
-        };
-    }
-}
+const STORAGE_KEY = 'pe:settings:v1';
+const MAX_RECENT = 10;
+const MOBILE_QUERY = '(max-width: 720px)';
 
-/**
- * setupHiDPICanvas - 정석 DPR 처리 함수
- * 
- * 핵심 원칙:
- * 1. 캔버스는 "CSS px 단위로 그리게" 만든다
- * 2. DPR은 ctx에만 한 번 적용한다
- * 3. 이후 drawImage(x,y,w,h)는 전부 CSS px로 넣으면 됨
- * 
- * ⚠️ 무한 루프 방지: 크기가 실제로 변경되었을 때만 버퍼 재설정
- * 
- * @param {HTMLCanvasElement} canvas
- * @param {Object} lastSize - 이전 크기 {cssW, cssH, dpr} (선택사항)
- * @returns {{ctx: CanvasRenderingContext2D, dpr: number, cssW: number, cssH: number, sizeChanged: boolean}}
- */
-function setupHiDPICanvas(canvas, lastSize = null) {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    
-    // CSS 크기 (표시 크기)
-    const cssW = Math.round(rect.width);
-    const cssH = Math.round(rect.height);
-    
-    // 크기 변경 감지 (무한 루프 방지)
-    const sizeChanged = !lastSize || 
-        lastSize.cssW !== cssW || 
-        lastSize.cssH !== cssH || 
-        lastSize.dpr !== dpr;
-    
-    // 크기가 실제로 변경되었을 때만 버퍼 재설정
-    if (sizeChanged) {
-        // 버퍼 크기 (실제 해상도)
-        canvas.width = Math.round(cssW * dpr);
-        canvas.height = Math.round(cssH * dpr);
-    }
-    
-    const ctx = canvas.getContext('2d');
-    
-    // 크기가 변경되었거나 처음이면 transform 재설정
-    if (sizeChanged) {
-        // 이제부터 ctx 좌표계는 "CSS px"가 된다
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    
-    return { ctx, dpr, cssW, cssH, sizeChanged };
-}
-
-// 색상 팔레트 (16색으로 제한 - Wplace 스타일)
-const PALETTE = [
-    '#000000', // 검정
-    '#ffffff', // 흰색
-    '#ff0000', // 빨강
-    '#00ff00', // 초록
-    '#0000ff', // 파랑
-    '#ffff00', // 노랑
-    '#ff00ff', // 마젠타
-    '#00ffff', // 시안
-    '#ff6b6b', // 연한 빨강
-    '#4ecdc4', // 청록
-    '#feca57', // 주황
-    '#a29bfe', // 보라
-    '#fd79a8', // 분홍
-    '#00b894', // 민트
-    '#e17055', // 갈색
-    '#74b9ff'  // 하늘색
+const TOOL_BUTTONS = [
+    { group: 'draw', tool: TOOLS.BRUSH, icon: 'brush', label: 'Brush', key: 'B' },
+    { group: 'draw', tool: TOOLS.ERASER, icon: 'eraser', label: 'Eraser', key: 'E' },
+    { group: 'draw', tool: TOOLS.FILL, icon: 'fill', label: 'Fill', key: 'F' },
+    { group: 'draw', tool: TOOLS.PICKER, icon: 'picker', label: 'Pick color', key: 'I' },
+    { group: 'shape', tool: TOOLS.LINE, icon: 'line', label: 'Line', key: 'L' },
+    { group: 'shape', tool: TOOLS.RECT, icon: 'rect', label: 'Rectangle', key: 'R' },
+    { group: 'shape', tool: TOOLS.ELLIPSE, icon: 'ellipse', label: 'Circle', key: 'O' },
+    { group: 'insert', action: 'text', icon: 'text', label: 'Text', key: 'T' },
+    { group: 'insert', action: 'sticker', icon: 'sticker', label: 'Stickers', key: 'K' },
+    { group: 'insert', action: 'image', icon: 'image', label: 'From image' },
+    { group: 'nav', tool: TOOLS.PAN, icon: 'pan', label: 'Move (hold Space)', key: 'H' }
 ];
+
+const SHORTCUTS = [
+    ['B', 'Brush'], ['E', 'Eraser'], ['F', 'Fill'], ['I', 'Pick color'],
+    ['L', 'Line'], ['R', 'Rectangle'], ['O', 'Circle'], ['Shift + drag', 'Straight line / square / circle'],
+    ['T', 'Text'], ['K', 'Stickers'], ['Space (hold) / H', 'Move the canvas'],
+    ['[ / ]', 'Smaller / bigger brush'], ['G', 'Grid'], ['M', 'Mirror (left ↔ right)'],
+    ['+ / − / wheel', 'Zoom'], ['0', 'Fit to screen'],
+    ['Ctrl + Z / Ctrl + Y', 'Undo / Redo'], ['Ctrl + S', 'Save'], ['Esc', 'Cancel / close panel']
+];
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function contrastColor(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return '#000000';
+    const n = parseInt(m[1], 16);
+    const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    return lum > 0.55 ? '#000000' : '#ffffff';
+}
+
+function loadSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {};
+    } catch {
+        return {};
+    }
+}
 
 class PixelEditor3 {
     constructor() {
         this.container = null;
         this.isOpen = false;
         this.currentTerritory = null;
-        this.tool = TOOLS.BRUSH;
-        // Wplace 스타일: 기본 색상을 팔레트 첫 번째 색으로 설정
-        this.color = PALETTE.length > 0 ? PALETTE[2] : '#4ecdc4'; // 빨강으로 시작
-        this.brushSize = 1;
-        this.customColors = [];
-        this.shortcutsModalVisible = false;
-        this.keyboardHandler = null;
-        this.panModeFromSpace = false; // Space 키로 이동 모드 진입 여부
-        this.lang = 'en'; // English default
+        this.uiBound = false;
+        this.openPanel = null;
+        this.panModeFromSpace = false;
+        this.toolBeforeSpace = null;
+        this.toolBeforeStamp = TOOLS.BRUSH;
+        this.stampSource = null; // 'text' | 'sticker'
+        this.previewTimer = null;
+        this.saveRetryCount = 0;
+        this.lang = 'en';
         
-        // 배경 설정 (BackgroundStore에서 로드)
+        const saved = loadSettings();
+        this.tool = TOOLS.BRUSH;
+        this.color = saved.color || '#e63946';
+        this.brushSize = saved.brushSize || 1;
+        this.paletteId = saved.paletteId || 'brand';
+        this.recentColors = Array.isArray(saved.recentColors) ? saved.recentColors.slice(0, MAX_RECENT) : [];
+        this.underlayStyle = saved.underlayStyle || 'satellite';
+        this.underlayOpacity = typeof saved.underlayOpacity === 'number' ? saved.underlayOpacity : 0.6;
+        this.showGrid = !!saved.showGrid;
+        this.mirror = false;
+        this.shapeFilled = !!saved.shapeFilled;
+        // 휴대폰에서는 미리보기가 캔버스를 가리므로 데스크톱과 따로 기억 (기본: 데스크톱 켬, 휴대폰 끔)
+        this.previewPrefs = { desktop: true, mobile: false, ...(saved.previewPrefs || {}) };
+        this.textSettings = { text: '', fontId: 'pixel', scale: 1, outline: false, ...(saved.textSettings || {}) };
+        this.textSettings.text = '';
+        this.stickerSettings = { id: null, scale: 1, recolorAll: false, ...(saved.stickerSettings || {}) };
+        this.underlayAvailable = true;
+        
         const bgState = loadBg();
         this.backgroundMode = bgState.mode;
         this.backgroundColor = bgState.color;
         this.checkerSize = bgState.checkerSize;
-        
-        // BackgroundStore 구독 (배경 변경 시 동기화)
-        this.bgUnsubscribe = subscribeBg((bgState) => {
-            this.backgroundMode = bgState.mode;
-            this.backgroundColor = bgState.color;
-            this.checkerSize = bgState.checkerSize;
-            
-            // PixelCanvas3에 배경 설정 적용 (캔버스가 초기화된 경우에만)
-            if (pixelCanvas3 && pixelCanvas3.canvas) {
-                pixelCanvas3.setBackground(bgState.mode, bgState.color, bgState.checkerSize);
+        this.bgUnsubscribe = subscribeBg((state) => {
+            this.backgroundMode = state.mode;
+            this.backgroundColor = state.color;
+            this.checkerSize = state.checkerSize;
+            if (pixelCanvas3?.canvas) {
+                pixelCanvas3.setBackground(state.mode, state.color, state.checkerSize);
                 pixelCanvas3.render();
             }
+            this.syncViewPanel();
         });
     }
     
-    /**
-     * 초기화
-     */
+    get showPreview() {
+        return !!this.previewPrefs[window.matchMedia?.(MOBILE_QUERY).matches ? 'mobile' : 'desktop'];
+    }
+    
+    set showPreview(value) {
+        this.previewPrefs[window.matchMedia?.(MOBILE_QUERY).matches ? 'mobile' : 'desktop'] = !!value;
+    }
+    
+    persist() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                color: this.color,
+                brushSize: this.brushSize,
+                paletteId: this.paletteId,
+                recentColors: this.recentColors,
+                underlayStyle: this.underlayStyle,
+                underlayOpacity: this.underlayOpacity,
+                showGrid: this.showGrid,
+                shapeFilled: this.shapeFilled,
+                previewPrefs: this.previewPrefs,
+                textSettings: { fontId: this.textSettings.fontId, scale: this.textSettings.scale, outline: this.textSettings.outline },
+                stickerSettings: { scale: this.stickerSettings.scale, recolorAll: this.stickerSettings.recolorAll }
+            }));
+        } catch {
+            // 저장 공간이 없으면 설정만 기억 못 함
+        }
+    }
+    
     initialize() {
         this.createModal();
         this.setupEvents();
-        // ImageStampModal 초기화
+        this.bindUI();
         imageStampModal.initialize();
         log.info('[PixelEditor3] Initialized');
     }
     
-    /**
-     * 모달 생성
-     */
     createModal() {
-        // 기존 모달 제거
-        const existing = document.getElementById('pixel-editor-3');
-        if (existing) existing.remove();
-        
+        document.getElementById('pixel-editor-3')?.remove();
         this.container = document.createElement('div');
         this.container.id = 'pixel-editor-3';
-        this.container.className = 'pixel-editor-3 hidden';
+        this.container.className = 'pe-root hidden';
         this.container.innerHTML = this.getHTML();
         document.body.appendChild(this.container);
     }
     
-    /**
-     * HTML 생성
-     */
+    $(selector) {
+        return this.container?.querySelector(selector);
+    }
+    
     getHTML() {
-        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+        const toolButton = (b) => `
+            <button class="pe-tool" type="button" ${b.tool ? `data-tool="${b.tool}"` : `data-action="${b.action}"`}
+                title="${b.label}${b.key ? ` (${b.key})` : ''}" aria-label="${b.label}">
+                ${ICONS[b.icon]}
+            </button>`;
+        const group = (name) => TOOL_BUTTONS.filter(b => b.group === name).map(toolButton).join('');
+        
         return `
-            <div class="pixel-editor-3-overlay"></div>
-            <div class="pixel-editor-3-content">
-                <!-- 헤더 (Wplace 스타일 - 간결하게) -->
-                <div class="pixel-editor-3-header">
-                    <div class="pixel-editor-3-header-left">
-                        <h2>🎨 ${vocab.pixelArtEditor}</h2>
-                        <div class="pixel-editor-3-territory-info" id="pixel-territory-info-3">
-                            <span class="territory-name">${vocab.territorySelected}</span>
+            <header class="pe-topbar">
+                <div class="pe-topbar-left">
+                    <button class="pe-icon-btn" id="pe-close" type="button" title="Close" aria-label="Close editor">${ICONS.close}</button>
+                    <div class="pe-title">
+                        <span class="pe-eyebrow">Pixel editor</span>
+                        <strong id="pe-territory-name">—</strong>
+                    </div>
+                </div>
+                <div class="pe-topbar-center">
+                    <button class="pe-icon-btn" id="pe-undo" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>${ICONS.undo}</button>
+                    <button class="pe-icon-btn" id="pe-redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>${ICONS.redo}</button>
+                </div>
+                <div class="pe-topbar-right">
+                    <span class="pe-save-status saved" id="pe-save-status"><i></i><span>Saved</span></span>
+                    <button class="pe-btn-primary" id="pe-save" type="button" title="Save (Ctrl+S)">${ICONS.check}<span>Save</span></button>
+                    <div class="pe-menu-wrap">
+                        <button class="pe-icon-btn" id="pe-more" type="button" title="More" aria-label="More options">${ICONS.more}</button>
+                        <div class="pe-menu pe-popover" id="pe-more-menu" hidden>
+                            <button type="button" data-menu="download">${ICONS.download}<span>Download PNG</span></button>
+                            <button type="button" data-menu="image">${ICONS.image}<span>Draw from an image</span></button>
+                            <button type="button" data-menu="shortcuts">${ICONS.keyboard}<span>Keyboard shortcuts</span></button>
+                            <hr>
+                            <button type="button" data-menu="clear" class="pe-danger">${ICONS.trash}<span>Clear everything</span></button>
                         </div>
                     </div>
-                    <div class="pixel-editor-3-actions">
-                        <button class="pixel-editor-3-btn pixel-editor-3-btn-save" id="pixel-save-btn-3" title="Save (Ctrl+S)">
-                            <span>💾</span>
-                            <span>Save</span>
-                        </button>
-                        <div class="pixel-editor-3-save-status" id="pixel-save-status-3">
-                            <span>✅</span>
-                            <span>Saved</span>
+                </div>
+            </header>
+            
+            <main class="pe-viewport" id="pe-viewport">
+                <div class="pe-stage">
+                    <canvas id="pixel-canvas-3"></canvas>
+                    <canvas class="pe-overlay" id="pixel-overlay-3"></canvas>
+                </div>
+                
+                <div class="pe-float pe-float-tl">
+                    <button class="pe-chip" id="pe-view-btn" type="button" title="Map underlay and background">
+                        ${ICONS.layers}<span id="pe-view-label">Satellite</span>${ICONS.chevronDown}
+                    </button>
+                    <button class="pe-chip pe-chip-icon" id="pe-grid-btn" type="button" title="Grid (G)" aria-label="Grid">${ICONS.grid}</button>
+                    <button class="pe-chip pe-chip-icon" id="pe-mirror-btn" type="button" title="Mirror left ↔ right (M)" aria-label="Mirror">${ICONS.mirror}</button>
+                    <div class="pe-popover pe-view-panel" id="pe-view-panel" hidden>
+                        <div class="pe-field">
+                            <label>Map underneath</label>
+                            <div class="pe-seg" id="pe-underlay-seg">
+                                ${UNDERLAY_STYLES.map(s => `<button type="button" data-underlay="${s.id}">${s.name}</button>`).join('')}
+                            </div>
+                            <p class="pe-note" id="pe-underlay-note" hidden>The map isn't available for this area, so a plain background is shown.</p>
                         </div>
-                        <button class="pixel-editor-3-btn" id="pixel-undo-3" title="Undo (Ctrl+Z)">
-                            <span>↩</span>
-                        </button>
-                        <button class="pixel-editor-3-btn" id="pixel-redo-3" title="Redo (Ctrl+Y)">
-                            <span>↪</span>
-                        </button>
-                        <button class="pixel-editor-3-btn" id="pixel-clear-3" title="Clear All">
-                            <span>🗑</span>
-                        </button>
-                        <button class="pixel-editor-3-close" id="pixel-close-3">×</button>
+                        <div class="pe-field" id="pe-opacity-field">
+                            <label>Map visibility <span id="pe-opacity-value">60%</span></label>
+                            <input type="range" id="pe-opacity" min="10" max="100" step="5" value="60">
+                        </div>
+                        <div class="pe-field">
+                            <label>Background</label>
+                            <div class="pe-seg" id="pe-bg-seg">
+                                <button type="button" data-bg="dark">Dark</button>
+                                <button type="button" data-bg="light">Light</button>
+                                <button type="button" data-bg="checker">Checker</button>
+                            </div>
+                        </div>
+                        <label class="pe-switch"><input type="checkbox" id="pe-preview-toggle"><span>Show "on the map" preview</span></label>
                     </div>
                 </div>
                 
-                <!-- 본문 -->
-                <div class="pixel-editor-3-body">
-                    <!-- 좌측: 도구 -->
-                    <div class="pixel-editor-3-sidebar pixel-editor-3-tools">
-                        <!-- 이미지 업로드 (눈에 띄는 위치) -->
-                        <div class="pixel-editor-3-section pixel-editor-3-image-upload-section">
-                            <button class="pixel-editor-3-btn pixel-editor-3-btn-image-upload" id="pixel-image-upload-3">
-                                <span>🖼️</span>
-                                <span>Draw from Image</span>
-                            </button>
-                            <div class="pixel-editor-3-image-upload-hint">
-                                <small>Upload a photo to convert to pixel art</small>
-                            </div>
-                        </div>
-                        
-                        <!-- 도구 (3개로 최소화 - Wplace 스타일) -->
-                        <div class="pixel-editor-3-section">
-                            <h3>Tools</h3>
-                            <div class="pixel-editor-3-tool-grid">
-                                <button class="pixel-editor-3-tool-btn active" data-tool="brush" title="Brush (B)">
-                                    <span class="tool-icon">✏</span>
-                                    <span>Brush</span>
-                                </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="eraser" title="Eraser (E)">
-                                    <span class="tool-icon">🧹</span>
-                                    <span>Eraser</span>
-                                </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="fill" title="Fill (F)">
-                                    <span class="tool-icon">🪣</span>
-                                    <span>Fill</span>
-                                </button>
-                                <button class="pixel-editor-3-tool-btn" data-tool="pan" title="Pan (drag to move screen, or hold Space)">
-                                    <span class="tool-icon">✋</span>
-                                    <span>Pan</span>
-                                </button>
-                            </div>
-                            <div class="pixel-editor-3-tool-hint">
-                                <small>Space: Pan | I: Eyedropper</small>
-                            </div>
-                        </div>
-                        
-                        <!-- 브러시 크기 -->
-                        <div class="pixel-editor-3-section">
-                            <h3>Brush Size</h3>
-                            <div class="pixel-editor-3-brush-control">
-                                <input type="range" id="pixel-brush-size-3" min="1" max="10" value="1">
-                                <span id="pixel-brush-size-value-3">1px</span>
-                            </div>
-                        </div>
-                        
-                        <!-- 색상 -->
-                        <div class="pixel-editor-3-section">
-                            <h3>Color</h3>
-                            <div class="pixel-editor-3-color-picker">
-                                <div class="pixel-editor-3-color-preview" id="pixel-color-preview-3" style="background: ${this.color}"></div>
-                                <input type="color" id="pixel-color-input-3" value="${this.color}">
-                            </div>
-                        </div>
-                        
-                        <!-- 팔레트 (16색) -->
-                        <div class="pixel-editor-3-section">
-                            <h3>Palette (16 colors)</h3>
-                            <div class="pixel-editor-3-palette">
-                                ${PALETTE.map(color => `
-                                    <div class="pixel-editor-3-palette-color" data-color="${color}" style="background: ${color}" title="${color}"></div>
-                                `).join('')}
-                            </div>
-                            <div class="pixel-editor-3-palette-hint">
-                                <small>Click to select color</small>
-                            </div>
-                        </div>
-                        
-                        <!-- 배경 -->
-                        <div class="pixel-editor-3-section">
-                            <h3>Background</h3>
-                            <div class="pixel-editor-3-background-presets">
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#1a1a1a' ? 'active' : ''}" data-mode="solid" data-color="#1a1a1a" title="Dark">Dark</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#808080' ? 'active' : ''}" data-mode="solid" data-color="#808080" title="Mid Gray">Mid</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#c0c0c0' ? 'active' : ''}" data-mode="solid" data-color="#c0c0c0" title="Light Gray">Light</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && this.backgroundColor === '#ffffff' ? 'active' : ''}" data-mode="solid" data-color="#ffffff" title="White">White</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'checker' ? 'active' : ''}" data-mode="checker" title="Checkerboard">Checker</button>
-                                <button class="pixel-editor-3-bg-preset-btn ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'active' : ''}" data-mode="custom" title="Custom">Custom</button>
-                            </div>
-                            <div class="pixel-editor-3-background-custom" id="pixel-bg-custom-3" style="display: ${this.backgroundMode === 'solid' && !['#1a1a1a', '#808080', '#c0c0c0', '#ffffff'].includes(this.backgroundColor) ? 'flex' : 'none'}; gap: 8px; align-items: center; margin-top: 8px;">
-                                <input type="color" id="pixel-bg-color-input-3" value="${this.backgroundColor}" style="width: 60px; height: 30px;">
-                                <span style="font-size: 12px; color: #aaa;">Select color</span>
-                            </div>
-                        </div>
+                <div class="pe-float pe-float-tr pe-zoom">
+                    <button class="pe-icon-btn" id="pe-zoom-in" type="button" title="Zoom in (+)" aria-label="Zoom in">${ICONS.zoomIn}</button>
+                    <span id="pe-zoom-value">100%</span>
+                    <button class="pe-icon-btn" id="pe-zoom-out" type="button" title="Zoom out (−)" aria-label="Zoom out">${ICONS.zoomOut}</button>
+                    <button class="pe-icon-btn" id="pe-zoom-fit" type="button" title="Fit to screen (0)" aria-label="Fit to screen">${ICONS.fit}</button>
+                </div>
+                
+                <div class="pe-float pe-float-bl pe-info">
+                    <span id="pe-coords">—</span>
+                    <span id="pe-count">0 px</span>
+                </div>
+                
+                <div class="pe-float pe-float-br pe-preview" id="pe-preview-card">
+                    <div class="pe-preview-head">
+                        <span>On the map</span>
+                        <button class="pe-icon-btn pe-mini" id="pe-preview-close" type="button" title="Hide preview" aria-label="Hide preview">${ICONS.close}</button>
                     </div>
-                    
-                    <!-- 중앙: 캔버스 -->
-                    <div class="pixel-editor-3-main">
-                        <div class="pixel-editor-3-loading-overlay" id="pixel-loading-3" style="display: none;">
-                            <div class="pixel-editor-3-loading-spinner"></div>
-                            <p>Loading pixel art...</p>
-                        </div>
-                        <div class="pixel-editor-3-canvas-wrapper">
-                            <canvas id="pixel-canvas-3"></canvas>
-                            <!-- 줌 컨트롤 -->
-                            <div class="pixel-editor-3-zoom-controls">
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-in-3" title="Zoom In (+ / Wheel Up)">+</button>
-                                <div class="pixel-editor-3-zoom-display" id="pixel-zoom-value-3">100%</div>
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-out-3" title="Zoom Out (- / Wheel Down)">−</button>
-                                <button class="pixel-editor-3-zoom-btn" id="pixel-zoom-fit-3" title="Fit View (F)">⌂</button>
-                                <div class="pixel-editor-3-zoom-hint">Shift+Drag: Pan</div>
-                            </div>
-                        </div>
-                        <div class="pixel-editor-3-canvas-info">
-                            <span id="pixel-count-3">0 / ${(CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE).toLocaleString()} ${vocab.pixel}</span>
-                            <span id="pixel-coords-3">X: 0, Y: 0</span>
-                        </div>
+                    <canvas id="pe-preview-canvas" width="176" height="176"></canvas>
+                </div>
+                
+                <div class="pe-attribution" id="pe-attribution" hidden>© Mapbox © OpenStreetMap</div>
+                
+                <div class="pe-loading" id="pixel-loading-3" style="display: none;">
+                    <div class="pe-spinner"></div>
+                    <p>Loading pixel art...</p>
+                </div>
+            </main>
+            
+            <div class="pe-bottom">
+                <div class="pe-optbar" id="pe-optbar"></div>
+                
+                <div class="pe-popover pe-sheet" id="pe-color-panel" hidden>
+                    <div class="pe-sheet-head">
+                        <strong>Colors</strong>
+                        <select id="pe-palette-select" aria-label="Palette">
+                            ${PALETTES.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                        </select>
                     </div>
-                    
-                    <!-- 우측: 통계 -->
-                    <div class="pixel-editor-3-sidebar pixel-editor-3-stats">
-                        <div class="pixel-editor-3-section">
-                            <h3>📊 ${vocab.statistics}</h3>
-                            <div class="pixel-editor-3-stat-list">
-                                <div class="pixel-editor-3-stat-item">
-                                    <span>${vocab.totalPixels}</span>
-                                    <span id="pixel-total-3">0</span>
-                                </div>
-                                <div class="pixel-editor-3-stat-item">
-                                    <span>${vocab.territoryValue}</span>
-                                    <span id="pixel-value-3">0</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="pixel-editor-3-section">
-                            <h3>💾 ${vocab.export}</h3>
-                            <button class="pixel-editor-3-btn" id="pixel-export-3">
-                                💾 ${vocab.downloadPNG}
-                            </button>
-                        </div>
+                    <div class="pe-swatches" id="pe-palette-swatches"></div>
+                    <div class="pe-recent-wrap" id="pe-recent-wrap">
+                        <span class="pe-label">Recent</span>
+                        <div class="pe-swatches pe-swatches-row" id="pe-recent-swatches"></div>
+                    </div>
+                    <div class="pe-custom-color">
+                        <label class="pe-color-input" title="Pick any color">
+                            <input type="color" id="pe-color-input" value="${this.color}">
+                            <span>${ICONS.plus}</span>
+                        </label>
+                        <input type="text" id="pe-hex-input" maxlength="7" spellcheck="false" aria-label="Hex color" value="${this.color}">
                     </div>
                 </div>
+                
+                <div class="pe-popover pe-sheet" id="pe-text-panel" hidden>
+                    <div class="pe-sheet-head"><strong>Text</strong><span class="pe-hint">Then tap the canvas to place it</span></div>
+                    <textarea id="pe-text-input" rows="2" maxlength="60" placeholder="Your brand name"></textarea>
+                    <div class="pe-row">
+                        <select id="pe-text-font" aria-label="Font">
+                            ${TEXT_FONTS.map(f => `<option value="${f.id}">${f.name}</option>`).join('')}
+                        </select>
+                        <div class="pe-seg" id="pe-text-scale">
+                            ${[1, 2, 3, 4].map(n => `<button type="button" data-scale="${n}">×${n}</button>`).join('')}
+                        </div>
+                    </div>
+                    <label class="pe-switch"><input type="checkbox" id="pe-text-outline"><span>Outline (easier to read on the map)</span></label>
+                    <div class="pe-text-preview"><canvas id="pe-text-preview" width="1" height="1"></canvas><span id="pe-text-size"></span></div>
+                </div>
+                
+                <div class="pe-popover pe-sheet" id="pe-sticker-panel" hidden>
+                    <div class="pe-sheet-head"><strong>Stickers</strong><span class="pe-hint">Pick one, then tap to stamp</span></div>
+                    <div class="pe-sticker-grid" id="pe-sticker-grid"></div>
+                    <div class="pe-row">
+                        <div class="pe-seg" id="pe-sticker-scale">
+                            ${[1, 2, 3, 4].map(n => `<button type="button" data-scale="${n}">×${n}</button>`).join('')}
+                        </div>
+                        <label class="pe-switch"><input type="checkbox" id="pe-sticker-recolor"><span>All in my color</span></label>
+                    </div>
+                </div>
+                
+                <nav class="pe-dock" id="pe-dock" aria-label="Tools">
+                    <button class="pe-color-btn" id="pe-color-btn" type="button" title="Colors" aria-label="Colors"><span id="pe-color-swatch"></span></button>
+                    <div class="pe-quick-swatches" id="pe-quick-swatches"></div>
+                    <span class="pe-sep"></span>
+                    ${group('draw')}
+                    <span class="pe-sep"></span>
+                    ${group('shape')}
+                    <span class="pe-sep"></span>
+                    ${group('insert')}
+                    <span class="pe-sep"></span>
+                    ${group('nav')}
+                </nav>
             </div>
         `;
     }
     
     /**
-     * 이벤트 설정
+     * 캔버스 엔진에서 오는 이벤트 (생성 시 한 번만 등록)
      */
     setupEvents() {
         eventBus.on(EVENTS.UI_MODAL_OPEN, (data) => {
-            if (data.type === 'pixelEditor') {
-                this.open(data.data);
-            }
+            if (data.type === 'pixelEditor') this.open(data.data);
         });
         
         eventBus.on(EVENTS.PIXEL_UPDATE, (data) => {
+            if (!data) return;
             if (data.type === 'colorPicked') {
-                this.setColor(data.color);
+                this.setColor(data.color, { remember: true });
+                this.setTool(TOOLS.BRUSH);
+            } else if (data.type === 'saveStatus') {
+                this.updateSaveStatus(data.status, data.error, data.message, data.saveTime);
+            } else if (data.type === 'zoomChanged') {
+                const el = this.$('#pe-zoom-value');
+                if (el) el.textContent = `${Math.round(data.zoom * 100)}%`;
+            } else if (data.type === 'historyChanged') {
+                const undo = this.$('#pe-undo');
+                const redo = this.$('#pe-redo');
+                if (undo) undo.disabled = !data.canUndo;
+                if (redo) redo.disabled = !data.canRedo;
+            } else if (data.type === 'stampPlaced') {
+                if (this.stampSource === 'text') {
+                    this.textSettings.text = '';
+                    const input = this.$('#pe-text-input');
+                    if (input) input.value = '';
+                    this.renderTextPreview();
+                    this.setTool(this.toolBeforeStamp || TOOLS.BRUSH);
+                }
+            } else if (data.type === 'rendered') {
+                this.schedulePreview();
             }
         });
+        
+        eventBus.on(EVENTS.PIXEL_DATA_SAVED, () => this.updateSaveStatus('saved'));
         
         eventBus.on(EVENTS.PIXEL_VALUE_CHANGE, (data) => {
             this.updateStats(data);
+            this.schedulePreview();
         });
         
-        eventBus.on(EVENTS.PIXEL_DATA_SAVED, () => {
-            this.updateSaveStatus('saved');
-        });
-        
-        // 저장 상태 이벤트 리스너
-        eventBus.on(EVENTS.PIXEL_UPDATE, (data) => {
-            if (data.type === 'saveStatus') {
-                this.updateSaveStatus(data.status, data.error, data.message, data.saveTime);
-            }
-        });
-        
-        // beforeunload 이벤트 - 저장되지 않은 변경사항이 있으면 경고
-        this.beforeUnloadHandler = (e) => {
-            if (this.isOpen && pixelCanvas3 && pixelCanvas3.hasUnsavedChanges()) {
-                // 저장 중이면 경고
-                if (pixelCanvas3.isSaving) {
-                    e.preventDefault();
-                    e.returnValue = 'Saving in progress. Recent changes may be lost if you leave.';
-                    return e.returnValue;
-                }
-                
-                // Warn if there are unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            if (this.isOpen && pixelCanvas3?.hasUnsavedChanges()) {
                 e.preventDefault();
-                e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                e.returnValue = pixelCanvas3.isSaving
+                    ? 'Saving in progress. Recent changes may be lost if you leave.'
+                    : 'You have unsaved changes. Are you sure you want to leave?';
                 return e.returnValue;
             }
-        };
+        });
         
-        window.addEventListener('beforeunload', this.beforeUnloadHandler);
+        window.matchMedia?.(MOBILE_QUERY).addEventListener?.('change', () => {
+            if (!this.isOpen) return;
+            this.applyViewPadding(true);
+            this.syncPreviewCard();
+            this.syncViewPanel();
+        });
     }
     
-    /**
-     * 열기
-     */
     async open(territory) {
         if (!territory?.id) {
             log.error('[PixelEditor3] Invalid territory');
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'error',
-                message: 'Territory information not found.'
-            });
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: 'Territory information not found.' });
             return;
         }
         
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
-        this.showLoading(vocab.loadingTerritoryInfo);
         this.currentTerritory = territory;
         this.isOpen = true;
         this.container?.classList.remove('hidden');
+        document.body.classList.add('pe-open');
+        this.closePanels();
+        this.showLoading(vocab.loadingTerritoryInfo);
+        this.updateTerritoryInfo();
+        this.updateSaveStatus('saved');
         
         try {
-            // 캔버스 초기화 (territory 객체도 전달)
             const canvas = document.getElementById('pixel-canvas-3');
-            if (canvas) {
-                this.showLoading(vocab.loadingPixelArt);
-                await pixelCanvas3.initialize(territory.id, canvas, territory);
-            }
+            this.applyViewPadding(false);
+            this.showLoading(vocab.loadingPixelArt);
+            await pixelCanvas3.initialize(territory.id, canvas, territory);
             
-            // UI 바인딩
-            this.bindUI();
-            
-            // 화면에 선택돼 보이는 색과 실제 그리기 색을 일치시킴
+            pixelCanvas3.setBackground(this.backgroundMode, this.backgroundColor, this.checkerSize);
+            pixelCanvas3.setBrushSize(this.brushSize);
+            pixelCanvas3.setGrid(this.showGrid);
+            pixelCanvas3.setMirror(this.mirror);
+            pixelCanvas3.setShapeFilled(this.shapeFilled);
+            pixelCanvas3.setStamp(null);
             this.setColor(this.color);
-            // 초기 화면 맞춤(fitToView)은 bindUI 전에 실행되므로 줌 표시를 다시 알림
+            this.setTool(TOOLS.BRUSH);
+            pixelCanvas3.render();
             pixelCanvas3.emitZoomChange();
             
-            // 배경 설정 적용
-            pixelCanvas3.setBackground(this.backgroundMode, this.backgroundColor, this.checkerSize);
-            
-            // 통계 업데이트
-            this.updateStats({
-                filledPixels: pixelCanvas3.pixels.size,
-                value: pixelCanvas3.calculateValue()
-            });
-            
-            // 영토 정보 업데이트
-            this.updateTerritoryInfo();
+            this.updateStats({ filledPixels: pixelCanvas3.pixels.size });
+            this.syncAll();
+            this.loadUnderlay();
             
             log.info(`[PixelEditor3] Opened for ${territory.id}`);
         } catch (error) {
             log.error('[PixelEditor3] Failed to open:', error);
-            eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                type: 'error',
-                message: 'Unable to open pixel editor. Please try again later.'
-            });
-            await this.close();
+            eventBus.emit(EVENTS.UI_NOTIFICATION, { type: 'error', message: 'Unable to open pixel editor. Please try again later.' });
+            await this.close(true);
         } finally {
             this.hideLoading();
         }
     }
     
-    /**
-     * 로딩 표시
-     */
+    applyViewPadding(refit) {
+        const mobile = window.matchMedia?.(MOBILE_QUERY).matches;
+        pixelCanvas3.viewPadding = mobile ? { x: 16, y: 210 } : { x: 120, y: 190 };
+        pixelCanvas3.viewOffsetY = mobile ? -40 : -36;
+        if (refit && pixelCanvas3.canvas) pixelCanvas3.fitToView();
+    }
+    
+    async loadUnderlay() {
+        const territoryId = this.currentTerritory?.id;
+        const url = underlayURL(pixelCanvas3.territoryBounds, this.underlayStyle);
+        this.underlayAvailable = this.underlayStyle === 'off' || !!url;
+        if (!url) {
+            pixelCanvas3.setUnderlay(null);
+            this.syncViewPanel();
+            this.schedulePreview();
+            return;
+        }
+        const img = await loadUnderlayImage(url);
+        if (!this.isOpen || this.currentTerritory?.id !== territoryId) return;
+        if (!img) this.underlayAvailable = false;
+        pixelCanvas3.setUnderlay(img, this.underlayOpacity);
+        this.syncViewPanel();
+        this.schedulePreview();
+    }
+    
     showLoading(message = null) {
-        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
-        const loadingEl = this.container?.querySelector('#pixel-loading-3');
-        if (loadingEl) {
-            const pEl = loadingEl.querySelector('p');
-            if (pEl) pEl.textContent = message || vocab.loadingPixelArt;
-            loadingEl.style.display = 'flex';
-        }
+        const el = this.$('#pixel-loading-3');
+        if (!el) return;
+        const p = el.querySelector('p');
+        if (p && message) p.textContent = message;
+        el.style.display = 'flex';
     }
     
-    /**
-     * 로딩 숨기기
-     */
     hideLoading() {
-        const loadingEl = this.container?.querySelector('#pixel-loading-3');
-        if (loadingEl) {
-            loadingEl.style.display = 'none';
-        }
+        const el = this.$('#pixel-loading-3');
+        if (el) el.style.display = 'none';
     }
     
-    /**
-     * 닫기
-     */
-    async close() {
-        // 저장 중이면 사용자에게 확인
+    async close(force = false) {
         const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
-        if (pixelCanvas3?.isSaving) {
-            const confirmed = confirm(
-                `${vocab.savingInProgress}\n\n${vocab.cancelSaveAndClose}\n${vocab.confirmCancel}`
-            );
-            if (confirmed) {
-                // 저장 취소하고 즉시 닫기
-                if (pixelCanvas3.saveTimeout) {
-                    clearTimeout(pixelCanvas3.saveTimeout);
-                    pixelCanvas3.saveTimeout = null;
-                }
-                pixelCanvas3.isSaving = false;
-                // 닫기 계속 진행
-            } else {
-                // 저장 완료를 기다림
-                const checkSave = setInterval(async () => {
-                    if (!pixelCanvas3.isSaving) {
-                        clearInterval(checkSave);
-                        await this.close();
+        if (!force && pixelCanvas3?.isSaving) {
+            const confirmed = confirm(`${vocab.savingInProgress}\n\n${vocab.cancelSaveAndClose}\n${vocab.confirmCancel}`);
+            if (!confirmed) {
+                const started = Date.now();
+                const wait = setInterval(() => {
+                    if (!pixelCanvas3.isSaving || Date.now() - started > 5000) {
+                        clearInterval(wait);
+                        pixelCanvas3.isSaving = false;
+                        this.close(true);
                     }
                 }, 100);
-                
-                // 최대 5초 대기
-                setTimeout(() => {
-                    clearInterval(checkSave);
-                    if (pixelCanvas3.isSaving) {
-                        // 타임아웃 시 강제로 닫기
-                        pixelCanvas3.isSaving = false;
-                        // 편집기 닫기
-                        this.isOpen = false;
-                        this.container?.classList.add('hidden');
-                        if (pixelCanvas3) {
-                            pixelCanvas3.cleanup();
-                        }
-                    }
-                }, 5000);
                 return;
             }
+            if (pixelCanvas3.saveTimeout) {
+                clearTimeout(pixelCanvas3.saveTimeout);
+                pixelCanvas3.saveTimeout = null;
+            }
+            pixelCanvas3.isSaving = false;
         }
         
-        if (pixelCanvas3?.hasUnsavedChanges && pixelCanvas3.hasUnsavedChanges()) {
-            const confirmed = confirm(
-                `${vocab.unsavedChanges}\n\n${vocab.reallyClose}\n${vocab.autoSave}`
-            );
+        if (!force && pixelCanvas3?.hasUnsavedChanges?.()) {
+            const confirmed = confirm(`${vocab.unsavedChanges}\n\n${vocab.reallyClose}\n${vocab.autoSave}`);
             if (!confirmed) return;
         }
         
-        // BackgroundStore 구독은 생성자에서 한 번만 하므로 닫을 때 해제하지 않음 (해제하면 다시 열었을 때 배경 설정이 동작하지 않음)
-        
-        // 편집기를 닫기 전에 현재 영토 ID 저장
         const territoryId = this.currentTerritory?.id;
-        
         this.isOpen = false;
-        this.container?.classList.add('hidden');
-        if (pixelCanvas3) {
-            pixelCanvas3.cleanup();
-        }
-        this.currentTerritory = null;
+        this.closePanels();
         this.hideShortcutsModal();
+        this.container?.classList.add('hidden');
+        document.body.classList.remove('pe-open');
+        pixelCanvas3?.cleanup();
+        this.currentTerritory = null;
+        clearTimeout(this.previewTimer);
+        this.previewTimer = null;
         
-        // beforeunload 리스너는 유지 (핸들러가 isOpen을 확인하므로 닫힌 상태에서는 아무 동작 안 함)
-        
-        // 편집기를 닫은 후 맵에 픽셀 아트가 즉시 반영되도록 영토 새로고침
-        // 모바일에서 편집 후 저장했을 때 맵에 즉시 보이도록 하는 핵심 로직
+        // 닫은 뒤 지도에 바로 반영되도록 캐시를 비우고 영토를 다시 그림
         if (territoryId) {
-            // 캐시 무효화하여 최신 데이터를 가져오도록 보장
             const { pixelDataService } = await import('../services/PixelDataService.js');
             pixelDataService.clearMemoryCache(territoryId);
-            
-            // processedTerritories에서 제거하여 재처리 보장 (MapController를 통해 접근)
             try {
                 const mapController = (await import('../core/MapController.js')).default;
-                if (mapController && mapController.pixelMapRenderer && mapController.pixelMapRenderer.processedTerritories) {
-                    mapController.pixelMapRenderer.processedTerritories.delete(territoryId);
-                    log.info(`[PixelEditor3] Removed ${territoryId} from processedTerritories`);
-                }
+                mapController?.pixelMapRenderer?.processedTerritories?.delete(territoryId);
             } catch (error) {
-                log.warn(`[PixelEditor3] Failed to access pixelMapRenderer:`, error);
+                log.warn('[PixelEditor3] Failed to access pixelMapRenderer:', error);
             }
-            
-            // 약간의 지연 후 새로고침 (모달이 완전히 닫힌 후)
-            setTimeout(() => {
-                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
-                    territoryId: territoryId,
-                    territory: { id: territoryId },
-                    forceRefresh: true // 강제 새로고침 플래그
-                });
-                log.info(`[PixelEditor3] Triggered territory refresh for ${territoryId} after closing editor (cache cleared)`);
-            }, 100);
-            
-            // 추가로 더 긴 지연 후 한 번 더 새로고침 (모바일에서 확실하게 반영되도록)
-            setTimeout(() => {
-                eventBus.emit(EVENTS.TERRITORY_UPDATE, {
-                    territoryId: territoryId,
-                    territory: { id: territoryId },
-                    forceRefresh: true
-                });
-                log.info(`[PixelEditor3] Triggered second territory refresh for ${territoryId} after closing editor`);
-            }, 500);
+            const refresh = () => eventBus.emit(EVENTS.TERRITORY_UPDATE, {
+                territoryId,
+                territory: { id: territoryId },
+                forceRefresh: true
+            });
+            setTimeout(refresh, 100);
+            setTimeout(refresh, 500);
         }
     }
     
     /**
-     * UI 바인딩
+     * 화면 요소 이벤트 (모달은 한 번만 만들어지므로 여기서도 한 번만 등록)
      */
     bindUI() {
-        if (!this.container) return;
+        if (!this.container || this.uiBound) return;
+        this.uiBound = true;
+        const on = (sel, evt, fn) => this.$(sel)?.addEventListener(evt, fn);
         
-        // 닫기
-        const closeBtn = this.container.querySelector('#pixel-close-3');
-        if (closeBtn) {
-            closeBtn.onclick = async () => {
-                await this.close();
-            };
-        }
-        
-        // 오버레이 클릭
-        const overlay = this.container.querySelector('.pixel-editor-3-overlay');
-        if (overlay) {
-            overlay.onclick = async () => {
-                await this.close();
-            };
-        }
-        
-        // 도구 버튼
-        this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(btn => {
-            btn.onclick = () => {
-                const tool = btn.dataset.tool;
-                this.setTool(tool);
-                // 이동 도구 버튼 클릭 시 Space 키 플래그 해제 (고정 이동 모드)
-                if (tool === 'pan') {
-                    this.panModeFromSpace = false;
-                }
-                this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            };
+        on('#pe-close', 'click', () => this.close());
+        on('#pe-undo', 'click', () => pixelCanvas3.undo());
+        on('#pe-redo', 'click', () => pixelCanvas3.redo());
+        on('#pe-save', 'click', () => {
+            if (!pixelCanvas3.isSaving) pixelCanvas3.save();
         });
         
-        // 브러시 크기
-        const brushSlider = this.container.querySelector('#pixel-brush-size-3');
-        if (brushSlider) {
-            brushSlider.oninput = (e) => {
-                this.brushSize = parseInt(e.target.value);
-                pixelCanvas3.setBrushSize(this.brushSize);
-                const valueDisplay = this.container.querySelector('#pixel-brush-size-value-3');
-                if (valueDisplay) {
-                    valueDisplay.textContent = `${this.brushSize}px`;
-                }
-            };
-        }
-        
-        // 색상 피커
-        const colorInput = this.container.querySelector('#pixel-color-input-3');
-        if (colorInput) {
-            colorInput.oninput = (e) => {
-                this.setColor(e.target.value);
-            };
-        }
-        
-        // 팔레트
-        this.container.querySelectorAll('.pixel-editor-3-palette-color').forEach(el => {
-            el.onclick = () => {
-                this.setColor(el.dataset.color);
-            };
+        on('#pe-more', 'click', (e) => {
+            e.stopPropagation();
+            this.togglePanel('more');
+        });
+        this.container.querySelectorAll('[data-menu]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.closePanels();
+                this.handleMenu(btn.dataset.menu);
+            });
         });
         
-        // 배경 프리셋 버튼
-        this.container.querySelectorAll('.pixel-editor-3-bg-preset-btn').forEach(btn => {
-            btn.onclick = () => {
-                const mode = btn.dataset.mode;
-                const color = btn.dataset.color;
-                
-                if (mode === 'checker') {
-                    this.setBackground('checker', null);
-                } else if (mode === 'custom') {
-                    const customArea = this.container.querySelector('#pixel-bg-custom-3');
-                    if (customArea) customArea.style.display = 'flex';
-                    this.setBackground('solid', this.backgroundColor);
+        // 도구 막대
+        this.container.querySelectorAll('.pe-tool').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.tool) {
+                    this.closePanels();
+                    this.setTool(btn.dataset.tool);
+                    if (btn.dataset.tool === TOOLS.PAN) this.panModeFromSpace = false;
                 } else {
-                    this.setBackground('solid', color);
+                    this.handleAction(btn.dataset.action);
                 }
-                
-                // 활성 상태 업데이트
-                this.container.querySelectorAll('.pixel-editor-3-bg-preset-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            };
+            });
+        });
+        on('#pe-color-btn', 'click', (e) => {
+            e.stopPropagation();
+            this.togglePanel('color');
         });
         
-        // 배경 커스텀 색상
-        const bgColorInput = this.container.querySelector('#pixel-bg-color-input-3');
-        if (bgColorInput) {
-            bgColorInput.oninput = (e) => {
-                this.setBackground('solid', e.target.value);
-            };
-        }
-        
-        // Undo/Redo
-        const undoBtn = this.container.querySelector('#pixel-undo-3');
-        if (undoBtn) undoBtn.onclick = () => pixelCanvas3.undo();
-        
-        const redoBtn = this.container.querySelector('#pixel-redo-3');
-        if (redoBtn) redoBtn.onclick = () => pixelCanvas3.redo();
-        
-        // 클리어
-        const clearBtn = this.container.querySelector('#pixel-clear-3');
-        if (clearBtn) {
-            clearBtn.onclick = () => {
-                const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
-                if (confirm(vocab.clearAll)) {
-                    pixelCanvas3.clear();
-                }
-            };
-        }
-        
-        // 이미지 업로드 (좌측 사이드바에서)
-        const imageUploadBtn = this.container.querySelector('#pixel-image-upload-3');
-        if (imageUploadBtn) {
-            imageUploadBtn.onclick = () => {
-                if (this.currentTerritory) {
-                    imageStampModal.open(this.currentTerritory);
-                }
-            };
-        }
-        
-        // 저장 버튼
-        const saveBtn = this.container.querySelector('#pixel-save-btn-3');
-        if (saveBtn) {
-            saveBtn.onclick = () => {
-                if (pixelCanvas3 && !pixelCanvas3.isSaving) {
-                    pixelCanvas3.save();
-                }
-            };
-        }
-        
-        // 내보내기
-        const exportBtn = this.container.querySelector('#pixel-export-3');
-        if (exportBtn) {
-            exportBtn.onclick = () => {
-                const dataURL = pixelCanvas3.toDataURL();
-                const link = document.createElement('a');
-                link.download = `${this.currentTerritory.name?.ko || this.currentTerritory.id}_pixel.png`;
-                link.href = dataURL;
-                link.click();
-            };
-        }
-        
-        // 영토 정보 업데이트
-        this.updateTerritoryInfo();
-        
-        // 줌 컨트롤
-        const zoomInBtn = this.container.querySelector('#pixel-zoom-in-3');
-        if (zoomInBtn) {
-            zoomInBtn.onclick = () => pixelCanvas3.zoomIn();
-        }
-        
-        const zoomOutBtn = this.container.querySelector('#pixel-zoom-out-3');
-        if (zoomOutBtn) {
-            zoomOutBtn.onclick = () => pixelCanvas3.zoomOut();
-        }
-        
-        const zoomFitBtn = this.container.querySelector('#pixel-zoom-fit-3');
-        if (zoomFitBtn) {
-            zoomFitBtn.onclick = () => pixelCanvas3.fitToView();
-        }
-        
-        // 줌 변경 이벤트
-        eventBus.on(EVENTS.PIXEL_UPDATE, (data) => {
-            if (data.type === 'zoomChanged') {
-                const zoomValueEl = this.container?.querySelector('#pixel-zoom-value-3');
-                if (zoomValueEl) {
-                    zoomValueEl.textContent = `${Math.round(data.zoom * 100)}%`;
-                }
+        // 색상
+        on('#pe-palette-select', 'change', (e) => {
+            this.paletteId = e.target.value;
+            this.persist();
+            this.renderSwatches();
+        });
+        on('#pe-color-input', 'input', (e) => this.setColor(e.target.value));
+        on('#pe-color-input', 'change', (e) => this.setColor(e.target.value, { remember: true }));
+        on('#pe-hex-input', 'change', (e) => {
+            let v = e.target.value.trim();
+            if (!v.startsWith('#')) v = `#${v}`;
+            if (/^#[0-9a-f]{6}$/i.test(v)) this.setColor(v.toLowerCase(), { remember: true });
+            else e.target.value = this.color;
+        });
+        this.container.addEventListener('click', (e) => {
+            const sw = e.target.closest('[data-color]');
+            if (sw && this.container.contains(sw)) {
+                this.setColor(sw.dataset.color, { remember: true });
+                if (sw.closest('#pe-color-panel') && window.matchMedia?.(MOBILE_QUERY).matches) this.closePanels();
             }
         });
         
-        // 단축키 가이드 버튼
-        const shortcutsBtn = this.container.querySelector('#pixel-shortcuts-3');
-        if (shortcutsBtn) {
-            shortcutsBtn.onclick = () => this.showShortcutsModal();
-        }
+        // 보기 (지도 밑그림/배경/격자/대칭)
+        on('#pe-view-btn', 'click', (e) => {
+            e.stopPropagation();
+            this.togglePanel('view');
+        });
+        this.container.querySelectorAll('[data-underlay]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.underlayStyle = btn.dataset.underlay;
+                this.persist();
+                this.syncViewPanel();
+                this.loadUnderlay();
+            });
+        });
+        on('#pe-opacity', 'input', (e) => {
+            this.underlayOpacity = Number(e.target.value) / 100;
+            const label = this.$('#pe-opacity-value');
+            if (label) label.textContent = `${e.target.value}%`;
+            if (pixelCanvas3.underlayImage) pixelCanvas3.setUnderlay(pixelCanvas3.underlayImage, this.underlayOpacity);
+        });
+        on('#pe-opacity', 'change', () => this.persist());
+        this.container.querySelectorAll('[data-bg]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const bg = btn.dataset.bg;
+                if (bg === 'checker') this.setBackground('checker', this.backgroundColor);
+                else this.setBackground('solid', bg === 'light' ? '#e8e8e8' : '#1a1a1a');
+            });
+        });
+        on('#pe-preview-toggle', 'change', (e) => {
+            this.showPreview = e.target.checked;
+            this.persist();
+            this.syncPreviewCard();
+        });
+        on('#pe-preview-close', 'click', () => {
+            this.showPreview = false;
+            this.persist();
+            this.syncPreviewCard();
+            this.syncViewPanel();
+        });
+        on('#pe-grid-btn', 'click', () => this.toggleGrid());
+        on('#pe-mirror-btn', 'click', () => this.toggleMirror());
         
-        // 키보드 단축키
-        this.keyboardHandler = (e) => {
+        // 줌
+        on('#pe-zoom-in', 'click', () => pixelCanvas3.zoomIn());
+        on('#pe-zoom-out', 'click', () => pixelCanvas3.zoomOut());
+        on('#pe-zoom-fit', 'click', () => pixelCanvas3.fitToView());
+        
+        // 옵션 막대 (브러시 크기, 도형 채우기)
+        this.$('#pe-optbar')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-opt]');
+            if (!btn) return;
+            const opt = btn.dataset.opt;
+            if (opt === 'size-dec') this.setBrushSize(this.brushSize - 1);
+            else if (opt === 'size-inc') this.setBrushSize(this.brushSize + 1);
+            else if (opt === 'filled') this.toggleShapeFilled();
+            else if (opt === 'mirror') this.toggleMirror();
+            else if (opt === 'cancel-stamp') this.setTool(this.toolBeforeStamp || TOOLS.BRUSH);
+        });
+        
+        // 글자
+        on('#pe-text-input', 'input', (e) => {
+            this.textSettings.text = e.target.value;
+            this.updateTextStamp();
+        });
+        on('#pe-text-font', 'change', (e) => {
+            this.textSettings.fontId = e.target.value;
+            this.persist();
+            this.updateTextStamp();
+        });
+        this.container.querySelectorAll('#pe-text-scale [data-scale]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.textSettings.scale = Number(btn.dataset.scale);
+                this.persist();
+                this.syncSeg('#pe-text-scale', 'scale', this.textSettings.scale);
+                this.updateTextStamp();
+            });
+        });
+        on('#pe-text-outline', 'change', (e) => {
+            this.textSettings.outline = e.target.checked;
+            this.persist();
+            this.updateTextStamp();
+        });
+        
+        // 스티커
+        this.renderStickerGrid();
+        this.$('#pe-sticker-grid')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-sticker]');
+            if (!btn) return;
+            this.stickerSettings.id = btn.dataset.sticker;
+            this.updateStickerStamp();
+            if (window.matchMedia?.(MOBILE_QUERY).matches) this.closePanels();
+        });
+        this.container.querySelectorAll('#pe-sticker-scale [data-scale]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.stickerSettings.scale = Number(btn.dataset.scale);
+                this.persist();
+                this.syncSeg('#pe-sticker-scale', 'scale', this.stickerSettings.scale);
+                if (this.stickerSettings.id && this.stampSource === 'sticker') this.updateStickerStamp();
+            });
+        });
+        on('#pe-sticker-recolor', 'change', (e) => {
+            this.stickerSettings.recolorAll = e.target.checked;
+            this.persist();
+            this.renderStickerGrid();
+            if (this.stickerSettings.id && this.stampSource === 'sticker') this.updateStickerStamp();
+        });
+        
+        // 좌표 표시
+        on('#pixel-canvas-3', 'mousemove', (e) => {
+            const pos = pixelCanvas3.getPixelPos(e);
+            const el = this.$('#pe-coords');
+            if (el) el.textContent = pos.x >= 0 ? `X ${pos.x} · Y ${pos.y}` : '—';
+        });
+        on('#pixel-canvas-3', 'mousedown', () => this.closePanels(['more', 'view']));
+        on('#pixel-canvas-3', 'touchstart', () => {
+            if (window.matchMedia?.(MOBILE_QUERY).matches) this.closePanels();
+        });
+        
+        // 바깥을 누르면 메뉴/보기 패널 닫힘 (색상·글자·스티커 패널은 그리면서 계속 쓰도록 유지)
+        document.addEventListener('mousedown', (e) => {
             if (!this.isOpen) return;
+            if (!e.target.closest('#pe-more-menu, #pe-more, #pe-view-panel, #pe-view-btn')) {
+                this.closePanels(['more', 'view']);
+            }
+        });
+        
+        this.bindKeyboard();
+    }
+    
+    bindKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            if (!this.isOpen) return;
+            const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+            const mod = e.ctrlKey || e.metaKey;
+            const key = e.key.toLowerCase();
             
-            // ESC: 단축키 모달 닫기 또는 편집기 닫기
             if (e.key === 'Escape') {
-                if (this.shortcutsModalVisible) {
-                    this.hideShortcutsModal();
-                    e.preventDefault();
-                    return;
-                }
-                // 편집기는 close()에서 확인 다이얼로그 표시
-            }
-            
-            // Ctrl+S: 수동 저장
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (this.shortcutsModalVisible) this.hideShortcutsModal();
+                else if (pixelCanvas3.tool === TOOLS.STAMP) this.setTool(this.toolBeforeStamp || TOOLS.BRUSH);
+                else this.closePanels();
+                if (typing) e.target.blur();
                 e.preventDefault();
-                if (pixelCanvas3) {
-                    pixelCanvas3.save();
-                }
                 return;
             }
-            
-            // Ctrl+Z: 실행 취소
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            if (mod && key === 's') {
                 e.preventDefault();
-                if (pixelCanvas3) pixelCanvas3.undo();
+                pixelCanvas3.save();
                 return;
             }
-            
-            // Ctrl+Y 또는 Ctrl+Shift+Z: 다시 실행
-            if (((e.ctrlKey || e.metaKey) && e.key === 'y') || 
-                ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+            if (typing) return;
+            if (mod && key === 'z' && !e.shiftKey) {
                 e.preventDefault();
-                if (pixelCanvas3) pixelCanvas3.redo();
+                pixelCanvas3.undo();
                 return;
             }
-            
-            // Space: 이동 도구 (캔버스에서만, 누르는 동안만)
-            if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
                 e.preventDefault();
-                if (!e.repeat) {
-                    // Space 키로 진입한 경우 플래그 설정
+                pixelCanvas3.redo();
+                return;
+            }
+            if (mod || e.altKey) return;
+            
+            if (e.key === ' ') {
+                e.preventDefault();
+                if (!e.repeat && pixelCanvas3.tool !== TOOLS.PAN) {
                     this.panModeFromSpace = true;
-                    this.setTool(TOOLS.PAN);
-                    const panBtn = this.container.querySelector('[data-tool="pan"]');
-                    if (panBtn) {
-                        this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                        panBtn.classList.add('active');
-                    }
+                    this.toolBeforeSpace = pixelCanvas3.tool;
+                    this.setTool(TOOLS.PAN, { keepStamp: true });
                 }
                 return;
             }
             
-            // 도구 단축키 (B, E, F, I)
-            if (e.key === 'b' || e.key === 'B') {
+            const toolKeys = { b: TOOLS.BRUSH, e: TOOLS.ERASER, f: TOOLS.FILL, i: TOOLS.PICKER, l: TOOLS.LINE, r: TOOLS.RECT, o: TOOLS.ELLIPSE, h: TOOLS.PAN };
+            if (toolKeys[key]) {
                 e.preventDefault();
-                this.setTool(TOOLS.BRUSH);
-                const brushBtn = this.container.querySelector('[data-tool="brush"]');
-                if (brushBtn) {
-                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                    brushBtn.classList.add('active');
-                }
-            } else if (e.key === 'e' || e.key === 'E') {
-                e.preventDefault();
-                this.setTool(TOOLS.ERASER);
-                const eraserBtn = this.container.querySelector('[data-tool="eraser"]');
-                if (eraserBtn) {
-                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                    eraserBtn.classList.add('active');
-                }
-            } else if (e.key === 'f' || e.key === 'F') {
-                if (!e.ctrlKey && !e.metaKey) {
-                    e.preventDefault();
-                    // F키는 채우기 도구로 사용
-                    this.setTool(TOOLS.FILL);
-                    const fillBtn = this.container.querySelector('[data-tool="fill"]');
-                    if (fillBtn) {
-                        this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                        fillBtn.classList.add('active');
-                    }
-                }
-            } else if (e.key === 'i' || e.key === 'I') {
-                e.preventDefault();
-                // 스포이드는 숨겨진 도구로 사용 가능
-                this.setTool(TOOLS.PICKER);
+                this.closePanels(['text', 'sticker']);
+                this.setTool(toolKeys[key]);
+                return;
             }
-            
-            // 줌 단축키
-            if (e.key === '+' || e.key === '=') {
+            const actions = {
+                t: () => this.handleAction('text'),
+                k: () => this.handleAction('sticker'),
+                g: () => this.toggleGrid(),
+                m: () => this.toggleMirror(),
+                '0': () => pixelCanvas3.fitToView(),
+                '[': () => this.setBrushSize(this.brushSize - 1),
+                ']': () => this.setBrushSize(this.brushSize + 1),
+                '+': () => pixelCanvas3.zoomIn(),
+                '=': () => pixelCanvas3.zoomIn(),
+                '-': () => pixelCanvas3.zoomOut(),
+                '_': () => pixelCanvas3.zoomOut()
+            };
+            const action = actions[key] || actions[e.key];
+            if (action) {
                 e.preventDefault();
-                if (pixelCanvas3) pixelCanvas3.zoomIn();
-            } else if (e.key === '-' || e.key === '_') {
-                e.preventDefault();
-                if (pixelCanvas3) pixelCanvas3.zoomOut();
-            }
-        };
-        
-        document.addEventListener('keydown', this.keyboardHandler);
-        
-        // Space 키 up 시 브러시로 복귀 (Space 키로 진입한 경우에만)
-        document.addEventListener('keyup', (e) => {
-            if (!this.isOpen) return;
-            if (e.key === ' ' && this.tool === TOOLS.PAN && this.panModeFromSpace) {
-                this.panModeFromSpace = false;
-                this.setTool(TOOLS.BRUSH);
-                const brushBtn = this.container.querySelector('[data-tool="brush"]');
-                if (brushBtn) {
-                    this.container.querySelectorAll('.pixel-editor-3-tool-btn').forEach(b => b.classList.remove('active'));
-                    brushBtn.classList.add('active');
-                }
+                action();
             }
         });
         
-        // 캔버스 좌표 표시
-        const canvas = this.container.querySelector('#pixel-canvas-3');
-        if (canvas) {
-            canvas.onmousemove = (e) => {
-                const pos = pixelCanvas3.getPixelPos(e);
-                const coordsEl = this.container.querySelector('#pixel-coords-3');
-                if (coordsEl) {
-                    coordsEl.textContent = `X: ${pos.x}, Y: ${pos.y}`;
-                }
-            };
+        document.addEventListener('keyup', (e) => {
+            if (!this.isOpen || e.key !== ' ' || !this.panModeFromSpace) return;
+            this.panModeFromSpace = false;
+            this.setTool(this.toolBeforeSpace || TOOLS.BRUSH, { keepStamp: true });
+            this.toolBeforeSpace = null;
+        });
+    }
+    
+    handleAction(action) {
+        if (action === 'text') {
+            this.togglePanel('text', true);
+            this.updateTextStamp();
+            setTimeout(() => this.$('#pe-text-input')?.focus(), 30);
+        } else if (action === 'sticker') {
+            this.togglePanel('sticker', true);
+            if (this.stickerSettings.id) this.updateStickerStamp();
+        } else if (action === 'image') {
+            this.closePanels();
+            if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
         }
     }
     
-    /**
-     * 도구 설정
-     */
-    setTool(tool) {
+    handleMenu(item) {
+        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
+        if (item === 'download') {
+            const link = document.createElement('a');
+            const name = this.currentTerritory?.name?.en || this.currentTerritory?.name?.ko || this.currentTerritory?.id || 'pixel-art';
+            link.download = `${String(name).replace(/[^\w-]+/g, '_')}_pixel.png`;
+            link.href = pixelCanvas3.toPixelPNG(8);
+            link.click();
+        } else if (item === 'image') {
+            if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
+        } else if (item === 'shortcuts') {
+            this.showShortcutsModal();
+        } else if (item === 'clear') {
+            if (confirm(vocab.clearAll || 'Clear all pixels?')) pixelCanvas3.clear();
+        }
+    }
+    
+    // ---------- 패널 ----------
+    
+    togglePanel(name, forceOpen = false) {
+        const next = !forceOpen && this.openPanel === name ? null : name;
+        this.closePanels();
+        if (!next) return;
+        const el = this.$({ more: '#pe-more-menu', view: '#pe-view-panel', color: '#pe-color-panel', text: '#pe-text-panel', sticker: '#pe-sticker-panel' }[next]);
+        if (!el) return;
+        el.hidden = false;
+        this.openPanel = next;
+        this.container.querySelector(`[data-action="${next}"]`)?.classList.add('open');
+        if (next === 'color') this.$('#pe-color-btn')?.classList.add('open');
+        if (next === 'view') this.syncViewPanel();
+        if (next === 'text') this.syncTextPanel();
+        if (next === 'sticker') this.syncStickerPanel();
+    }
+    
+    closePanels(only = null) {
+        const map = { more: '#pe-more-menu', view: '#pe-view-panel', color: '#pe-color-panel', text: '#pe-text-panel', sticker: '#pe-sticker-panel' };
+        for (const [name, sel] of Object.entries(map)) {
+            if (only && !only.includes(name)) continue;
+            const el = this.$(sel);
+            if (el) el.hidden = true;
+            if (this.openPanel === name) this.openPanel = null;
+        }
+        this.container?.querySelectorAll('[data-action].open, #pe-color-btn.open').forEach(el => {
+            const name = el.dataset.action || 'color';
+            if (!only || only.includes(name)) el.classList.remove('open');
+        });
+    }
+    
+    syncSeg(selector, attr, value) {
+        this.container?.querySelectorAll(`${selector} [data-${attr}]`).forEach(btn => {
+            btn.classList.toggle('active', String(btn.dataset[attr]) === String(value));
+        });
+    }
+    
+    syncAll() {
+        this.renderSwatches();
+        this.syncViewPanel();
+        this.syncPreviewCard();
+        this.syncToggles();
+        this.syncOptbar();
+        const select = this.$('#pe-palette-select');
+        if (select) select.value = this.paletteId;
+    }
+    
+    syncViewPanel() {
+        if (!this.container) return;
+        this.syncSeg('#pe-underlay-seg', 'underlay', this.underlayStyle);
+        const bg = this.backgroundMode === 'checker' ? 'checker' : (contrastColor(this.backgroundColor) === '#000000' ? 'light' : 'dark');
+        this.syncSeg('#pe-bg-seg', 'bg', bg);
+        const label = this.$('#pe-view-label');
+        const style = UNDERLAY_STYLES.find(s => s.id === this.underlayStyle);
+        if (label) label.textContent = this.underlayStyle === 'off' ? 'No map' : (style?.name || 'Map');
+        const note = this.$('#pe-underlay-note');
+        if (note) note.hidden = this.underlayAvailable;
+        const opacityField = this.$('#pe-opacity-field');
+        if (opacityField) opacityField.hidden = this.underlayStyle === 'off';
+        const opacity = this.$('#pe-opacity');
+        if (opacity) opacity.value = Math.round(this.underlayOpacity * 100);
+        const opacityValue = this.$('#pe-opacity-value');
+        if (opacityValue) opacityValue.textContent = `${Math.round(this.underlayOpacity * 100)}%`;
+        const preview = this.$('#pe-preview-toggle');
+        if (preview) preview.checked = this.showPreview;
+        const attribution = this.$('#pe-attribution');
+        if (attribution) attribution.hidden = !pixelCanvas3.underlayImage;
+    }
+    
+    syncPreviewCard() {
+        const card = this.$('#pe-preview-card');
+        if (card) card.hidden = !this.showPreview;
+        if (this.showPreview) this.schedulePreview();
+    }
+    
+    syncToggles() {
+        this.$('#pe-grid-btn')?.classList.toggle('active', this.showGrid);
+        this.$('#pe-mirror-btn')?.classList.toggle('active', this.mirror);
+    }
+    
+    syncOptbar() {
+        const bar = this.$('#pe-optbar');
+        if (!bar) return;
+        const tool = pixelCanvas3.tool || this.tool;
+        const sizeControl = `
+            <div class="pe-opt-group">
+                <span class="pe-label">Size</span>
+                <button type="button" class="pe-icon-btn pe-mini" data-opt="size-dec" aria-label="Smaller" ${this.brushSize <= 1 ? 'disabled' : ''}>${ICONS.minus}</button>
+                <span class="pe-size-value"><i style="--s:${Math.min(this.brushSize, 10)}"></i>${this.brushSize}</span>
+                <button type="button" class="pe-icon-btn pe-mini" data-opt="size-inc" aria-label="Bigger" ${this.brushSize >= 10 ? 'disabled' : ''}>${ICONS.plus}</button>
+            </div>`;
+        const mirror = `<button type="button" class="pe-toggle ${this.mirror ? 'active' : ''}" data-opt="mirror">${ICONS.mirror}<span>Mirror</span></button>`;
+        let html = '';
+        if (tool === TOOLS.BRUSH || tool === TOOLS.ERASER) {
+            html = sizeControl + mirror;
+        } else if (tool === TOOLS.LINE) {
+            html = sizeControl + mirror + '<span class="pe-hint">Hold Shift for straight lines</span>';
+        } else if (tool === TOOLS.RECT || tool === TOOLS.ELLIPSE) {
+            html = sizeControl +
+                `<button type="button" class="pe-toggle ${this.shapeFilled ? 'active' : ''}" data-opt="filled">${ICONS.fillShape}<span>Filled</span></button>` +
+                mirror + `<span class="pe-hint">Shift: perfect ${tool === TOOLS.RECT ? 'square' : 'circle'}</span>`;
+        } else if (tool === TOOLS.FILL) {
+            html = '<span class="pe-hint">Click an area to fill it</span>';
+        } else if (tool === TOOLS.PICKER) {
+            html = '<span class="pe-hint">Click a pixel to use its color</span>';
+        } else if (tool === TOOLS.PAN) {
+            html = '<span class="pe-hint">Drag to move · scroll or pinch to zoom</span>';
+        } else if (tool === TOOLS.STAMP) {
+            html = `<span class="pe-hint">${this.stampSource === 'text' ? 'Tap or click where the text should go' : 'Tap or click to stamp · again for more'}</span>` +
+                `<button type="button" class="pe-toggle" data-opt="cancel-stamp">${ICONS.close}<span>Done</span></button>`;
+        }
+        bar.innerHTML = html;
+        bar.hidden = !html;
+    }
+    
+    // ---------- 도구/색상 ----------
+    
+    setTool(tool, { keepStamp = false } = {}) {
+        if (tool !== TOOLS.STAMP && !keepStamp) {
+            pixelCanvas3.setStamp(null);
+            this.stampSource = null;
+        }
         this.tool = tool;
         pixelCanvas3.setTool(tool);
+        this.container?.querySelectorAll('.pe-tool[data-tool]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tool === tool);
+        });
+        this.container?.querySelectorAll('.pe-tool[data-action="text"], .pe-tool[data-action="sticker"]').forEach(btn => {
+            btn.classList.toggle('active', tool === TOOLS.STAMP && btn.dataset.action === this.stampSource);
+        });
+        this.syncOptbar();
     }
     
-    /**
-     * 색상 설정
-     */
-    setColor(color) {
-        this.color = color;
-        pixelCanvas3.setColor(color);
-        
-        const preview = this.container?.querySelector('#pixel-color-preview-3');
-        if (preview) preview.style.background = color;
-        
-        const input = this.container?.querySelector('#pixel-color-input-3');
-        if (input) input.value = color;
+    setColor(color, { remember = false } = {}) {
+        if (!color) return;
+        this.color = color.toLowerCase();
+        pixelCanvas3.setColor(this.color);
+        const swatch = this.$('#pe-color-swatch');
+        if (swatch) swatch.style.background = this.color;
+        const input = this.$('#pe-color-input');
+        if (input && input.value !== this.color) input.value = this.color;
+        const hex = this.$('#pe-hex-input');
+        if (hex && document.activeElement !== hex) hex.value = this.color;
+        if (remember) {
+            this.recentColors = [this.color, ...this.recentColors.filter(c => c !== this.color)].slice(0, MAX_RECENT);
+            this.persist();
+        }
+        this.renderSwatches();
+        if (this.stampSource === 'text') this.updateTextStamp();
+        if (this.stampSource === 'sticker') this.updateStickerStamp();
+        if (this.openPanel === 'sticker') this.renderStickerGrid();
+        pixelCanvas3.scheduleOverlay();
     }
     
-    /**
-     * 배경 설정 (BackgroundStore로 동기화)
-     */
+    setBrushSize(size) {
+        this.brushSize = Math.max(1, Math.min(10, size));
+        pixelCanvas3.setBrushSize(this.brushSize);
+        this.persist();
+        this.syncOptbar();
+        pixelCanvas3.scheduleOverlay();
+    }
+    
+    toggleGrid() {
+        this.showGrid = !this.showGrid;
+        pixelCanvas3.setGrid(this.showGrid);
+        this.persist();
+        this.syncToggles();
+    }
+    
+    toggleMirror() {
+        this.mirror = !this.mirror;
+        pixelCanvas3.setMirror(this.mirror);
+        this.syncToggles();
+        this.syncOptbar();
+    }
+    
+    toggleShapeFilled() {
+        this.shapeFilled = !this.shapeFilled;
+        pixelCanvas3.setShapeFilled(this.shapeFilled);
+        this.persist();
+        this.syncOptbar();
+    }
+    
     setBackground(mode, color) {
         this.backgroundMode = mode;
-        if (color) {
-            this.backgroundColor = color;
-        }
-        
-        // BackgroundStore에 저장 (모든 구독자에게 자동 알림)
-        setBg({
-            mode: mode,
-            color: color || this.backgroundColor,
-            checkerSize: this.checkerSize
-        });
-        
-        // PixelCanvas3에 배경 설정 전달 (구독 콜백에서도 처리되지만 명시적으로)
-        pixelCanvas3.setBackground(mode, color || this.backgroundColor, this.checkerSize);
-        
-        // 렌더링 업데이트
+        if (color) this.backgroundColor = color;
+        setBg({ mode, color: this.backgroundColor, checkerSize: this.checkerSize });
+        pixelCanvas3.setBackground(mode, this.backgroundColor, this.checkerSize);
         pixelCanvas3.render();
+        this.syncViewPanel();
     }
     
-    /**
-     * 통계 업데이트
-     */
+    renderSwatches() {
+        const palette = PALETTES.find(p => p.id === this.paletteId) || PALETTES[0];
+        const swatch = (c) => `<button type="button" class="pe-swatch ${c === this.color ? 'active' : ''}" data-color="${c}" style="--c:${c}" title="${c}" aria-label="${c}"></button>`;
+        const grid = this.$('#pe-palette-swatches');
+        if (grid) grid.innerHTML = palette.colors.map(swatch).join('');
+        const recent = this.$('#pe-recent-swatches');
+        if (recent) recent.innerHTML = this.recentColors.map(swatch).join('');
+        const recentWrap = this.$('#pe-recent-wrap');
+        if (recentWrap) recentWrap.hidden = this.recentColors.length === 0;
+        const quick = this.$('#pe-quick-swatches');
+        if (quick) {
+            const colors = [...new Set([...this.recentColors.slice(0, 4), ...palette.colors])].slice(0, 10);
+            quick.innerHTML = colors.map(swatch).join('');
+        }
+        const main = this.$('#pe-color-swatch');
+        if (main) main.style.background = this.color;
+    }
+    
+    // ---------- 글자 ----------
+    
+    syncTextPanel() {
+        const font = this.$('#pe-text-font');
+        if (font) font.value = this.textSettings.fontId;
+        const outline = this.$('#pe-text-outline');
+        if (outline) outline.checked = this.textSettings.outline;
+        const input = this.$('#pe-text-input');
+        if (input && input.value !== this.textSettings.text) input.value = this.textSettings.text;
+        this.syncSeg('#pe-text-scale', 'scale', this.textSettings.scale);
+        ensurePixelFonts().then(() => {
+            if (this.openPanel === 'text') this.updateTextStamp();
+        });
+    }
+    
+    buildTextStamp() {
+        const { text, fontId, scale, outline } = this.textSettings;
+        return rasterizeText(text, {
+            fontId,
+            scale,
+            color: this.color,
+            outlineColor: outline ? contrastColor(this.color) : null
+        });
+    }
+    
+    updateTextStamp() {
+        const stamp = this.textSettings.text.trim() ? this.buildTextStamp() : null;
+        this.renderTextPreview(stamp);
+        if (stamp) {
+            if (pixelCanvas3.tool !== TOOLS.STAMP) this.toolBeforeStamp = pixelCanvas3.tool === TOOLS.PAN ? TOOLS.BRUSH : pixelCanvas3.tool;
+            this.stampSource = 'text';
+            pixelCanvas3.setStamp(stamp);
+            this.setTool(TOOLS.STAMP);
+        } else if (this.stampSource === 'text') {
+            this.setTool(this.toolBeforeStamp || TOOLS.BRUSH);
+        }
+    }
+    
+    renderTextPreview(stamp = null) {
+        const canvas = this.$('#pe-text-preview');
+        const size = this.$('#pe-text-size');
+        if (!canvas) return;
+        if (!stamp) {
+            canvas.width = 1;
+            canvas.height = 1;
+            canvas.style.display = 'none';
+            if (size) size.textContent = 'Type something to see it in pixels';
+            return;
+        }
+        const cell = Math.max(2, Math.min(6, Math.floor(260 / Math.max(stamp.w, 1))));
+        canvas.width = stamp.w * cell;
+        canvas.height = stamp.h * cell;
+        canvas.style.display = 'block';
+        const ctx = canvas.getContext('2d');
+        for (const c of stamp.cells) {
+            ctx.fillStyle = c.color;
+            ctx.fillRect(c.dx * cell, c.dy * cell, cell, cell);
+        }
+        if (size) size.textContent = `${stamp.w} × ${stamp.h} px${stamp.w > pixelCanvas3.width ? ' · wider than the canvas' : ''}`;
+    }
+    
+    // ---------- 스티커 ----------
+    
+    renderStickerGrid() {
+        const grid = this.$('#pe-sticker-grid');
+        if (!grid) return;
+        grid.innerHTML = STICKERS.map(s => {
+            const url = stickerPreviewURL(this.stickerSettings.recolorAll ? { ...s, rows: s.rows.map(r => r.replace(/[^.C ]/g, 'C')) } : s, this.color);
+            return `<button type="button" class="pe-sticker ${this.stickerSettings.id === s.id ? 'active' : ''}" data-sticker="${s.id}" title="${escapeHtml(s.name)}" aria-label="${escapeHtml(s.name)}"><img src="${url}" alt=""></button>`;
+        }).join('');
+    }
+    
+    syncStickerPanel() {
+        this.syncSeg('#pe-sticker-scale', 'scale', this.stickerSettings.scale);
+        const recolor = this.$('#pe-sticker-recolor');
+        if (recolor) recolor.checked = this.stickerSettings.recolorAll;
+        this.renderStickerGrid();
+    }
+    
+    updateStickerStamp() {
+        const sticker = STICKERS.find(s => s.id === this.stickerSettings.id);
+        if (!sticker) return;
+        const stamp = stickerToStamp(sticker, {
+            scale: this.stickerSettings.scale,
+            color: this.color,
+            recolorAll: this.stickerSettings.recolorAll
+        });
+        if (pixelCanvas3.tool !== TOOLS.STAMP) this.toolBeforeStamp = pixelCanvas3.tool === TOOLS.PAN ? TOOLS.BRUSH : pixelCanvas3.tool;
+        this.stampSource = 'sticker';
+        pixelCanvas3.setStamp(stamp);
+        this.setTool(TOOLS.STAMP);
+        this.container?.querySelectorAll('.pe-sticker').forEach(btn => btn.classList.toggle('active', btn.dataset.sticker === sticker.id));
+    }
+    
+    // ---------- 지도 미리보기 ----------
+    
+    schedulePreview() {
+        if (!this.isOpen || !this.showPreview || this.previewTimer) return;
+        this.previewTimer = setTimeout(() => {
+            this.previewTimer = null;
+            this.drawPreview();
+        }, 180);
+    }
+    
+    drawPreview() {
+        const canvas = this.$('#pe-preview-canvas');
+        if (!canvas || !this.showPreview) return;
+        const dpr = window.devicePixelRatio || 1;
+        const css = canvas.clientWidth || 176;
+        if (canvas.width !== Math.round(css * dpr)) {
+            canvas.width = Math.round(css * dpr);
+            canvas.height = Math.round(css * dpr);
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.clearRect(0, 0, css, css);
+        if (pixelCanvas3.underlayImage) {
+            ctx.drawImage(pixelCanvas3.underlayImage, 0, 0, css, css);
+        } else {
+            ctx.fillStyle = '#1b2233';
+            ctx.fillRect(0, 0, css, css);
+        }
+        const cell = css / pixelCanvas3.width;
+        for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
+            const [x, y] = key.split(',').map(Number);
+            ctx.fillStyle = color;
+            ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
+        }
+        if (pixelCanvas3.boundaryPath) {
+            const k = css / (pixelCanvas3.width * pixelCanvas3.basePixelSize);
+            ctx.save();
+            ctx.scale(k, k);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1 / k;
+            ctx.stroke(pixelCanvas3.boundaryPath);
+            ctx.restore();
+        }
+    }
+    
+    // ---------- 상태 표시 ----------
+    
     updateStats(data) {
-        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
-        const total = CONFIG.TERRITORY.PIXEL_GRID_SIZE * CONFIG.TERRITORY.PIXEL_GRID_SIZE;
-        
-        const countEl = this.container?.querySelector('#pixel-count-3');
-        if (countEl) {
-            countEl.textContent = `${data.filledPixels?.toLocaleString() || 0} / ${total.toLocaleString()} ${vocab.pixel}`;
-        }
-        
-        const totalEl = this.container?.querySelector('#pixel-total-3');
-        if (totalEl) {
-            totalEl.textContent = data.filledPixels?.toLocaleString() || '0';
-        }
-        
-        const valueEl = this.container?.querySelector('#pixel-value-3');
-        if (valueEl) {
-            valueEl.textContent = data.value?.toLocaleString() || '0';
-        }
+        const el = this.$('#pe-count');
+        if (el) el.textContent = `${(data?.filledPixels || 0).toLocaleString()} px painted`;
     }
     
-    /**
-     * 저장 상태 업데이트
-     */
     updateSaveStatus(status, error = null, message = null, saveTime = null) {
-        const statusEl = this.container?.querySelector('#pixel-save-status-3');
-        if (!statusEl) return;
+        const el = this.$('#pe-save-status');
+        if (!el) return;
+        const text = el.querySelector('span');
+        el.classList.remove('saving', 'saved', 'error', 'pending', 'unsaved');
+        el.title = '';
         
-        const icon = statusEl.querySelector('span:first-child');
-        const text = statusEl.querySelector('span:last-child');
-        
-        // 기존 클래스 제거
-        statusEl.classList.remove('saving', 'saved', 'error', 'pending');
-        
-        if (status === 'unsaved') {
-            icon.textContent = '✏️';
-            text.textContent = message || 'Unsaved changes';
-            statusEl.classList.add('pending');
+        if (status === 'unsaved' || status === 'pending') {
+            el.classList.add('unsaved');
+            text.textContent = 'Unsaved';
         } else if (status === 'saving') {
-            icon.textContent = '💾';
-            text.textContent = message || 'Saving...';
-            statusEl.classList.add('saving');
+            el.classList.add('saving');
+            text.textContent = message || 'Saving…';
         } else if (status === 'saved') {
             this.saveRetryCount = 0;
-            icon.textContent = '✅';
-            if (saveTime) {
-                const timeStr = new Date(saveTime).toLocaleTimeString('ko-KR', { 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit' 
-                });
-                text.textContent = message || `Saved · ${timeStr}`;
-            } else {
-                text.textContent = message || 'Saved';
-            }
-            statusEl.classList.add('saved');
-            // Show faded after 3 seconds (그 사이 새로 그렸으면 'Unsaved' 표시 유지)
-            setTimeout(() => {
-                if (this.container?.querySelector('#pixel-save-status-3') && !pixelCanvas3?.hasUnsavedChangesFlag) {
-                    icon.textContent = '💾';
-                    if (saveTime) {
-                        const timeStr = new Date(saveTime).toLocaleTimeString('en-US', { 
-                            hour: '2-digit', 
-                            minute: '2-digit', 
-                            second: '2-digit' 
-                        });
-                        text.textContent = `Saved · ${timeStr}`;
-                    } else {
-                        text.textContent = 'Saved';
-                    }
-                }
-            }, 3000);
-        } else if (status === 'pending') {
-            icon.textContent = '⏳';
-            text.textContent = message || 'Pending...';
-            statusEl.classList.add('pending');
+            el.classList.add('saved');
+            const time = saveTime ? new Date(saveTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : null;
+            text.textContent = time ? `Saved ${time}` : 'Saved';
         } else if (status === 'error') {
-            icon.textContent = '⚠️';
+            el.classList.add('error');
             text.textContent = message || 'Save failed';
-            statusEl.classList.add('error');
-            statusEl.title = error || 'An error occurred while saving. Please try again.';
-            // 5초 후 자동으로 다시 저장 시도 (권한 문제 등으로 계속 실패하면 무한 반복하지 않도록 최대 3회)
+            el.title = error || 'An error occurred while saving. Please try again.';
+            // 권한 문제 등으로 계속 실패하면 무한 반복하지 않도록 최대 3회 다시 시도
             this.saveRetryCount = (this.saveRetryCount || 0) + 1;
             if (this.saveRetryCount <= 3) {
                 setTimeout(() => {
-                    if (pixelCanvas3 && this.isOpen && !pixelCanvas3.isSaving) {
-                        pixelCanvas3.save().catch(() => {});
-                    }
+                    if (this.isOpen && !pixelCanvas3.isSaving) pixelCanvas3.save().catch(() => {});
                 }, 5000);
             }
         }
+        this.$('#pe-save')?.classList.toggle('attention', status === 'unsaved' || status === 'pending' || status === 'error');
     }
     
-    /**
-     * 단축키 가이드 모달 표시
-     */
+    updateTerritoryInfo() {
+        const el = this.$('#pe-territory-name');
+        if (el && this.currentTerritory) {
+            el.textContent = this.currentTerritory.name?.en || this.currentTerritory.name?.ko ||
+                (typeof this.currentTerritory.name === 'string' ? this.currentTerritory.name : '') || this.currentTerritory.id;
+        }
+    }
+    
     showShortcutsModal() {
         if (this.shortcutsModalVisible) {
             this.hideShortcutsModal();
             return;
         }
-        
-        const vocab = CONFIG.VOCABULARY[this.lang] || CONFIG.VOCABULARY.en;
         const modal = document.createElement('div');
-        modal.className = 'pixel-shortcuts-modal';
+        modal.className = 'pe-shortcuts';
         modal.innerHTML = `
-            <div class="pixel-shortcuts-content">
-                <div class="pixel-shortcuts-header">
-                    <h3>⌨️ ${vocab.keyboardShortcuts}</h3>
-                    <button class="pixel-shortcuts-close" onclick="this.closest('.pixel-shortcuts-modal').remove()">×</button>
-                </div>
-                <div class="pixel-shortcuts-list">
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></div>
-                        <div class="shortcut-desc">${vocab.undo}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Y</kbd></div>
-                        <div class="shortcut-desc">${vocab.redo}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>S</kbd></div>
-                        <div class="shortcut-desc">${vocab.manualSave}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>Space</kbd></div>
-                        <div class="shortcut-desc">${vocab.panTool}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>B</kbd></div>
-                        <div class="shortcut-desc">${vocab.brushTool}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>E</kbd></div>
-                        <div class="shortcut-desc">${vocab.eraserTool}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>I</kbd></div>
-                        <div class="shortcut-desc">${vocab.eyedropperTool}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>+</kbd> / <kbd>-</kbd></div>
-                        <div class="shortcut-desc">${vocab.zoomInOut}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>F</kbd></div>
-                        <div class="shortcut-desc">${vocab.fitView}</div>
-                    </div>
-                    <div class="shortcut-item">
-                        <div class="shortcut-keys"><kbd>ESC</kbd></div>
-                        <div class="shortcut-desc">${vocab.closeModal}</div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        this.shortcutsModalVisible = true;
-        
-        // ESC 키로 닫기
-        const closeHandler = (e) => {
-            if (e.key === 'Escape' && this.shortcutsModalVisible) {
-                this.hideShortcutsModal();
-            }
-        };
-        document.addEventListener('keydown', closeHandler, { once: true });
-        
-        // 클릭으로 닫기
+            <div class="pe-shortcuts-card" role="dialog" aria-label="Keyboard shortcuts">
+                <div class="pe-sheet-head"><strong>Keyboard shortcuts</strong>
+                    <button class="pe-icon-btn pe-mini" type="button" data-close aria-label="Close">${ICONS.close}</button></div>
+                <dl>${SHORTCUTS.map(([k, d]) => `<dt>${k.split(' / ').map(x => `<kbd>${escapeHtml(x)}</kbd>`).join(' / ')}</dt><dd>${escapeHtml(d)}</dd>`).join('')}</dl>
+            </div>`;
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                this.hideShortcutsModal();
-            }
+            if (e.target === modal || e.target.closest('[data-close]')) this.hideShortcutsModal();
         });
+        this.container.appendChild(modal);
+        this.shortcutsModalVisible = true;
     }
     
-    /**
-     * 단축키 가이드 모달 숨기기
-     */
     hideShortcutsModal() {
-        const modal = document.querySelector('.pixel-shortcuts-modal');
-        if (modal) {
-            modal.remove();
-        }
+        this.container?.querySelector('.pe-shortcuts')?.remove();
         this.shortcutsModalVisible = false;
     }
-    
-    /**
-     * 영토 정보 업데이트
-     */
-    updateTerritoryInfo() {
-        const infoEl = this.container?.querySelector('#pixel-territory-info-3');
-        if (infoEl && this.currentTerritory) {
-            const nameEl = infoEl.querySelector('.territory-name');
-            if (nameEl) {
-                const name = this.currentTerritory.name?.ko || 
-                            this.currentTerritory.name?.en || 
-                            this.currentTerritory.id;
-                nameEl.textContent = name;
-            }
-        }
-    }
-    
 }
-
 
 export const pixelEditor3 = new PixelEditor3();
 export default pixelEditor3;
-
