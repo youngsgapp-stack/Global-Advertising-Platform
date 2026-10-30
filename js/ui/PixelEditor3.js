@@ -7,7 +7,9 @@ import { CONFIG, log } from '../config.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
 import { pixelCanvas3, TOOLS } from '../core/PixelCanvas3.js';
 import { loadBg, subscribeBg, setBg } from '../stores/BackgroundStore.js';
-import { imageStampModal } from './ImageStampModal.js';
+import { apiService } from '../services/ApiService.js';
+import { showDialog } from './ConfirmDialog.js';
+import { PhotoDialog } from './pixel-editor/PhotoDialog.js';
 import {
     ICONS, PALETTES, STICKERS, TEXT_FONTS,
     stickerToStamp, stickerPreviewURL, rasterizeText, ensurePixelFonts
@@ -135,7 +137,6 @@ class PixelEditor3 {
         this.createModal();
         this.setupEvents();
         this.bindUI();
-        imageStampModal.initialize();
         log.info('[PixelEditor3] Initialized');
     }
     
@@ -232,6 +233,12 @@ class PixelEditor3 {
                         <button class="pe-icon-btn pe-mini" id="pe-preview-close" type="button" title="Hide preview" aria-label="Hide preview">${ICONS.close}</button>
                     </div>
                     <canvas id="pe-preview-canvas" width="176" height="176"></canvas>
+                </div>
+                
+                <div class="pe-banner" id="pe-hd-banner" hidden>
+                    ${ICONS.image}
+                    <span>Your <b>HD photo</b> is showing on the map instead of these pixels.</span>
+                    <button type="button" id="pe-hd-remove">Remove HD photo</button>
                 </div>
                 
                 <div class="pe-empty" id="pe-empty" hidden>
@@ -416,6 +423,7 @@ class PixelEditor3 {
             this.syncAll();
             // 빈 땅이면 "사진으로 시작하기"를 먼저 보여 줌 (사진 변환 기능을 모르는 사람이 많아서)
             this.setEmptyCard(pixelCanvas3.pixelsMap.size === 0);
+            this.loadHdBanner();
             
             log.info(`[PixelEditor3] Opened for ${territory.id}`);
         } catch (error) {
@@ -439,10 +447,82 @@ class PixelEditor3 {
         if (card) card.hidden = !show;
     }
     
+    notify(message, type = 'info') {
+        eventBus.emit(EVENTS.UI_NOTIFICATION, { type, message });
+    }
+    
     openPhotoTool() {
         this.setEmptyCard(false);
         this.closePanels();
-        if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
+        const territory = this.currentTerritory;
+        if (!territory) return;
+        if (!pixelCanvas3.territoryGeometry) {
+            this.notify('The shape of this spot is still loading. Please try again in a moment.', 'warning');
+            return;
+        }
+        new PhotoDialog({
+            host: this.container,
+            territory,
+            geometry: pixelCanvas3.territoryGeometry,
+            gridSize: pixelCanvas3.width,
+            outlinePath: pixelCanvas3.boundaryPath,
+            outlineSize: pixelCanvas3.width * pixelCanvas3.basePixelSize,
+            onPixels: (pixels) => {
+                pixelCanvas3.saveHistory();
+                pixelCanvas3.batch(() => {
+                    for (const [x, y, color] of pixels) pixelCanvas3.setPixel(x, y, color);
+                });
+                pixelCanvas3.saveHistory();
+                this.notify('Photo added as pixel art. Touch it up if you like, then press Save.', 'success');
+            },
+            onHdUploaded: async (url) => {
+                const { hdImageLayer } = await import('../core/HdImageLayer.js');
+                hdImageLayer.setImage(territory.id, url);
+                this.setHdBanner(true);
+                this.notify('HD photo is live on the map!', 'success');
+            },
+            onNeedPoints: async () => {
+                const { paymentService } = await import('../services/PaymentService.js');
+                paymentService.openChargeModal();
+            }
+        }).open();
+    }
+    
+    setHdBanner(show) {
+        const banner = this.$('#pe-hd-banner');
+        if (banner) banner.hidden = !show;
+    }
+    
+    async loadHdBanner() {
+        const territoryId = this.currentTerritory?.id;
+        this.setHdBanner(false);
+        if (!territoryId) return;
+        try {
+            const info = await apiService.get(`/hd/territories/${encodeURIComponent(territoryId)}`);
+            if (this.isOpen && this.currentTerritory?.id === territoryId) this.setHdBanner(!!info?.hasImage && info.isOwner !== false);
+        } catch {
+            // HD 상태를 못 받아도 편집에는 지장 없음
+        }
+    }
+    
+    async removeHdPhoto() {
+        const territoryId = this.currentTerritory?.id;
+        if (!territoryId) return;
+        const choice = await showDialog({
+            title: 'Remove HD photo?',
+            lines: ['Your pixel art will show on the map again.'],
+            buttons: [{ id: 'cancel', label: 'Cancel' }, { id: 'ok', label: 'Remove', primary: true }]
+        });
+        if (choice !== 'ok') return;
+        try {
+            await apiService.delete(`/hd/territories/${encodeURIComponent(territoryId)}/image`);
+            const { hdImageLayer } = await import('../core/HdImageLayer.js');
+            hdImageLayer.setImage(territoryId, null);
+            this.setHdBanner(false);
+            this.notify('HD photo removed. Your pixel art is back on the map.');
+        } catch (error) {
+            this.notify(error.message || 'Could not remove the HD photo.', 'error');
+        }
     }
     
     showLoading(message = null) {
@@ -587,6 +667,7 @@ class PixelEditor3 {
             this.togglePanel('view');
         });
         on('#pe-photo', 'click', () => this.openPhotoTool());
+        on('#pe-hd-remove', 'click', () => this.removeHdPhoto());
         this.container.querySelectorAll('[data-empty]').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (btn.dataset.empty === 'photo') this.openPhotoTool();
@@ -707,7 +788,7 @@ class PixelEditor3 {
     
     bindKeyboard() {
         document.addEventListener('keydown', (e) => {
-            if (!this.isOpen) return;
+            if (!this.isOpen || this.container.querySelector('.pe-modal')) return;
             const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
             const mod = e.ctrlKey || e.metaKey;
             const key = e.key.toLowerCase();
