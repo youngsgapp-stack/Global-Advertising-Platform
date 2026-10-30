@@ -237,7 +237,7 @@ class PixelEditor3 {
                 
                 <div class="pe-banner" id="pe-hd-banner" hidden>
                     ${ICONS.image}
-                    <span>Your <b>HD photo</b> is showing on the map instead of these pixels.</span>
+                    <span>Your <b>HD photo</b> is what people see on the map (preview at bottom right). Pixels drawn here stay hidden until you remove it.</span>
                     <button type="button" id="pe-hd-remove">Remove HD photo</button>
                 </div>
                 
@@ -478,7 +478,7 @@ class PixelEditor3 {
             onHdUploaded: async (url) => {
                 const { hdImageLayer } = await import('../core/HdImageLayer.js');
                 hdImageLayer.setImage(territory.id, url);
-                this.setHdBanner(true);
+                this.setHdBanner(true, url);
                 this.notify('HD photo is live on the map!', 'success');
             },
             onNeedPoints: async () => {
@@ -488,9 +488,20 @@ class PixelEditor3 {
         }).open();
     }
     
-    setHdBanner(show) {
+    setHdBanner(show, url = null) {
         const banner = this.$('#pe-hd-banner');
         if (banner) banner.hidden = !show;
+        // 지도에는 HD 사진이 보이므로 미리보기 카드에도 같은 사진을 보여 줌
+        this.hdImage = null;
+        if (show && url) {
+            const img = new Image();
+            img.onload = () => {
+                if (this.hdImage === img) this.schedulePreview();
+            };
+            img.src = url;
+            this.hdImage = img;
+        }
+        this.schedulePreview();
     }
     
     async loadHdBanner() {
@@ -499,7 +510,7 @@ class PixelEditor3 {
         if (!territoryId) return;
         try {
             const info = await apiService.get(`/hd/territories/${encodeURIComponent(territoryId)}`);
-            if (this.isOpen && this.currentTerritory?.id === territoryId) this.setHdBanner(!!info?.hasImage && info.isOwner !== false);
+            if (this.isOpen && this.currentTerritory?.id === territoryId) this.setHdBanner(!!info?.hasImage && info.isOwner !== false, info?.url);
         } catch {
             // HD 상태를 못 받아도 편집에는 지장 없음
         }
@@ -1214,10 +1225,14 @@ class PixelEditor3 {
             ctx.restore();
         }
         const cell = css / pixelCanvas3.width;
-        for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
-            const [x, y] = key.split(',').map(Number);
-            ctx.fillStyle = color;
-            ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
+        if (this.hdImage?.complete && this.hdImage.naturalWidth) {
+            ctx.drawImage(this.hdImage, 0, 0, css, css);
+        } else {
+            for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
+                const [x, y] = key.split(',').map(Number);
+                ctx.fillStyle = color;
+                ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
+            }
         }
         if (pixelCanvas3.boundaryPath) {
             ctx.save();
