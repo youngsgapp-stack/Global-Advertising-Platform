@@ -1,6 +1,6 @@
 /**
- * PixelEditor3 - 지도 위에 그리는 픽셀 에디터
- * 화면 전체 캔버스 + 실제 지도 밑그림 + 떠 있는 도구 막대, 지도 미리보기
+ * PixelEditor3 - 픽셀 에디터
+ * 화면 전체 캔버스 + 떠 있는 도구 막대 + 지도 미리보기, 사진으로 시작하기
  */
 
 import { CONFIG, log } from '../config.js';
@@ -9,9 +9,8 @@ import { pixelCanvas3, TOOLS } from '../core/PixelCanvas3.js';
 import { loadBg, subscribeBg, setBg } from '../stores/BackgroundStore.js';
 import { imageStampModal } from './ImageStampModal.js';
 import {
-    ICONS, PALETTES, STICKERS, TEXT_FONTS, UNDERLAY_STYLES,
-    stickerToStamp, stickerPreviewURL, rasterizeText, ensurePixelFonts,
-    underlayURL, loadUnderlayImage
+    ICONS, PALETTES, STICKERS, TEXT_FONTS,
+    stickerToStamp, stickerPreviewURL, rasterizeText, ensurePixelFonts
 } from './pixel-editor/PixelEditorAssets.js';
 
 const STORAGE_KEY = 'pe:settings:v1';
@@ -28,7 +27,6 @@ const TOOL_BUTTONS = [
     { group: 'shape', tool: TOOLS.ELLIPSE, icon: 'ellipse', label: 'Circle', key: 'O' },
     { group: 'insert', action: 'text', icon: 'text', label: 'Text', key: 'T' },
     { group: 'insert', action: 'sticker', icon: 'sticker', label: 'Stickers', key: 'K' },
-    { group: 'insert', action: 'image', icon: 'image', label: 'From image' },
     { group: 'nav', tool: TOOLS.PAN, icon: 'pan', label: 'Move (hold Space)', key: 'H' }
 ];
 
@@ -82,8 +80,6 @@ class PixelEditor3 {
         this.brushSize = saved.brushSize || 1;
         this.paletteId = saved.paletteId || 'brand';
         this.recentColors = Array.isArray(saved.recentColors) ? saved.recentColors.slice(0, MAX_RECENT) : [];
-        this.underlayStyle = saved.underlayStyle || 'satellite';
-        this.underlayOpacity = typeof saved.underlayOpacity === 'number' ? saved.underlayOpacity : 0.6;
         this.showGrid = !!saved.showGrid;
         this.mirror = false;
         this.shapeFilled = !!saved.shapeFilled;
@@ -92,7 +88,6 @@ class PixelEditor3 {
         this.textSettings = { text: '', fontId: 'pixel', scale: 1, outline: false, ...(saved.textSettings || {}) };
         this.textSettings.text = '';
         this.stickerSettings = { id: null, scale: 1, recolorAll: false, ...(saved.stickerSettings || {}) };
-        this.underlayAvailable = true;
         
         const bgState = loadBg();
         this.backgroundMode = bgState.mode;
@@ -125,8 +120,6 @@ class PixelEditor3 {
                 brushSize: this.brushSize,
                 paletteId: this.paletteId,
                 recentColors: this.recentColors,
-                underlayStyle: this.underlayStyle,
-                underlayOpacity: this.underlayOpacity,
                 showGrid: this.showGrid,
                 shapeFilled: this.shapeFilled,
                 previewPrefs: this.previewPrefs,
@@ -181,13 +174,13 @@ class PixelEditor3 {
                     <button class="pe-icon-btn" id="pe-redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>${ICONS.redo}</button>
                 </div>
                 <div class="pe-topbar-right">
+                    <button class="pe-btn-secondary" id="pe-photo" type="button" title="Turn a photo or logo into pixel art">${ICONS.image}<span class="pe-long">Add a photo</span><span class="pe-short">Photo</span></button>
                     <span class="pe-save-status saved" id="pe-save-status"><i></i><span>Saved</span></span>
                     <button class="pe-btn-primary" id="pe-save" type="button" title="Save (Ctrl+S)">${ICONS.check}<span>Save</span></button>
                     <div class="pe-menu-wrap">
                         <button class="pe-icon-btn" id="pe-more" type="button" title="More" aria-label="More options">${ICONS.more}</button>
                         <div class="pe-menu pe-popover" id="pe-more-menu" hidden>
                             <button type="button" data-menu="download">${ICONS.download}<span>Download PNG</span></button>
-                            <button type="button" data-menu="image">${ICONS.image}<span>Draw from an image</span></button>
                             <button type="button" data-menu="shortcuts">${ICONS.keyboard}<span>Keyboard shortcuts</span></button>
                             <hr>
                             <button type="button" data-menu="clear" class="pe-danger">${ICONS.trash}<span>Clear everything</span></button>
@@ -203,23 +196,12 @@ class PixelEditor3 {
                 </div>
                 
                 <div class="pe-float pe-float-tl">
-                    <button class="pe-chip" id="pe-view-btn" type="button" title="Map underlay and background">
-                        ${ICONS.layers}<span id="pe-view-label">Satellite</span>${ICONS.chevronDown}
+                    <button class="pe-chip" id="pe-view-btn" type="button" title="Background and preview">
+                        ${ICONS.layers}<span>View</span>${ICONS.chevronDown}
                     </button>
                     <button class="pe-chip pe-chip-icon" id="pe-grid-btn" type="button" title="Grid (G)" aria-label="Grid">${ICONS.grid}</button>
                     <button class="pe-chip pe-chip-icon" id="pe-mirror-btn" type="button" title="Mirror left ↔ right (M)" aria-label="Mirror">${ICONS.mirror}</button>
                     <div class="pe-popover pe-view-panel" id="pe-view-panel" hidden>
-                        <div class="pe-field">
-                            <label>Map underneath</label>
-                            <div class="pe-seg" id="pe-underlay-seg">
-                                ${UNDERLAY_STYLES.map(s => `<button type="button" data-underlay="${s.id}">${s.name}</button>`).join('')}
-                            </div>
-                            <p class="pe-note" id="pe-underlay-note" hidden>The map isn't available for this area, so a plain background is shown.</p>
-                        </div>
-                        <div class="pe-field" id="pe-opacity-field">
-                            <label>Map visibility <span id="pe-opacity-value">60%</span></label>
-                            <input type="range" id="pe-opacity" min="10" max="100" step="5" value="60">
-                        </div>
                         <div class="pe-field">
                             <label>Background</label>
                             <div class="pe-seg" id="pe-bg-seg">
@@ -252,7 +234,15 @@ class PixelEditor3 {
                     <canvas id="pe-preview-canvas" width="176" height="176"></canvas>
                 </div>
                 
-                <div class="pe-attribution" id="pe-attribution" hidden>© Mapbox © OpenStreetMap</div>
+                <div class="pe-empty" id="pe-empty" hidden>
+                    <div class="pe-empty-icon">${ICONS.image}</div>
+                    <strong>Start with a photo?</strong>
+                    <p>Upload your logo or a photo and we'll turn it into pixel art that fits this spot. You can touch it up afterwards.</p>
+                    <div class="pe-empty-actions">
+                        <button class="pe-btn-primary" type="button" data-empty="photo">${ICONS.image}<span>Upload a photo</span></button>
+                        <button class="pe-btn-ghost" type="button" data-empty="draw">I'll draw myself</button>
+                    </div>
+                </div>
                 
                 <div class="pe-loading" id="pixel-loading-3" style="display: none;">
                     <div class="pe-spinner"></div>
@@ -367,6 +357,7 @@ class PixelEditor3 {
         eventBus.on(EVENTS.PIXEL_VALUE_CHANGE, (data) => {
             this.updateStats(data);
             this.schedulePreview();
+            if (data?.filledPixels > 0) this.setEmptyCard(false);
         });
         
         window.addEventListener('beforeunload', (e) => {
@@ -423,7 +414,8 @@ class PixelEditor3 {
             
             this.updateStats({ filledPixels: pixelCanvas3.pixels.size });
             this.syncAll();
-            this.loadUnderlay();
+            // 빈 땅이면 "사진으로 시작하기"를 먼저 보여 줌 (사진 변환 기능을 모르는 사람이 많아서)
+            this.setEmptyCard(pixelCanvas3.pixelsMap.size === 0);
             
             log.info(`[PixelEditor3] Opened for ${territory.id}`);
         } catch (error) {
@@ -442,22 +434,15 @@ class PixelEditor3 {
         if (refit && pixelCanvas3.canvas) pixelCanvas3.fitToView();
     }
     
-    async loadUnderlay() {
-        const territoryId = this.currentTerritory?.id;
-        const url = underlayURL(pixelCanvas3.territoryBounds, this.underlayStyle);
-        this.underlayAvailable = this.underlayStyle === 'off' || !!url;
-        if (!url) {
-            pixelCanvas3.setUnderlay(null);
-            this.syncViewPanel();
-            this.schedulePreview();
-            return;
-        }
-        const img = await loadUnderlayImage(url);
-        if (!this.isOpen || this.currentTerritory?.id !== territoryId) return;
-        if (!img) this.underlayAvailable = false;
-        pixelCanvas3.setUnderlay(img, this.underlayOpacity);
-        this.syncViewPanel();
-        this.schedulePreview();
+    setEmptyCard(show) {
+        const card = this.$('#pe-empty');
+        if (card) card.hidden = !show;
+    }
+    
+    openPhotoTool() {
+        this.setEmptyCard(false);
+        this.closePanels();
+        if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
     }
     
     showLoading(message = null) {
@@ -601,21 +586,13 @@ class PixelEditor3 {
             e.stopPropagation();
             this.togglePanel('view');
         });
-        this.container.querySelectorAll('[data-underlay]').forEach(btn => {
+        on('#pe-photo', 'click', () => this.openPhotoTool());
+        this.container.querySelectorAll('[data-empty]').forEach(btn => {
             btn.addEventListener('click', () => {
-                this.underlayStyle = btn.dataset.underlay;
-                this.persist();
-                this.syncViewPanel();
-                this.loadUnderlay();
+                if (btn.dataset.empty === 'photo') this.openPhotoTool();
+                else this.setEmptyCard(false);
             });
         });
-        on('#pe-opacity', 'input', (e) => {
-            this.underlayOpacity = Number(e.target.value) / 100;
-            const label = this.$('#pe-opacity-value');
-            if (label) label.textContent = `${e.target.value}%`;
-            if (pixelCanvas3.underlayImage) pixelCanvas3.setUnderlay(pixelCanvas3.underlayImage, this.underlayOpacity);
-        });
-        on('#pe-opacity', 'change', () => this.persist());
         this.container.querySelectorAll('[data-bg]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const bg = btn.dataset.bg;
@@ -708,8 +685,12 @@ class PixelEditor3 {
             const el = this.$('#pe-coords');
             if (el) el.textContent = pos.x >= 0 ? `X ${pos.x} · Y ${pos.y}` : '—';
         });
-        on('#pixel-canvas-3', 'mousedown', () => this.closePanels(['more', 'view']));
+        on('#pixel-canvas-3', 'mousedown', () => {
+            this.closePanels(['more', 'view']);
+            this.setEmptyCard(false);
+        });
         on('#pixel-canvas-3', 'touchstart', () => {
+            this.setEmptyCard(false);
             if (window.matchMedia?.(MOBILE_QUERY).matches) this.closePanels();
         });
         
@@ -810,9 +791,6 @@ class PixelEditor3 {
         } else if (action === 'sticker') {
             this.togglePanel('sticker', true);
             if (this.stickerSettings.id) this.updateStickerStamp();
-        } else if (action === 'image') {
-            this.closePanels();
-            if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
         }
     }
     
@@ -824,8 +802,6 @@ class PixelEditor3 {
             link.download = `${String(name).replace(/[^\w-]+/g, '_')}_pixel.png`;
             link.href = pixelCanvas3.toPixelPNG(8);
             link.click();
-        } else if (item === 'image') {
-            if (this.currentTerritory) imageStampModal.open(this.currentTerritory);
         } else if (item === 'shortcuts') {
             this.showShortcutsModal();
         } else if (item === 'clear') {
@@ -882,24 +858,10 @@ class PixelEditor3 {
     
     syncViewPanel() {
         if (!this.container) return;
-        this.syncSeg('#pe-underlay-seg', 'underlay', this.underlayStyle);
         const bg = this.backgroundMode === 'checker' ? 'checker' : (contrastColor(this.backgroundColor) === '#000000' ? 'light' : 'dark');
         this.syncSeg('#pe-bg-seg', 'bg', bg);
-        const label = this.$('#pe-view-label');
-        const style = UNDERLAY_STYLES.find(s => s.id === this.underlayStyle);
-        if (label) label.textContent = this.underlayStyle === 'off' ? 'No map' : (style?.name || 'Map');
-        const note = this.$('#pe-underlay-note');
-        if (note) note.hidden = this.underlayAvailable;
-        const opacityField = this.$('#pe-opacity-field');
-        if (opacityField) opacityField.hidden = this.underlayStyle === 'off';
-        const opacity = this.$('#pe-opacity');
-        if (opacity) opacity.value = Math.round(this.underlayOpacity * 100);
-        const opacityValue = this.$('#pe-opacity-value');
-        if (opacityValue) opacityValue.textContent = `${Math.round(this.underlayOpacity * 100)}%`;
         const preview = this.$('#pe-preview-toggle');
         if (preview) preview.checked = this.showPreview;
-        const attribution = this.$('#pe-attribution');
-        if (attribution) attribution.hidden = !pixelCanvas3.underlayImage;
     }
     
     syncPreviewCard() {
@@ -1160,11 +1122,15 @@ class PixelEditor3 {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.imageSmoothingEnabled = true;
         ctx.clearRect(0, 0, css, css);
-        if (pixelCanvas3.underlayImage) {
-            ctx.drawImage(pixelCanvas3.underlayImage, 0, 0, css, css);
-        } else {
-            ctx.fillStyle = '#1b2233';
-            ctx.fillRect(0, 0, css, css);
+        ctx.fillStyle = '#0f131b';
+        ctx.fillRect(0, 0, css, css);
+        const k = css / (pixelCanvas3.width * pixelCanvas3.basePixelSize);
+        if (pixelCanvas3.boundaryPath) {
+            ctx.save();
+            ctx.scale(k, k);
+            ctx.fillStyle = '#252c3a';
+            ctx.fill(pixelCanvas3.boundaryPath, 'evenodd');
+            ctx.restore();
         }
         const cell = css / pixelCanvas3.width;
         for (const [key, color] of pixelCanvas3.pixelsMap.entries()) {
@@ -1173,7 +1139,6 @@ class PixelEditor3 {
             ctx.fillRect(x * cell, y * cell, cell + 0.35, cell + 0.35);
         }
         if (pixelCanvas3.boundaryPath) {
-            const k = css / (pixelCanvas3.width * pixelCanvas3.basePixelSize);
             ctx.save();
             ctx.scale(k, k);
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';

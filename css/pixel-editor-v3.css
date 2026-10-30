@@ -117,6 +117,50 @@ body.pe-open {
     box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.28);
 }
 
+.pe-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid rgba(78, 205, 196, 0.45);
+    border-radius: 10px;
+    background: var(--pe-accent-soft);
+    color: var(--pe-accent) !important;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.pe-btn-secondary svg {
+    width: 18px;
+    height: 18px;
+}
+
+.pe-btn-secondary:hover {
+    background: rgba(78, 205, 196, 0.26);
+    border-color: var(--pe-accent);
+}
+
+.pe-short {
+    display: none;
+}
+
+.pe-btn-ghost {
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--pe-border-strong);
+    border-radius: 10px;
+    background: transparent;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pe-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
 /* ---------- 상단 막대 ---------- */
 .pe-topbar {
     position: relative;
@@ -558,14 +602,62 @@ body.pe-open {
     background: #1b2233;
 }
 
-.pe-attribution {
+
+/* 빈 땅: 사진으로 시작하기 안내 */
+.pe-empty {
     position: absolute;
-    right: 14px;
-    bottom: 82px;
-    z-index: 5;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    pointer-events: none;
+    top: 50%;
+    left: 50%;
+    z-index: 12;
+    transform: translate(-50%, -60%);
+    width: min(380px, calc(100% - 32px));
+    padding: 22px;
+    background: var(--pe-surface);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--pe-border);
+    border-radius: var(--pe-radius);
+    box-shadow: var(--pe-shadow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+}
+
+.pe-empty-icon {
+    width: 52px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: var(--pe-accent-soft);
+    color: var(--pe-accent);
+}
+
+.pe-empty-icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+.pe-empty strong {
+    font-size: 17px;
+}
+
+.pe-empty p {
+    margin: 0;
+    color: var(--pe-muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.pe-empty-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 6px;
 }
 
 .pe-loading {
@@ -1099,8 +1191,21 @@ body.pe-open {
         padding: 0 12px;
     }
 
-    .pe-btn-primary svg {
+    .pe-topbar .pe-btn-primary svg {
         display: none;
+    }
+
+    .pe-btn-secondary {
+        padding: 0 10px;
+        gap: 5px;
+    }
+
+    .pe-long {
+        display: none;
+    }
+
+    .pe-short {
+        display: inline;
     }
 
     .pe-float-tl {
@@ -1152,10 +1257,6 @@ body.pe-open {
         height: 114px;
     }
 
-    .pe-attribution {
-        bottom: 118px;
-        right: 10px;
-    }
 
     .pe-bottom {
         left: 0;
