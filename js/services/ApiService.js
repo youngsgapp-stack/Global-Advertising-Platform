@@ -322,10 +322,11 @@ class ApiService {
     /**
      * POST ?占쎌껌
      */
-    async post(endpoint, data) {
+    async post(endpoint, data, options = {}) {
         return await this.request(endpoint, {
             method: 'POST',
             body: JSON.stringify(data),
+            ...options
         });
     }
     

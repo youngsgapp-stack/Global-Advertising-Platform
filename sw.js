@@ -5,8 +5,8 @@
 
 const CACHE_NAME = 'own-piece-v2';
 // ⚠️ CSS는 cache-first라 CSS를 수정하면 반드시 버전을 올려야 방문자에게 반영됨
-const STATIC_CACHE_VERSION = '1.0.14'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
-const DYNAMIC_CACHE_VERSION = '1.0.14';
+const STATIC_CACHE_VERSION = '1.0.15'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
+const DYNAMIC_CACHE_VERSION = '1.0.15';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
@@ -16,7 +16,6 @@ const STATIC_ASSETS = [
     '/css/layout.css',
     '/css/components.css',
     '/css/panels.css',
-    '/css/pixel-editor-v3.css',
     '/css/ranking.css',
     '/css/timeline.css',
     '/css/recommendation.css',
@@ -237,8 +236,10 @@ async function networkFirst(request, isHtml = false) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
+        // CSS는 브라우저 HTTP 캐시의 옛 파일을 그대로 쓰지 않도록 항상 서버에 확인
         const networkResponse = await fetch(request, {
-            signal: controller.signal
+            signal: controller.signal,
+            ...(request.destination === 'style' ? { cache: 'no-cache' } : {})
         });
         
         clearTimeout(timeoutId);

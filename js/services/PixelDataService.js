@@ -979,7 +979,8 @@ class PixelDataService {
             // ⚠️ URL 중복 방지: baseUrl에 이미 /api가 포함되어 있으므로 /api 제거
             const response = await apiService.post(
                 `/territories/${territoryId}/pixels/tiles`,
-                { tiles }
+                { tiles },
+                { timeout: 120000 }
             );
             
             // 성공 시 이벤트 발행

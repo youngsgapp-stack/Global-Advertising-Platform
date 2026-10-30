@@ -1673,8 +1673,9 @@ router.post('/tiles', async (req, res, next) => {
         const updatedTiles = [];
         const conflicts = [];
         
-        // 각 타일 처리 (CAS 방식)
-        for (const tile of tiles) {
+        // 각 타일 처리 (CAS 방식). 타일마다 Redis 왕복이 여러 번이라 사진처럼 타일 전체가 바뀌면
+        // 순서대로 처리할 때 수십 초가 걸려 요청이 끊김 → 타일끼리는 키가 겹치지 않으므로 동시에 처리
+        const processTile = async (tile) => {
             const { tileId, pixels, revision: clientRevision } = tile;
             
             // ⚠️ CRITICAL: tileId 검증 - 타일 ID가 올바른 형식인지 확인
@@ -1692,7 +1693,7 @@ router.post('/tiles', async (req, res, next) => {
                     serverRevision: 0,
                     message: `Invalid tileId format: expected string, got ${typeof tileId}`
                 });
-                continue;
+                return;
             }
             
             // ⚠️ 타일 ID 형식 검증: territoryId:tileX:tileY 형식이어야 함
@@ -1711,7 +1712,7 @@ router.post('/tiles', async (req, res, next) => {
                     serverRevision: 0,
                     message: `Invalid tileId format: expected ${territoryId}:tileX:tileY, got ${tileId}`
                 });
-                continue;
+                return;
             }
             
             logger.debug(`[Pixels][POST] 🔍 Processing tile`, {
@@ -1817,7 +1818,7 @@ router.post('/tiles', async (req, res, next) => {
                     serverRevision: serverRevNum,
                     message: 'Tile revision conflict. Client must re-sync before saving.'
                 });
-                continue;
+                return;
             }
             
             // ⚠️ 첫 저장이거나 revision이 일치하면 진행
@@ -1980,6 +1981,10 @@ router.post('/tiles', async (req, res, next) => {
                 revision: newRevision,
                 updatedAt: tileData.updatedAt
             });
+        };
+        const TILE_CONCURRENCY = 16;
+        for (let i = 0; i < tiles.length; i += TILE_CONCURRENCY) {
+            await Promise.all(tiles.slice(i, i + TILE_CONCURRENCY).map(processTile));
         }
         
         // ⚠️ 저장 후 검증: 타일 리비전 맵이 실제로 저장되었는지 확인
@@ -2005,25 +2010,15 @@ router.post('/tiles', async (req, res, next) => {
         const missingTiles = savedTileIds.filter(tileId => !finalTileRevisionMap[tileId]);
         
         // ⚠️ 각 타일 데이터가 실제로 Redis에 저장되었는지 확인
-        const tileVerificationResults = [];
-        for (const updatedTile of updatedTiles) {
+        const tileVerificationResults = await Promise.all(updatedTiles.map(async (updatedTile) => {
             const tileKey = `tile_data:${updatedTile.tileId}`;
             try {
                 const exists = await redis.exists(tileKey);
-                tileVerificationResults.push({
-                    tileId: updatedTile.tileId,
-                    tileKey,
-                    exists: exists === true || exists === 1
-                });
+                return { tileId: updatedTile.tileId, tileKey, exists: exists === true || exists === 1 };
             } catch (verifyError) {
-                tileVerificationResults.push({
-                    tileId: updatedTile.tileId,
-                    tileKey,
-                    exists: false,
-                    error: verifyError.message
-                });
+                return { tileId: updatedTile.tileId, tileKey, exists: false, error: verifyError.message };
             }
-        }
+        }));
         
         const tilesNotInRedis = tileVerificationResults.filter(r => !r.exists);
         
