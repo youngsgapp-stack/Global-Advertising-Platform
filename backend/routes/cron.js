@@ -29,6 +29,12 @@ async function handleCron(req, res) {
         const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
         const providedSecret = req.headers['x-cron-secret'] || bearer || req.query.secret || req.body?.secret;
         
+        if (!cronSecret && (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT)) {
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized: cron secret is not configured'
+            });
+        }
         if (cronSecret && providedSecret !== cronSecret) {
             logger.warn(`[Cron] Unauthorized access attempt from ${req.ip}`);
             return res.status(401).json({
@@ -1051,6 +1057,6 @@ function getContinent(countryCode) {
     return continentMap[countryCode?.toLowerCase()] || null;
 }
 
-export { endExpiredAuctions, expireProtections };
+export { endExpiredAuctions, expireProtections, checkExpiredTerritories };
 export default router;
 

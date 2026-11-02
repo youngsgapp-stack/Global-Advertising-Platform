@@ -276,7 +276,7 @@ class RankingBoard {
             
             return territories.map((territory, index) => {
                 const countryInfo = CONFIG.COUNTRIES[territory.countryCode] || { flag: '🏳️', name: territory.countryCode || 'Unknown' };
-                const ownerName = territory.ruler ? this.getDisplayName(territory.ruler) : 'Available';
+                const ownerName = escapeHtml(territory.ruler ? this.getDisplayName(territory.ruler) : 'Available');
                 
                 return `
                     <div class="owner-card territory-card ${this.getRankClass(index + 1)}" data-territory-id="${territory.territoryId}">
@@ -365,10 +365,10 @@ class RankingBoard {
     renderOwnerCard(entry, rank, tabType) {
         // 프로필 정보 가져오기 (캐시에서)
         const profile = this.userProfilesCache.get(entry.userId);
-        const userName = profile 
+        const userName = escapeHtml(profile 
             ? (profile.displayName || profile.userName || profile.email?.split('@')[0] || entry.userId)
-            : this.getDisplayName(entry.userId);
-        const photoURL = profile?.photoURL || null;
+            : this.getDisplayName(entry.userId));
+        const photoURL = profile?.photoURL ? escapeHtml(profile.photoURL) : null;
         
         const rankBadge = this.getRankBadge(rank);
         const tag = this.getTagForTab(tabType, rank);

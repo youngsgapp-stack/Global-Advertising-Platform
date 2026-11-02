@@ -1013,7 +1013,7 @@ class TerritoryPanel {
                     ${territory.ruler ? `
                         <div class="ruler-info">
                             <span class="ruler-label">👑 Owner:</span>
-                            <span class="ruler-name">${territory.rulerName || 'Unknown'}</span>
+                            <span class="ruler-name">${escapeHtml(territory.rulerName || 'Unknown')}</span>
                             ${territory.purchasedByAdmin ? '<span class="admin-badge">🔧 Admin</span>' : ''}
                         </div>
                         ${isProtected && protectionRemaining ? `
@@ -1186,7 +1186,7 @@ class TerritoryPanel {
                         ${hasBids ? `
                             <div class="bidder-info">
                                 <span class="bidder-label">Highest Bidder:</span>
-                                <span class="bidder-name">${auction.highestBidderName || 'Unknown'}</span>
+                                <span class="bidder-name">${escapeHtml(auction.highestBidderName || 'Unknown')}</span>
                             </div>
                         ` : `
                             <div class="no-bids-notice">
@@ -1240,7 +1240,7 @@ class TerritoryPanel {
                     <div class="auction-info">
                         <div class="auction-result">
                             ${auction.highestBidder 
-                                ? `<span>Winner: ${auction.highestBidderName || 'Unknown'}</span><span>Final Bid: ${this.formatNumber(auction.currentBid)} pt</span>`
+                                ? `<span>Winner: ${escapeHtml(auction.highestBidderName || 'Unknown')}</span><span>Final Bid: ${this.formatNumber(auction.currentBid)} pt</span>`
                                 : '<span>No bids placed</span>'
                             }
                         </div>
@@ -1289,7 +1289,7 @@ class TerritoryPanel {
                         <div class="auction-result">
                             <p>The auction has ended. Processing results...</p>
                             ${auction.highestBidder 
-                                ? `<p><strong>Leading Bid:</strong> ${auction.highestBidderName || 'Unknown'} - ${this.formatNumber(auction.currentBid)} pt</p>`
+                                ? `<p><strong>Leading Bid:</strong> ${escapeHtml(auction.highestBidderName || 'Unknown')} - ${this.formatNumber(auction.currentBid)} pt</p>`
                                 : '<p>No bids were placed.</p>'
                             }
                             <p class="auction-ending-note">Final results will be processed shortly by the server.</p>
@@ -1336,7 +1336,7 @@ class TerritoryPanel {
                         </div>
                         <div class="highest-bidder">
                             <span class="bidder-label">Highest Bidder</span>
-                            <span class="bidder-name">${auction.highestBidderName || 'Unknown'}</span>
+                            <span class="bidder-name">${escapeHtml(auction.highestBidderName || 'Unknown')}</span>
                         </div>
                     ` : `
                         <div class="starting-bid">
@@ -1752,7 +1752,7 @@ class TerritoryPanel {
                             <span class="price-label">${priceInfo3.hasBids ? 'Current Bid:' : 'Starting Bid:'}</span>
                             <span class="price-value">${this.formatNumber(priceInfo3.currentBid)} pt</span>
                             ${priceInfo3.highestBidderName ? `
-                                <span class="bidder-info">by ${priceInfo3.highestBidderName}</span>
+                                <span class="bidder-info">by ${escapeHtml(priceInfo3.highestBidderName)}</span>
                             ` : ''}
                         </div>
                         ${!priceInfo3.hasBids ? `

@@ -26,7 +26,6 @@ const firebaseConfig = CONFIG.FIREBASE;
  * - Firebase Auth에 해당 이메일이 등록되어 있어야 로그인이 가능합니다
  */
 const ADMIN_EMAILS = [
-    'admin@billionairemap.com',  // 최고 관리자
     'young91@naver.com',         // 일반 관리자
     'q886654@naver.com',         // 일반 관리자 (Firebase Auth 등록 계정)
     'etgbajy@gmail.com',         // 일반 관리자 (Firebase Auth 등록 계정)
@@ -220,6 +219,10 @@ class AdminDashboard {
         }
         
         if (user) {
+            if (this.isAdmin(user.email) && !user.emailVerified) {
+                this.showVerifyEmailPrompt(user);
+                return;
+            }
             // 관리자 확인
             if (this.isAdmin(user.email)) {
                 this.currentUser = user;
@@ -269,7 +272,35 @@ class AdminDashboard {
      * 관리자 확인
      */
     isAdmin(email) {
-        return ADMIN_EMAILS.includes(email.toLowerCase());
+        return ADMIN_EMAILS.includes(String(email || '').toLowerCase());
+    }
+
+    showVerifyEmailPrompt(user) {
+        this.showLoginScreen();
+        const errorEl = document.getElementById('login-error');
+        if (!errorEl) return;
+        errorEl.innerHTML = '';
+        const text = document.createElement('div');
+        text.textContent = '관리자 계정은 이메일 인증이 필요합니다. 아래 버튼을 눌러 인증 메일을 받은 뒤, 메일의 링크를 누르고 다시 로그인하세요.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary';
+        btn.style.marginTop = '10px';
+        btn.textContent = '인증 메일 보내기';
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+                await user.sendEmailVerification();
+                text.textContent = `${user.email} 로 인증 메일을 보냈습니다. 메일의 링크를 누른 뒤 다시 로그인하세요. (스팸함도 확인)`;
+                btn.remove();
+                await this.auth.signOut();
+            } catch (error) {
+                btn.disabled = false;
+                text.textContent = '인증 메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.';
+            }
+        });
+        errorEl.append(text, btn);
+        errorEl.classList.remove('hidden');
     }
     
     /**
@@ -731,7 +762,7 @@ class AdminDashboard {
                 return `
                     <div class="activity-item">
                         <span class="activity-icon">${rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏆'}</span>
-                        <span class="activity-text">${user.nickname || user.email || 'Unknown'} - ${score}개 영토</span>
+                        <span class="activity-text">${escapeHtml(user.nickname || user.email || 'Unknown')} - ${score}개 영토</span>
                         <span class="activity-time">${rank}위</span>
                     </div>
                 `;
@@ -837,8 +868,8 @@ class AdminDashboard {
                 const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
                 return `
                     <tr>
-                        <td>${user.nickname || '-'}${adminBadge}</td>
-                        <td>${user.email || '-'}</td>
+                        <td>${escapeHtml(user.nickname || '-')}${adminBadge}</td>
+                        <td>${escapeHtml(user.email || '-')}</td>
                         <td>${user.territoryCount || 0}</td>
                         <td>${(user.balance || 0).toLocaleString()} pt</td>
                         <td>${createdAt}</td>
@@ -918,7 +949,7 @@ class AdminDashboard {
                 return `
                     <tr>
                         <td>${time}</td>
-                        <td>${p.nickname || p.email || '-'}<br><small style="color:#888">${p.email || ''}</small></td>
+                        <td>${escapeHtml(p.nickname || p.email || '-')}<br><small style="color:#888">${escapeHtml(p.email || '')}</small></td>
                         <td>${amount}</td>
                         <td>${p.points ? p.points.toLocaleString() + ' pt' : '-'}</td>
                         <td>${statusLabels[p.status] || p.status}</td>
@@ -1069,7 +1100,7 @@ class AdminDashboard {
             tbody.innerHTML = reports.map(r => {
                 const time = r.createdAt ? new Date(r.createdAt).toLocaleString('ko-KR') : '-';
                 const link = r.adUrl
-                    ? `<a href="${r.adUrl}" target="_blank" rel="noopener noreferrer nofollow">${r.adTitle || r.adUrl}</a>`
+                    ? `<a href="${escapeHtml(r.adUrl)}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(r.adTitle || r.adUrl)}</a>`
                     : (r.adHidden ? '<span class="badge badge-warning">차단됨</span>' : '-');
                 const actions = r.status === 'open' ? `
                     <select id="report-action-${r.id}" style="padding:4px;">
@@ -1080,16 +1111,16 @@ class AdminDashboard {
                         <option value="remove_all">그림+링크 삭제</option>
                     </select>
                     <button class="btn btn-sm btn-primary" onclick="adminDashboard.resolveReport(${r.id})">처리</button>
-                ` : `${actionLabels[r.action] || r.status}<br><small style="color:#888">${r.resolvedBy || ''}</small>`;
+                ` : `${actionLabels[r.action] || escapeHtml(r.status)}<br><small style="color:#888">${escapeHtml(r.resolvedBy || '')}</small>`;
                 return `
                     <tr>
                         <td style="white-space:nowrap">${time}</td>
                         <td>
-                            <a href="index.html?territory=${encodeURIComponent(r.territoryId)}" target="_blank" rel="noopener">${r.territoryName || r.territoryId}</a>
-                            <br><small style="color:#888">주인: ${r.owner || '-'}${r.territoryReportCount > 1 ? ` · 신고 ${r.territoryReportCount}건` : ''}</small>
+                            <a href="index.html?territory=${encodeURIComponent(r.territoryId)}" target="_blank" rel="noopener">${escapeHtml(r.territoryName || r.territoryId)}</a>
+                            <br><small style="color:#888">주인: ${escapeHtml(r.owner || '-')}${r.territoryReportCount > 1 ? ` · 신고 ${r.territoryReportCount}건` : ''}</small>
                         </td>
-                        <td>${reasonLabels[r.reason] || r.reason}${r.details ? `<br><small style="color:#aaa">${r.details}</small>` : ''}</td>
-                        <td>${r.reporter || '-'}</td>
+                        <td>${reasonLabels[r.reason] || escapeHtml(r.reason)}${r.details ? `<br><small style="color:#aaa">${escapeHtml(r.details)}</small>` : ''}</td>
+                        <td>${escapeHtml(r.reporter || '-')}</td>
                         <td style="max-width:220px;word-break:break-all;">${link}</td>
                         <td style="white-space:nowrap">${actions}</td>
                     </tr>
@@ -1488,7 +1519,7 @@ class AdminDashboard {
                         <td>${statusBadge}</td>
                         <td>${(auction.startingBid || 0).toLocaleString()} pt</td>
                         <td>${(auction.currentBid || 0).toLocaleString()} pt</td>
-                        <td>${auction.bidderNickname || auction.bidderEmail || '-'}</td>
+                        <td>${escapeHtml(auction.bidderNickname || auction.bidderEmail || '-')}</td>
                         <td>${endTime}</td>
                         <td>${createdAt}</td>
                         <td style="white-space: nowrap; min-width: 250px;">
@@ -1818,7 +1849,7 @@ class AdminDashboard {
                         <td style="white-space:nowrap">${t.createdAt ? new Date(t.createdAt).toLocaleString('ko-KR') : '-'}</td>
                         <td>${typeLabels[t.type] || t.type}</td>
                         <td style="color:${t.amount < 0 ? '#c0392b' : '#27ae60'}; font-weight:bold; white-space:nowrap">${t.amount > 0 ? '+' : ''}${t.amount.toLocaleString()} pt</td>
-                        <td>${t.description || ''}</td>
+                        <td>${escapeHtml(t.description || '')}</td>
                     </tr>`).join('')}
                   </tbody></table>`;
             
@@ -3691,8 +3722,8 @@ class AdminDashboard {
                             return `
                                 <tr>
                                     <td>${time}</td>
-                                    <td>${log.adminEmail || '알 수 없음'}</td>
-                                    <td><span class="log-action">${log.action}</span></td>
+                                    <td>${escapeHtml(log.adminEmail || '알 수 없음')}</td>
+                                    <td><span class="log-action">${escapeHtml(log.action)}</span></td>
                                     <td><code style="font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">${details}</code></td>
                                 </tr>
                             `;

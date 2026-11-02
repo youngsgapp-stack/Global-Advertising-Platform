@@ -19,6 +19,13 @@ const REFERRAL_ATTACH_WINDOW_DAYS = 7;
 const SITE_URL = process.env.SITE_URL || 'https://www.worldadvertisingmap.com';
 const REFERRAL_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+// Shown to other visitors: never expose the full email, and drop HTML-significant characters
+function defaultNickname(user) {
+    const raw = user?.name || String(user?.email || '').split('@')[0] || '';
+    const clean = String(raw).replace(/[\u0000-\u001f\u007f<>"'`&]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return clean || 'User';
+}
+
 function generateReferralCode() {
     let code = '';
     for (let i = 0; i < 8; i++) {
@@ -44,7 +51,7 @@ router.get('/me', async (req, res) => {
         let user;
         if (result.rows.length === 0) {
             // 사용자 없으면 생성
-            const nickname = req.user.name || req.user.email || 'User';
+            const nickname = defaultNickname(req.user);
             const email = req.user.email || '';
             const insertResult = await query(
                 `INSERT INTO users (firebase_uid, email, nickname)
@@ -90,7 +97,7 @@ router.get('/me/wallet', async (req, res) => {
         let userId;
         if (userResult.rows.length === 0) {
             // 사용자가 없으면 먼저 생성
-            const nickname = req.user.name || req.user.email || 'User';
+            const nickname = defaultNickname(req.user);
             const email = req.user.email || '';
             console.log('[Users] 👤 Creating new user:', { firebaseUid, email, nickname });
             const insertResult = await query(

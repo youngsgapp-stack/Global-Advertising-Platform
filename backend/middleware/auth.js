@@ -146,6 +146,7 @@ export async function optionalAuthenticateToken(req, res, next) {
         req.user = {
             uid: decodedToken.uid,
             email: decodedToken.email,
+            emailVerified: decodedToken.email_verified === true,
             firebase_uid: decodedToken.uid
         };
         console.log(`[Auth] ✅ Token verified for user ${decodedToken.uid}`);
@@ -356,6 +357,7 @@ export async function authenticateToken(req, res, next) {
         req.user = {
             uid: decodedToken.uid,
             email: decodedToken.email,
+            emailVerified: decodedToken.email_verified === true,
             name: decodedToken.name,
             picture: decodedToken.picture,
         };

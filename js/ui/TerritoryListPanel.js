@@ -336,7 +336,7 @@ class TerritoryListPanel {
         } else if (territory.sovereignty === SOVEREIGNTY.RULED || territory.sovereignty === SOVEREIGNTY.PROTECTED) {
             icon = '🏰';
             statusClass = 'owned';
-            meta = `Owner: ${territory.rulerName || 'Unknown'}`;
+            meta = `Owner: ${String(territory.rulerName || 'Unknown').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}`;
         }
         
         return `

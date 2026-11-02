@@ -5,7 +5,6 @@
 
 // 관리자 이메일 목록 (ADMIN_EMAILS 환경변수가 있으면 우선 사용, 쉼표 구분)
 const DEFAULT_ADMIN_EMAILS = [
-    'admin@billionairemap.com',
     'young91@naver.com',
     'q886654@naver.com',
     'etgbajy@gmail.com',
@@ -20,7 +19,8 @@ export const ADMIN_EMAILS = process.env.ADMIN_EMAILS
  */
 export function isAdminUser(user) {
     const email = user?.email?.toLowerCase();
-    return !!email && ADMIN_EMAILS.includes(email);
+    // Anyone can create an unverified email/password account with any address
+    return !!email && user.emailVerified === true && ADMIN_EMAILS.includes(email);
 }
 
 /**
@@ -32,6 +32,9 @@ export function requireAdmin(req, res, next) {
         return res.status(401).json({ error: 'User email not found' });
     }
     
+    if (ADMIN_EMAILS.includes(req.user.email.toLowerCase()) && req.user.emailVerified !== true) {
+        return res.status(403).json({ error: 'Admin email is not verified', code: 'EMAIL_NOT_VERIFIED' });
+    }
     if (!isAdminUser(req.user)) {
         return res.status(403).json({ error: 'Admin access required' });
     }

@@ -119,7 +119,7 @@ import { marketRouter, processMarketJobs } from './routes/market.js';
 import { hdRouter } from './routes/hd.js';
 import { socialRouter, cleanupSocialData } from './routes/social.js';
 import { paypalWebhookHandler } from './routes/paypal-webhook.js';
-import cronRouter, { endExpiredAuctions, expireProtections } from './routes/cron.js';
+import cronRouter, { endExpiredAuctions, expireProtections, checkExpiredTerritories } from './routes/cron.js';
 
 /**
  * 서버 내부 주기 작업 (Vercel cron은 하루 1번이라 경매 종료가 최대 하루 늦어지는 것을 보완)
@@ -152,6 +152,7 @@ function startBackgroundJobs() {
     schedule('expireProtections', 30 * 60 * 1000, expireProtections);
     schedule('marketJobs', 60 * 1000, processMarketJobs);
     schedule('socialCleanup', 6 * 60 * 60 * 1000, cleanupSocialData);
+    schedule('checkExpiredTerritories', 6 * 60 * 60 * 1000, checkExpiredTerritories);
     console.log('[Jobs] Background jobs started (auction end: every 1 min, protection expiry: every 30 min)');
 }
 
@@ -175,6 +176,14 @@ import { initSentry } from './utils/sentry.js';
 const app = express();
 // Railway 프록시 뒤에서 실제 클라이언트 IP(req.ip)를 사용 (요청 횟수 제한에 필요)
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+});
 // Railway는 자동으로 PORT를 할당하므로, 정수로 파싱
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
