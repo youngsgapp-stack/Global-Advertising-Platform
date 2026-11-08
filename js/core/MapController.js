@@ -1492,10 +1492,6 @@ class MapController {
     setViewMode(mode) {
         this.viewMode = mode;
         log.info(`View mode set to: ${mode}`);
-        eventBus.emit(EVENTS.UI_NOTIFICATION, {
-            type: 'info',
-            message: mode === 'world' ? '🌍 World View' : '📍 Country View'
-        });
     }
     
     /**

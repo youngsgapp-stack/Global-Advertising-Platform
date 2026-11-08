@@ -69,11 +69,6 @@ class RecommendationSystem {
         
         log.info(`Today's Pick: ${selectedCountry}`, this.todaysPick);
         
-        eventBus.emit(EVENTS.UI_NOTIFICATION, {
-            type: 'info',
-            message: `🎯 Today's Pick: ${this.todaysPick.country.flag} ${this.todaysPick.country.name}`
-        });
-        
         return this.todaysPick;
     }
     

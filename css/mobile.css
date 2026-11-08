@@ -1,0 +1,71 @@
+/**
+ * Phone layout: keep the map visible and only the essentials on top of it.
+ * Loaded last so it wins over the per-component mobile rules.
+ */
+@media (max-width: 768px) {
+    /* Discover card, floating feedback and ranking buttons live in the side menu on phones */
+    .recommendation-panel,
+    #feedback-button,
+    .feedback-button,
+    .ranking-mobile-btn {
+        display: none !important;
+    }
+
+    /* Pinch to zoom instead of the +/- / compass buttons */
+    .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-group,
+    .mapboxgl-ctrl-top-right .mapboxgl-ctrl-group {
+        display: none !important;
+    }
+
+    /* World button + country picker in one slim row at the bottom */
+    .map-controls {
+        top: auto !important;
+        left: 10px !important;
+        right: 10px !important;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+        flex-direction: row !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: 0 !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .map-controls .view-toggle-btn {
+        width: auto !important;
+        flex: 0 0 auto;
+        height: 44px;
+        padding: 0 14px;
+        white-space: nowrap;
+    }
+
+    .map-controls .map-mode-toggle {
+        flex: 1 1 auto;
+        width: auto !important;
+        min-width: 0;
+    }
+
+    .map-controls #country-selector {
+        width: 100% !important;
+        height: 44px;
+        min-width: 0 !important;
+    }
+
+    /* Leave room above the bottom row for the Mapbox logo/attribution */
+    .mapboxgl-ctrl-bottom-left,
+    .mapboxgl-ctrl-bottom-right {
+        bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* While a spot is open, nothing else floats over it */
+    body:has(#territory-panel:not(.hidden)) .map-controls {
+        display: none !important;
+    }
+
+    /* Toasts: one line at the top, out of the way of the panel */
+    #notification-container {
+        top: 76px !important;
+        bottom: auto !important;
+    }
+}

@@ -915,6 +915,11 @@ class BillionaireApp {
             this.showAboutModal();
         });
         
+        document.getElementById('side-feedback-btn')?.addEventListener('click', () => {
+            document.getElementById('side-menu')?.classList.add('hidden');
+            feedbackService.showFeedbackModal();
+        });
+        
         // Ranking section buttons
         document.getElementById('side-ranking-btn')?.addEventListener('click', () => {
             rankingBoard.open();
