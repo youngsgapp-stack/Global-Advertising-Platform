@@ -63,6 +63,96 @@
         display: none !important;
     }
 
+    /* Scroll area sized to the sheet so the sticky button below lands on screen */
+    #territory-panel:not(.hidden) {
+        display: flex !important;
+        flex-direction: column;
+    }
+
+    #territory-panel:not(.hidden) > .panel-header {
+        flex: 0 0 auto;
+    }
+
+    #territory-panel:not(.hidden) > .panel-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
+        overflow-y: auto;
+    }
+
+    /* Keep the main buy/sign-in/edit button reachable without scrolling */
+    #territory-panel .territory-actions:not(:has(.action-option-card, .protected-info-notice, .auction-active-notice)) {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        margin: 0 -4px;
+        padding: 10px 4px calc(10px + env(safe-area-inset-bottom, 0px));
+        background: rgb(14, 22, 26);
+        box-shadow: 0 -10px 16px rgba(14, 22, 26, 0.9);
+    }
+
+    /* Charge points: 2x2 packages so the PayPal button is close by */
+    .payment-modal-content {
+        width: calc(100vw - 16px) !important;
+        max-width: none !important;
+        max-height: calc(100dvh - 16px) !important;
+        overflow-y: auto !important;
+    }
+
+    .payment-screen {
+        padding: 18px 14px calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .payment-screen .modal-header {
+        padding: 0 40px 10px !important;
+    }
+
+    .payment-screen .modal-header h2 {
+        font-size: 20px !important;
+    }
+
+    .current-balance {
+        padding: 8px 12px !important;
+        margin-bottom: 12px !important;
+    }
+
+    .point-packages {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        margin-bottom: 12px !important;
+    }
+
+    .package-card {
+        padding: 18px 8px 10px !important;
+    }
+
+    .package-card .badge {
+        font-size: 10px !important;
+        padding: 2px 8px !important;
+        top: -9px !important;
+    }
+
+    .package-card .package-points {
+        font-size: 15px !important;
+    }
+
+    .package-card .package-price {
+        font-size: 18px !important;
+    }
+
+    .package-card .package-bonus {
+        font-size: 11px !important;
+    }
+
+    .custom-amount-section {
+        margin-bottom: 12px !important;
+    }
+
+    .custom-amount-info {
+        flex-direction: row !important;
+        align-items: center !important;
+    }
+
     /* Toasts: one line at the top, out of the way of the panel */
     #notification-container {
         top: 76px !important;

@@ -364,10 +364,10 @@ class PaymentService {
                     <!-- 커스텀 금액 입력 -->
                     <div class="custom-amount-section">
                         <div class="custom-amount-divider">
-                            <span>또는</span>
+                            <span>or</span>
                         </div>
                         <div class="custom-amount-input-group">
-                            <label for="custom-amount-input">💰 직접 금액 입력</label>
+                            <label for="custom-amount-input">💰 Custom amount</label>
                             <div class="custom-amount-wrapper">
                                 <span class="currency-symbol">$</span>
                                 <input 
@@ -416,10 +416,8 @@ class PaymentService {
                     
                     <div class="payment-notice">
                         <small>
-                            🔒 Secure payment via PayPal. 
-                            <a href="pages/refund-policy.html" target="_blank" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">
-                                환불 정책
-                            </a>을 확인하세요. 포인트는 사용 전 7일 이내에만 환불 가능합니다.
+                            🔒 Secure payment via PayPal. Unused points can be refunded within 7 days —
+                            <a href="pages/refund-policy.html" target="_blank" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">Refund Policy</a>
                         </small>
                     </div>
                 </div>
@@ -616,14 +614,10 @@ class PaymentService {
                     container.innerHTML = `
                         <div style="padding: 20px; text-align: center; border: 2px dashed #e74c3c; border-radius: 8px; background: #fff5f5;">
                             <div style="font-size: 24px; margin-bottom: 10px;">⚠️</div>
-                            <div style="font-weight: bold; color: #e74c3c; margin-bottom: 10px;">PayPal 결제 시스템을 로드할 수 없습니다</div>
+                            <div style="font-weight: bold; color: #e74c3c; margin-bottom: 10px;">PayPal could not be loaded</div>
                             <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">
-                                Client ID를 확인해주세요.<br>
-                                PayPal Developer Dashboard에서 Live 모드의 정확한 Client ID를 확인하세요.
-                            </div>
-                            <div style="font-size: 11px; color: #95a5a6; font-family: monospace; word-break: break-all; padding: 10px; background: #f8f9fa; border-radius: 4px;">
-                                현재 Client ID:<br>
-                                ${CONFIG.PAYPAL.CLIENT_ID.substring(0, 50)}...
+                                Please refresh the page and try again.<br>
+                                If it keeps happening, contact youngs.gapp@gmail.com.
                             </div>
                         </div>
                     `;
@@ -1514,7 +1508,7 @@ class PaymentService {
                             existingStatus: existingPayment.status,
                             existingPointStatus: existingPayment.pointStatus
                         });
-                        throw new Error(`이미 처리된 결제입니다. 주문번호: ${transactionId}`);
+                        throw new Error(`This payment was already processed. Order: ${transactionId}`);
                     } else if (existingPayment.pointStatus === 'pending') {
                         log.info('[Payment] 🔒 Transaction: Retrying payment processing for pending order', {
                             transactionId: transactionId
@@ -1669,7 +1663,7 @@ class PaymentService {
                 }
             );
             
-            throw new Error(`결제는 완료되었지만 포인트 반영에 실패했습니다. 주문번호: ${transactionId}. 관리자에게 문의해주세요.`);
+            throw new Error(`Payment went through but the points could not be added yet. Order: ${transactionId}. Please contact support.`);
         }
     }
     
@@ -1769,16 +1763,16 @@ class PaymentService {
             log.error('Purchase failed:', error);
             
             // ⚠️ 사용자 친화적 에러 메시지
-            let errorMessage = '구매 처리에 실패했습니다.';
+            let errorMessage = 'Purchase failed. Please try again.';
             let errorType = 'error';
             
             if (error.message?.includes('Insufficient') || error.message?.includes('balance')) {
                 // 잔액 부족 - 충전 화면으로
                 this.openChargeModal(this.currentPayment.amount);
-                errorMessage = `❌ 잔액이 부족합니다. ${this.currentPayment.amount} pt가 필요합니다.`;
+                errorMessage = `❌ Not enough points. You need ${this.currentPayment.amount} pt.`;
                 errorType = 'warning';
             } else if (error.message?.includes('already owned') || error.message?.includes('already ruled')) {
-                errorMessage = '⚠️ 이 영토는 이미 다른 사용자가 구매했습니다. 잔액은 환불됩니다.';
+                errorMessage = '⚠️ Someone else just took this spot. Your points are refunded.';
                 errorType = 'warning';
                 // 포인트 환불
                 try {
@@ -1792,13 +1786,13 @@ class PaymentService {
                     log.error('Failed to refund points:', refundError);
                 }
             } else if (error.message?.includes('Auction in progress')) {
-                errorMessage = '⚠️ 이 영토는 현재 경매 중입니다.';
+                errorMessage = '⚠️ This spot is in an auction right now.';
                 errorType = 'warning';
             } else if (error.message?.includes('network') || error.message?.includes('offline')) {
-                errorMessage = '🌐 네트워크 연결을 확인하고 다시 시도해주세요.';
+                errorMessage = '🌐 Please check your connection and try again.';
                 errorType = 'error';
             } else if (error.message?.includes('Ownership changed')) {
-                errorMessage = '⚠️ 구매 중 소유권이 변경되었습니다. 잔액은 환불됩니다.';
+                errorMessage = '⚠️ The owner changed during your purchase. Your points are refunded.';
                 errorType = 'warning';
                 // 포인트 환불
                 try {
