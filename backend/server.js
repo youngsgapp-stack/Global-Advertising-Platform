@@ -119,6 +119,7 @@ import { marketRouter, processMarketJobs } from './routes/market.js';
 import { hdRouter } from './routes/hd.js';
 import { socialRouter, cleanupSocialData } from './routes/social.js';
 import { paypalWebhookHandler } from './routes/paypal-webhook.js';
+import { getPayPalStatus } from './utils/paypal.js';
 import cronRouter, { endExpiredAuctions, expireProtections, checkExpiredTerritories } from './routes/cron.js';
 
 /**
@@ -256,6 +257,9 @@ app.use(cors({
 }));
 // PayPal 웹훅: 서명 검증에 원본 body가 필요해서 JSON 파서보다 먼저 등록
 app.post('/api/paypal/webhook', express.raw({ type: '*/*', limit: '1mb' }), paypalWebhookHandler);
+app.get('/api/paypal/status', async (req, res) => {
+    res.json(await getPayPalStatus());
+});
 
 // ⚠️ Body size limit 설정 (레거시 저장 방지용 안전장치)
 // 타일 저장만 사용하므로 큰 payload는 필요 없지만, 안전장치로 2MB 설정

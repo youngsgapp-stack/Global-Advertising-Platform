@@ -65,6 +65,33 @@ async function getAccessToken(baseUrl) {
     return data.access_token;
 }
 
+let statusCache = null;
+
+/**
+ * 서버의 PayPal 설정 점검 (비밀값은 노출하지 않음). PayPal 호출은 5분에 1번만
+ */
+export async function getPayPalStatus() {
+    if (statusCache && Date.now() - statusCache.at < 5 * 60 * 1000) {
+        return statusCache.value;
+    }
+    const clientId = process.env.PAYPAL_CLIENT_ID || '';
+    const value = {
+        environment: process.env.PAYPAL_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+        clientIdPrefix: clientId.slice(0, 8),
+        hasSecret: !!process.env.PAYPAL_CLIENT_SECRET,
+        hasWebhookId: !!process.env.PAYPAL_WEBHOOK_ID,
+        auth: 'unknown'
+    };
+    try {
+        await getAccessToken(getPayPalBaseUrl());
+        value.auth = 'ok';
+    } catch (error) {
+        value.auth = error.message;
+    }
+    statusCache = { at: Date.now(), value };
+    return value;
+}
+
 async function authHeaders(baseUrl) {
     const accessToken = await getAccessToken(baseUrl);
     return {
