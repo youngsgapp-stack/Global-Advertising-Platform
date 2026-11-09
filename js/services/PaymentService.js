@@ -1333,10 +1333,6 @@ class PaymentService {
                         errorString: String(err),
                         fullError: JSON.stringify(err, Object.getOwnPropertyNames(err), 2)
                     });
-                    eventBus.emit(EVENTS.UI_NOTIFICATION, {
-                        type: 'error',
-                        message: `PayPal payment error: ${err.message || 'An unknown error occurred.'}`
-                    });
                     this.handlePaymentError(err);
                 }
             });

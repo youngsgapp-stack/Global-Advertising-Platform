@@ -38,8 +38,8 @@ function getPayPalBaseUrl() {
 }
 
 async function getAccessToken(baseUrl) {
-    const clientId = process.env.PAYPAL_CLIENT_ID;
-    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+    const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
+    const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
     if (!clientId || !clientSecret) {
         const error = new Error('PayPal credentials are not configured on the server');
         error.code = 'PAYPAL_NOT_CONFIGURED';
@@ -71,14 +71,19 @@ let statusCache = null;
  * 서버의 PayPal 설정 점검 (비밀값은 노출하지 않음). PayPal 호출은 5분에 1번만
  */
 export async function getPayPalStatus() {
-    if (statusCache && Date.now() - statusCache.at < 5 * 60 * 1000) {
+    if (statusCache && Date.now() - statusCache.at < 60 * 1000) {
         return statusCache.value;
     }
-    const clientId = process.env.PAYPAL_CLIENT_ID || '';
+    const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
+    const secret = process.env.PAYPAL_CLIENT_SECRET || '';
     const value = {
         environment: process.env.PAYPAL_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
         clientIdPrefix: clientId.slice(0, 8),
-        hasSecret: !!process.env.PAYPAL_CLIENT_SECRET,
+        clientIdSuffix: clientId.slice(-4),
+        clientIdLength: clientId.length,
+        hasSecret: !!secret.trim(),
+        secretLength: secret.trim().length,
+        secretHadSpaces: secret !== secret.trim(),
         hasWebhookId: !!process.env.PAYPAL_WEBHOOK_ID,
         auth: 'unknown'
     };

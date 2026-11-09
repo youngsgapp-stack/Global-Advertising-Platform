@@ -55,7 +55,52 @@
     /* Leave room above the bottom row for the Mapbox logo/attribution */
     .mapboxgl-ctrl-bottom-left,
     .mapboxgl-ctrl-bottom-right {
-        bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+        bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* Header: one slim bar beside the menu button, wallet on the right */
+    .header {
+        top: 20px !important;
+        left: 82px !important;
+        right: 12px !important;
+        transform: none !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        height: 50px;
+        padding: 0 6px 0 14px !important;
+        flex-wrap: nowrap !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+    }
+
+    .header-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: left;
+    }
+
+    .header-content h1 {
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important;
+        font-size: 17px !important;
+        overflow: hidden;
+    }
+
+    .header-content p {
+        display: none;
+    }
+
+    .header-wallet {
+        flex: 0 0 auto;
+        margin: 0 !important;
+        position: static !important;
+    }
+
+    .wallet-btn {
+        height: 38px;
+        padding: 0 12px !important;
+        font-size: 14px !important;
+        white-space: nowrap;
     }
 
     /* While a spot is open, nothing else floats over it */
