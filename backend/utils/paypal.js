@@ -67,6 +67,16 @@ async function getAccessToken(baseUrl) {
 
 let statusCache = null;
 
+/** PayPal error body -> short issue code such as PAYEE_ACCOUNT_RESTRICTED */
+export function paypalIssue(details) {
+    try {
+        const body = typeof details === 'string' ? JSON.parse(details) : details;
+        return body?.details?.[0]?.issue || body?.name || '';
+    } catch {
+        return '';
+    }
+}
+
 /**
  * 서버의 PayPal 설정 점검 (비밀값은 노출하지 않음). PayPal 호출은 5분에 1번만
  */
@@ -92,6 +102,15 @@ export async function getPayPalStatus() {
         value.auth = 'ok';
     } catch (error) {
         value.auth = error.message;
+    }
+    if (value.auth === 'ok') {
+        // An uncaptured order is never charged and expires on its own
+        try {
+            await createPayPalOrder({ amount: 1, customId: 'status-check', description: 'Status check' });
+            value.orderTest = 'ok';
+        } catch (error) {
+            value.orderTest = `${error.message} ${paypalIssue(error.details)}`.trim();
+        }
     }
     statusCache = { at: Date.now(), value };
     return value;

@@ -6,7 +6,7 @@
 import { query, getPool } from '../db/init.js';
 import { invalidateUserCache } from '../redis/cache-utils.js';
 import { adjustWalletBalance } from './wallet-utils.js';
-import { capturePayPalOrder, pointsForUsdAmount } from './paypal.js';
+import { capturePayPalOrder, pointsForUsdAmount, paypalIssue } from './paypal.js';
 
 // 친구 초대 보상: 초대받은 사람이 처음 PayPal 충전을 하면 1회 지급 (가짜 계정으로 포인트를 모으지 못하도록)
 export const REFERRAL_REWARD_REFERRER = 100;
@@ -123,10 +123,11 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
     try {
         payment = await capturePayPalOrder(orderId);
     } catch (error) {
-        console.error(`[PayPal] Capture error (${source}):`, { orderId, code: error.code, message: error.message });
-        await recordPayment(orderId, { userId: requestUserId, status: 'failed', error: `${error.code || ''} ${error.message}`.trim() });
+        const issue = paypalIssue(error.details);
+        console.error(`[PayPal] Capture error (${source}):`, { orderId, code: error.code, issue, message: error.message });
+        await recordPayment(orderId, { userId: requestUserId, status: 'failed', error: `${error.code || ''} ${issue} ${error.message}`.trim() });
         const status = error.code === 'PAYPAL_NOT_CONFIGURED' ? 503 : 402;
-        return { status, body: { error: error.message, code: error.code } };
+        return { status, body: { error: issue ? `${error.message} (${issue})` : error.message, code: error.code, issue } };
     }
     
     const userId = await resolveChargeUser(orderId, requestUserId, payment.customId);

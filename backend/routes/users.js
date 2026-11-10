@@ -7,7 +7,7 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
 import { isAdminUser } from '../middleware/admin.js';
-import { createPayPalOrder, pointsForUsdAmount } from '../utils/paypal.js';
+import { createPayPalOrder, pointsForUsdAmount, paypalIssue } from '../utils/paypal.js';
 import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND } from '../utils/paypal-credit.js';
 
 const router = express.Router();
@@ -329,7 +329,8 @@ router.post('/me/wallet/paypal-order', async (req, res) => {
     } catch (error) {
         console.error('[Users] PayPal order creation error:', { code: error.code, message: error.message, details: error.details });
         const status = error.code === 'PAYPAL_NOT_CONFIGURED' ? 503 : 502;
-        res.status(status).json({ error: 'Could not start the PayPal payment. Please try again.' });
+        const issue = paypalIssue(error.details) || error.code || '';
+        res.status(status).json({ error: `Could not start the PayPal payment. Please try again.${issue ? ` (${issue})` : ''}`, code: issue });
     }
 });
 
