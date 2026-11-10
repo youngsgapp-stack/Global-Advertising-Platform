@@ -226,6 +226,12 @@ export async function capturePayPalOrder(orderId) {
     }
     
     const capture = order.purchase_units?.[0]?.payments?.captures?.[0];
+    if (capture?.status === 'PENDING') {
+        const error = new Error('PayPal is holding this payment');
+        error.code = 'PAYPAL_PENDING';
+        error.reason = capture.status_details?.reason || '';
+        throw error;
+    }
     if (order.status !== 'COMPLETED' || capture?.status !== 'COMPLETED') {
         const error = new Error(`PayPal payment is not completed (order: ${order.status}, capture: ${capture?.status})`);
         error.code = 'PAYPAL_NOT_COMPLETED';

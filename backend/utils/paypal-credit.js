@@ -123,6 +123,20 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
     try {
         payment = await capturePayPalOrder(orderId);
     } catch (error) {
+        if (error.code === 'PAYPAL_PENDING') {
+            console.warn(`[PayPal] Capture pending (${source}):`, { orderId, reason: error.reason });
+            await recordPayment(orderId, { userId: requestUserId, status: 'pending', error: `PayPal pending: ${error.reason || 'unknown'}` });
+            return {
+                status: 200,
+                body: {
+                    success: false,
+                    pending: true,
+                    reason: error.reason,
+                    orderID: orderId,
+                    error: `PayPal is holding this payment${error.reason ? ` (${error.reason})` : ''}. Your points will be added automatically as soon as PayPal releases it (Order ID: ${orderId}).`
+                }
+            };
+        }
         const issue = paypalIssue(error.details);
         console.error(`[PayPal] Capture error (${source}):`, { orderId, code: error.code, issue, message: error.message });
         await recordPayment(orderId, { userId: requestUserId, status: 'failed', error: `${error.code || ''} ${issue} ${error.message}`.trim() });

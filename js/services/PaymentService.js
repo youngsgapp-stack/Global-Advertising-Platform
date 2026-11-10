@@ -1887,13 +1887,11 @@ class PaymentService {
                 errorMessage = 'Payment was cancelled.';
             } else if (error.message.includes('timeout')) {
                 errorMessage = 'Payment timed out. Please try again.';
+            } else if (error.message.includes('PayPal is holding')) {
+                isPartialSuccess = true;
+                errorMessage = error.message;
             } else {
-                // 상세한 오류 메시지 (디버그 모드일 때만)
-                if (CONFIG.DEBUG.PAYMENT) {
-                    errorMessage = `Payment failed: ${error.message}${orderID ? ` (Order ID: ${orderID})` : ''}`;
-                } else {
-                    errorMessage = `Payment failed. ${orderID ? `Order ID: ${orderID}. ` : ''}Please contact support if the issue persists.`;
-                }
+                errorMessage = `Payment failed: ${error.message}${orderID ? ` (Order ID: ${orderID})` : ''}`;
             }
         } else if (orderID) {
             // orderID가 있으면 결제는 진행됐을 가능성이 있음
