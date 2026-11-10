@@ -282,6 +282,9 @@ app.get('/', (req, res) => {
 
 // 헬스체크
 app.get('/api/health', (req, res) => {
+    if (req.query.ip === '1') {
+        return res.json({ ip: req.ip, ips: req.ips, xff: req.headers['x-forwarded-for'] || null, realIp: req.headers['x-real-ip'] || null, envoy: req.headers['x-envoy-external-address'] || null });
+    }
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
