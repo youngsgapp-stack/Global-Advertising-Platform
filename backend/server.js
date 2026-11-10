@@ -176,7 +176,8 @@ import { initSentry } from './utils/sentry.js';
 
 const app = express();
 // Railway 프록시 뒤에서 실제 클라이언트 IP(req.ip)를 사용 (요청 횟수 제한에 필요)
-app.set('trust proxy', 1);
+// Railway puts two proxy hops in front of the app (X-Forwarded-For: client, edge)
+app.set('trust proxy', 2);
 app.disable('x-powered-by');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
