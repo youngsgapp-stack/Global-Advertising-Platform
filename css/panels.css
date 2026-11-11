@@ -509,7 +509,9 @@
 .action-btn {
     width: 100%;
     padding: var(--spacing-md);
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text);
     border-radius: var(--radius-md);
     font-size: var(--font-size-md);
     font-weight: 600;

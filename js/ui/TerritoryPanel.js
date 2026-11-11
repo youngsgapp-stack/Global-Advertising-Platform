@@ -477,6 +477,21 @@ class TerritoryPanel {
         // 다른 큰 패널들은 닫기 (TerritoryPanel은 작은 패널이므로 유지 가능)
         // 하지만 TerritoryListPanel과 RankingBoard는 닫기
         this.closeLargePanels();
+        this.fitMapAboveSheet(true);
+    }
+    
+    /**
+     * 휴대폰: 아래에서 올라온 정보 창이 고른 땅을 가리지 않도록 지도의 보이는 영역을 창 위쪽으로 맞춤
+     */
+    fitMapAboveSheet(open) {
+        const map = mapController.getMap?.();
+        if (!map || !window.matchMedia('(max-width: 768px)').matches) return;
+        try {
+            const sheetHeight = open ? Math.min(this.container.offsetHeight, Math.round(window.innerHeight * 0.7)) : 0;
+            map.easeTo({ padding: { top: open ? 70 : 0, bottom: sheetHeight, left: 0, right: 0 }, duration: 350 });
+        } catch (error) {
+            log.debug('[TerritoryPanel] Map padding skipped:', error?.message);
+        }
     }
     
     /**
@@ -500,9 +515,19 @@ class TerritoryPanel {
      * 패널 닫기
      */
     close() {
+        const wasOpen = this.isOpen;
         this.isOpen = false;
         this.currentTerritory = null;
         this.container.classList.add('hidden');
+        if (wasOpen) this.fitMapAboveSheet(false);
+        // 닫은 뒤 새로고침했을 때 같은 땅이 다시 열리지 않도록 주소에서 땅 표시를 지움
+        try {
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('territory')) {
+                url.searchParams.delete('territory');
+                window.history.replaceState(window.history.state, document.title, url.pathname + url.search + url.hash);
+            }
+        } catch { /* ignore */ }
     }
     
     /**
@@ -1516,9 +1541,10 @@ class TerritoryPanel {
         const isAdmin = this.isAdminMode();
         
         if (!user) {
+            const hasOwner = !!(territory.ruler || territory.ruler_id || territory.ruler_firebase_uid);
             return `
                 <button class="action-btn login-btn" id="login-to-conquer">
-                    🔐 Sign in to Purchase
+                    🔐 ${hasOwner ? 'Sign in to make an offer or reserve' : 'Sign in to Purchase'}
                 </button>
             `;
         }

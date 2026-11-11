@@ -535,12 +535,16 @@ class BillionaireApp {
         if (menuBtn && sideMenu) {
             menuBtn.addEventListener('click', () => {
                 sideMenu.classList.toggle('hidden');
+                const open = !sideMenu.classList.contains('hidden');
+                menuBtn.setAttribute('aria-expanded', String(open));
+                if (open) territoryListPanel.updateMenuCounts();
             });
         }
         
         if (closeBtn && sideMenu) {
             closeBtn.addEventListener('click', () => {
                 sideMenu.classList.add('hidden');
+                menuBtn?.setAttribute('aria-expanded', 'false');
             });
         }
         

@@ -290,6 +290,25 @@ class TerritoryListPanel {
         });
     }
     
+    /** 메뉴의 Available / In Auction / Owned 개수 (목록 필터와 같은 기준) */
+    updateMenuCounts() {
+        let available = 0;
+        let auction = 0;
+        let owned = 0;
+        for (const t of territoryManager.territories.values()) {
+            if (t.sovereignty === SOVEREIGNTY.CONTESTED || t.currentAuction) auction++;
+            else if (t.sovereignty === SOVEREIGNTY.UNCONQUERED) available++;
+            if (t.sovereignty === SOVEREIGNTY.RULED || t.sovereignty === SOVEREIGNTY.PROTECTED) owned++;
+        }
+        const set = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value.toLocaleString('en-US');
+        };
+        set('count-available', available);
+        set('count-auction', auction);
+        set('count-owned', owned);
+    }
+    
     /**
      * 필터링
      */

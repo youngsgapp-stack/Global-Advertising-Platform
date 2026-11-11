@@ -198,6 +198,36 @@
         align-items: center !important;
     }
 
+    /* First-visit guide: slide height follows its content and scrolls instead of being cut off */
+    .onboarding-container {
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100dvh - 24px) !important;
+    }
+
+    .onboarding-slides {
+        flex: 1 1 auto;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+    }
+
+    .onboarding-slide {
+        position: relative !important;
+        inset: auto !important;
+        display: none !important;
+        padding: 52px 20px 16px !important;
+        transform: none !important;
+    }
+
+    .onboarding-slide.active {
+        display: flex !important;
+    }
+
+    .onboarding-nav {
+        flex: 0 0 auto;
+        padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
     /* Toasts: one line at the top, out of the way of the panel */
     #notification-container {
         top: 76px !important;

@@ -260,11 +260,9 @@ class OnboardingGuide {
         }
         
         if (nextBtn) {
-            if (this.currentSlide === this.totalSlides - 1) {
-                nextBtn.textContent = 'Get Started →';
-            } else {
-                nextBtn.textContent = 'Next →';
-            }
+            // 마지막 장은 'Login & Get Started' / 'Explore First' 버튼이 있으므로 다음 버튼은 숨김
+            nextBtn.textContent = 'Next →';
+            nextBtn.style.visibility = this.currentSlide === this.totalSlides - 1 ? 'hidden' : '';
         }
     }
     
