@@ -24,6 +24,12 @@ function geometryBounds(geometry) {
     return Number.isFinite(minX) ? [[minX, minY], [maxX, maxY]] : null;
 }
 
+/** 영토 경계 상자의 가운데 [lng, lat] */
+export function geometryCenter(geometry) {
+    const bounds = geometryBounds(geometry);
+    return bounds ? [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2] : null;
+}
+
 /**
  * 지도 데이터(세계 지도)가 준비될 때까지 기다린 뒤 영토를 선택
  * @returns {Promise<boolean>} 영토를 찾아 열었으면 true
@@ -33,7 +39,8 @@ export async function openTerritoryById(territoryId, { waitMs = 20000 } = {}) {
     
     const startedAt = Date.now();
     let territory = territoryManager.getTerritory(territoryId);
-    while ((!territory || !territory.sourceId || !mapController.map) && Date.now() - startedAt < waitMs) {
+    // 서버의 영토 목록(주인 정보)까지 받은 뒤에 열어야 '주인 없음'으로 잘못 보이지 않음
+    while ((!territory || !territory.sourceId || !mapController.map || !territoryManager._territoriesApiCache) && Date.now() - startedAt < waitMs) {
         await sleep(300);
         territory = territoryManager.getTerritory(territoryId);
     }

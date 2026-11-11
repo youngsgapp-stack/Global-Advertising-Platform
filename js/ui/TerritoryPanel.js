@@ -15,7 +15,7 @@ import { territoryDataService } from '../services/TerritoryDataService.js';
 import { walletService } from '../services/WalletService.js';
 import { rateLimiter, RATE_LIMIT_TYPE } from '../services/RateLimiter.js';
 import { setPendingIntent } from '../utils/PendingIntent.js';
-import { waitForPanelTerritory } from '../utils/TerritoryNavigator.js';
+import { waitForPanelTerritory, geometryCenter } from '../utils/TerritoryNavigator.js';
 import { showDialog, showFormDialog, escapeHtml } from './ConfirmDialog.js';
 import { clientPhase, phaseLabel } from '../utils/TerritoryPhase.js';
 
@@ -486,12 +486,23 @@ class TerritoryPanel {
     fitMapAboveSheet(open) {
         const map = mapController.getMap?.();
         if (!map || !window.matchMedia('(max-width: 768px)').matches) return;
-        try {
-            const sheetHeight = open ? Math.min(this.container.offsetHeight, Math.round(window.innerHeight * 0.7)) : 0;
-            map.easeTo({ padding: { top: open ? 70 : 0, bottom: sheetHeight, left: 0, right: 0 }, duration: 350 });
-        } catch (error) {
-            log.debug('[TerritoryPanel] Map padding skipped:', error?.message);
-        }
+        const geometry = open ? this.currentTerritory?.geometry : null;
+        const apply = () => {
+            try {
+                const sheetHeight = open ? Math.min(this.container.offsetHeight, Math.round(window.innerHeight * 0.7)) : 0;
+                const padding = { top: open ? 70 : 0, bottom: sheetHeight, left: 0, right: 0 };
+                const center = geometry ? geometryCenter(geometry) : null;
+                const projected = center ? map.project(center) : null;
+                // 고른 땅이 이미 창 위쪽에 보이면 지도를 움직이지 않음
+                const visible = projected && projected.y > padding.top && projected.y < window.innerHeight - sheetHeight - 20;
+                map.easeTo({ padding, ...(center && !visible ? { center } : {}), duration: 450 });
+            } catch (error) {
+                log.debug('[TerritoryPanel] Map padding skipped:', error?.message);
+            }
+        };
+        // 공유 링크처럼 지도가 이동 중이면 끝난 뒤에 맞춤 (이동을 끊지 않도록)
+        if (map.isMoving()) map.once('moveend', apply);
+        else apply();
     }
     
     /**
