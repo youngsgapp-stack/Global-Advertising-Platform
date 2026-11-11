@@ -2,6 +2,11 @@
  * Phone layout: keep the map visible and only the essentials on top of it.
  * Loaded last so it wins over the per-component mobile rules.
  */
+
+/* Any screen size: the Live Activity card would cover the bottom of an open spot panel */
+body:has(#territory-panel:not(.hidden)) #timeline-widget {
+    display: none !important;
+}
 @media (max-width: 768px) {
     /* Discover card, floating feedback and ranking buttons live in the side menu on phones */
     .recommendation-panel,
