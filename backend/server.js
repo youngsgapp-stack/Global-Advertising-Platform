@@ -118,6 +118,7 @@ import { shareRouter } from './routes/share.js';
 import { marketRouter, processMarketJobs } from './routes/market.js';
 import { hdRouter } from './routes/hd.js';
 import { socialRouter, cleanupSocialData } from './routes/social.js';
+import { feedbackRouter } from './routes/feedback.js';
 import { paypalWebhookHandler } from './routes/paypal-webhook.js';
 import { getPayPalStatus } from './utils/paypal.js';
 import cronRouter, { endExpiredAuctions, expireProtections, checkExpiredTerritories } from './routes/cron.js';
@@ -322,6 +323,9 @@ app.use('/api/hd', optionalAuthenticateToken, hdRouter);
 
 // 방문자 반응·조회수·주간 랭킹 (공개, 반응 누르기만 로그인 필요)
 app.use('/api/social', optionalAuthenticateToken, socialRouter);
+
+// 피드백 보내기 (공개, 로그인 선택)
+app.use('/api/feedback', optionalAuthenticateToken, feedbackRouter);
 
 // 라우터 (인증 필요)
 app.use('/api/map', authenticateToken, mapRouter);

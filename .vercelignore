@@ -46,3 +46,16 @@ firestore.rules
 firestore.indexes.json
 firebase.json
 storage.rules
+
+# Old or server-only files that the site never loads
+/admin.js
+/admin.css
+/cache-utils.js
+/netlify.toml
+/_redirects
+/routes/
+/.github/
+/js/ui/CreatorProfile.js
+/js/ui/PixelEditor.js
+/start-server.ps1
+/fix-json-*.js

@@ -2180,6 +2180,34 @@ router.get('/analytics', async (req, res) => {
  * 그림/링크 신고 목록 (영토별로 묶어서 신고 수와 함께)
  * Query params: status (open | resolved | dismissed | all)
  */
+router.get('/feedback', async (req, res) => {
+    try {
+        const result = await query(
+            `SELECT f.id, f.type, f.title, f.message, f.rating, f.status, f.created_at, u.email, u.nickname
+             FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+             ORDER BY (f.status = 'done'), f.created_at DESC LIMIT 200`
+        );
+        res.json(result.rows.map(r => ({
+            id: r.id, type: r.type, title: r.title, message: r.message, rating: r.rating,
+            status: r.status, createdAt: r.created_at, email: r.email, nickname: r.nickname
+        })));
+    } catch (error) {
+        if (error.code === '42P01') return res.json([]);
+        console.error('[Admin] Feedback list error:', error);
+        res.status(500).json({ error: 'Failed to load feedback' });
+    }
+});
+
+router.post('/feedback/:id/done', async (req, res) => {
+    try {
+        await query(`UPDATE feedback SET status = 'done' WHERE id = $1`, [parseInt(req.params.id, 10)]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Admin] Feedback update error:', error);
+        res.status(500).json({ error: 'Failed to update feedback' });
+    }
+});
+
 router.get('/reports', async (req, res) => {
     const status = String(req.query.status || 'open');
     try {

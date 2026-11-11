@@ -21,7 +21,7 @@
       "destination": "/data/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/)(?!.*\\.[A-Za-z0-9]{1,8}$).*)",
       "destination": "/index.html"
     }
   ],

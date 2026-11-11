@@ -343,7 +343,7 @@ class PixelCanvas3 {
                     // 사용자에게 알림
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'warning',
-                        message: '⚠️ 이 영토의 소유권이 변경되었습니다. 편집할 수 없습니다.'
+                        message: '⚠️ This spot has a new owner, so you can no longer edit it.'
                     });
                     
                     // 저장 상태 업데이트
@@ -2379,7 +2379,7 @@ class PixelCanvas3 {
                             log.error(`[PixelCanvas3] ❌ Ownership changed! Territory ${this.territoryId} is now owned by ${latestTerritory.ruler}, not ${currentUser.uid}`);
                             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                                 type: 'error',
-                                message: '⚠️ 이 영토의 소유권이 변경되었습니다. 편집할 수 없습니다.'
+                                message: '⚠️ This spot has a new owner, so you can no longer edit it.'
                             });
                             eventBus.emit(EVENTS.PIXEL_UPDATE, { 
                                 type: 'saveStatus', 
@@ -2511,7 +2511,7 @@ class PixelCanvas3 {
                 });
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
-                    message: '❌ 저장 실패: 내부 데이터 인코딩 오류가 발생했습니다. 페이지를 새로고침하고 다시 시도해주세요.',
+                    message: '❌ Could not save. Please refresh the page and try again.',
                     duration: 10000
                 });
                 throw new Error('encodePixels() returned empty array but canvas has pixels - encoding logic error');
@@ -2531,7 +2531,7 @@ class PixelCanvas3 {
                 });
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'error',
-                    message: '❌ 저장 실패: 내부 데이터 불일치(캔버스에는 픽셀이 있는데 전송 데이터가 비었습니다). 새로고침 후 다시 시도해주세요.',
+                    message: '❌ Could not save. Please refresh the page and try again.',
                     duration: 10000
                 });
                 throw new Error('Refusing to save: canvas has pixels but payload is empty');
@@ -2543,7 +2543,7 @@ class PixelCanvas3 {
                 log.warn('[PixelCanvas3] ⚠️ Refusing to save: canvas and payload are both empty');
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'warning',
-                    message: '⚠️ 저장할 픽셀이 없습니다.'
+                    message: '⚠️ Nothing to save yet.'
                 });
                 return;
             }
@@ -2664,15 +2664,15 @@ class PixelCanvas3 {
                     log.error('[PixelCanvas3] ❌ Tile save failed:', error);
                     
                     // 에러 메시지 생성
-                    let errorMessage = '❌ 저장 실패: ';
+                    let errorMessage = '❌ Could not save: ';
                     if (error.status === 413 || error.message?.includes('Payload Too Large') || error.message?.includes('entity too large')) {
-                        errorMessage += '데이터가 너무 큽니다. 타일 저장을 시도했지만 실패했습니다.';
+                        errorMessage += 'the drawing is too large. Please try again.';
                     } else if (error.status === 401 || error.message?.includes('Authentication')) {
-                        errorMessage += '인증이 필요합니다. 다시 로그인해주세요.';
+                        errorMessage += 'please sign in again.';
                     } else if (error.status === 403 || error.message?.includes('own')) {
-                        errorMessage += '이 영토를 소유하고 있지 않습니다.';
+                        errorMessage += 'you no longer own this spot.';
                     } else {
-                        errorMessage += error.message || '알 수 없는 오류가 발생했습니다.';
+                        errorMessage += error.message || 'something went wrong. Please try again.';
                     }
                     
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {

@@ -305,7 +305,7 @@ class MonitoringService {
         // UI 알림
         eventBus.emit(EVENTS.UI_NOTIFICATION, {
             type: 'warning',
-            message: `⚠️ 시스템 모니터링: ${this.getAlertMessage(type, data)}`,
+            message: `⚠️ ${this.getAlertMessage(type, data)}`,
             duration: 5000
         });
         
@@ -319,13 +319,13 @@ class MonitoringService {
     getAlertMessage(type, data) {
         switch (type) {
             case 'firestore_error_rate':
-                return `Firestore 에러율이 ${(data.rate * 100).toFixed(1)}%로 높습니다.`;
+                return 'Some requests are failing right now. Please try again in a moment.';
             case 'api_error_rate':
-                return `API 에러율이 ${(data.rate * 100).toFixed(1)}%로 높습니다.`;
+                return 'Some requests are failing right now. Please try again in a moment.';
             case 'page_load_time':
-                return `페이지 로딩 시간이 ${(data.time / 1000).toFixed(1)}초로 느립니다.`;
+                return 'The page is loading slowly.';
             default:
-                return '시스템 성능 이슈가 감지되었습니다.';
+                return 'The site is running slowly right now.';
         }
     }
     

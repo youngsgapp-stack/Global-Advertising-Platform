@@ -674,7 +674,7 @@ class PixelDataService {
                 
                 // 사용자에게 재시도 가능한 에러 알림
                 const userMessage = apiError.status === 500 
-                    ? '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+                    ? 'Server error. Please try again in a moment.'
                     : `Pixel save failed: ${apiError.message || 'Network error'}. Retrying...`;
                 
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {

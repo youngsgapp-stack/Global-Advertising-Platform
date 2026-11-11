@@ -1258,7 +1258,7 @@ class BillionaireApp {
                     <div class="about-section">
                         <h3>📧 Contact</h3>
                         <p>Questions or feedback? Reach out to us!</p>
-                        <p>Email: support@billionairemap.com</p>
+                        <p>Email: <a href="mailto:youngs.gapp@gmail.com">youngs.gapp@gmail.com</a></p>
                     </div>
                     
                     <div class="about-footer">
@@ -1476,9 +1476,6 @@ class BillionaireApp {
      * Keyboard Shortcuts Setup
      */
     setupKeyboardShortcuts() {
-        let pKeyCount = 0;
-        let pKeyTimer = null;
-        
         document.addEventListener('keydown', (e) => {
             // ESC: Close panel
             if (e.key === 'Escape') {
@@ -1486,21 +1483,14 @@ class BillionaireApp {
                 this.closeAdminModal();
             }
             
+            const target = e.target;
+            if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+                return;
+            }
+            
             // H: Help
             if (e.key === 'h' || e.key === 'H') {
                 eventBus.emit(EVENTS.UI_MODAL_OPEN, { type: 'help' });
-            }
-            
-            // P 5x tap: Admin mode
-            if (e.key === 'p' || e.key === 'P') {
-                pKeyCount++;
-                clearTimeout(pKeyTimer);
-                pKeyTimer = setTimeout(() => { pKeyCount = 0; }, 1000);
-                
-                if (pKeyCount >= 5) {
-                    pKeyCount = 0;
-                    this.openAdminModal();
-                }
             }
             
             // 1,2,3: Zoom levels (disabled - 숫자 키 입력 방해 방지)
@@ -1580,7 +1570,6 @@ class BillionaireApp {
         
         // 관리자 이메일 목록
         const ADMIN_EMAILS = [
-            'admin@billionairemap.com',
             'young91@naver.com',
             'q886654@naver.com',
             'etgbajy@gmail.com'
@@ -1837,9 +1826,10 @@ class BillionaireApp {
         if (loading) {
             loading.innerHTML = `
                 <div class="error-icon">❌</div>
-                <p>${message}</p>
+                <p></p>
                 <button onclick="location.reload()">Refresh</button>
             `;
+            loading.querySelector('p').textContent = String(message ?? '');
         }
     }
     
@@ -1854,10 +1844,11 @@ class BillionaireApp {
         notification.innerHTML = `
             <div class="notification-content">
                 <span class="notification-icon">${this.getNotificationIcon(type)}</span>
-                <span class="notification-message">${message}</span>
+                <span class="notification-message"></span>
                 <button class="notification-close">&times;</button>
             </div>
         `;
+        notification.querySelector('.notification-message').textContent = String(message ?? '');
         
         container.appendChild(notification);
         

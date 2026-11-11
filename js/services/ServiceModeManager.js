@@ -104,11 +104,8 @@ class ServiceModeManager {
      * 초기화
      */
     async initialize() {
-        // 로컬 스토리지에서 모드 복원 (관리자가 설정한 경우)
-        const savedMode = localStorage.getItem('serviceMode');
-        if (savedMode && Object.values(SERVICE_MODE).includes(savedMode)) {
-            this.setMode(savedMode, false); // 자동 저장 안 함
-        }
+        // 예전에는 느린 로딩 한 번으로 바뀐 모드가 저장돼 매번 복원됐음 → 항상 정상 모드로 시작
+        try { localStorage.removeItem('serviceMode'); } catch { /* storage blocked */ }
         
         // 모니터링 시작
         this.startMonitoring();
@@ -178,7 +175,7 @@ class ServiceModeManager {
         if (mode === SERVICE_MODE.EMERGENCY || mode === SERVICE_MODE.READ_ONLY) {
             eventBus.emit(EVENTS.UI_NOTIFICATION, {
                 type: 'warning',
-                message: '⚠️ 서비스가 높은 부하 상태입니다. 일부 기능이 제한될 수 있습니다.',
+                message: '⚠️ The site is very busy right now. Some features may be limited for a moment.',
                 duration: 5000
             });
         }
@@ -251,6 +248,9 @@ class ServiceModeManager {
      * 모드 자동 조정
      */
     checkAndAdjustMode() {
+        // 지도 로딩 시간은 서버 상태와 무관하고(느린 휴대폰에서도 길어짐) 오류율은 Firestore 기준이라 더 이상 맞지 않음
+        return;
+        // eslint-disable-next-line no-unreachable
         const errorRate = this.calculateErrorRate();
         const loadTime = this.metrics.pageLoadTime;
         
@@ -326,8 +326,8 @@ class ServiceModeManager {
             <div class="banner-content">
                 <span class="banner-icon">⚠️</span>
                 <span class="banner-message">
-                    현재 트래픽이 높아 일부 기능이 '보기 전용 모드'로 전환되었습니다. 
-                    잠시 뒤 자동으로 복구됩니다.
+                    The site is very busy, so it is view-only for a moment.
+                    It will come back automatically.
                 </span>
                 <button class="banner-close" onclick="this.parentElement.parentElement.remove()">×</button>
             </div>

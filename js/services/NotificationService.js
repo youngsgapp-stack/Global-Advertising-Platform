@@ -27,11 +27,10 @@ class NotificationService {
         
         // Service Worker 등록 대기
         if ('serviceWorker' in navigator) {
-            try {
-                this.serviceWorkerRegistration = await navigator.serviceWorker.ready;
-            } catch (error) {
-                log.error('[NotificationService] Service Worker not ready:', error);
-            }
+            // 앱 시작을 막지 않도록 기다리지 않음 (서비스 워커 등록이 실패하면 ready가 끝나지 않음)
+            navigator.serviceWorker.ready
+                .then(registration => { this.serviceWorkerRegistration = registration; })
+                .catch(error => log.error('[NotificationService] Service Worker not ready:', error));
         }
         
         // 이벤트 리스너 설정
@@ -79,15 +78,11 @@ class NotificationService {
         }
         
         if (this.permission !== 'granted') {
-            const granted = await this.requestPermission();
-            if (!granted) {
-                return;
-            }
+            return;
         }
         
         const defaultOptions = {
-            icon: '/icon-192x192.png',
-            badge: '/icon-96x96.png',
+            icon: '/og-image.png',
             tag: 'default',
             requireInteraction: false,
             silent: false,
@@ -118,8 +113,8 @@ class NotificationService {
             const user = firebaseService?.getCurrentUser();
             if (!user || !data.winner || data.winner !== user.uid) return;
             
-            await this.showNotification('🎉 경매에서 승리했습니다!', {
-                body: `${data.territoryId} 영토를 획득했습니다.`,
+            await this.showNotification('🎉 You won the auction!', {
+                body: `${data.territoryId} is yours now.`,
                 tag: `auction-won-${data.auctionId}`,
                 requireInteraction: true
             });
@@ -136,16 +131,17 @@ class NotificationService {
             const user = firebaseService?.getCurrentUser();
             if (!user || data.ruler !== user.uid) return;
             
-            await this.showNotification('✅ 영토 구매 완료', {
-                body: `${data.territoryId} 영토를 소유하게 되었습니다!`,
+            await this.showNotification('✅ Spot claimed', {
+                body: `${data.territoryId} is yours now.`,
                 tag: `territory-conquered-${data.territoryId}`
             });
         });
         
         // 결제 완료
         eventBus.on(EVENTS.PAYMENT_SUCCESS, async (data) => {
-            await this.showNotification('💰 결제 완료', {
-                body: `${data.points} 포인트가 충전되었습니다.`,
+            if (!data?.points) return;
+            await this.showNotification('💰 Points added', {
+                body: `${data.points} points were added to your wallet.`,
                 tag: `payment-${data.orderID}`,
                 requireInteraction: true
             });

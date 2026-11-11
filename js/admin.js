@@ -762,7 +762,7 @@ class AdminDashboard {
                 return `
                     <div class="activity-item">
                         <span class="activity-icon">${rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏆'}</span>
-                        <span class="activity-text">${escapeHtml(user.nickname || user.email || 'Unknown')} - ${score}개 영토</span>
+                        <span class="activity-text">${(user.nickname || user.email || 'Unknown')} - ${score}개 영토</span>
                         <span class="activity-time">${rank}위</span>
                     </div>
                 `;
@@ -812,6 +812,7 @@ class AdminDashboard {
                 break;
             case 'reports':
                 await this.loadReportsTable();
+                await this.loadFeedbackTable();
                 break;
             case 'territories':
                 this.loadBillboards();
@@ -868,8 +869,8 @@ class AdminDashboard {
                 const adminBadge = isAdmin ? '<span class="badge badge-warning" style="margin-left: 5px;">관리자</span>' : '';
                 return `
                     <tr>
-                        <td>${escapeHtml(user.nickname || '-')}${adminBadge}</td>
-                        <td>${escapeHtml(user.email || '-')}</td>
+                        <td>${(user.nickname || '-')}${adminBadge}</td>
+                        <td>${(user.email || '-')}</td>
                         <td>${user.territoryCount || 0}</td>
                         <td>${(user.balance || 0).toLocaleString()} pt</td>
                         <td>${createdAt}</td>
@@ -949,7 +950,7 @@ class AdminDashboard {
                 return `
                     <tr>
                         <td>${time}</td>
-                        <td>${escapeHtml(p.nickname || p.email || '-')}<br><small style="color:#888">${escapeHtml(p.email || '')}</small></td>
+                        <td>${(p.nickname || p.email || '-')}<br><small style="color:#888">${(p.email || '')}</small></td>
                         <td>${amount}</td>
                         <td>${p.points ? p.points.toLocaleString() + ' pt' : '-'}</td>
                         <td>${statusLabels[p.status] || p.status}</td>
@@ -1082,6 +1083,40 @@ class AdminDashboard {
     /**
      * 신고 목록 로드
      */
+    async loadFeedbackTable() {
+        const tbody = document.querySelector('#feedback-table tbody');
+        if (!tbody) return;
+        try {
+            const items = await adminApi.get('/admin/feedback');
+            if (!Array.isArray(items) || items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty">피드백이 없습니다</td></tr>';
+                return;
+            }
+            const typeLabels = { general: '일반', bug: '버그', feature: '기능 제안', other: '기타' };
+            tbody.innerHTML = items.map(f => `
+                <tr style="${f.status === 'done' ? 'opacity:0.55' : ''}">
+                    <td style="white-space:nowrap">${f.createdAt ? new Date(f.createdAt).toLocaleString('ko-KR') : '-'}</td>
+                    <td>${(typeLabels[f.type] || f.type)}${f.rating ? `<br><small>${'⭐'.repeat(Math.min(5, f.rating))}</small>` : ''}</td>
+                    <td style="max-width:420px;white-space:pre-wrap;word-break:break-word;"><strong>${(f.title)}</strong><br>${(f.message)}</td>
+                    <td>${(f.email || f.nickname || '손님')}</td>
+                    <td>${f.status === 'done' ? '확인함' : `<button class="btn btn-sm btn-primary" data-feedback-done="${Number(f.id)}">확인</button>`}</td>
+                </tr>
+            `).join('');
+            tbody.querySelectorAll('[data-feedback-done]').forEach(btn => btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                try {
+                    await apiService.post(`/admin/feedback/${btn.dataset.feedbackDone}/done`, {});
+                    this.loadFeedbackTable();
+                } catch (error) {
+                    btn.disabled = false;
+                    alert(`❌ 처리 실패: ${error.message || ''}`);
+                }
+            }));
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="5" class="error">피드백 로딩 실패: ${escapeHtml(error.message || '')}</td></tr>`;
+        }
+    }
+    
     async loadReportsTable() {
         const tbody = document.querySelector('#reports-table tbody');
         if (!tbody) return;
@@ -1100,7 +1135,7 @@ class AdminDashboard {
             tbody.innerHTML = reports.map(r => {
                 const time = r.createdAt ? new Date(r.createdAt).toLocaleString('ko-KR') : '-';
                 const link = r.adUrl
-                    ? `<a href="${escapeHtml(r.adUrl)}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(r.adTitle || r.adUrl)}</a>`
+                    ? `<a href="${(r.adUrl)}" target="_blank" rel="noopener noreferrer nofollow">${(r.adTitle || r.adUrl)}</a>`
                     : (r.adHidden ? '<span class="badge badge-warning">차단됨</span>' : '-');
                 const actions = r.status === 'open' ? `
                     <select id="report-action-${r.id}" style="padding:4px;">
@@ -1111,16 +1146,16 @@ class AdminDashboard {
                         <option value="remove_all">그림+링크 삭제</option>
                     </select>
                     <button class="btn btn-sm btn-primary" onclick="adminDashboard.resolveReport(${r.id})">처리</button>
-                ` : `${actionLabels[r.action] || escapeHtml(r.status)}<br><small style="color:#888">${escapeHtml(r.resolvedBy || '')}</small>`;
+                ` : `${actionLabels[r.action] || (r.status)}<br><small style="color:#888">${(r.resolvedBy || '')}</small>`;
                 return `
                     <tr>
                         <td style="white-space:nowrap">${time}</td>
                         <td>
-                            <a href="index.html?territory=${encodeURIComponent(r.territoryId)}" target="_blank" rel="noopener">${escapeHtml(r.territoryName || r.territoryId)}</a>
-                            <br><small style="color:#888">주인: ${escapeHtml(r.owner || '-')}${r.territoryReportCount > 1 ? ` · 신고 ${r.territoryReportCount}건` : ''}</small>
+                            <a href="index.html?territory=${encodeURIComponent(r.territoryId)}" target="_blank" rel="noopener">${(r.territoryName || r.territoryId)}</a>
+                            <br><small style="color:#888">주인: ${(r.owner || '-')}${r.territoryReportCount > 1 ? ` · 신고 ${r.territoryReportCount}건` : ''}</small>
                         </td>
-                        <td>${reasonLabels[r.reason] || escapeHtml(r.reason)}${r.details ? `<br><small style="color:#aaa">${escapeHtml(r.details)}</small>` : ''}</td>
-                        <td>${escapeHtml(r.reporter || '-')}</td>
+                        <td>${reasonLabels[r.reason] || (r.reason)}${r.details ? `<br><small style="color:#aaa">${(r.details)}</small>` : ''}</td>
+                        <td>${(r.reporter || '-')}</td>
                         <td style="max-width:220px;word-break:break-all;">${link}</td>
                         <td style="white-space:nowrap">${actions}</td>
                     </tr>
@@ -1519,7 +1554,7 @@ class AdminDashboard {
                         <td>${statusBadge}</td>
                         <td>${(auction.startingBid || 0).toLocaleString()} pt</td>
                         <td>${(auction.currentBid || 0).toLocaleString()} pt</td>
-                        <td>${escapeHtml(auction.bidderNickname || auction.bidderEmail || '-')}</td>
+                        <td>${(auction.bidderNickname || auction.bidderEmail || '-')}</td>
                         <td>${endTime}</td>
                         <td>${createdAt}</td>
                         <td style="white-space: nowrap; min-width: 250px;">
@@ -1849,7 +1884,7 @@ class AdminDashboard {
                         <td style="white-space:nowrap">${t.createdAt ? new Date(t.createdAt).toLocaleString('ko-KR') : '-'}</td>
                         <td>${typeLabels[t.type] || t.type}</td>
                         <td style="color:${t.amount < 0 ? '#c0392b' : '#27ae60'}; font-weight:bold; white-space:nowrap">${t.amount > 0 ? '+' : ''}${t.amount.toLocaleString()} pt</td>
-                        <td>${escapeHtml(t.description || '')}</td>
+                        <td>${(t.description || '')}</td>
                     </tr>`).join('')}
                   </tbody></table>`;
             
@@ -3722,8 +3757,8 @@ class AdminDashboard {
                             return `
                                 <tr>
                                     <td>${time}</td>
-                                    <td>${escapeHtml(log.adminEmail || '알 수 없음')}</td>
-                                    <td><span class="log-action">${escapeHtml(log.action)}</span></td>
+                                    <td>${(log.adminEmail || '알 수 없음')}</td>
+                                    <td><span class="log-action">${(log.action)}</span></td>
                                     <td><code style="font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">${details}</code></td>
                                 </tr>
                             `;

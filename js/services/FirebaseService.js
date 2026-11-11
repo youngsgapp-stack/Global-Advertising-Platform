@@ -479,7 +479,7 @@ class FirebaseService {
                     // 성공 알림
                     eventBus.emit(EVENTS.UI_NOTIFICATION, {
                         type: 'success',
-                        message: `✅ 로그인 성공! ${result.user.email || result.user.displayName}님 환영합니다.`,
+                        message: `✅ Welcome, ${result.user.displayName || 'friend'}!`,
                         duration: 3000
                     });
                 }, 300);
@@ -733,11 +733,7 @@ class FirebaseService {
                     const domain = window.location.hostname;
                     log.error('[FirebaseService] ❌ Unauthorized domain:', domain);
                     
-                    const errorMessage = `현재 도메인(${domain})이 Firebase에 등록되지 않았습니다.\n\n` +
-                        `Firebase 콘솔에서 다음 도메인을 추가해주세요:\n` +
-                        `- ${domain}\n` +
-                        `- ${window.location.origin}\n\n` +
-                        `Firebase 콘솔: https://console.firebase.google.com/project/${CONFIG.FIREBASE.projectId}/authentication/settings`;
+                    const errorMessage = `Sign-in is not available on this address (${domain}). Please use https://www.worldadvertisingmap.com`;
                     
                     eventBus.emit(EVENTS.AUTH_ERROR, { 
                         error: {
@@ -804,9 +800,9 @@ class FirebaseService {
                 
                 let helpMessage = '';
                 if (isLocalNetwork) {
-                    helpMessage = `로컬 네트워크 IP(${currentDomain})가 Firebase에 등록되지 않았습니다.\n\n해결 방법:\n1. Firebase 콘솔 접속: https://console.firebase.google.com/project/worldad-8be07/authentication/settings\n2. "Authorized domains" 섹션으로 이동\n3. "Add domain" 버튼 클릭\n4. "${currentDomain}" 입력 후 저장\n5. 페이지 새로고침 후 다시 시도\n\n또는 localhost를 사용하세요: http://localhost:8000`;
+                    helpMessage = `Sign-in is not available on this address (${currentDomain}). Please use https://www.worldadvertisingmap.com`;
                 } else {
-                    helpMessage = `현재 도메인(${currentDomain})이 Firebase에 등록되지 않았습니다.\n\n해결 방법:\n1. Firebase 콘솔: https://console.firebase.google.com/project/worldad-8be07/authentication/settings\n2. "Authorized domains" → "Add domain"\n3. "${currentDomain}" 추가`;
+                    helpMessage = `Sign-in is not available on this address (${currentDomain}). Please use https://www.worldadvertisingmap.com`;
                 }
                 
                 const friendlyError = {

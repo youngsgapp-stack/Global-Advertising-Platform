@@ -1043,10 +1043,10 @@ class TerritoryPanel {
                         <span class="info-label">🔗 Share</span>
                         <span class="info-value">
                             <div class="share-buttons" style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-                                <button class="share-btn share-twitter" data-platform="twitter" title="Twitter 공유">
+                                <button class="share-btn share-twitter" data-platform="twitter" title="Share on X (Twitter)">
                                     <span>🐦</span>
                                 </button>
-                                <button class="share-btn share-facebook" data-platform="facebook" title="Facebook 공유">
+                                <button class="share-btn share-facebook" data-platform="facebook" title="Share on Facebook">
                                     <span>📘</span>
                                 </button>
                                 <button class="share-btn share-kakao" data-platform="kakao" title="Share on KakaoTalk">
@@ -2831,10 +2831,10 @@ class TerritoryPanel {
                 errorMessage = '⚠️ This territory is currently in auction.';
                 errorType = 'warning';
             } else if (error.message?.includes('network') || error.message?.includes('offline')) {
-                errorMessage = '🌐 네트워크 연결을 확인하고 다시 시도해주세요.';
+                errorMessage = '🌐 Please check your connection and try again.';
                 errorType = 'error';
             } else if (error.message?.includes('Ownership changed')) {
-                errorMessage = '⚠️ 구매 중 소유권이 변경되었습니다. 잔액은 환불됩니다.';
+                errorMessage = '⚠️ The owner changed during your purchase. Your points were not charged.';
                 errorType = 'warning';
             }
             
@@ -3013,7 +3013,20 @@ class TerritoryPanel {
             log.debug('[TerritoryPanel] Bid already processing, ignoring duplicate click');
             return;
         }
-        
+        // 중간에 어떤 이유로 끝나도(로그인 필요, 잔액 부족 등) 버튼이 'Processing...'에 멈추지 않게 항상 되돌림
+        try {
+            await this.placeBidFlow();
+        } finally {
+            this.isProcessingBid = false;
+            const bidButton = document.getElementById('place-bid-btn');
+            if (bidButton) {
+                bidButton.disabled = false;
+                bidButton.textContent = 'Place Bid';
+            }
+        }
+    }
+    
+    async placeBidFlow() {
         const input = document.getElementById('bid-amount-input');
         if (!input) return;
         
@@ -3265,7 +3278,7 @@ class TerritoryPanel {
             if (bidAmount < effectiveMin) {
                 console.warn('[Bid] BLOCKED: bidAmount < effectiveMin', { bidAmount, effectiveMin });
                 // 옵션 B(권장): 사용자 확인 - 최소 입찰가로 자동 보정 제안
-                const confirmMessage = `최소 입찰가는 ${this.formatNumber(effectiveMin)} pt입니다. ${this.formatNumber(effectiveMin)} pt로 입찰하시겠습니까?`;
+                const confirmMessage = `The minimum bid is ${this.formatNumber(effectiveMin)} pt. Bid ${this.formatNumber(effectiveMin)} pt instead?`;
                 const shouldAutoCorrect = confirm(confirmMessage);
                 
                 if (shouldAutoCorrect) {
@@ -3342,8 +3355,8 @@ class TerritoryPanel {
                 log.warn('[TerritoryPanel] Firestore quota exceeded, switching to read-only mode');
                 
                 // ⚠️ Step 6-4: 저비용 모드 전환
-                const { serviceModeManager } = await import('../services/ServiceModeManager.js');
-                serviceModeManager.setMode(serviceModeManager.SERVICE_MODE.READ_ONLY, { reason: 'quota-exceeded' });
+                const { serviceModeManager, SERVICE_MODE } = await import('../services/ServiceModeManager.js');
+                serviceModeManager.setMode(SERVICE_MODE.READ_ONLY, { reason: 'quota-exceeded' });
             } 
             // 최소 입찰가 에러 (400 Bad Request)
             else if (error.status === 400 && (error.message.includes('Minimum') || error.message.includes('Bid amount too low') || error.message.includes('too low'))) {
@@ -3374,7 +3387,8 @@ class TerritoryPanel {
                     }
                     
                     // 에러 메시지 + 재시도 버튼 제공
-                    errorMessage = `최소 입찰가는 ${this.formatNumber(serverMinNextBid)} pt입니다. (현재: ${this.formatNumber(serverCurrentBid || 0)} pt)`;
+                    errorMessage = `Someone just bid higher. The minimum bid is now ${this.formatNumber(serverMinNextBid)} pt (current: ${this.formatNumber(serverCurrentBid || 0)} pt). The amount box was updated — press Place Bid again.`;
+                    if (bidInput) bidInput.value = serverMinNextBid;
                     
                     // 재시도 버튼 제공 (원클릭)
                     // ⚠️ 중요: 재시도 시 serverMinNextBid를 직접 사용 (입력창/기존 변수 참조 금지)
@@ -3383,7 +3397,7 @@ class TerritoryPanel {
                         message: errorMessage,
                         duration: 8000,
                         action: {
-                            label: `${this.formatNumber(serverMinNextBid)} pt로 입찰`,
+                            label: `Bid ${this.formatNumber(serverMinNextBid)} pt`,
                             handler: () => {
                                 // ⚠️ 중요: 입력창 값 설정 후 직접 API 호출 (handlePlaceBid 재호출 금지)
                                 if (bidInput) {
@@ -4449,7 +4463,7 @@ class TerritoryPanel {
         
         // 유효한 날짜인지 확인
         if (isNaN(end.getTime())) {
-            return '시간 계산 오류';
+            return '-';
         }
         
         const now = new Date();
@@ -5068,13 +5082,13 @@ class TerritoryPanel {
         
         switch (type) {
             case 'conquered':
-                return `${data.newRuler}이(가) 영토를 정복했습니다`;
+                return `${data.newRuler} took this spot`;
             case 'pixel_milestone':
-                return `${data.milestone} 픽셀 달성! 🎉`;
+                return `${data.milestone} pixels reached! 🎉`;
             case 'auction_started':
                 return 'Auction started';
             default:
-                return event.narrative || '알 수 없는 이벤트';
+                return event.narrative || 'Update';
         }
     }
 }
