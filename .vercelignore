@@ -40,3 +40,9 @@ functions/
 FIREBASE_SERVICE_ACCOUNT*.txt
 *service-account*.json
 *firebase-adminsdk*.json
+
+# Firebase project config (not needed on the site)
+firestore.rules
+firestore.indexes.json
+firebase.json
+storage.rules

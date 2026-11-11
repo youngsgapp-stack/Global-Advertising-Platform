@@ -160,7 +160,7 @@ function startBackgroundJobs() {
 // 미들웨어
 import { authenticateToken, optionalAuthenticateToken } from './middleware/auth.js';
 import { requireAdmin } from './middleware/admin.js';
-import { apiRateLimit, writeRateLimit, moneyRateLimit } from './middleware/rate-limit.js';
+import { apiRateLimit, writeRateLimit, moneyRateLimit, paypalWebhookRateLimit } from './middleware/rate-limit.js';
 
 // WebSocket 핸들러
 import { setupWebSocket } from './websocket/index.js';
@@ -218,7 +218,7 @@ app.use(compression({
 // ⚡ 최상단 요청 로거 (무조건 찍힘) - 모든 요청을 최우선으로 로깅
 app.use((req, res, next) => {
     res.setHeader("X-Server-Instance", "LOCAL-3000-" + Date.now());
-    console.log(`[REQ] ${req.method} ${req.originalUrl} origin=${req.headers.origin || "-"} auth=${req.headers.authorization ? "Y" : "N"}`);
+    console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || "-"} auth=${req.headers.authorization ? "Y" : "N"}`);
     next();
 });
 
@@ -227,7 +227,7 @@ app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
         const duration = Date.now() - start;
-        console.log(`[REQ] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
+        console.log(`[REQ] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms)`);
     });
     next();
 });
@@ -257,7 +257,7 @@ app.use(cors({
     maxAge: 86400 // 24시간
 }));
 // PayPal 웹훅: 서명 검증에 원본 body가 필요해서 JSON 파서보다 먼저 등록
-app.post('/api/paypal/webhook', express.raw({ type: '*/*', limit: '1mb' }), paypalWebhookHandler);
+app.post('/api/paypal/webhook', paypalWebhookRateLimit, express.raw({ type: '*/*', limit: '1mb' }), paypalWebhookHandler);
 app.get('/api/paypal/status', async (req, res) => {
     res.json(await getPayPalStatus());
 });
@@ -283,9 +283,6 @@ app.get('/', (req, res) => {
 
 // 헬스체크
 app.get('/api/health', (req, res) => {
-    if (req.query.ip === '1') {
-        return res.json({ ip: req.ip, ips: req.ips, xff: req.headers['x-forwarded-for'] || null, realIp: req.headers['x-real-ip'] || null, envoy: req.headers['x-envoy-external-address'] || null });
-    }
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
@@ -358,7 +355,7 @@ app.use((err, req, res, next) => {
 const server = createServer(app);
 
 // WebSocket 서버 설정
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
 setupWebSocket(wss);
 
 // 서버 시작

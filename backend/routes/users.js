@@ -8,7 +8,7 @@ import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
 import { isAdminUser } from '../middleware/admin.js';
 import { createPayPalOrder, pointsForUsdAmount, paypalIssue } from '../utils/paypal.js';
-import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND } from '../utils/paypal-credit.js';
+import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND, REFERRAL_MIN_TOPUP_USD } from '../utils/paypal-credit.js';
 
 const router = express.Router();
 
@@ -142,7 +142,7 @@ router.get('/me/wallet', async (req, res) => {
                 `INSERT INTO wallets (user_id, balance)
                  VALUES ($1, $2)
                  RETURNING *`,
-                [userId, STARTER_BALANCE]
+                [userId, req.user.emailVerified ? STARTER_BALANCE : 0]
             );
             wallet = insertResult.rows[0];
         } else {
@@ -173,9 +173,7 @@ router.get('/me/wallet', async (req, res) => {
             fullError: error
         });
         res.status(500).json({ 
-            error: 'Failed to fetch wallet',
-            details: error.message,
-            errorCode: error.code || 'UNKNOWN_ERROR'
+            error: 'Failed to fetch wallet'
         });
     }
 });
@@ -369,7 +367,8 @@ router.get('/me/referral', async (req, res) => {
             invited: parseInt(stats.rows[0].invited, 10),
             rewarded: parseInt(stats.rows[0].rewarded, 10),
             rewardReferrer: REFERRAL_REWARD_REFERRER,
-            rewardFriend: REFERRAL_REWARD_FRIEND
+            rewardFriend: REFERRAL_REWARD_FRIEND,
+            minTopupUsd: REFERRAL_MIN_TOPUP_USD
         });
     } catch (error) {
         console.error('[Users] Referral info error:', error);
@@ -413,7 +412,7 @@ router.post('/me/referral', async (req, res) => {
             return res.status(400).json({ error: 'You cannot use your own invite code' });
         }
         await query(`UPDATE users SET referred_by = $1 WHERE id = $2 AND referred_by IS NULL`, [referrerId, user.id]);
-        res.json({ success: true, rewardFriend: REFERRAL_REWARD_FRIEND });
+        res.json({ success: true, rewardFriend: REFERRAL_REWARD_FRIEND, minTopupUsd: REFERRAL_MIN_TOPUP_USD });
     } catch (error) {
         console.error('[Users] Referral link error:', error);
         res.status(500).json({ error: 'Failed to use invite code' });

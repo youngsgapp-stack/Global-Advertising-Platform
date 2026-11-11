@@ -36,6 +36,40 @@ const TILE_SYSTEM_LIMITS = {
     SOLID_COLOR_THRESHOLD: 200          // 단색 타일 최적화 임계값
 };
 
+// 저장 요청 검증 (영토당 128×128칸, 16×16칸 타일 8×8개)
+const GRID_CELLS = 128;
+const TILE_CELLS = 16;
+const TILES_PER_SIDE = GRID_CELLS / TILE_CELLS;
+const PIXEL_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|rgba?\([\d\s.,%]{1,40}\))$/;
+
+function isValidPixel(pixel) {
+    if (!pixel || typeof pixel !== 'object') return false;
+    const color = pixel.color ?? pixel.c;
+    return Number.isInteger(pixel.x) && Number.isInteger(pixel.y) &&
+        pixel.x >= 0 && pixel.y >= 0 && pixel.x < GRID_CELLS && pixel.y < GRID_CELLS &&
+        typeof color === 'string' && PIXEL_COLOR_RE.test(color);
+}
+
+/** @returns {string|null} 오류 메시지 (정상이면 null) */
+function validateTilesPayload(tiles, territoryId) {
+    if (!Array.isArray(tiles) || tiles.length === 0) return 'tiles must be a non-empty array';
+    if (tiles.length > TILE_SYSTEM_LIMITS.MAX_TILES_PER_TERRITORY) return `Too many tiles (max ${TILE_SYSTEM_LIMITS.MAX_TILES_PER_TERRITORY})`;
+    for (const tile of tiles) {
+        const parts = typeof tile?.tileId === 'string' ? tile.tileId.split(':') : [];
+        const tileX = Number(parts[1]);
+        const tileY = Number(parts[2]);
+        if (parts.length !== 3 || parts[0] !== territoryId ||
+            !Number.isInteger(tileX) || !Number.isInteger(tileY) ||
+            tileX < 0 || tileY < 0 || tileX >= TILES_PER_SIDE || tileY >= TILES_PER_SIDE ||
+            String(tileX) !== parts[1] || String(tileY) !== parts[2]) {
+            return `Invalid tile id: ${String(tile?.tileId).slice(0, 60)}`;
+        }
+        if (!Array.isArray(tile.pixels) || tile.pixels.length > TILE_CELLS * TILE_CELLS) return 'Invalid tile pixels';
+        if (!tile.pixels.every(isValidPixel)) return 'Invalid pixel in tile';
+    }
+    return null;
+}
+
 /**
  * 타일 데이터 여러 개를 한 번에 읽음 (하나씩 읽으면 Redis 왕복마다 ~0.1초라 64타일이면 수 초가 걸림)
  * @returns {Promise<Map<string, any>>} tileId → tile_data (없으면 null)
@@ -814,7 +848,6 @@ router.get('/', async (req, res) => {
     } catch (error) {
         // ⚠️ 에러 발생 시에도 경로 정보 헤더 추가
         res.setHeader('X-Pixels-Path', 'error');
-        res.setHeader('X-Pixels-Error', error.message || 'unknown');
         
         logger.error(`[Pixels][GET] ❌ Error`, {
             reqId,
@@ -921,6 +954,11 @@ router.post('/', async (req, res, next) => {
         const territory = territoryResult.rows[0];
         if (territory.ruler_id !== userId) {
             return res.status(403).json({ error: 'You do not own this territory' });
+        }
+        
+        if (!Array.isArray(pixels) || pixels.length > GRID_CELLS * GRID_CELLS || !pixels.every(isValidPixel) ||
+            (width !== undefined && Number(width) !== GRID_CELLS) || (height !== undefined && Number(height) !== GRID_CELLS)) {
+            return res.status(400).json({ error: 'Invalid pixel data' });
         }
         
         // ⚠️ 핵심 안전장치 1: 0픽셀 저장 거부 (데이터 유실 방지)
@@ -1597,6 +1635,11 @@ router.post('/tiles', async (req, res, next) => {
             return res.status(403).json({ error: 'You do not own this territory' });
         }
         
+        const tilesError = validateTilesPayload(tiles, territoryId);
+        if (tilesError) {
+            return res.status(400).json({ error: tilesError });
+        }
+        
         // 영토 메타데이터 조회/생성 (경량화)
         const metaKey = `territory_meta:${territoryId}`;
         let metadataRaw = await redis.get(metaKey);
@@ -2184,7 +2227,7 @@ router.post('/tiles', async (req, res, next) => {
         // 기타 서버 에러 (500)
         else {
             statusCode = 500;
-            errorMessage = error.message || 'Internal server error';
+            errorMessage = 'Could not save your pixel art. Please try again.';
         }
         
         // ⚠️ 개발 환경에서는 더 상세한 에러 정보 제공

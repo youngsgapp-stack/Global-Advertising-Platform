@@ -5,6 +5,7 @@
 
 import { releaseAuctionHolds, adjustWalletBalance } from './wallet-utils.js';
 import { SALE_FEE_RATE } from './territory-phase.js';
+import { releaseReservationsOnOwnerChange } from './reservation-cleanup.js';
 
 /**
  * 입찰금액에 따른 보호기간 계산 (일수)
@@ -277,6 +278,7 @@ export async function finalizeAuctionEnd({ client, auctionId, auction, source = 
                     auction.territory_id
                 ]
             );
+            await releaseReservationsOnOwnerChange(client, auction.territory_id, finalBidderId);
             
             // 판매 경매: 판매자에게 낙찰금의 90% 지급 (판매자가 아닌 사람이 낙찰한 경우)
             const sellerId = auction.seller_id || auctionMeta.seller_id;

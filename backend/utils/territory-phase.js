@@ -56,6 +56,9 @@ export function auctionStartPolicy(territory, { userId, isAdmin = false, hasOffe
     if (phase === 'billboard') {
         return { allowed: false, reason: 'This spot is a billboard. Book a weekly slot instead.' };
     }
+    if (phase === 'reserved') {
+        return { allowed: false, reason: 'The next person in line has the first right to buy this spot right now.' };
+    }
     if (isOwner && phase !== 'available') {
         return { allowed: true, kind: 'owner_sale' };
     }

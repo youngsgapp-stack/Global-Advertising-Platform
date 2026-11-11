@@ -11,15 +11,21 @@ import { capturePayPalOrder, pointsForUsdAmount, paypalIssue } from './paypal.js
 // 친구 초대 보상: 초대받은 사람이 처음 PayPal 충전을 하면 1회 지급 (가짜 계정으로 포인트를 모으지 못하도록)
 export const REFERRAL_REWARD_REFERRER = 100;
 export const REFERRAL_REWARD_FRIEND = 50;
+// 보상이 충전액보다 커지지 않도록: 최소 충전액, 같은 PayPal 계정은 1번만, 초대한 사람당 최대 횟수
+export const REFERRAL_MIN_TOPUP_USD = 10;
+export const REFERRAL_MAX_PER_REFERRER = 20;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 초대받은 사용자의 첫 충전 시 양쪽에 보상 지급 (이미 지급했으면 아무것도 안 함)
+ * 초대받은 사용자의 첫 충전 시 양쪽에 보상 지급 (이미 지급했거나 조건이 안 되면 아무것도 안 함)
+ * @param {string} userId
+ * @param {{ amountUsd: number, payerId?: string|null, client?: object }} payment - client를 주면 그 연결을 씀 (트랜잭션 밖 상태여야 함)
  * @returns {Promise<number>} 이 사용자에게 지급된 보너스 포인트
  */
-export async function grantReferralRewardIfEligible(userId) {
-    const client = await getPool().connect();
+export async function grantReferralRewardIfEligible(userId, { amountUsd = 0, payerId = null, client: existingClient = null } = {}) {
+    if (!(Number(amountUsd) >= REFERRAL_MIN_TOPUP_USD)) return 0;
+    const client = existingClient || await getPool().connect();
     try {
         await client.query('BEGIN');
         const result = await client.query(
@@ -28,6 +34,25 @@ export async function grantReferralRewardIfEligible(userId) {
         );
         const row = result.rows[0];
         if (!row?.referred_by || row.referral_rewarded_at) {
+            await client.query('ROLLBACK');
+            return 0;
+        }
+        if (payerId) {
+            const samePayer = await client.query(
+                `SELECT 1 FROM payments p JOIN users u ON u.id = p.user_id
+                 WHERE p.payer_id = $1 AND p.user_id <> $2 AND u.referral_rewarded_at IS NOT NULL LIMIT 1`,
+                [payerId, userId]
+            );
+            if (samePayer.rows.length > 0) {
+                await client.query('ROLLBACK');
+                return 0;
+            }
+        }
+        const rewarded = await client.query(
+            `SELECT COUNT(*) AS n FROM users WHERE referred_by = $1 AND referral_rewarded_at IS NOT NULL`,
+            [row.referred_by]
+        );
+        if (parseInt(rewarded.rows[0].n, 10) >= REFERRAL_MAX_PER_REFERRER) {
             await client.query('ROLLBACK');
             return 0;
         }
@@ -48,13 +73,13 @@ export async function grantReferralRewardIfEligible(userId) {
         await invalidateUserCache(row.referred_by);
         return REFERRAL_REWARD_FRIEND;
     } catch (error) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
         if (error.code !== '42703') {
             console.error('[PayPal] Referral reward error:', error.message);
         }
         return 0;
     } finally {
-        client.release();
+        if (!existingClient) client.release();
     }
 }
 
@@ -185,7 +210,7 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
         
         if (existing.rows.length > 0) {
             await client.query('ROLLBACK');
-            const walletResult = await query(`SELECT balance FROM wallets WHERE user_id = $1`, [existing.rows[0].user_id]);
+            const walletResult = await client.query(`SELECT balance FROM wallets WHERE user_id = $1`, [existing.rows[0].user_id]);
             return {
                 status: 200,
                 body: {
@@ -207,7 +232,7 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
         await client.query('COMMIT');
         await invalidateUserCache(userId);
         await recordPayment(orderId, { ...paymentFields, points, status: 'credited', error: source === 'webhook' ? 'Credited automatically by PayPal webhook' : null });
-        const referralBonus = await grantReferralRewardIfEligible(userId);
+        const referralBonus = await grantReferralRewardIfEligible(userId, { amountUsd: payment.amount, payerId: payment.payerId, client });
         
         console.log(`[PayPal] Charge completed (${source}):`, { orderId, userId, amount: payment.amount, points, balance, referralBonus });
         return {
@@ -238,18 +263,54 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
 }
 
 /**
- * 환불/지불 거절(차지백) 기록. 포인트 회수는 관리자가 결제 내역에서 확인 후 직접 처리
+ * 환불/지불 거절(차지백): 기록하고 충전했던 포인트를 회수 (남은 잔액까지만, 모자란 만큼은 관리자 확인용으로 기록)
+ * 같은 결제는 몇 번 호출돼도 한 번만 회수됨 (reference_id)
  */
 export async function markPaymentReversed({ orderId, captureId, status, reason }) {
-    const result = await query(
-        `UPDATE payments SET status = $3, error = $4, updated_at = NOW()
-         WHERE ($1::text IS NOT NULL AND order_id = $1) OR ($2::text IS NOT NULL AND capture_id = $2)
-         RETURNING order_id, user_id, points`,
-        [orderId || null, captureId || null, status, String(reason || '').slice(0, 1000)]
-    );
-    if (result.rows.length === 0) {
-        console.warn('[PayPal] Refund/reversal for unknown payment:', { orderId, captureId, status });
-    } else {
-        console.warn('[PayPal] Payment marked as', status, result.rows[0]);
+    const client = await getPool().connect();
+    try {
+        await client.query('BEGIN');
+        const result = await client.query(
+            `UPDATE payments SET status = $3, error = $4, updated_at = NOW()
+             WHERE ($1::text IS NOT NULL AND order_id = $1) OR ($2::text IS NOT NULL AND capture_id = $2)
+             RETURNING order_id, user_id, points`,
+            [orderId || null, captureId || null, status, String(reason || '').slice(0, 1000)]
+        );
+        const payment = result.rows[0];
+        if (!payment) {
+            await client.query('ROLLBACK');
+            console.warn('[PayPal] Refund/reversal for unknown payment:', { orderId, captureId, status });
+            return;
+        }
+        const points = parseInt(payment.points, 10) || 0;
+        const referenceId = `paypal_reversal:${payment.order_id}`;
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [referenceId]);
+        const already = await client.query(`SELECT 1 FROM wallet_transactions WHERE reference_id = $1 LIMIT 1`, [referenceId]);
+        if (payment.user_id && points > 0 && already.rows.length === 0) {
+            const wallet = await client.query(`SELECT balance FROM wallets WHERE user_id = $1 FOR UPDATE`, [payment.user_id]);
+            const available = Math.max(0, Math.floor(parseFloat(wallet.rows[0]?.balance || 0)));
+            const takeBack = Math.min(points, available);
+            if (takeBack > 0) {
+                await adjustWalletBalance(client, payment.user_id, -takeBack, {
+                    type: 'refund_reversal',
+                    description: `PayPal ${status}: points taken back (order ${payment.order_id})`,
+                    referenceId
+                });
+            }
+            if (takeBack < points) {
+                await client.query(
+                    `UPDATE payments SET error = LEFT(COALESCE(error, '') || $2, 1000) WHERE order_id = $1`,
+                    [payment.order_id, ` | ${points - takeBack} pt could not be taken back (already spent) - review this account`]
+                );
+            }
+        }
+        await client.query('COMMIT');
+        if (payment.user_id) await invalidateUserCache(payment.user_id);
+        console.warn('[PayPal] Payment marked as', status, payment);
+    } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+    } finally {
+        client.release();
     }
 }

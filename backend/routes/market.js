@@ -11,6 +11,7 @@ import { broadcastTerritoryUpdate } from '../websocket/index.js';
 import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 import { adjustWalletBalance, releaseAuctionHolds } from '../utils/wallet-utils.js';
 import { deleteTerritoryPixels } from '../utils/pixel-cleanup.js';
+import { releaseReservationsOnOwnerChange } from '../utils/reservation-cleanup.js';
 import { getServerBasePrice, PURCHASE_PROTECTION_MULTIPLIERS } from './territories.js';
 import {
     getTerritoryPhase, graceEndsAt, auctionStartPolicy, reservationDeposit, weekStartOf,
@@ -111,6 +112,7 @@ async function transferOwnership(client, territoryId, newOwnerId, { protectionEn
          WHERE id = $3`,
         [newOwnerId, protectionEndsAt, territoryId]
     );
+    await releaseReservationsOnOwnerChange(client, territoryId, newOwnerId);
     return { previousOwnerId };
 }
 
@@ -434,6 +436,9 @@ router.post('/offers/:oid/:action', async (req, res) => {
         if (action === 'decline') {
             await closeOffer(client, offer, 'declined', `Offer declined: ${offer.territory_id}`);
             return { status: 'declined' };
+        }
+        if (await hasOfferedReservation(client, offer.territory_id)) {
+            throw new MarketError(409, 'The next person in line has the first right to buy this spot right now. You can accept offers after their turn.');
         }
         
         // 수락: 구매자는 남은 기간(평생 포함)을 이어받고, 기간이 끝나 있었다면 최소 7일 보장

@@ -10,6 +10,7 @@ import { invalidateAuctionCache, invalidateTerritoryCache, invalidateCachePatter
 import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd } from '../utils/auction-utils.js';
 import { releaseAuctionHolds, adjustWalletBalance } from '../utils/wallet-utils.js';
 import { deleteTerritoryPixels } from '../utils/pixel-cleanup.js';
+import { releaseReservationsOnOwnerChange } from '../utils/reservation-cleanup.js';
 // requireAdmin은 server.js에서 전역으로 적용됨
 
 const router = express.Router();
@@ -831,8 +832,9 @@ router.post('/territories/:id/owner', async (req, res) => {
                  current_auction_id = NULL,
                  updated_at = NOW()
              WHERE id = $4`,
-            [newOwner.id, newOwner.nickname || newOwner.email, protectionEndsAt, territoryId]
+            [newOwner.id, newOwner.nickname || String(newOwner.email || '').split('@')[0] || 'Owner', protectionEndsAt, territoryId]
         );
+        await releaseReservationsOnOwnerChange(client, territoryId, newOwner.id);
         
         await client.query(
             `INSERT INTO admin_logs (admin_email, action, details, created_at) VALUES ($1, 'SET_TERRITORY_OWNER', $2, NOW())`,

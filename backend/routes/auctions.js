@@ -226,8 +226,12 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Territory ID is required' });
         }
         
-        if (!startingBid || startingBid <= 0) {
+        const startingBidNumber = Number(startingBid);
+        if (!Number.isFinite(startingBidNumber) || startingBidNumber <= 0 || startingBidNumber > 100000000) {
             return res.status(400).json({ error: 'Valid starting bid is required' });
+        }
+        if (minBid !== undefined && minBid !== null && minBid !== '' && !Number.isFinite(Number(minBid))) {
+            return res.status(400).json({ error: 'Valid minimum bid is required' });
         }
         
         // 트랜잭션 시작
@@ -310,7 +314,7 @@ router.post('/', async (req, res) => {
 
         // 8. ⚠️ 전문가 조언 반영: 이전 낙찰가를 시작가로 사용
         // last_winning_amount가 있으면 그것을 시작가로 사용, 없으면 요청 본문의 startingBid 사용
-        let finalStartingBid = parseFloat(startingBid);
+        let finalStartingBid = startingBidNumber;
         if (auctionKind !== 'owner_sale' && territory.last_winning_amount && parseFloat(territory.last_winning_amount) > 0) {
             finalStartingBid = parseFloat(territory.last_winning_amount);
             console.log(`[Auctions] Using last_winning_amount (${finalStartingBid}) as starting bid for territory ${territoryId}`);
@@ -322,6 +326,10 @@ router.post('/', async (req, res) => {
         
         // 최소 입찰가는 시작가 이상
         const finalMinBid = Math.max(parseFloat(minBid) || 0, finalStartingBid);
+        if (!Number.isFinite(finalStartingBid) || !Number.isFinite(finalMinBid) || finalMinBid <= 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Could not determine a valid starting bid for this territory' });
+        }
         
         // 9. 경매 종료 시간 결정 (기본 24시간, 관리자가 아니면 1시간~14일로 제한)
         let auctionEndMs = endTime ? new Date(endTime).getTime() : NaN;
@@ -666,6 +674,11 @@ router.post('/:id/bids', async (req, res) => {
             bidAmount: amount
         });
         
+        if (!Number.isFinite(minNextBid) || minNextBid <= 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'This auction has an invalid starting bid. Please contact support.' });
+        }
+        
         if (amount < minNextBid) {
             await client.query('ROLLBACK');
             return res.status(400).json({ 
@@ -759,7 +772,7 @@ router.post('/:id/bids', async (req, res) => {
         await invalidateAuctionCache(auctionId, auction.territory_id);
         
         // WebSocket 브로드캐스트 (공개 채널이라 이메일은 보내지 않음)
-        const userInfoResult = await query(`SELECT nickname FROM users WHERE id = $1`, [userId]);
+        const userInfoResult = await client.query(`SELECT nickname FROM users WHERE id = $1`, [userId]);
         const bidderNickname = userInfoResult.rows[0]?.nickname || 'Someone';
         const endTimeIso = new Date(auction.end_time).toISOString();
         
@@ -978,7 +991,7 @@ router.post('/:id/end', async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('[Auctions] Error ending auction:', error);
-        res.status(500).json({ error: 'Failed to end auction', details: error.message });
+        res.status(500).json({ error: 'Failed to end auction' });
     } finally {
         client.release();
     }

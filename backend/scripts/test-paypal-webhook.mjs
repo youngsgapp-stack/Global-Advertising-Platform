@@ -148,11 +148,14 @@ try {
     res = await sendWebhook(paypalWebhookHandler, { id: 'EV6', event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { id: 'REFUND1', amount: { value: '10.00' }, links: [{ rel: 'up', href: `https://api.sandbox.paypal.com/v2/payments/captures/CAP-${orderId}` }] } });
     check('refund webhook -> 200', res.statusCode === 200);
     check('payment marked refunded', (await payment(orderId))?.status === 'refunded');
+    check('refund takes the 100pt back', await balance() === 350, String(await balance()));
+    await sendWebhook(paypalWebhookHandler, { id: 'EV6b', event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { id: 'REFUND1', amount: { value: '10.00' }, links: [{ rel: 'up', href: `https://api.sandbox.paypal.com/v2/payments/captures/CAP-${orderId}` }] } });
+    check('repeated refund webhook does not take points twice', await balance() === 350, String(await balance()));
     await creditPayPalOrder(orderId, { userId: user, source: 'client' });
     check('refunded status is not overwritten by a late credit call', (await payment(orderId))?.status === 'refunded');
     res = await sendWebhook(paypalWebhookHandler, { id: 'EV7', event_type: 'PAYMENT.CAPTURE.REVERSED', resource: { id: `CAP-${order2}`, status: 'REVERSED', supplementary_data: { related_ids: { order_id: order2 } } } });
     check('chargeback marked reversed', (await payment(order2))?.status === 'reversed');
-    check('points are not auto-deducted (admin decides)', await balance() === 450);
+    check('chargeback takes the 350pt back', await balance() === 0, String(await balance()));
     
     // 7) 옛날 방식 주문(사용자 표시 없음)이 웹훅으로만 오면: 미지급으로 기록해서 관리자가 처리
     orders.set('LEGACY0001', { id: 'LEGACY0001', status: 'APPROVED', unit: { amount: { currency_code: 'USD', value: '10.00' } }, captured: false });
@@ -160,7 +163,7 @@ try {
     check('legacy order without user -> 200 (no endless retries)', res.statusCode === 200);
     check('legacy order recorded as credit_failed', (await payment('LEGACY0001'))?.status === 'credit_failed');
     const legacyClient = await creditPayPalOrder('LEGACY0001', { userId: user, source: 'client' });
-    check('legacy order still credited when the browser call arrives', legacyClient.status === 200 && (await payment('LEGACY0001'))?.status === 'credited' && await balance() === 550, String(await balance()));
+    check('legacy order still credited when the browser call arrives', legacyClient.status === 200 && (await payment('LEGACY0001'))?.status === 'credited' && await balance() === 100, String(await balance()));
     
     // 8) 지원 안 하는 금액은 거절
     const order4 = await createPayPalOrder({ amount: 0.5, customId: user });

@@ -29,8 +29,8 @@ async function getUserId(req) {
     return (await query(`SELECT id FROM users WHERE firebase_uid = $1`, [req.user.uid])).rows[0]?.id || null;
 }
 
-async function loadTerritory(territoryId) {
-    return (await query(
+async function loadTerritory(territoryId, db = { query }) {
+    return (await db.query(
         `SELECT t.id, t.ruler_id, t.sovereignty, t.protection_ends_at, t.base_price, t.market_base_price, t.is_billboard,
                 t.hd_image_url, t.hd_image_updated_at, t.hd_unlocked_by,
                 (SELECT o.acquired_at FROM ownerships o WHERE o.territory_id = t.id AND o.user_id = t.ruler_id AND o.ended_at IS NULL
@@ -115,13 +115,13 @@ router.get('/territories/:id', async (req, res) => {
 // 유료 해제 (기간이 1개월 미만인 주인)
 router.post('/territories/:id/unlock', async (req, res) => {
     const territoryId = resolveTerritoryId(req.params.id);
+    const userId = await getUserId(req).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'Please sign in first' });
     const client = await getPool().connect();
     try {
-        const userId = await getUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Please sign in first' });
         await client.query('BEGIN');
         await client.query(`SELECT id FROM territories WHERE id = $1 FOR UPDATE`, [territoryId]);
-        const territory = await loadTerritory(territoryId);
+        const territory = await loadTerritory(territoryId, client);
         if (!territory) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Territory not found' });

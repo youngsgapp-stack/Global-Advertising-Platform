@@ -21,12 +21,15 @@ const router = express.Router();
  */
 router.get('/', async (req, res) => {
     try {
-        const { status = 'active', country, season, limit = 100 } = req.query;
+        const status = ['active', 'ended', 'cancelled'].includes(req.query.status) ? req.query.status : 'active';
+        const country = req.query.country && /^[a-z0-9-]{1,40}$/i.test(String(req.query.country)) ? String(req.query.country) : null;
+        const season = req.query.season && /^\d{1,6}$/.test(String(req.query.season)) ? String(req.query.season) : null;
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
         
         console.log('[Auctions] 📊 Fetching auctions...', { status, country, season, limit });
         
         // Redis 캐시 키 생성
-        const cacheKey = `auctions:${status}:${country || 'all'}:${season || 'all'}`;
+        const cacheKey = `auctions:${status}:${country || 'all'}:${season || 'all'}:${limit}`;
         let cached = null;
         
         try {
@@ -71,7 +74,7 @@ router.get('/', async (req, res) => {
         }
         
         queryText += ` ORDER BY a.created_at DESC LIMIT $${paramIndex}`;
-        params.push(parseInt(limit));
+        params.push(limit);
         
         const result = await query(queryText, params);
         
@@ -119,9 +122,7 @@ router.get('/', async (req, res) => {
             fullError: error
         });
         res.status(500).json({ 
-            error: 'Failed to fetch auctions',
-            details: error.message,
-            errorCode: error.code || 'UNKNOWN_ERROR'
+            error: 'Failed to fetch auctions'
         });
     }
 });

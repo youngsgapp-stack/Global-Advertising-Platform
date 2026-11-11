@@ -16,7 +16,8 @@ const router = express.Router();
  */
 router.get('/', async (req, res) => {
     try {
-        const { type = 'global_coverage', limit = 100 } = req.query;
+        const type = ['global_coverage', 'territory_count', 'total_value'].includes(req.query.type) ? req.query.type : 'global_coverage';
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
         
         // Redis에서 먼저 조회 (5분 캐시)
         const cacheKey = `rankings:${type}:${limit}`;
@@ -46,23 +47,21 @@ router.get('/', async (req, res) => {
                     u.id,
                     u.firebase_uid,
                     u.nickname,
-                    u.email,
                     COUNT(t.id) as territory_count,
                     COALESCE(SUM(t.base_price), 0) as total_value
                  FROM users u
                  LEFT JOIN territories t ON t.ruler_id = u.id
                  WHERE t.ruler_id IS NOT NULL
-                 GROUP BY u.id, u.firebase_uid, u.nickname, u.email
+                 GROUP BY u.id, u.firebase_uid, u.nickname
                  ORDER BY territory_count DESC, total_value DESC
                  LIMIT $1`,
-                [parseInt(limit, 10)]
+                [limit]
             );
             
             rankings = result.rows.map((row, index) => ({
                 rank: index + 1,
                 userId: row.firebase_uid,
                 nickname: row.nickname,
-                email: row.email,
                 territoryCount: parseInt(row.territory_count || 0),
                 totalValue: parseFloat(row.total_value || 0),
                 hegemonyScore: parseInt(row.territory_count || 0) * 100 // 간단한 점수 계산
@@ -74,23 +73,21 @@ router.get('/', async (req, res) => {
                     u.id,
                     u.firebase_uid,
                     u.nickname,
-                    u.email,
                     COUNT(t.id) as territory_count,
                     COALESCE(SUM(t.base_price), 0) as total_value
                  FROM users u
                  LEFT JOIN territories t ON t.ruler_id = u.id
                  WHERE t.ruler_id IS NOT NULL
-                 GROUP BY u.id, u.firebase_uid, u.nickname, u.email
+                 GROUP BY u.id, u.firebase_uid, u.nickname
                  ORDER BY total_value DESC, territory_count DESC
                  LIMIT $1`,
-                [parseInt(limit, 10)]
+                [limit]
             );
             
             rankings = result.rows.map((row, index) => ({
                 rank: index + 1,
                 userId: row.firebase_uid,
                 nickname: row.nickname,
-                email: row.email,
                 territoryCount: parseInt(row.territory_count || 0),
                 totalValue: parseFloat(row.total_value || 0),
                 hegemonyScore: parseFloat(row.total_value || 0)
@@ -118,9 +115,7 @@ router.get('/', async (req, res) => {
             fullError: error
         });
         res.status(500).json({ 
-            error: 'Failed to fetch rankings',
-            details: error.message,
-            errorCode: error.code || 'UNKNOWN_ERROR'
+            error: 'Failed to fetch rankings'
         });
     }
 });
@@ -139,13 +134,12 @@ router.get('/:userId', async (req, res) => {
                 u.id,
                 u.firebase_uid,
                 u.nickname,
-                u.email,
                 COUNT(t.id) as territory_count,
                 COALESCE(SUM(t.base_price), 0) as total_value
              FROM users u
              LEFT JOIN territories t ON t.ruler_id = u.id
              WHERE u.firebase_uid = $1
-             GROUP BY u.id, u.firebase_uid, u.nickname, u.email`,
+             GROUP BY u.id, u.firebase_uid, u.nickname`,
             [userId]
         );
         
@@ -178,7 +172,6 @@ router.get('/:userId', async (req, res) => {
             rank,
             userId: user.firebase_uid,
             nickname: user.nickname,
-            email: user.email,
             territoryCount: userTerritoryCount,
             totalValue: parseFloat(user.total_value || 0),
             hegemonyScore: userTerritoryCount * 100

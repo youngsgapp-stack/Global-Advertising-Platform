@@ -660,7 +660,7 @@ class BillionaireApp {
             if (result?.success && !result.alreadyLinked) {
                 eventBus.emit(EVENTS.UI_NOTIFICATION, {
                     type: 'success',
-                    message: `🎁 Invite applied! You'll get +${result.rewardFriend || 50} pt extra on your first top-up.`
+                    message: `🎁 Invite applied! You'll get +${result.rewardFriend || 50} pt extra on your first top-up of $${result.minTopupUsd || 10} or more.`
                 });
             }
         } catch (error) {
@@ -729,7 +729,7 @@ class BillionaireApp {
         const choice = await showDialog({
             title: '🎁 Invite friends',
             lines: [
-                `When a friend joins with your link and makes their first top-up, you get +${info.rewardReferrer} pt and they get +${info.rewardFriend} pt.`,
+                `When a friend joins with your link and makes their first top-up of $${info.minTopupUsd || 10} or more, you get +${info.rewardReferrer} pt and they get +${info.rewardFriend} pt.`,
                 info.link,
                 `Friends joined: ${info.invited} · Rewards earned: ${info.rewarded}`
             ],

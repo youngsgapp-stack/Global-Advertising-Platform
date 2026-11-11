@@ -69,6 +69,13 @@ export const writeRateLimit = rateLimit({
     skip: req => !WRITE_METHODS.has(req.method)
 });
 
+// PayPal 웹훅: 요청마다 PayPal 서명 확인 API를 부르므로 가짜 요청 폭주를 막음 (PayPal 재전송은 훨씬 적음)
+export const paypalWebhookRateLimit = rateLimit({
+    name: 'paypal-webhook',
+    windowMs: 60 * 1000,
+    max: 120
+});
+
 // 돈이 오가는 요청(구매/입찰/충전/경매 생성): IP당 분당 20회
 export const moneyRateLimit = rateLimit({
     name: 'money',

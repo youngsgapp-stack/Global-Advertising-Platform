@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /api/
+Disallow: /tools/
+
+Sitemap: https://www.worldadvertisingmap.com/sitemap.xml

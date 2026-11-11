@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import crypto from 'crypto';
 import logger from '../utils/logger.js';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
@@ -27,7 +28,7 @@ async function handleCron(req, res) {
         // Vercel Cron은 Authorization: Bearer <CRON_SECRET> 헤더로 호출함
         const cronSecret = process.env.CRON_SECRET || process.env.VERCEL_CRON_SECRET;
         const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-        const providedSecret = req.headers['x-cron-secret'] || bearer || req.query.secret || req.body?.secret;
+        const providedSecret = String(req.headers['x-cron-secret'] || bearer || '');
         
         if (!cronSecret && (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT)) {
             return res.status(401).json({
@@ -35,7 +36,9 @@ async function handleCron(req, res) {
                 error: 'Unauthorized: cron secret is not configured'
             });
         }
-        if (cronSecret && providedSecret !== cronSecret) {
+        const secretMatches = cronSecret && providedSecret.length === cronSecret.length &&
+            crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(cronSecret));
+        if (cronSecret && !secretMatches) {
             logger.warn(`[Cron] Unauthorized access attempt from ${req.ip}`);
             return res.status(401).json({
                 success: false,
@@ -817,7 +820,7 @@ async function endExpiredAuctions() {
             
             // 종료 시간이 지났지만 아직 active 상태인 경매 조회
             // 큐에 있는 경매도 포함 (OR 조건 추가)
-            const expiredAuctions = await query(`
+            const expiredAuctions = await client.query(`
                 SELECT 
                     a.id,
                     a.territory_id,
@@ -857,6 +860,7 @@ async function endExpiredAuctions() {
                             updated_at = NOW()
                         WHERE id = $1 
                         AND status = 'active'
+                        AND end_time <= NOW()
                         RETURNING *
                     `, [auction.id]);
                     
@@ -933,7 +937,7 @@ async function endExpiredAuctions() {
                         
                         // 2단계: 영토 업데이트 브로드캐스트 (market_base_price 포함)
                         // 최신 영토 정보 조회
-                        const updatedTerritory = await query(`
+                        const updatedTerritory = await client.query(`
                             SELECT 
                                 id as territoryId,
                                 market_base_price,

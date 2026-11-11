@@ -257,6 +257,43 @@ try {
     const stillStored = (await query(`SELECT COUNT(*) AS n FROM territory_hd_images WHERE territory_id = 'zz-open'`)).rows[0].n;
     check('Owner change clears the photo and the unlock', !after.hd_image_url && !after.hd_unlocked_by && stillStored === '0');
     
+    // 9-1) 숫자가 아닌 시작가 경매는 거부 (NaN이면 모든 입찰이 통과하던 문제)
+    r = await call('uid-C', 'POST', '/auctions', { territoryId: 'zz-free', startingBid: 'abc' });
+    check('Auction with a non-numeric starting bid is rejected', r.status === 400, r.data?.error);
+    r = await call('uid-C', 'POST', '/auctions', { territoryId: 'zz-free', startingBid: 100, minBid: 'abc' });
+    check('Auction with a non-numeric minimum bid is rejected', r.status === 400, r.data?.error);
+    
+    // 9-2) 예약자 차례에는 주인이 제안 수락/재구매/판매 경매로 땅을 넘길 수 없음
+    await mkTerritory('zz-steal', 'A', `NOW() - interval '5 days'`, 'ruled');
+    r = await call('uid-C', 'POST', '/market/territories/zz-steal/reservations');
+    check('C reserves zz-steal', r.status === 200, r.data?.error);
+    r = await call('uid-B', 'POST', '/market/territories/zz-steal/offers', { amount: 150 });
+    const stealOfferId = r.data?.offerId;
+    check('B offers on zz-steal before C\'s turn', r.status === 200, r.data?.error);
+    await processMarketJobs();
+    const cTurn = (await query(`SELECT status FROM territory_reservations WHERE territory_id = 'zz-steal' AND user_id = $1`, [ids.C])).rows[0];
+    check('C now has the first right to buy', cTurn?.status === 'offered', cTurn?.status);
+    r = await call('uid-A', 'POST', `/market/offers/${stealOfferId}/accept`);
+    check('Owner cannot accept an offer during C\'s turn', r.status === 409, r.data?.error);
+    r = await call('uid-A', 'POST', '/territories/zz-steal/purchase', { price: 100, protectionDays: 7 });
+    check('Owner cannot re-buy during C\'s turn', r.status === 409, r.data?.error);
+    r = await startAuction('uid-A', 'zz-steal', 300);
+    check('Owner cannot start a sale auction during C\'s turn', r.status === 409, r.data?.error);
+    const bBeforeSteal = await balance('B');
+    r = await call('uid-C', 'POST', '/market/territories/zz-steal/reservations/claim', { protectionDays: 7 });
+    t = (await query(`SELECT ruler_id FROM territories WHERE id = 'zz-steal'`)).rows[0];
+    check('C claims zz-steal', r.status === 200 && String(t.ruler_id) === String(ids.C), r.data?.error);
+    const staleOffer = (await query(`SELECT status FROM territory_offers WHERE id = $1`, [stealOfferId])).rows[0];
+    check('B\'s offer to the old owner is refunded when the spot changes hands', staleOffer?.status === 'cancelled' && (await balance('B')) === bBeforeSteal + 150, `${staleOffer?.status}`);
+    r = await call('uid-C', 'POST', `/market/offers/${stealOfferId}/accept`);
+    check('New owner cannot accept an offer made to the old owner', r.status === 404, `${r.status}`);
+    
+    // 9-3) 땅 기록은 서버만 남김
+    r = await call('uid-B', 'POST', '/territories/zz-free/history', { event: 'purchase', metadata: { fake: true } });
+    check('Users cannot write territory history', r.status === 403, `${r.status}`);
+    r = await call(null, 'GET', '/territories/zz-taken/history');
+    check('History does not expose emails', r.status === 200 && !JSON.stringify(r.data).includes('@t'), `${r.status}`);
+    
     // 10) 장부 검증: 모든 지갑 잔액 = 10,000 + 거래 합계
     const ledger = await query(
         `SELECT w.user_id, w.balance, COALESCE(SUM(t.amount), 0) AS total

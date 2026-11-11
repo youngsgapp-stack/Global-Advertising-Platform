@@ -315,17 +315,8 @@ class HistoryLogger {
             // 최대 500개 이벤트 유지
             const trimmedEvents = events.slice(-500);
             
-            // API를 통해 히스토리 저장 (백엔드 API 엔드포인트 필요)
-            try {
-                await apiService.post(`/territories/${territoryId}/history`, {
-                    territoryId,
-                    events: trimmedEvents,
-                    lastUpdated: Date.now()
-                });
-            } catch (apiError) {
-                // API가 아직 구현되지 않은 경우 로컬에만 저장
-                log.debug(`[HistoryLogger] History API not available, storing locally only`);
-            }
+            // 서버가 구매·경매 등 기록을 직접 남기므로 브라우저에서는 저장하지 않음
+            log.debug(`[HistoryLogger] Stored locally only (${trimmedEvents.length} events)`);
         } catch (error) {
             // 권한 오류나 기타 오류는 조용히 처리 (로그인하지 않은 사용자 등)
             if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
