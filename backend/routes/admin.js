@@ -2180,6 +2180,26 @@ router.get('/analytics', async (req, res) => {
  * 그림/링크 신고 목록 (영토별로 묶어서 신고 수와 함께)
  * Query params: status (open | resolved | dismissed | all)
  */
+/**
+ * POST /api/admin/showcase/owner
+ * 쇼케이스 땅(운영자가 미리 채우는 그림)의 주인 계정 'World Ad Map'을 만들거나 찾아서 id 반환
+ */
+const SHOWCASE_UID = 'showcase-world-ad-map';
+router.post('/showcase/owner', async (req, res) => {
+    try {
+        const result = await query(
+            `INSERT INTO users (firebase_uid, email, nickname) VALUES ($1, NULL, 'World Ad Map')
+             ON CONFLICT (firebase_uid) DO UPDATE SET nickname = 'World Ad Map'
+             RETURNING id`,
+            [SHOWCASE_UID]
+        );
+        res.json({ id: result.rows[0].id, nickname: 'World Ad Map' });
+    } catch (error) {
+        console.error('[Admin] Showcase owner error:', error);
+        res.status(500).json({ error: 'Failed to prepare the showcase owner' });
+    }
+});
+
 router.get('/feedback', async (req, res) => {
     try {
         const result = await query(

@@ -1631,7 +1631,8 @@ router.post('/tiles', async (req, res, next) => {
         }
         
         const territory = territoryResult.rows[0];
-        if (territory.ruler_id !== userId) {
+        // 관리자는 신고된 그림 정리·쇼케이스 채우기를 위해 남의 땅에도 저장 가능
+        if (territory.ruler_id !== userId && !isAdminUser(req.user)) {
             return res.status(403).json({ error: 'You do not own this territory' });
         }
         

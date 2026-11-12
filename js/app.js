@@ -249,6 +249,12 @@ class BillionaireApp {
                 openTerritoryById(sharedTerritoryId.toLowerCase().trim());
             }
             
+            // 관리자 전용 쇼케이스 채우기 (/?showcase=1, 실제 권한은 서버가 확인)
+            if (new URLSearchParams(window.location.search).get('showcase') === '1') {
+                document.querySelector('#onboarding-skip, .onboarding-skip')?.click();
+                import('./features/ShowcaseTool.js').then(m => m.openShowcaseTool()).catch(error => log.error('Showcase tool failed:', error));
+            }
+            
         } catch (error) {
             log.error('App initialization failed:', error);
             this.showError('Failed to start the app. Please refresh the page.');

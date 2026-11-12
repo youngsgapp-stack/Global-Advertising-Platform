@@ -21,7 +21,7 @@ const formatUsd = (n) => `$${(Number(n || 0) / 10).toLocaleString('en-US', { min
 /**
  * 사진을 128×128 픽셀 그리드 색으로 바꿈 (알파 50% 미만 칸은 비움)
  */
-function photoToPixels(image, geometry, view, gridSize, quality = 8) {
+export function photoToPixels(image, geometry, view, gridSize, quality = 8) {
     const masked = renderMaskedPhoto(image, geometry, view, gridSize * quality);
     const small = document.createElement('canvas');
     small.width = small.height = gridSize;
