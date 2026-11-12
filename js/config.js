@@ -11,7 +11,7 @@ export const CONFIG = {
     
     // Mapbox 설정
     MAPBOX: {
-        ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmc5MSIsImEiOiJjbWlvN2o1bjYwaGEzM2xvank4cjhrMGNzIn0.dIefOUuYqwYtl8MwXbpJuw',
+        ACCESS_TOKEN: 'pk.eyJ1IjoieW91bmdzZ2FwcC1zdGFjayIsImEiOiJjbXdkN3p3NjYwMWUyMnhzYjh5Zm9ndTI4In0.IpPU1b-dF66bkPeHDEANYw',
         // standard: 바다(밝은 파란색), 대지(자연색), 도로/지명 표시 - 균형 잡힌 스타일
         STYLE: 'mapbox://styles/mapbox/standard',
         DEFAULT_CENTER: [0, 20],
