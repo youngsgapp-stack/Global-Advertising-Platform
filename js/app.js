@@ -1574,7 +1574,6 @@ class BillionaireApp {
         
         // 관리자 이메일 목록
         const ADMIN_EMAILS = [
-            'young91@naver.com',
             'q886654@naver.com',
             'etgbajy@gmail.com'
         ];

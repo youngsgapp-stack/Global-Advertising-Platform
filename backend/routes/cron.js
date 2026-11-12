@@ -47,6 +47,8 @@ async function handleCron(req, res) {
         }
         
         const jobType = req.query.job || req.body?.job || 'all';
+        // 비밀번호가 맞는 호출이 왔다는 기록 (공개 /api/health에서 마지막 시각만 확인 가능)
+        await redis.set('cron:last_authorized_at', new Date().toISOString()).catch(() => {});
         
         logger.info(`[Cron] Starting job: ${jobType}`, {
             ip: req.ip,

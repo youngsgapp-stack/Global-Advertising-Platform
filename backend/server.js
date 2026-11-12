@@ -168,7 +168,7 @@ import { setupWebSocket } from './websocket/index.js';
 
 // DB/Redis 초기화
 import { initDatabase } from './db/init.js';
-import { initRedis } from './redis/init.js';
+import { initRedis, redis } from './redis/init.js';
 import { runMigrations, validateSchema } from './db/migrations.js';
 
 // 모니터링 시스템
@@ -283,11 +283,13 @@ app.get('/', (req, res) => {
 });
 
 // 헬스체크
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+    const lastCronAt = await redis.get('cron:last_authorized_at').catch(() => null);
     res.json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
-        version: '1.0.0'
+        version: '1.0.0',
+        lastCronAt: lastCronAt || null
     });
 });
 

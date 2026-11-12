@@ -68,8 +68,8 @@ async function getAccessToken(baseUrl) {
     }
     
     const data = await response.json();
-    // 토큰은 보통 9시간 유효. 만료 5분 전까지 재사용 (웹훅·결제마다 PayPal 로그인을 반복하지 않도록)
-    const lifetimeMs = Math.max(0, (Number(data.expires_in) || 0) * 1000 - 5 * 60 * 1000);
+    // 웹훅·결제마다 PayPal 로그인을 반복하지 않도록 재사용하되, 키를 바꾸거나 끄면 30분 안에 반영되게 최대 30분만
+    const lifetimeMs = Math.min(30 * 60 * 1000, Math.max(0, (Number(data.expires_in) || 0) * 1000 - 5 * 60 * 1000));
     tokenCache = lifetimeMs > 0 ? { key: cacheKey, token: data.access_token, expiresAt: Date.now() + lifetimeMs } : null;
     return data.access_token;
 }
