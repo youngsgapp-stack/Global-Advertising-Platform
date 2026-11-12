@@ -20,11 +20,11 @@ const stripes = (colors, vertical = true) => ({ stripes: colors, vertical });
 
 const SHOWCASE_ITEMS = [
     // ① 국민 논쟁
-    { id: 'napoli', group: 'Debate', bg: stripes(['#009246', '#ffffff', '#ce2b37']), emoji: '🍍', ban: true, lines: ['NO PINEAPPLE', 'ON PIZZA'] },
-    { id: 'ontario', group: 'Debate', bg: '#d52b1e', emoji: '🍍🍕', lines: ['HAWAIIAN PIZZA', 'WAS BORN HERE'] },
+    { id: 'napoli', group: 'Debate', bg: stripes(['#009246', '#ffffff', '#ce2b37']), emoji: '🍍', ban: true, lines: ['NO 🍍', 'ON PIZZA'] },
+    { id: 'ontario', group: 'Debate', bg: '#d52b1e', emoji: '🍍🍕', lines: ['HAWAIIAN', 'PIZZA HQ'] },
     { id: 'brussels', group: 'Debate', bg: stripes(['#111111', '#fdda24', '#ef3340']), emoji: '🍟', lines: ['BELGIAN', 'FRIES'] },
     { id: 'paris', group: 'Debate', bg: stripes(['#0055a4', '#ffffff', '#ef4135']), emoji: '🍟', lines: ['FRENCH', 'FRIES?'] },
-    { id: 'westminster', group: 'Debate', bg: '#012169', emoji: '🫖', lines: ['TEA', '> COFFEE'] },
+    { id: 'westminster', group: 'Debate', bg: '#012169', emoji: '🍵', lines: ['TEA', '> COFFEE'] },
     { id: 'washington', group: 'Debate', bg: '#3b2416', emoji: '☕', lines: ['COFFEE', '> TEA'] },
     // ② 라이벌 대결
     { id: 'buenos-aires', group: 'Rivals', bg: stripes(['#74acdf', '#ffffff', '#74acdf'], false), emoji: '🐐', lines: ['10', 'MESSI'], dark: true },
@@ -34,7 +34,7 @@ const SHOWCASE_ITEMS = [
     { id: 'new-york', group: 'Rivals', bg: '#0c2340', emoji: '⚾', lines: ['YANKEES', 'COUNTRY'] },
     { id: 'massachusetts', group: 'Rivals', bg: '#bd3039', emoji: '⚾', lines: ['RED SOX', 'NATION'] },
     // ③ 미스터리·밈
-    { id: 'nevada', group: 'Memes', bg: '#0b2a12', emoji: '👽', lines: ["WE'RE", 'ALREADY HERE'] },
+    { id: 'nevada', group: 'Memes', bg: '#0b2a12', emoji: '👽', lines: ["WE'RE", 'HERE'] },
     { id: 'highland', group: 'Memes', bg: '#123d5c', emoji: '🦕', lines: ['NESSIE', 'LIVES'] },
     { id: 'antarctica', group: 'Memes', bg: '#e8f4ff', emoji: '🐧', lines: ['PENGUINS', 'ONLY'], dark: true },
     { id: 'vatican', group: 'Memes', bg: '#ffe000', emoji: '😇', lines: ['TINY', 'HEAVEN'], dark: true },
@@ -87,8 +87,8 @@ function drawForeground(item, w, h) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const wide = w / h > 1.7;
-    const emojiBox = wide ? { x: 0, y: 0, w: w * 0.36, h } : { x: 0, y: 0, w, h: h * 0.5 };
-    const textBox = wide ? { x: w * 0.36, y: 0, w: w * 0.64, h } : { x: 0, y: h * 0.5, w, h: h * 0.5 };
+    const emojiBox = wide ? { x: 0, y: 0, w: w * 0.34, h } : { x: 0, y: 0, w, h: h * 0.44 };
+    const textBox = wide ? { x: w * 0.34, y: 0, w: w * 0.66, h } : { x: 0, y: h * 0.44, w, h: h * 0.56 };
     
     const emojiSize = Math.min(emojiBox.w, emojiBox.h) * 0.9;
     ctx.font = `${Math.round(emojiSize)}px ${EMOJI_FONT}`;
