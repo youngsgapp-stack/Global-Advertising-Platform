@@ -179,7 +179,7 @@ export async function openShowcaseTool() {
             <input type="checkbox" checked style="width:18px;height:18px;">
             <canvas width="${GRID}" height="${GRID}" style="width:72px;height:72px;image-rendering:pixelated;border-radius:6px;background:#0d1117;"></canvas>
             <div style="flex:1;min-width:0;">
-                <div style="font-weight:700;"></div>
+                <div data-title style="font-weight:700;"></div>
                 <div data-status style="font-size:12px;opacity:0.7;">준비 중...</div>
                 <div style="margin-top:4px;display:flex;gap:4px;">
                     <button type="button" data-fit="cover" style="font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(78,205,196,0.25);color:inherit;cursor:pointer;">꽉 채우기</button>
@@ -187,7 +187,7 @@ export async function openShowcaseTool() {
                 </div>
             </div>
         `;
-        row.querySelector('div > div').textContent = `${item.id} · ${item.group} · ${item.lines.join(' ')}`;
+        row.querySelector('[data-title]').textContent = `${item.id} · ${item.group} · ${item.lines.join(' ')}`;
         list.appendChild(row);
         rows.push({ item, row, checkbox: row.querySelector('input'), canvas: row.querySelector('canvas'), status: row.querySelector('[data-status]'), fit: 'cover', pixels: null, geometry: null });
     }
