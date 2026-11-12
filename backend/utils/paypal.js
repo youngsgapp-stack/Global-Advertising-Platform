@@ -37,6 +37,8 @@ function getPayPalBaseUrl() {
         : 'https://api-m.sandbox.paypal.com';
 }
 
+let tokenCache = null;
+
 async function getAccessToken(baseUrl) {
     const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
     const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
@@ -44,6 +46,10 @@ async function getAccessToken(baseUrl) {
         const error = new Error('PayPal credentials are not configured on the server');
         error.code = 'PAYPAL_NOT_CONFIGURED';
         throw error;
+    }
+    const cacheKey = `${baseUrl}|${clientId}`;
+    if (tokenCache && tokenCache.key === cacheKey && tokenCache.expiresAt > Date.now()) {
+        return tokenCache.token;
     }
     
     const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
@@ -62,6 +68,9 @@ async function getAccessToken(baseUrl) {
     }
     
     const data = await response.json();
+    // 웹훅·결제마다 PayPal 로그인을 반복하지 않도록 재사용하되, 키를 바꾸거나 끄면 30분 안에 반영되게 최대 30분만
+    const lifetimeMs = Math.min(30 * 60 * 1000, Math.max(0, (Number(data.expires_in) || 0) * 1000 - 5 * 60 * 1000));
+    tokenCache = lifetimeMs > 0 ? { key: cacheKey, token: data.access_token, expiresAt: Date.now() + lifetimeMs } : null;
     return data.access_token;
 }
 
@@ -78,38 +87,26 @@ export function paypalIssue(details) {
 }
 
 /**
- * 서버의 PayPal 설정 점검 (비밀값은 노출하지 않음). PayPal 호출은 5분에 1번만
+ * 공개 점검용: PayPal 로그인과 주문 생성이 되는지만 알려줌 (설정값 정보는 노출하지 않음). PayPal 호출은 10분에 1번만
  */
 export async function getPayPalStatus() {
-    if (statusCache && Date.now() - statusCache.at < 60 * 1000) {
+    if (statusCache && Date.now() - statusCache.at < 10 * 60 * 1000) {
         return statusCache.value;
     }
-    const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
-    const secret = process.env.PAYPAL_CLIENT_SECRET || '';
-    const value = {
-        environment: process.env.PAYPAL_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
-        clientIdPrefix: clientId.slice(0, 8),
-        clientIdSuffix: clientId.slice(-4),
-        clientIdLength: clientId.length,
-        hasSecret: !!secret.trim(),
-        secretLength: secret.trim().length,
-        secretHadSpaces: secret !== secret.trim(),
-        hasWebhookId: !!process.env.PAYPAL_WEBHOOK_ID,
-        auth: 'unknown'
-    };
+    const value = { auth: 'unknown', orderTest: 'skipped', webhook: !!process.env.PAYPAL_WEBHOOK_ID };
     try {
         await getAccessToken(getPayPalBaseUrl());
         value.auth = 'ok';
     } catch (error) {
-        value.auth = error.message;
+        value.auth = error.code === 'PAYPAL_NOT_CONFIGURED' ? 'not configured' : 'failed';
     }
     if (value.auth === 'ok') {
-        // An uncaptured order is never charged and expires on its own
+        // 캡처하지 않은 주문은 결제되지 않고 저절로 만료됨
         try {
             await createPayPalOrder({ amount: 1, customId: 'status-check', description: 'Status check' });
             value.orderTest = 'ok';
         } catch (error) {
-            value.orderTest = `${error.message} ${paypalIssue(error.details)}`.trim();
+            value.orderTest = paypalIssue(error.details) || 'failed';
         }
     }
     statusCache = { at: Date.now(), value };

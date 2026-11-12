@@ -164,32 +164,12 @@ class PaymentService {
                         }
                         
                         container.innerHTML = `
-                            <div class="paypal-error-message" style="padding: 20px; text-align: center; border: 2px dashed #e74c3c; border-radius: 8px; background: #fff5f5;">
-                                <div style="font-size: 32px; margin-bottom: 15px;">⚠️</div>
-                                <div style="font-weight: bold; color: #e74c3c; margin-bottom: 15px; font-size: 16px;">Unable to load PayPal payment system</div>
-                                <div style="font-size: 13px; color: #7f8c8d; margin-bottom: 20px; line-height: 1.6; text-align: left; background: white; padding: 15px; border-radius: 6px;">
-                                    <strong style="color: #2c3e50;">Possible causes:</strong><br>
-                                    • Invalid Client ID<br>
-                                    • PayPal app is disabled<br>
-                                    • Live/Sandbox mode mismatch
-                                </div>
-                                <div style="font-size: 11px; color: #95a5a6; font-family: monospace; word-break: break-all; padding: 12px; background: #f8f9fa; border-radius: 4px; margin-bottom: 15px; border: 1px solid #e0e0e0;">
-                                    <strong style="color: #7f8c8d;">Current Client ID:</strong><br>
-                                    ${clientId.substring(0, 40)}...<br>
-                                    ...${clientId.substring(clientId.length - 15)}
-                                </div>
-                                <div style="font-size: 12px; color: #2c3e50; background: #e8f4f8; padding: 15px; border-radius: 6px; text-align: left; line-height: 1.8;">
-                                    <strong style="color: #2980b9;">💡 Solution:</strong><br>
-                                    1. Go to <a href="https://developer.paypal.com/dashboard" target="_blank" style="color: #2980b9; text-decoration: underline;">PayPal Developer Dashboard</a><br>
-                                    2. Select <strong>"Live"</strong> mode at the top (not Sandbox!)<br>
-                                    3. Click "My Apps & Credentials"<br>
-                                    4. Select "World Map Advertising" app<br>
-                                    5. Copy Client ID (full string)<br>
-                                    6. Update <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">PAYPAL.CLIENT_ID</code> in <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">js/config.js</code><br>
-                                    7. Refresh the page
-                                </div>
-                                <div style="margin-top: 15px; font-size: 11px; color: #95a5a6;">
-                                    ⚠️ Client ID differs between Live and Sandbox modes!
+                            <div class="paypal-error-message" style="padding: 18px; text-align: center; border: 1px dashed rgba(231, 76, 60, 0.7); border-radius: 10px; background: rgba(231, 76, 60, 0.08); color: var(--color-text);">
+                                <div style="font-size: 26px; margin-bottom: 8px;">⚠️</div>
+                                <div style="font-weight: 700; margin-bottom: 8px;">PayPal could not be loaded</div>
+                                <div style="font-size: 13px; opacity: 0.8; line-height: 1.6;">
+                                    Please turn off ad or tracker blockers for this site, then refresh the page.<br>
+                                    Still stuck? Contact <a href="mailto:youngs.gapp@gmail.com" style="color: var(--color-primary);">youngs.gapp@gmail.com</a>
                                 </div>
                             </div>
                         `;

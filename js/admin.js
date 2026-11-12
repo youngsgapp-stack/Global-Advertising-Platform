@@ -26,7 +26,6 @@ const firebaseConfig = CONFIG.FIREBASE;
  * - Firebase Auth에 해당 이메일이 등록되어 있어야 로그인이 가능합니다
  */
 const ADMIN_EMAILS = [
-    'young91@naver.com',         // 일반 관리자
     'q886654@naver.com',         // 일반 관리자 (Firebase Auth 등록 계정)
     'etgbajy@gmail.com',         // 일반 관리자 (Firebase Auth 등록 계정)
 ];

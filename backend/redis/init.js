@@ -99,50 +99,12 @@ export function getRedis() {
  * Redis 헬퍼 함수들
  * 핵심 원칙: Redis 실패 시 throw하지 않고 null/false 반환 또는 로그만 남김
  */
-/**
- * 자주 읽는 캐시 키를 서버 메모리에 30초 동안 들고 있음 (방문자마다 Redis를 다시 읽지 않도록 → 명령 수·요금 절약)
- * 같은 키를 set/del 하면 즉시 지움. 서버 인스턴스가 하나라는 전제 (여러 대로 늘리면 TTL만큼 서로 다를 수 있음)
- * 값은 문자열로 보관해 읽을 때마다 새 객체를 돌려줌 (호출한 쪽이 객체를 고쳐도 캐시가 오염되지 않게)
- */
-const MEMO_TTL_MS = 30 * 1000;
-const MEMO_MAX_ENTRIES = 500;
-const MEMO_PREFIXES = ['pixel_data:', 'pixels:territories:list', 'territories:', 'territory:', 'hd:images:list'];
-const memo = new Map();
-const memoEligible = (key) => typeof key === 'string' && MEMO_PREFIXES.some(prefix => key.startsWith(prefix));
-function memoGet(key) {
-    const entry = memo.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAt < Date.now()) {
-        memo.delete(key);
-        return undefined;
-    }
-    return JSON.parse(entry.json);
-}
-function memoPut(key, value) {
-    if (memo.size >= MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
-    memo.set(key, { json: JSON.stringify(value), expiresAt: Date.now() + MEMO_TTL_MS });
-}
-function memoForget(keys) {
-    for (const key of [].concat(keys)) memo.delete(key);
-}
-
 const redisObject = {
     /**
      * Redis에서 값 가져오기
      * 실패 시 null 반환 (에러 throw 안 함)
      */
     get: async (key) => {
-        if (memoEligible(key)) {
-            const hit = memoGet(key);
-            if (hit !== undefined) return hit;
-            const value = await redisObject.getFromRedis(key);
-            if (value !== null && value !== undefined) memoPut(key, value);
-            return value;
-        }
-        return redisObject.getFromRedis(key);
-    },
-    
-    getFromRedis: async (key) => {
         try {
             const client = getRedis();
             
@@ -256,7 +218,6 @@ const redisObject = {
      * 핵심: 실패해도 throw하지 않고 로그만 남김 (API는 정상 응답)
      */
     set: async (key, value, ttl = null) => {
-        memoForget(key);
         try {
             const client = getRedis();
             
@@ -294,7 +255,6 @@ const redisObject = {
      * 실패해도 로그만 남김
      */
     del: async (key) => {
-        memoForget(key);
         try {
             const client = getRedis();
             
