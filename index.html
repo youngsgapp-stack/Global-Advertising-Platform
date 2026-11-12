@@ -473,6 +473,14 @@
     
     <!-- Mapbox GL JS -->
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <!-- 무료 지도 미리보기: 주소에 ?map=free 가 있을 때만 MapLibre를 추가로 불러옴 -->
+    <script>
+        if (/[?&]map=free(&|$)/.test(location.search)) {
+            window.__FREE_MAP__ = true;
+            document.write('<link href="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.css" rel="stylesheet">' +
+                '<script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js"><\/script>');
+        }
+    </script>
     
     <!-- PayPal SDK is dynamically loaded by PaymentService -->
     

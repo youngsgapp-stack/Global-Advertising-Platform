@@ -139,12 +139,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     
-    // JavaScript 파일은 네트워크만 사용 (캐시 완전 우회 - 최신 버전 보장)
+    // JavaScript 파일은 매번 서버에 바뀌었는지 확인 (안 바뀌었으면 304로 브라우저 저장본 사용 → 최신 보장 + 재다운로드 없음)
     // ⚠️ 외부 origin은 이미 위에서 필터링되었으므로 여기서는 같은 origin의 JS만 처리
     if (NETWORK_FIRST_JS_PATTERNS.some(pattern => pattern.test(url.pathname))) {
         event.respondWith(
             fetch(request, { 
-                cache: 'no-store'
+                cache: 'no-cache'
                 // ⚠️ Expires 헤더 제거 - CORS preflight 방지
             }).catch(() => {
                 // 에러 발생 시 빈 응답 반환 (에러 방지)

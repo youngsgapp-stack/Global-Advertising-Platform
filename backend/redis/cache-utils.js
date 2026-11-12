@@ -21,6 +21,16 @@ export const CACHE_TTL = {
     TERRITORY_DETAIL: 3600,   // 영토 상세: 1시간
 };
 
+const trackedKeysSetOf = (pattern) => `cachekeys:${pattern}`;
+
+/**
+ * 패턴 삭제용으로 캐시 키를 기록 (Upstash는 SCAN이 안 돼서, 기록해 둔 키 목록으로 지움)
+ * 예: trackCacheKey('territories:*', 'territories:all:all:all:id,status')
+ */
+export async function trackCacheKey(pattern, key) {
+    await redis.sadd(trackedKeysSetOf(pattern), key);
+}
+
 /**
  * 패턴 기반 캐시 무효화 (최적화된 방식)
  * SCAN을 사용하여 메모리 효율적으로 처리
@@ -28,14 +38,10 @@ export const CACHE_TTL = {
 export async function invalidateCachePattern(pattern) {
     try {
         const client = redis;
-        
-        // Upstash REST API는 SCAN을 직접 지원하지 않으므로
-        // keys를 사용하되 제한적으로 처리
-        if (client._type === 'upstash') {
-            // Upstash는 keys를 지원하지 않으므로 개별 키 삭제 필요
-            // 패턴 매칭은 클라이언트 측에서 처리
-            console.warn(`[Cache] Pattern deletion not fully supported for Upstash: ${pattern}`);
-            return;
+
+        const tracked = await client.smembers(trackedKeysSetOf(pattern));
+        for (const key of tracked || []) {
+            await client.del(key);
         }
         
         // 일반 Redis: SCAN 사용

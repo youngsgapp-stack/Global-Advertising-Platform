@@ -11,6 +11,7 @@ import { calculateProtectionEndsAt, logAuctionEndSuccess, finalizeAuctionEnd } f
 import { releaseAuctionHolds, adjustWalletBalance } from '../utils/wallet-utils.js';
 import { deleteTerritoryPixels } from '../utils/pixel-cleanup.js';
 import { releaseReservationsOnOwnerChange } from '../utils/reservation-cleanup.js';
+import { backupPixelArt, listPixelBackups, restorePixelArt } from '../utils/pixel-backup.js';
 // requireAdmin은 server.js에서 전역으로 적용됨
 
 const router = express.Router();
@@ -2225,6 +2226,45 @@ router.post('/feedback/:id/done', async (req, res) => {
     } catch (error) {
         console.error('[Admin] Feedback update error:', error);
         res.status(500).json({ error: 'Failed to update feedback' });
+    }
+});
+
+/**
+ * 픽셀 아트 백업: 목록 / 지금 백업 / 되살리기
+ * GET  /api/admin/pixel-backups?territoryId=paris
+ * POST /api/admin/pixel-backups/run
+ * POST /api/admin/pixel-backups/:territoryId/restore  { backupId? }
+ */
+router.get('/pixel-backups', async (req, res) => {
+    try {
+        const territoryId = req.query.territoryId ? String(req.query.territoryId).slice(0, 100) : null;
+        res.json(await listPixelBackups(territoryId));
+    } catch (error) {
+        if (error.code === '42P01') return res.json([]);
+        console.error('[Admin] Pixel backup list error:', error);
+        res.status(500).json({ error: 'Failed to load pixel backups' });
+    }
+});
+
+router.post('/pixel-backups/run', async (req, res) => {
+    try {
+        res.json(await backupPixelArt());
+    } catch (error) {
+        console.error('[Admin] Pixel backup error:', error);
+        res.status(500).json({ error: 'Failed to back up pixel art' });
+    }
+});
+
+router.post('/pixel-backups/:territoryId/restore', async (req, res) => {
+    try {
+        const territoryId = String(req.params.territoryId).slice(0, 100);
+        const backupId = req.body?.backupId ? parseInt(req.body.backupId, 10) : null;
+        const result = await restorePixelArt(territoryId, Number.isInteger(backupId) ? backupId : null);
+        if (!result.restored) return res.status(404).json({ error: result.reason });
+        res.json(result);
+    } catch (error) {
+        console.error('[Admin] Pixel restore error:', error);
+        res.status(500).json({ error: 'Failed to restore pixel art' });
     }
 });
 

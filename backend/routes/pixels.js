@@ -112,20 +112,12 @@ async function ensureListedWithPixels(territoryId) {
 
 topLevelRouter.get('/territories', async (req, res) => {
     // ⚡ 공개 API: 게스트 접근 허용 (인증 불필요)
-    console.log('[Pixels] ✅ GET /api/pixels/territories - Public API access (guest allowed)');
-    console.log('[Pixels] Request details:', {
-        method: req.method,
-        url: req.url,
-        originalUrl: req.originalUrl,
-        path: req.path
-    });
     try {
         // 캐시된 목록 먼저 확인
         const cacheKey = 'pixels:territories:list';
         const cached = await redis.get(cacheKey);
         
         if (cached) {
-            console.log(`[Pixels] ⚠️ Returning cached data (count: ${cached.count || 0})`);
             return res.json(cached);
         }
         
@@ -361,9 +353,7 @@ router.get('/', async (req, res) => {
     const routeFile = __filename.split(/[/\\]/).pop() || 'pixels.js';
     const commitHash = process.env.GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || 'unknown';
     
-    // ⚠️ 강제 식별 로그 (console.error로도 찍어서 로그 레벨 문제 회피)
-    console.error(`[Pixels][GET] ENTER route=v2 pid=${processId} file=${routeFile} commit=${commitHash.substring(0, 7)} reqId=${reqId} ts=${new Date().toISOString()}`);
-    logger.warn(`[Pixels][GET] ENTER route=v2 pid=${processId} file=${routeFile} commit=${commitHash.substring(0, 7)} reqId=${reqId}`, {
+    logger.debug(`[Pixels][GET] ENTER route=v2 pid=${processId} file=${routeFile} commit=${commitHash.substring(0, 7)} reqId=${reqId}`, {
         territoryIdParam: req.params?.territoryId,
         url: req.url,
         method: req.method
@@ -398,7 +388,7 @@ router.get('/', async (req, res) => {
         const territoryId = idValidation.canonicalId;
         
         // ⚠️ CP1: territoryId normalized
-        logger.warn(`[Pixels][GET] CP1 territoryId normalized`, {
+        logger.debug(`[Pixels][GET] CP1 territoryId normalized`, {
             reqId,
             territoryIdRaw: territoryIdParam,
             territoryIdNormalized: territoryId,
@@ -432,7 +422,7 @@ router.get('/', async (req, res) => {
         }
         
         // ⚠️ CP2: read pixel_data done
-        logger.warn(`[Pixels][GET] CP2 read pixel_data done`, {
+        logger.debug(`[Pixels][GET] CP2 read pixel_data done`, {
             reqId,
             territoryId,
             redisKey: pixelCacheKey,
@@ -456,7 +446,7 @@ router.get('/', async (req, res) => {
                                pixelData.pixels.length > 0;
         
         // ⚠️ CP3: pixelDataValid evaluated
-        logger.warn(`[Pixels][GET] CP3 pixelDataValid evaluated`, {
+        logger.debug(`[Pixels][GET] CP3 pixelDataValid evaluated`, {
             reqId,
             territoryId,
             pixelDataValid,
@@ -479,7 +469,7 @@ router.get('/', async (req, res) => {
                 await redis.set(pixelCacheKey, pixelData);
             }
             
-            logger.warn(`[Pixels][GET] ✅ Returning cached pixel data`, {
+            logger.debug(`[Pixels][GET] ✅ Returning cached pixel data`, {
                 reqId,
                 territoryId,
                 pixelsLength: pixelData.pixels?.length || 0,
@@ -493,7 +483,7 @@ router.get('/', async (req, res) => {
         }
         
         // ⚠️ 캐시가 없거나 비어있으면 타일 시스템 확인
-        logger.warn(`[Pixels][GET] ⚠️ No valid cached pixel data, checking tile system`, {
+        logger.debug(`[Pixels][GET] ⚠️ No valid cached pixel data, checking tile system`, {
             reqId,
             territoryId,
             hasPixelData: !!pixelData,
@@ -534,7 +524,7 @@ router.get('/', async (req, res) => {
         const tileRevisionMapKeys = Object.keys(tileRevisionMap);
         const tileRevisionMapLength = tileRevisionMapKeys.length;
         
-        logger.warn(`[Pixels][GET] CP4 tileRevMap read done`, {
+        logger.debug(`[Pixels][GET] CP4 tileRevMap read done`, {
             reqId,
             territoryId,
             tileRevKey,
@@ -551,7 +541,7 @@ router.get('/', async (req, res) => {
         if (tileRevisionMapLength > 0) {
             // ⚠️ CP5: tile merge done
             // 타일이 있으면 모든 타일을 로드하여 조합
-            logger.warn(`[Pixels][GET] 🔍 Loading tiles from tile system`, {
+            logger.debug(`[Pixels][GET] 🔍 Loading tiles from tile system`, {
                 reqId,
                 territoryId,
                 tileCount: Object.keys(tileRevisionMap).length,
@@ -565,7 +555,7 @@ router.get('/', async (req, res) => {
             // 모든 타일 로드 (타일 리비전 맵에 있는 타일만 로드)
             const tileIds = Object.keys(tileRevisionMap);
             
-            logger.warn(`[Pixels][GET] 🔍 Loading ${tileIds.length} tiles from tile system`, {
+            logger.debug(`[Pixels][GET] 🔍 Loading ${tileIds.length} tiles from tile system`, {
                 reqId,
                 territoryId,
                 tileIds: tileIds.slice(0, 10) // 처음 10개만 로그
@@ -583,7 +573,7 @@ router.get('/', async (req, res) => {
                 try {
                     tileDataRaw = prefetchedTiles.get(tileId);
                 } catch (getError) {
-                    logger.warn(`[Pixels][GET] ⚠️ Failed to get tile data for ${tileId}`, {
+                    logger.debug(`[Pixels][GET] ⚠️ Failed to get tile data for ${tileId}`, {
                         reqId,
                         territoryId,
                         tileId,
@@ -601,7 +591,7 @@ router.get('/', async (req, res) => {
                         const tileData = typeof tileDataRaw === 'string' ? JSON.parse(tileDataRaw) : tileDataRaw;
                         
                         if (!tileData) {
-                            logger.warn(`[Pixels][GET] ⚠️ Tile data is null/undefined for ${tileId}`, {
+                            logger.debug(`[Pixels][GET] ⚠️ Tile data is null/undefined for ${tileId}`, {
                                 reqId,
                                 territoryId,
                                 tileId
@@ -695,7 +685,7 @@ router.get('/', async (req, res) => {
                 } else {
                     // 타일 데이터가 Redis에 없음
                     tilesEmpty++;
-                    logger.warn(`[Pixels][GET] ⚠️ Tile data not found in Redis for ${tileId}`, {
+                    logger.debug(`[Pixels][GET] ⚠️ Tile data not found in Redis for ${tileId}`, {
                         reqId,
                         territoryId,
                         tileId,
@@ -704,7 +694,7 @@ router.get('/', async (req, res) => {
                 }
             }
             
-            logger.warn(`[Pixels][GET] 📊 Tile loading summary`, {
+            logger.debug(`[Pixels][GET] 📊 Tile loading summary`, {
                 reqId,
                 territoryId,
                 totalTilesInMap: tileIds.length,
@@ -731,7 +721,7 @@ router.get('/', async (req, res) => {
             // ⚠️ 빈 배열 캐시 저장 금지: pixelsLength=0이면 pixel_data에 저장하지 않음
             // 또는 state=EMPTY로 명시하여 invalid로 처리
             if (allPixels.length === 0) {
-                logger.warn(`[Pixels][GET] ⚠️ No pixels found in tiles, not caching empty data`, {
+                logger.debug(`[Pixels][GET] ⚠️ No pixels found in tiles, not caching empty data`, {
                     reqId,
                     territoryId,
                     tileCount: tileIds.length
@@ -769,7 +759,7 @@ router.get('/', async (req, res) => {
             await redis.set(pixelCacheKey, combinedPixelData);
             if (allPixels.length > 0) await ensureListedWithPixels(territoryId);
             
-            logger.warn(`[Pixels][GET] ✅ Cached combined tile data`, {
+            logger.debug(`[Pixels][GET] ✅ Cached combined tile data`, {
                 reqId,
                 territoryId,
                 pixelsLength: allPixels.length,
@@ -777,7 +767,7 @@ router.get('/', async (req, res) => {
             });
             
             // ⚠️ CP5: tile merge done
-            logger.warn(`[Pixels][GET] CP5 tile merge done`, {
+            logger.debug(`[Pixels][GET] CP5 tile merge done`, {
                 reqId,
                 territoryId,
                 pixelsLength: allPixels.length,
@@ -796,7 +786,7 @@ router.get('/', async (req, res) => {
         } else {
             // ⚠️ CP5: tile merge done (no tiles)
             // 타일 리비전 맵이 비어있지만, 혹시 타일 데이터가 직접 저장되어 있을 수 있으므로 확인
-            logger.warn(`[Pixels][GET] CP5 tile merge done (no tiles in revision map)`, {
+            logger.debug(`[Pixels][GET] CP5 tile merge done (no tiles in revision map)`, {
                 reqId,
                 territoryId,
                 tileRevKey,
@@ -838,7 +828,7 @@ router.get('/', async (req, res) => {
                 cached.updatedAt = cached.updatedAt || cached.lastUpdated || new Date().toISOString();
                 await redis.set(cacheKey, cached, CACHE_TTL.PIXEL_META);
             }
-            logger.warn(`[Pixels][GET] ✅ Returning legacy cached pixel data`, {
+            logger.debug(`[Pixels][GET] ✅ Returning legacy cached pixel data`, {
                 reqId,
                 territoryId,
                 pixelsLength: cached.pixels?.length || 0
@@ -848,7 +838,7 @@ router.get('/', async (req, res) => {
         }
         
         // ⚠️ 모든 소스에서 픽셀을 찾지 못함 - 빈 데이터 반환 (캐시하지 않음)
-        logger.warn(`[Pixels][GET] ⚠️ No pixels found from any source`, {
+        logger.debug(`[Pixels][GET] ⚠️ No pixels found from any source`, {
             reqId,
             territoryId,
             checkedSources: ['pixel_data', 'tile_system', 'legacy_cache']

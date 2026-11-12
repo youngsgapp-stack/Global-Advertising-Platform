@@ -119,6 +119,7 @@ import { marketRouter, processMarketJobs } from './routes/market.js';
 import { hdRouter } from './routes/hd.js';
 import { socialRouter, cleanupSocialData } from './routes/social.js';
 import { feedbackRouter } from './routes/feedback.js';
+import { backupPixelArt } from './utils/pixel-backup.js';
 import { paypalWebhookHandler } from './routes/paypal-webhook.js';
 import { getPayPalStatus } from './utils/paypal.js';
 import cronRouter, { endExpiredAuctions, expireProtections, checkExpiredTerritories } from './routes/cron.js';
@@ -155,6 +156,7 @@ function startBackgroundJobs() {
     schedule('marketJobs', 60 * 1000, processMarketJobs);
     schedule('socialCleanup', 6 * 60 * 60 * 1000, cleanupSocialData);
     schedule('checkExpiredTerritories', 6 * 60 * 60 * 1000, checkExpiredTerritories);
+    schedule('pixelBackup', 6 * 60 * 60 * 1000, backupPixelArt);
     console.log('[Jobs] Background jobs started (auction end: every 1 min, protection expiry: every 30 min)');
 }
 
@@ -168,7 +170,7 @@ import { setupWebSocket } from './websocket/index.js';
 
 // DB/Redis 초기화
 import { initDatabase } from './db/init.js';
-import { initRedis, redis } from './redis/init.js';
+import { initRedis, redis, getMemoryCacheStats } from './redis/init.js';
 import { runMigrations, validateSchema } from './db/migrations.js';
 
 // 모니터링 시스템
@@ -290,7 +292,8 @@ app.get('/api/health', async (req, res) => {
         timestamp: new Date().toISOString(),
         version: '1.0.0',
         commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null,
-        lastCronAt: lastCronAt || null
+        lastCronAt: lastCronAt || null,
+        memoryCache: getMemoryCacheStats()
     });
 });
 

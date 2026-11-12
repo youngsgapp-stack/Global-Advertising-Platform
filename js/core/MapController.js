@@ -12,6 +12,34 @@ import { auctionSystem } from '../features/AuctionSystem.js';
 import { resolveCollidingTerritoryId } from '../data/territory-id-collisions.js';
 import { topologyToGeoJSON } from '../utils/TopoJson.js';
 
+const FREE_MAP = typeof window !== 'undefined' && window.__FREE_MAP__ === true && !!window.maplibregl;
+
+/**
+ * MapLibre는 GeoJSON 소스의 _data를 { geojson } 으로 감싸서 보관함.
+ * 앱 코드는 Mapbox처럼 source._data 가 GeoJSON 자체라고 가정하므로, 무료 지도에서만 getSource 결과를 감쌈
+ */
+function exposeGeoJsonDataLikeMapbox(map) {
+    const wrapped = new WeakMap();
+    const getSource = map.getSource.bind(map);
+    map.getSource = (id) => {
+        const source = getSource(id);
+        if (!source || source.type !== 'geojson') return source;
+        if (!wrapped.has(source)) {
+            wrapped.set(source, new Proxy(source, {
+                get(target, prop) {
+                    if (prop === '_data') {
+                        const data = target._data;
+                        return data && data.geojson !== undefined ? data.geojson : data;
+                    }
+                    const value = Reflect.get(target, prop, target);
+                    return typeof value === 'function' ? value.bind(target) : value;
+                }
+            }));
+        }
+        return wrapped.get(source);
+    };
+}
+
 function polygonsOf(geometry) {
     if (geometry?.type === 'Polygon') return [geometry.coordinates];
     if (geometry?.type === 'MultiPolygon') return geometry.coordinates;
@@ -97,22 +125,24 @@ class MapController {
      */
     async initialize(containerId = 'map') {
         try {
-            // Mapbox 토큰 설정
-            mapboxgl.accessToken = CONFIG.MAPBOX.ACCESS_TOKEN;
+            const gl = FREE_MAP ? window.maplibregl : mapboxgl;
+            if (!FREE_MAP) mapboxgl.accessToken = CONFIG.MAPBOX.ACCESS_TOKEN;
             
             // 지도 생성
-            this.map = new mapboxgl.Map({
+            this.map = new gl.Map({
                 container: containerId,
-                style: CONFIG.MAPBOX.STYLE,
+                style: FREE_MAP ? CONFIG.FREE_MAP.STYLE : CONFIG.MAPBOX.STYLE,
                 center: CONFIG.MAPBOX.DEFAULT_CENTER,
                 zoom: CONFIG.MAPBOX.DEFAULT_ZOOM,
-                projection: 'globe',  // 3D 지구본 모드
+                ...(FREE_MAP ? {} : { projection: 'globe' }),  // 3D 지구본 모드
                 maxZoom: CONFIG.MAPBOX.MAX_ZOOM,
                 minZoom: CONFIG.MAPBOX.MIN_ZOOM
             });
+            if (FREE_MAP) exposeGeoJsonDataLikeMapbox(this.map);
             
             // 지구본 분위기 설정
             this.map.on('style.load', () => {
+                if (FREE_MAP) this.map.setProjection({ type: 'globe' });
                 this.setupGlobeAtmosphere();
                 // [NEW] MAP_STYLE_LOADED 이벤트 발행 (Ready Gate용)
                 eventBus.emit(EVENTS.MAP_STYLE_LOADED);
@@ -124,7 +154,7 @@ class MapController {
             eventBus.on(EVENTS.TERRITORY_UPDATE, () => setTimeout(() => this.syncOwnedFeatureStates(), 300));
             
             // 네비게이션 컨트롤 추가
-            this.map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+            this.map.addControl(new gl.NavigationControl(), 'bottom-right');
             
             // 모바일 최적화
             this.initMobileOptimizations();
@@ -218,6 +248,7 @@ class MapController {
      * Standard 스타일에 맞게 밝고 선명한 분위기
      */
     setupGlobeAtmosphere() {
+        if (typeof this.map.setFog !== 'function') return;
         this.map.setFog({
             color: 'rgb(220, 235, 255)',      // 대기권 색상 (밝은 하늘색)
             'high-color': 'rgb(70, 130, 220)', // 고도 색상 (선명한 파란색)
@@ -2103,7 +2134,8 @@ class MapController {
      */
     toggleProjection() {
         this.isGlobeMode = !this.isGlobeMode;
-        this.map.setProjection(this.isGlobeMode ? 'globe' : 'mercator');
+        const projection = this.isGlobeMode ? 'globe' : 'mercator';
+        this.map.setProjection(FREE_MAP ? { type: projection } : projection);
         
         if (this.isGlobeMode) {
             this.setupGlobeAtmosphere();

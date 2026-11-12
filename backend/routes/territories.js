@@ -6,7 +6,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
-import { CACHE_TTL, invalidateTerritoryCache } from '../redis/cache-utils.js';
+import { CACHE_TTL, invalidateTerritoryCache, trackCacheKey } from '../redis/cache-utils.js';
 import { broadcastTerritoryUpdate } from '../websocket/index.js';
 import { validateTerritoryIdParam } from '../utils/territory-id-validator.js';
 import { isAdminUser } from '../middleware/admin.js';
@@ -51,6 +51,9 @@ const TERRITORY_LIST_FIELDS = new Set(('id,sovereignty,status,ruler_firebase_uid
     'basePrice,last_winning_amount,countryIso,code,name,name_en,country,continent,polygon,createdAt,ruler,auction,' +
     'hasPixelArt,pixelCount,fillRatio,pixelUpdatedAt').split(','));
 
+const MAX_LIST_CACHE_KEYS = 20;
+const listCacheKeysSeen = new Set();
+
 /**
  * GET /api/territories
  * 영토 목록 조회 (필터링 지원)
@@ -59,17 +62,6 @@ const TERRITORY_LIST_FIELDS = new Set(('id,sovereignty,status,ruler_firebase_uid
 router.get('/', async (req, res) => {
     try {
         const { country, status, limit, fields } = req.query;
-        
-        console.log('[Territories] 📊 Fetching territories...', { country, status, limit, fields });
-        console.log('[Territories] 🔍 Request received:', {
-            method: req.method,
-            url: req.url,
-            query: req.query,
-            headers: {
-                'authorization': req.headers.authorization ? 'Bearer ***' : 'none',
-                'user-agent': req.headers['user-agent']
-            }
-        });
         
         // 캐시 키에 들어가는 값은 알려진 값만 허용 (임의 값으로 캐시를 무한히 늘리지 못하게)
         if ((country && !/^[a-z0-9-]{1,40}$/i.test(String(country))) || (status && !/^[a-z_]{1,20}$/i.test(String(status)))) {
@@ -85,49 +77,35 @@ router.get('/', async (req, res) => {
         
         // Redis 캐시 키 생성 (fields 포함)
         const cacheKey = `territories:${country || 'all'}:${status || 'all'}:${limitNumber || 'all'}:${requestedFields ? requestedFields.join(',') : 'all'}`;
-        let cached = null;
+        const pixelMetaRequested = !requestedFields || requestedFields.length === 0 || (
+            requestedFields.includes('hasPixelArt') || 
+            requestedFields.includes('pixelCount') || 
+            requestedFields.includes('fillRatio') || 
+            requestedFields.includes('pixelUpdatedAt')
+        );
         
+        // 캐시는 JSON 문자열 그대로 보냄 (1MB가 넘는 목록을 매번 다시 직렬화하지 않게)
         try {
-            cached = await redis.get(cacheKey);
-            if (cached && Array.isArray(cached)) {
-                console.log('[Territories] ✅ Territories loaded from cache');
-                
-                // ⚡ 픽셀 메타 필드가 요청되었는데 캐시에 없으면 캐시 무효화하고 DB에서 재조회
-                const pixelMetaRequested = !requestedFields || requestedFields.length === 0 || (
-                    requestedFields.includes('hasPixelArt') || 
-                    requestedFields.includes('pixelCount') || 
-                    requestedFields.includes('fillRatio') || 
-                    requestedFields.includes('pixelUpdatedAt')
-                );
-                
-                if (pixelMetaRequested && cached.length > 0) {
-                    // 캐시된 항목 중 하나라도 픽셀 메타 필드가 없으면 캐시 무효화
-                    const sampleItem = cached[0];
-                    if (!('hasPixelArt' in sampleItem) || sampleItem.hasPixelArt === undefined) {
-                        console.log('[Territories] ⚠️ Cache invalid: pixel metadata fields missing, fetching from DB...');
-                        cached = null; // 캐시 무효화, DB에서 재조회
-                    }
+            const cachedJson = await redis.getJson(cacheKey);
+            if (cachedJson && cachedJson.startsWith('[')) {
+                let usable = true;
+                // ⚡ 픽셀 메타 필드가 요청되었는데 캐시에 없으면 DB에서 재조회
+                if (pixelMetaRequested && cachedJson.length > 2) {
+                    const sampleItem = JSON.parse(cachedJson)[0];
+                    usable = 'hasPixelArt' in sampleItem && sampleItem.hasPixelArt !== undefined;
                 }
-                
-                if (cached) {
-                    // ⚡ 성능 최적화: ETag 생성 및 304 Not Modified 처리
-                    const etag = generateETag(cached);
+                if (usable) {
+                    const etag = `"${crypto.createHash('md5').update(cachedJson).digest('hex')}"`;
                     res.setHeader('ETag', etag);
-                    res.setHeader('Cache-Control', 'public, max-age=10'); // 10초 캐시
-                    
-                    // 클라이언트가 If-None-Match 헤더로 ETag를 보냈고 일치하면 304 반환
-                    const clientETag = req.headers['if-none-match'];
-                    if (clientETag && clientETag === etag) {
-                        console.log('[Territories] ✅ 304 Not Modified (ETag match)');
+                    res.setHeader('Cache-Control', 'public, max-age=10');
+                    if (req.headers['if-none-match'] === etag) {
                         return res.status(304).end();
                     }
-                    
-                    return res.json(cached);
+                    return res.type('application/json').send(cachedJson);
                 }
             }
         } catch (redisError) {
             console.warn('[Territories] ⚠️ Redis cache read error (continuing with DB query):', redisError.message);
-            // Redis 오류가 있어도 DB 쿼리는 계속 진행
         }
         
         console.log('[Territories] 📊 Fetching territories from database...');
@@ -175,12 +153,6 @@ router.get('/', async (req, res) => {
         const result = await query(sql, params);
         
         // ⚡ 픽셀 메타 필드가 요청된 경우 또는 전체 필드 반환 시 Redis에서 일괄 조회 (성능 최적화)
-        const pixelMetaRequested = !requestedFields || requestedFields.length === 0 || (
-            requestedFields.includes('hasPixelArt') || 
-            requestedFields.includes('pixelCount') || 
-            requestedFields.includes('fillRatio') || 
-            requestedFields.includes('pixelUpdatedAt')
-        );
         
         console.log('[Territories] 🔍 Pixel meta requested:', {
             pixelMetaRequested,
@@ -369,10 +341,14 @@ router.get('/', async (req, res) => {
             return res.status(304).end();
         }
         
-        // Redis에 캐시 - 실패해도 응답은 반환
+        // Redis에 캐시 - 실패해도 응답은 반환 (fields 조합을 마구 바꿔 캐시를 늘리지 못하게 종류 수 제한)
         try {
+            if (listCacheKeysSeen.size >= MAX_LIST_CACHE_KEYS && !listCacheKeysSeen.has(cacheKey)) {
+                return res.json(territories);
+            }
+            listCacheKeysSeen.add(cacheKey);
             await redis.set(cacheKey, territories, CACHE_TTL.TERRITORY_LIST);
-            console.log('[Territories] ✅ Territories cached in Redis');
+            await trackCacheKey('territories:*', cacheKey);
         } catch (redisError) {
             console.warn('[Territories] ⚠️ Redis cache write error (response still sent):', redisError.message);
         }

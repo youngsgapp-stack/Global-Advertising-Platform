@@ -16,8 +16,13 @@ export const CONFIG = {
         STYLE: 'mapbox://styles/mapbox/standard',
         DEFAULT_CENTER: [0, 20],
         DEFAULT_ZOOM: 2,
-        MAX_ZOOM: 12,
+        MAX_ZOOM: 16,
         MIN_ZOOM: 1
+    },
+
+    // 무료 지도 미리보기 (주소 끝에 ?map=free 를 붙였을 때만: MapLibre + OpenFreeMap, 사용량 요금 없음)
+    FREE_MAP: {
+        STYLE: 'https://tiles.openfreemap.org/styles/liberty'
     },
     
     // Firebase 설정

@@ -96,15 +96,115 @@ export function getRedis() {
 }
 
 /**
+ * 서버 메모리 캐시 (Redis 앞단)
+ * 방문자마다 똑같이 읽는 공개 캐시 키만 몇 초~1분 동안 메모리에 둠 → Upstash 명령 수와 응답 시간 절약.
+ * 이 서버에서 set/del 하면 바로 지워짐 (서버가 여러 대가 되면 다른 서버의 변경은 최대 TTL만큼 늦게 보임)
+ */
+const MEMORY_CACHE_RULES = [
+    ['pixels:territories:list', 30],
+    ['pixel_data:', 60],
+    ['territory:', 15],
+    ['territories:', 15],
+    ['activity:recent:', 10],
+    ['hd:images:list', 30],
+    ['map:snapshot', 30],
+    ['rankings:', 30],
+];
+const MEMORY_CACHE_MAX_CHARS = 60 * 1024 * 1024;
+const MEMORY_CACHE_MAX_ITEM_CHARS = 8 * 1024 * 1024;
+const memoryCache = new Map();
+const inflightGets = new Map();
+let memoryCacheChars = 0;
+let memoryWriteSeq = 0;
+const memoryStats = { hits: 0, misses: 0 };
+
+function memoryTtlMs(key) {
+    if (typeof key !== 'string') return 0;
+    const rule = MEMORY_CACHE_RULES.find(([prefix]) => key.startsWith(prefix));
+    return rule ? rule[1] * 1000 : 0;
+}
+
+function memoryForget(key) {
+    if (!memoryTtlMs(key)) return;
+    memoryWriteSeq++;
+    const entry = memoryCache.get(key);
+    if (entry) {
+        memoryCacheChars -= entry.json.length;
+        memoryCache.delete(key);
+    }
+}
+
+function memoryRemember(key, json, ttlMs) {
+    if (json.length > MEMORY_CACHE_MAX_ITEM_CHARS) return;
+    const old = memoryCache.get(key);
+    if (old) {
+        memoryCacheChars -= old.json.length;
+        memoryCache.delete(key);
+    }
+    for (const [oldestKey, oldest] of memoryCache) {
+        if (memoryCacheChars + json.length <= MEMORY_CACHE_MAX_CHARS) break;
+        memoryCacheChars -= oldest.json.length;
+        memoryCache.delete(oldestKey);
+    }
+    memoryCache.set(key, { json, expiresAt: Date.now() + ttlMs });
+    memoryCacheChars += json.length;
+}
+
+export function getMemoryCacheStats() {
+    return { ...memoryStats, keys: memoryCache.size, mb: Math.round(memoryCacheChars / 1024 / 1024 * 10) / 10 };
+}
+
+/**
  * Redis 헬퍼 함수들
  * 핵심 원칙: Redis 실패 시 throw하지 않고 null/false 반환 또는 로그만 남김
  */
 const redisObject = {
     /**
-     * Redis에서 값 가져오기
-     * 실패 시 null 반환 (에러 throw 안 함)
+     * 값 가져오기 (메모리 캐시 대상 키면 메모리 → Redis 순서, 같은 키 동시 요청은 Redis 1번만 읽음)
+     * 호출한 쪽이 결과를 고쳐도 캐시가 오염되지 않게 매번 새 객체로 돌려줌
      */
     get: async (key) => {
+        if (!memoryTtlMs(key)) return redisObject.getFromRedis(key);
+        const json = await redisObject.getJson(key);
+        return json === null ? null : JSON.parse(json);
+    },
+
+    /**
+     * 값을 JSON 문자열 그대로 가져오기 (큰 응답을 다시 직렬화하지 않고 바로 보낼 때)
+     */
+    getJson: async (key) => {
+        const ttlMs = memoryTtlMs(key);
+        if (!ttlMs) {
+            const value = await redisObject.getFromRedis(key);
+            return value === null || value === undefined ? null : JSON.stringify(value);
+        }
+        const hit = memoryCache.get(key);
+        if (hit && hit.expiresAt > Date.now()) {
+            memoryStats.hits++;
+            return hit.json;
+        }
+        memoryStats.misses++;
+        let pending = inflightGets.get(key);
+        if (!pending) {
+            const seqAtStart = memoryWriteSeq;
+            pending = redisObject.getFromRedis(key)
+                .then(value => {
+                    if (value === null || value === undefined) return null;
+                    const json = JSON.stringify(value);
+                    if (seqAtStart === memoryWriteSeq) memoryRemember(key, json, ttlMs);
+                    return json;
+                })
+                .finally(() => inflightGets.delete(key));
+            inflightGets.set(key, pending);
+        }
+        return pending;
+    },
+
+    /**
+     * Redis에서 값 가져오기 (메모리 캐시 없이)
+     * 실패 시 null 반환 (에러 throw 안 함)
+     */
+    getFromRedis: async (key) => {
         try {
             const client = getRedis();
             
@@ -218,6 +318,7 @@ const redisObject = {
      * 핵심: 실패해도 throw하지 않고 로그만 남김 (API는 정상 응답)
      */
     set: async (key, value, ttl = null) => {
+        memoryForget(key);
         try {
             const client = getRedis();
             
@@ -255,6 +356,7 @@ const redisObject = {
      * 실패해도 로그만 남김
      */
     del: async (key) => {
+        memoryForget(key);
         try {
             const client = getRedis();
             
@@ -389,6 +491,7 @@ const redisObject = {
      * 실패해도 로그만 남김
      */
     expire: async (key, seconds) => {
+        memoryForget(key);
         try {
             const client = getRedis();
             
