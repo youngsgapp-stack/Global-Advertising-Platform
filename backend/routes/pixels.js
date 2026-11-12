@@ -96,7 +96,12 @@ const topLevelRouter = express.Router();
  * 그림이 있는 땅을 지도용 목록(pixels:territories:set)에 다시 넣음.
  * 저장할 때 완성본 캐시를 지우기 때문에, 그 사이에 목록을 만들면 땅이 목록에서 빠지는 일이 있었음
  */
+const listedCheckedAt = new Map();
 async function ensureListedWithPixels(territoryId) {
+    // Redis 명령 수를 아끼려고 땅마다 10분에 한 번만 확인
+    const now = Date.now();
+    if (now - (listedCheckedAt.get(territoryId) || 0) < 10 * 60 * 1000) return;
+    listedCheckedAt.set(territoryId, now);
     try {
         const added = await redis.sadd('pixels:territories:set', territoryId);
         if (Number(added) > 0) await redis.del('pixels:territories:list');
