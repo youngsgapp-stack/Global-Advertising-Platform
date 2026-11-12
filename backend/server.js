@@ -289,6 +289,7 @@ app.get('/api/health', async (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         version: '1.0.0',
+        commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null,
         lastCronAt: lastCronAt || null
     });
 });
