@@ -92,6 +92,19 @@ const topLevelRouter = express.Router();
  * 픽셀 데이터가 있는 영토 ID 목록 조회 (공개 API - 게스트 허용)
  * Redis에서 픽셀 데이터 메타 정보를 조회
  */
+/**
+ * 그림이 있는 땅을 지도용 목록(pixels:territories:set)에 다시 넣음.
+ * 저장할 때 완성본 캐시를 지우기 때문에, 그 사이에 목록을 만들면 땅이 목록에서 빠지는 일이 있었음
+ */
+async function ensureListedWithPixels(territoryId) {
+    try {
+        const added = await redis.sadd('pixels:territories:set', territoryId);
+        if (Number(added) > 0) await redis.del('pixels:territories:list');
+    } catch (error) {
+        console.warn('[Pixels] ensureListedWithPixels failed:', error.message);
+    }
+}
+
 topLevelRouter.get('/territories', async (req, res) => {
     // ⚡ 공개 API: 게스트 접근 허용 (인증 불필요)
     console.log('[Pixels] ✅ GET /api/pixels/territories - Public API access (guest allowed)');
@@ -261,9 +274,15 @@ topLevelRouter.get('/territories', async (req, res) => {
                         territoriesToRemove.push(territoryId);
                     }
                 } else {
-                    // Set에는 있지만 Redis에 데이터가 없는 경우
-                    console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but no data in Redis, marking for removal`);
-                    territoriesToRemove.push(territoryId);
+                    // 완성본 캐시가 막 지워졌어도 타일이 있으면 그림이 있는 땅
+                    const tileRevs = await redis.hgetall(`territory_tile_rev:${territoryId}`);
+                    const tileCount = tileRevs && typeof tileRevs === 'object' ? Object.keys(tileRevs).length : 0;
+                    if (tileCount > 0) {
+                        validTerritories.push({ territoryId, pixelCount: null, hasPixelArt: true, fillRatio: null, updatedAt: null, hasOwner: true });
+                    } else {
+                        console.warn(`[Pixels] ⚠️ Territory ${territoryId} in Set but no data in Redis, marking for removal`);
+                        territoriesToRemove.push(territoryId);
+                    }
                 }
             } catch (err) {
                 // 개별 처리 실패는 무시 (로깅만)
@@ -464,6 +483,7 @@ router.get('/', async (req, res) => {
                 updatedAt: pixelData.updatedAt
             });
             res.setHeader('X-Pixels-Path', 'cache_valid');
+            ensureListedWithPixels(territoryId);
             return res.json(pixelData);
         }
         
@@ -742,6 +762,7 @@ router.get('/', async (req, res) => {
             // ⚠️ pixel_data 키에 캐시 (다음 요청 시 빠른 조회)
             // ⚠️ redis.set()은 내부에서 JSON.stringify를 처리하므로 객체를 직접 전달
             await redis.set(pixelCacheKey, combinedPixelData);
+            if (allPixels.length > 0) await ensureListedWithPixels(territoryId);
             
             logger.warn(`[Pixels][GET] ✅ Cached combined tile data`, {
                 reqId,
