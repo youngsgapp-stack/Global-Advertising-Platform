@@ -8,11 +8,13 @@ import { apiService } from '../services/ApiService.js';
 import { firebaseService } from '../services/FirebaseService.js';
 import { territoryManager } from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
-import { photoToPixels } from '../ui/pixel-editor/PhotoDialog.js';
+import { renderMaskedPhoto } from '../ui/HdPhotoUploader.js';
 
 const GRID = 128;
 const TILE = 16;
 const PROTECTION_DAYS = 30;
+const HI = 1024;
+const FULL_VIEW = { fit: 'cover', zoom: 1, offsetX: 0, offsetY: 0 };
 
 const stripes = (colors, vertical = true) => ({ stripes: colors, vertical });
 
@@ -26,7 +28,7 @@ const SHOWCASE_ITEMS = [
     { id: 'washington', group: 'Debate', bg: '#3b2416', emoji: '☕', lines: ['COFFEE', '> TEA'] },
     // ② 라이벌 대결
     { id: 'buenos-aires', group: 'Rivals', bg: stripes(['#74acdf', '#ffffff', '#74acdf'], false), emoji: '🐐', lines: ['10', 'MESSI'], dark: true },
-    { id: 'madeira', group: 'Rivals', bg: stripes(['#046a38', '#da291c']), emoji: '🐐', lines: ['CR7', 'GOAT'] },
+    { id: 'lisboa', group: 'Rivals', bg: stripes(['#046a38', '#da291c']), emoji: '🐐', lines: ['CR7', 'GOAT'] },
     { id: 'madrid', group: 'Rivals', bg: '#ffffff', emoji: '👑', lines: ['HALA', 'MADRID'], dark: true },
     { id: 'barcelona', group: 'Rivals', bg: stripes(['#a50044', '#004d98', '#a50044', '#004d98']), emoji: '⚽', lines: ['VISCA', 'BARÇA'] },
     { id: 'new-york', group: 'Rivals', bg: '#0c2340', emoji: '⚾', lines: ['YANKEES', 'COUNTRY'] },
@@ -44,12 +46,10 @@ const SHOWCASE_ITEMS = [
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** 그림 한 장(정사각형)을 그림: 배경 → 큰 이모지 → 굵은 글씨 두 줄 */
-function drawArt(item, size = 512) {
+function drawBackground(item, size = 256) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
     const ctx = canvas.getContext('2d');
-    
     if (typeof item.bg === 'string') {
         ctx.fillStyle = item.bg;
         ctx.fillRect(0, 0, size, size);
@@ -62,39 +62,140 @@ function drawArt(item, size = 512) {
             else ctx.fillRect(0, i * band, size, Math.ceil(band));
         });
     }
-    
+    return canvas;
+}
+
+const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+const TEXT_FONT = '"Arial Black","Segoe UI",Arial,sans-serif';
+
+function fitFont(ctx, text, maxWidth, maxHeight) {
+    let size = Math.floor(maxHeight);
+    ctx.font = `900 ${size}px ${TEXT_FONT}`;
+    while (size > 6 && ctx.measureText(text).width > maxWidth) {
+        size -= 1;
+        ctx.font = `900 ${size}px ${TEXT_FONT}`;
+    }
+    return size;
+}
+
+/** 이모지 + 글씨 두 줄 (배경 투명). 넓은 칸이면 가로 배치, 아니면 세로 배치 */
+function drawForeground(item, w, h) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w));
+    canvas.height = Math.max(1, Math.round(h));
+    const ctx = canvas.getContext('2d');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${Math.round(size * 0.36)}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
-    ctx.fillText(item.emoji, size / 2, size * 0.34);
+    const wide = w / h > 1.7;
+    const emojiBox = wide ? { x: 0, y: 0, w: w * 0.36, h } : { x: 0, y: 0, w, h: h * 0.5 };
+    const textBox = wide ? { x: w * 0.36, y: 0, w: w * 0.64, h } : { x: 0, y: h * 0.5, w, h: h * 0.5 };
+    
+    const emojiSize = Math.min(emojiBox.w, emojiBox.h) * 0.9;
+    ctx.font = `${Math.round(emojiSize)}px ${EMOJI_FONT}`;
+    const ex = emojiBox.x + emojiBox.w / 2;
+    const ey = emojiBox.y + emojiBox.h / 2;
+    ctx.fillText(item.emoji, ex, ey);
     if (item.ban) {
         ctx.strokeStyle = '#e00000';
-        ctx.lineWidth = size * 0.05;
+        ctx.lineWidth = emojiSize * 0.1;
         ctx.beginPath();
-        ctx.arc(size / 2, size * 0.34, size * 0.2, 0, Math.PI * 2);
-        ctx.moveTo(size / 2 - size * 0.14, size * 0.34 - size * 0.14);
-        ctx.lineTo(size / 2 + size * 0.14, size * 0.34 + size * 0.14);
+        ctx.arc(ex, ey, emojiSize * 0.5, 0, Math.PI * 2);
+        ctx.moveTo(ex - emojiSize * 0.35, ey - emojiSize * 0.35);
+        ctx.lineTo(ex + emojiSize * 0.35, ey + emojiSize * 0.35);
         ctx.stroke();
     }
     
     const fill = item.dark ? '#111111' : '#ffffff';
     const outline = item.dark ? '#ffffff' : '#000000';
+    const lineH = textBox.h / item.lines.length;
+    const size = Math.min(...item.lines.map(line => fitFont(ctx, line, textBox.w * 0.94, lineH * 0.82)));
+    ctx.font = `900 ${size}px ${TEXT_FONT}`;
+    ctx.lineJoin = 'round';
     item.lines.forEach((line, i) => {
-        let fontSize = size * 0.15;
-        ctx.font = `900 ${fontSize}px "Arial Black","Segoe UI",Arial,sans-serif`;
-        while (ctx.measureText(line).width > size * 0.92 && fontSize > 12) {
-            fontSize -= 2;
-            ctx.font = `900 ${fontSize}px "Arial Black","Segoe UI",Arial,sans-serif`;
-        }
-        const y = size * (0.66 + i * 0.17);
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = fontSize * 0.18;
+        const x = textBox.x + textBox.w / 2;
+        const y = textBox.y + lineH * (i + 0.5);
+        ctx.lineWidth = Math.max(2, size * 0.2);
         ctx.strokeStyle = outline;
-        ctx.strokeText(line, size / 2, y);
+        ctx.strokeText(line, x, y);
         ctx.fillStyle = fill;
-        ctx.fillText(line, size / 2, y);
+        ctx.fillText(line, x, y);
     });
     return canvas;
+}
+
+/** 땅 안에 완전히 들어가는 가장 넓은 직사각형 (가로세로 비율은 0.6~2.6 사이로 맞춤) */
+function largestInnerRect(inside, n) {
+    const heights = new Array(n).fill(0);
+    let best = null;
+    const consider = (left, width, top, height) => {
+        let w = width;
+        let h = height;
+        if (w > h * 2.6) w = Math.floor(h * 2.6);
+        if (h > w / 0.6) h = Math.floor(w / 0.6);
+        const area = w * h;
+        if (!best || area > best.area) {
+            best = { x: left + Math.floor((width - w) / 2), y: top + Math.floor((height - h) / 2), w, h, area };
+        }
+    };
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) heights[x] = inside[y * n + x] ? heights[x] + 1 : 0;
+        const stack = [];
+        for (let x = 0; x <= n; x++) {
+            const hgt = x < n ? heights[x] : 0;
+            while (stack.length && heights[stack[stack.length - 1]] >= hgt) {
+                const top = stack.pop();
+                const height = heights[top];
+                if (!height) continue;
+                const left = stack.length ? stack[stack.length - 1] + 1 : 0;
+                consider(left, x - left, y - height + 1, height);
+            }
+            stack.push(x);
+        }
+    }
+    return best;
+}
+
+/** 땅 모양에 맞춘 128×128 픽셀 [x, y, color] */
+function buildPixels(item, geometry) {
+    const white = document.createElement('canvas');
+    white.width = white.height = 8;
+    const wctx = white.getContext('2d');
+    wctx.fillStyle = '#fff';
+    wctx.fillRect(0, 0, 8, 8);
+    const mask = renderMaskedPhoto(white, geometry, FULL_VIEW, GRID).getContext('2d').getImageData(0, 0, GRID, GRID).data;
+    const inside = new Uint8Array(GRID * GRID);
+    for (let i = 0; i < GRID * GRID; i++) inside[i] = mask[i * 4 + 3] >= 200 ? 1 : 0;
+    const rect = largestInnerRect(inside, GRID);
+    
+    const scale = HI / GRID;
+    const out = document.createElement('canvas');
+    out.width = out.height = HI;
+    const ctx = out.getContext('2d');
+    ctx.drawImage(renderMaskedPhoto(drawBackground(item), geometry, FULL_VIEW, HI), 0, 0);
+    if (rect && rect.w >= 6 && rect.h >= 6) {
+        const pad = Math.min(rect.w, rect.h) > 20 ? 1 : 0;
+        const fg = drawForeground(item, (rect.w - pad * 2) * scale, (rect.h - pad * 2) * scale);
+        ctx.drawImage(fg, (rect.x + pad) * scale, (rect.y + pad) * scale);
+    }
+    
+    const small = document.createElement('canvas');
+    small.width = small.height = GRID;
+    const sctx = small.getContext('2d', { willReadFrequently: true });
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(out, 0, 0, GRID, GRID);
+    const { data } = sctx.getImageData(0, 0, GRID, GRID);
+    const hex = (v) => v.toString(16).padStart(2, '0');
+    const pixels = [];
+    for (let y = 0; y < GRID; y++) {
+        for (let x = 0; x < GRID; x++) {
+            const i = (y * GRID + x) * 4;
+            if (!inside[y * GRID + x] && data[i + 3] < 128) continue;
+            if (data[i + 3] < 128) continue;
+            pixels.push([x, y, `#${hex(data[i])}${hex(data[i + 1])}${hex(data[i + 2])}`]);
+        }
+    }
+    return pixels;
 }
 
 async function findGeometry(territoryId, waitMs = 20000) {
@@ -181,10 +282,6 @@ export async function openShowcaseTool() {
             <div style="flex:1;min-width:0;">
                 <div data-title style="font-weight:700;"></div>
                 <div data-status style="font-size:12px;opacity:0.7;">준비 중...</div>
-                <div style="margin-top:4px;display:flex;gap:4px;">
-                    <button type="button" data-fit="cover" style="font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(78,205,196,0.25);color:inherit;cursor:pointer;">꽉 채우기</button>
-                    <button type="button" data-fit="contain" style="font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:inherit;cursor:pointer;">전체 보이기</button>
-                </div>
             </div>
         `;
         row.querySelector('[data-title]').textContent = `${item.id} · ${item.group} · ${item.lines.join(' ')}`;
@@ -194,10 +291,9 @@ export async function openShowcaseTool() {
     
     const render = (entry) => {
         if (!entry.geometry) return;
-        entry.pixels = photoToPixels(drawArt(entry.item), entry.geometry, { fit: entry.fit, zoom: 1, offsetX: 0, offsetY: 0 }, GRID);
+        entry.pixels = buildPixels(entry.item, entry.geometry);
         drawPreview(entry.canvas, entry.pixels);
         entry.status.textContent = `${entry.pixels.length.toLocaleString('en-US')} pixels`;
-        entry.row.querySelectorAll('[data-fit]').forEach(b => { b.style.background = b.dataset.fit === entry.fit ? 'rgba(78,205,196,0.25)' : 'transparent'; });
     };
     const updateSummary = () => {
         summary.textContent = `${rows.filter(r => r.checkbox.checked && r.pixels?.length).length}곳 선택됨`;
@@ -205,7 +301,6 @@ export async function openShowcaseTool() {
     
     for (const entry of rows) {
         entry.checkbox.addEventListener('change', updateSummary);
-        entry.row.querySelectorAll('[data-fit]').forEach(b => b.addEventListener('click', () => { entry.fit = b.dataset.fit; render(entry); }));
         const found = await findGeometry(entry.item.id, 8000);
         if (!found) {
             entry.status.textContent = '지도에서 이 땅을 찾지 못했어요';
