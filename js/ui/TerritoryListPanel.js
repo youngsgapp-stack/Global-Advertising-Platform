@@ -9,6 +9,7 @@ import territoryManager, { SOVEREIGNTY } from '../core/TerritoryManager.js';
 import { mapController } from '../core/MapController.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { firebaseService } from '../services/FirebaseService.js';
+import { fitTerritoryBounds } from '../utils/TerritoryNavigator.js';
 
 class TerritoryListPanel {
     constructor() {
@@ -589,7 +590,9 @@ class TerritoryListPanel {
                         }
                     }
                     
-                    if (center) {
+                    if (feature.geometry && fitTerritoryBounds(mapController.map, feature.geometry)) {
+                        log.debug(`[TerritoryListPanel] Fitting map to territory ${territoryId}`);
+                    } else if (center) {
                         mapController.flyTo(center, 8);
                         log.debug(`[TerritoryListPanel] Flying to territory center: ${center}`);
                     } else {

@@ -34,6 +34,17 @@ export function geometryCenter(geometry) {
 }
 
 /**
+ * 영토 전체가 화면에 들어오게 이동 (바티칸·모나코 같은 아주 작은 땅도 그림이 보일 만큼 확대)
+ * @returns {boolean} 이동했으면 true
+ */
+export function fitTerritoryBounds(map, geometry) {
+    const bounds = geometryBounds(geometry);
+    if (!map || !bounds) return false;
+    map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 1200 });
+    return true;
+}
+
+/**
  * 지도 데이터(세계 지도)가 준비될 때까지 기다린 뒤 영토를 선택
  * @returns {Promise<boolean>} 영토를 찾아 열었으면 true
  */
@@ -56,10 +67,7 @@ export async function openTerritoryById(territoryId, { waitMs = 20000 } = {}) {
         String(f.properties?.id) === String(territoryId)
     );
     
-    const bounds = geometryBounds(feature?.geometry || territory.geometry);
-    if (map && bounds) {
-        map.fitBounds(bounds, { padding: 80, maxZoom: 7, duration: 1200 });
-    }
+    fitTerritoryBounds(map, feature?.geometry || territory.geometry);
     
     if (feature) {
         mapController.selectTerritory(territory.sourceId, feature);

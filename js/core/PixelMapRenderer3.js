@@ -15,6 +15,9 @@ import { TerritoryViewState } from './TerritoryViewState.js';
 import { getPixelGridBounds } from './PixelGridProjection.js';
 import { exactBounds } from '../utils/TopoJson.js';
 
+// MapLibre(무료 지도 미리보기)는 image 소스에 'nearest'를 쓰면 투명한 부분이 검게 그려짐
+const PIXEL_RESAMPLING = typeof window !== 'undefined' && window.__FREE_MAP__ ? 'linear' : 'nearest';
+
 class PixelMapRenderer3 {
     constructor(mapController) {
         this.mapController = mapController;
@@ -1430,7 +1433,7 @@ class PixelMapRenderer3 {
                         paint: {
                             'raster-opacity': 1.0,
                             'raster-fade-duration': 0,
-                            'raster-resampling': 'nearest' // 확대해도 픽셀이 흐려지지 않도록
+                            'raster-resampling': PIXEL_RESAMPLING // 확대해도 픽셀이 흐려지지 않도록
                         }
                     });
                 } else {
@@ -1442,7 +1445,7 @@ class PixelMapRenderer3 {
                         paint: {
                             'raster-opacity': 1.0,
                             'raster-fade-duration': 0,
-                            'raster-resampling': 'nearest' // 확대해도 픽셀이 흐려지지 않도록
+                            'raster-resampling': PIXEL_RESAMPLING // 확대해도 픽셀이 흐려지지 않도록
                         }
                     }, beforeLayer);
                 }
