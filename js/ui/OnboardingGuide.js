@@ -33,8 +33,12 @@ class OnboardingGuide {
         
         this.setupEventListeners();
         
+        // 공유 링크(?territory=)나 관리자 도구로 들어오면 그 땅을 바로 보여줘야 하므로 안내를 띄우지 않음
+        const params = new URLSearchParams(window.location.search);
+        const openedFromLink = params.has('territory') || params.has('showcase');
+        
         // 첫 방문자인지 확인
-        if (this.isFirstVisit()) {
+        if (this.isFirstVisit() && !openedFromLink) {
             // 약간의 딜레이 후 표시 (지도 로딩 후)
             setTimeout(() => this.show(), 1500);
         }
