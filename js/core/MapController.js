@@ -10,6 +10,7 @@ import { firebaseService } from '../services/FirebaseService.js';
 import { initPixelMapRenderer3 } from './PixelMapRenderer3.js';
 import { auctionSystem } from '../features/AuctionSystem.js';
 import { resolveCollidingTerritoryId } from '../data/territory-id-collisions.js';
+import { topologyToGeoJSON } from '../utils/TopoJson.js';
 
 function polygonsOf(geometry) {
     if (geometry?.type === 'Polygon') return [geometry.coordinates];
@@ -980,11 +981,13 @@ class MapController {
      */
     async fetchGlobalAdminData() {
         const sources = [
+            // TopoJSON (경계선을 한 번만 저장해 약 1/3 작음, 원래 경계 상자 포함). 실패하면 아래 GeoJSON으로
+            { url: '/data/world-admin1.v2.json', timeoutMs: 60000, topo: true },
             { url: '/data/world-admin1.v1.json', timeoutMs: 60000 },
             { url: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson', timeoutMs: 90000 }
         ];
         
-        for (const { url, timeoutMs } of sources) {
+        for (const { url, timeoutMs, topo } of sources) {
             for (let attempt = 1; attempt <= 2; attempt++) {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -994,7 +997,8 @@ class MapController {
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
-                    const data = await response.json();
+                    const raw = await response.json();
+                    const data = topo || raw?.type === 'Topology' ? topologyToGeoJSON(raw, 'territories') : raw;
                     if (!Array.isArray(data?.features) || data.features.length === 0) {
                         throw new Error('Empty admin boundaries data');
                     }

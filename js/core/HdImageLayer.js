@@ -5,12 +5,15 @@
 import { log } from '../config.js';
 import { apiService } from '../services/ApiService.js';
 import { getPixelGridBounds } from './PixelGridProjection.js';
+import { exactBounds } from '../utils/TopoJson.js';
 
 const WORLD_SOURCE = 'world-territories';
 const MAX_VISIBLE = 60;
 const LIST_REFRESH_MS = 2 * 60 * 1000;
 
 function geometryBounds(geometry) {
+    const exact = exactBounds(geometry);
+    if (exact) return exact;
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
     const walk = (coords) => {
         if (typeof coords[0] === 'number') {

@@ -772,7 +772,7 @@ router.post('/:id/bids', async (req, res) => {
         await invalidateAuctionCache(auctionId, auction.territory_id);
         
         // WebSocket 브로드캐스트 (공개 채널이라 이메일은 보내지 않음)
-        const userInfoResult = await client.query(`SELECT nickname FROM users WHERE id = $1`, [userId]);
+        const userInfoResult = await query(`SELECT nickname FROM users WHERE id = $1`, [userId]);
         const bidderNickname = userInfoResult.rows[0]?.nickname || 'Someone';
         const endTimeIso = new Date(auction.end_time).toISOString();
         
@@ -991,7 +991,7 @@ router.post('/:id/end', async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('[Auctions] Error ending auction:', error);
-        res.status(500).json({ error: 'Failed to end auction' });
+        res.status(500).json({ error: 'Failed to end auction', details: error.message });
     } finally {
         client.release();
     }

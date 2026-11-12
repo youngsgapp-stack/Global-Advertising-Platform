@@ -5,6 +5,7 @@
 
 // 관리자 이메일 목록 (ADMIN_EMAILS 환경변수가 있으면 우선 사용, 쉼표 구분)
 const DEFAULT_ADMIN_EMAILS = [
+    'young91@naver.com',
     'q886654@naver.com',
     'etgbajy@gmail.com',
 ];

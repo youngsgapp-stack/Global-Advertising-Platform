@@ -5,8 +5,8 @@
 
 const CACHE_NAME = 'own-piece-v2';
 // ⚠️ CSS는 cache-first라 CSS를 수정하면 반드시 버전을 올려야 방문자에게 반영됨
-const STATIC_CACHE_VERSION = '1.0.17'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
-const DYNAMIC_CACHE_VERSION = '1.0.17';
+const STATIC_CACHE_VERSION = '1.0.16'; // 버전 업데이트로 Service Worker 강제 갱신 (영토 광고 링크 버튼 스타일)
+const DYNAMIC_CACHE_VERSION = '1.0.16';
 
 // 캐시할 정적 파일
 const STATIC_ASSETS = [
@@ -60,11 +60,12 @@ self.addEventListener('install', (event) => {
                 console.log('[Service Worker] Caching static assets');
                 return cache.addAll(STATIC_ASSETS);
             })
+            .then(() => {
+                return self.skipWaiting(); // 즉시 활성화
+            })
             .catch((error) => {
                 console.error('[Service Worker] Cache installation failed:', error);
             })
-            // 미리 저장이 실패해도 새 버전은 바로 적용 (옛 서비스 워커가 남지 않도록)
-            .then(() => self.skipWaiting())
     );
 });
 
@@ -117,11 +118,6 @@ self.addEventListener('fetch', (event) => {
     
     // 지도 데이터(수 MB)는 브라우저 HTTP 캐시에 맡김 (networkFirst의 5초 타임아웃에 걸리지 않도록)
     if (url.pathname.startsWith('/data/')) {
-        return;
-    }
-    
-    // 공유 미리보기 이미지·사이트 대표 이미지는 바뀔 수 있으므로 캐시하지 않음
-    if (url.pathname.startsWith('/s/') || url.pathname === '/og-image.png') {
         return;
     }
     

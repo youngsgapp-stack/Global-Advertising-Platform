@@ -14,6 +14,7 @@ import { localCacheService } from '../services/LocalCacheService.js';
 import mapController from './MapController.js';
 import { TerritoryMask } from './TerritoryMask.js';
 import { getPixelGridBounds, lngLatToGrid } from './PixelGridProjection.js';
+import { exactBounds } from '../utils/TopoJson.js';
 
 // 픽셀 도구
 export const TOOLS = {
@@ -716,6 +717,8 @@ class PixelCanvas3 {
      * 경계 계산
      */
     calculateBounds(geometry) {
+        const exact = exactBounds(geometry);
+        if (exact) return exact;
         let minLng = Infinity, maxLng = -Infinity;
         let minLat = Infinity, maxLat = -Infinity;
         

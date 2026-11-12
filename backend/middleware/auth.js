@@ -117,6 +117,7 @@ export async function optionalAuthenticateToken(req, res, next) {
     // ⚡ 디버깅: 항상 로그 출력
     console.log(`[Auth] 🔍 Optional auth called: ${req.method} ${req.originalUrl}`, {
         hasAuthHeader: !!authHeader,
+        authHeaderPrefix: authHeader ? authHeader.substring(0, 20) : 'none'
     });
     
     // 토큰이 없으면 게스트 모드로 계속 진행 (공개 API)
@@ -203,6 +204,7 @@ export async function authenticateToken(req, res, next) {
         // ✅ 토큰 정보 로깅 (요청 시작 시)
         console.log('[Auth] 🔍 Verifying token:', {
             tokenLength: token.length,
+            tokenPreview: token.substring(0, 50) + '...',
             tokenProjectId: tokenProjectId,
             backendProjectId: process.env.FIREBASE_PROJECT_ID,
             projectMatch: tokenProjectId === process.env.FIREBASE_PROJECT_ID,
@@ -347,6 +349,7 @@ export async function authenticateToken(req, res, next) {
         // ✅ 토큰 검증 성공 로깅
         console.log('[Auth] ✅ Token verified successfully:', {
             uid: decodedToken.uid,
+            email: decodedToken.email,
             projectId: decodedToken.aud
         });
         
@@ -521,7 +524,8 @@ export async function authenticateToken(req, res, next) {
                     expDate: new Date(payload.exp * 1000).toISOString(),
                     now: new Date().toISOString(),
                     isExpired: isExpired,
-                    tokenLength: token.length
+                    tokenLength: token.length,
+                    tokenPreview: token.substring(0, 50) + '...'
                 });
                 
                 // ✅ 프로젝트 불일치 경고

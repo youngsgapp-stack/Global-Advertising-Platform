@@ -13,6 +13,7 @@ import mapController from './MapController.js';
 import TerritoryUpdatePipeline from './TerritoryUpdatePipeline.js';
 import { TerritoryViewState } from './TerritoryViewState.js';
 import { getPixelGridBounds } from './PixelGridProjection.js';
+import { exactBounds } from '../utils/TopoJson.js';
 
 class PixelMapRenderer3 {
     constructor(mapController) {
@@ -1149,6 +1150,8 @@ class PixelMapRenderer3 {
      * 경계 계산
      */
     calculateBounds(geometry) {
+        const exact = exactBounds(geometry);
+        if (exact) return exact;
         let minLng = Infinity, maxLng = -Infinity;
         let minLat = Infinity, maxLat = -Infinity;
         

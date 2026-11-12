@@ -5,10 +5,13 @@
 import { territoryManager } from '../core/TerritoryManager.js';
 import mapController from '../core/MapController.js';
 import { eventBus, EVENTS } from '../core/EventBus.js';
+import { exactBounds } from './TopoJson.js';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function geometryBounds(geometry) {
+    const exact = exactBounds(geometry);
+    if (exact) return [[exact.minLng, exact.minLat], [exact.maxLng, exact.maxLat]];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     const walk = (coords) => {
         if (typeof coords[0] === 'number') {

@@ -5,6 +5,7 @@
  */
 
 import { getPixelGridBounds, lngLatToGrid } from '../core/PixelGridProjection.js';
+import { exactBounds } from '../utils/TopoJson.js';
 import { apiService } from '../services/ApiService.js';
 
 const OUTPUT_SIZE = 1024;
@@ -13,6 +14,8 @@ const MAX_UPLOAD_BYTES = 1.4 * 1024 * 1024;
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 function geometryBounds(geometry) {
+    const exact = exactBounds(geometry);
+    if (exact) return exact;
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
     const walk = (coords) => {
         if (typeof coords[0] === 'number') {

@@ -484,10 +484,46 @@ router.get('/activity/recent', async (req, res) => {
 
 /**
  * POST /api/territories/:id/view
- * 옛 조회수 주소 (중복 방지가 없어 조회수를 부풀릴 수 있었음). 조회수는 POST /api/social/territories/:id/view 에서만 셈
+ * 영토 조회수 증가
  */
-router.post('/:id/view', (req, res) => {
-    res.json({ success: true, deprecated: true });
+router.post('/:id/view', async (req, res) => {
+    try {
+        const { id: territoryIdParam } = req.params;
+        
+        // ID 검증 및 Canonical ID 변환
+        const idValidation = validateTerritoryIdParam(territoryIdParam, {
+            strict: false,
+            autoConvert: true,
+            logWarning: true
+        });
+        
+        if (!idValidation || !idValidation.canonicalId) {
+            return res.status(400).json({ 
+                error: idValidation?.error || 'Invalid territory ID format',
+                received: territoryIdParam
+            });
+        }
+        
+        const territoryId = idValidation.canonicalId;
+        
+        // 조회수 증가 (비동기, 실패해도 에러 반환하지 않음)
+        try {
+            await query(
+                `UPDATE territories 
+                 SET view_count = COALESCE(view_count, 0) + 1
+                 WHERE id = $1`,
+                [territoryId]
+            );
+        } catch (updateError) {
+            // 조회수 업데이트 실패는 무시 (로그만 기록)
+            console.warn(`[Territories] Failed to increment view count for ${territoryId}:`, updateError.message);
+        }
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Territories] View count increment error:', error);
+        res.status(500).json({ error: 'Failed to increment view count' });
+    }
 });
 
 /**
