@@ -97,18 +97,19 @@ export function getRedis() {
 
 /**
  * 서버 메모리 캐시 (Redis 앞단)
- * 방문자마다 똑같이 읽는 공개 캐시 키만 몇 초~1분 동안 메모리에 둠 → Upstash 명령 수와 응답 시간 절약.
+ * 방문자마다 똑같이 읽는 공개 캐시 키만 몇 초~10분 동안 메모리에 둠 → Upstash 명령 수와 응답 시간 절약.
  * 이 서버에서 set/del 하면 바로 지워짐 (서버가 여러 대가 되면 다른 서버의 변경은 최대 TTL만큼 늦게 보임)
  */
 const MEMORY_CACHE_RULES = [
-    ['pixels:territories:list', 30],
-    ['pixel_data:', 60],
-    ['territory:', 15],
-    ['territories:', 15],
+    ['pixels:territories:list', 300],
+    ['pixel_data:', 600],
+    ['territory:', 300],
+    ['territories:', 300],
     ['activity:recent:', 10],
     ['hd:images:list', 30],
     ['map:snapshot', 30],
     ['rankings:', 30],
+    ['cron:last_authorized_at', 300],
 ];
 const MEMORY_CACHE_MAX_CHARS = 60 * 1024 * 1024;
 const MEMORY_CACHE_MAX_ITEM_CHARS = 8 * 1024 * 1024;
