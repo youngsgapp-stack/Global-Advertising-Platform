@@ -252,7 +252,8 @@ class ApiService {
                 } else if (status === 401) {
                     errorMessage = 'Authentication required';
                 } else if (status === 403) {
-                    errorMessage = 'Permission denied';
+                    // 서버가 보낸 이유(예: 관리자 전용, 이메일 미인증)가 있으면 그대로 보여줌
+                    errorMessage = errorMessage && !/^HTTP \d+$/.test(errorMessage) ? errorMessage : 'Permission denied';
                 } else if (status === 404) {
                     errorMessage = 'Not found';
                 }

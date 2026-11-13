@@ -6,7 +6,7 @@ import express from 'express';
 import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
-import { isAdminUser } from '../middleware/admin.js';
+import { isAdminUser, ADMIN_EMAILS } from '../middleware/admin.js';
 import { createPayPalOrder, pointsForUsdAmount, paypalIssue, isPayPalSandboxConfigured } from '../utils/paypal.js';
 import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND, REFERRAL_MIN_TOPUP_USD } from '../utils/paypal-credit.js';
 
@@ -279,7 +279,12 @@ router.put('/me/wallet', async (req, res) => {
 function sandboxRequest(req, res) {
     if (req.body?.sandbox !== true) return false;
     if (!isAdminUser(req.user)) {
-        res.status(403).json({ error: 'Test payments are for admins only' });
+        const unverifiedAdmin = ADMIN_EMAILS.includes(String(req.user?.email || '').toLowerCase());
+        res.status(403).json({
+            error: unverifiedAdmin
+                ? 'Test payments: verify this admin email first (check your inbox), then sign in again'
+                : 'Test payments are for admins only. Sign in with an admin account'
+        });
         return null;
     }
     if (!isPayPalSandboxConfigured()) {

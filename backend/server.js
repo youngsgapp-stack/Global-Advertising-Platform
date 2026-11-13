@@ -120,7 +120,7 @@ import { hdRouter } from './routes/hd.js';
 import { socialRouter, cleanupSocialData } from './routes/social.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { backupPixelArt } from './utils/pixel-backup.js';
-import { paypalWebhookHandler, createPayPalWebhookHandler } from './routes/paypal-webhook.js';
+import { paypalWebhookHandler } from './routes/paypal-webhook.js';
 import { getPayPalStatus } from './utils/paypal.js';
 import cronRouter, { endExpiredAuctions, expireProtections, checkExpiredTerritories } from './routes/cron.js';
 
@@ -261,7 +261,6 @@ app.use(cors({
 }));
 // PayPal 웹훅: 서명 검증에 원본 body가 필요해서 JSON 파서보다 먼저 등록
 app.post('/api/paypal/webhook', paypalWebhookRateLimit, express.raw({ type: '*/*', limit: '1mb' }), paypalWebhookHandler);
-app.post('/api/paypal/webhook-sandbox', paypalWebhookRateLimit, express.raw({ type: '*/*', limit: '1mb' }), createPayPalWebhookHandler('sandbox'));
 app.get('/api/paypal/status', async (req, res) => {
     res.json(await getPayPalStatus());
 });
