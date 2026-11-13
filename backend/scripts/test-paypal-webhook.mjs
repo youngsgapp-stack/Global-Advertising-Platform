@@ -13,6 +13,7 @@ process.env.PAYPAL_CLIENT_ID = 'test-client';
 process.env.PAYPAL_CLIENT_SECRET = 'test-secret';
 process.env.PAYPAL_ENVIRONMENT = 'sandbox';
 process.env.PAYPAL_WEBHOOK_ID = 'WH-TEST';
+process.env.ADMIN_EMAILS = 'admin@test.dev';
 
 const admin = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 await admin.connect();
@@ -37,7 +38,10 @@ globalThis.fetch = async (url, options = {}) => {
     if (!String(url).includes('paypal.com')) return realFetch(url, options);
     calls.push({ url, method: options.method || 'GET' });
     const json = (status, body) => ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) });
-    if (url.endsWith('/v1/oauth2/token')) return json(200, { access_token: 'tok' });
+    if (url.endsWith('/v1/oauth2/token')) {
+        const basic = String(options.headers?.Authorization || '').split(' ')[1] || '';
+        return json(200, { access_token: `tok-${Buffer.from(basic, 'base64').toString().split(':')[0]}` });
+    }
     if (url.endsWith('/v1/notifications/verify-webhook-signature')) {
         lastVerifyBody = JSON.parse(options.body);
         return json(200, { verification_status: verifyStatus });
@@ -45,7 +49,7 @@ globalThis.fetch = async (url, options = {}) => {
     if (url.endsWith('/v2/checkout/orders') && options.method === 'POST') {
         const body = JSON.parse(options.body);
         const id = `ORDER${orders.size + 1}TEST`;
-        orders.set(id, { id, status: 'APPROVED', unit: body.purchase_units[0], captured: false });
+        orders.set(id, { id, status: 'APPROVED', unit: body.purchase_units[0], captured: false, auth: options.headers?.Authorization });
         return json(201, { id, status: 'CREATED' });
     }
     const m = url.match(/\/v2\/checkout\/orders\/([^/]+)(\/capture)?$/);
@@ -170,6 +174,57 @@ try {
     const small = await creditPayPalOrder(order4, { userId: user, source: 'client' });
     check('amount below $1 rejected', small.status === 400 && (await payment(order4))?.status === 'rejected');
     
+    // 9-1) 관리자 테스트 결제 (연습용 PayPal)
+    const { createPayPalWebhookHandler } = await import('../routes/paypal-webhook.js');
+    const { usersRouter } = await import('../routes/users.js');
+    const express = (await import('express')).default;
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => { req.user = JSON.parse(req.headers['x-test-user'] || 'null'); next(); });
+    app.use('/api/users', usersRouter);
+    const server = app.listen(0);
+    const api = (path, body, user) => fetch(`http://127.0.0.1:${server.address().port}/api/users${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-user': JSON.stringify(user) }, body: JSON.stringify(body)
+    });
+    const adminUid = (await query(`INSERT INTO users (firebase_uid, email, nickname) VALUES ('uid-admin', 'admin@test.dev', 'admin') RETURNING id`)).rows[0].id;
+    await query(`INSERT INTO wallets (user_id, balance) VALUES ($1, 0)`, [adminUid]);
+    const adminUser = { uid: 'uid-admin', email: 'admin@test.dev', emailVerified: true };
+    const adminBalance = async () => parseFloat((await query(`SELECT balance FROM wallets WHERE user_id = $1`, [adminUid])).rows[0].balance);
+
+    let r = await api('/me/wallet/paypal-order', { amount: 10, sandbox: true }, adminUser);
+    check('test payment before sandbox keys are set -> 503', r.status === 503, String(r.status));
+    process.env.PAYPAL_SANDBOX_CLIENT_ID = 'sb-client';
+    process.env.PAYPAL_SANDBOX_CLIENT_SECRET = 'sb-secret';
+    process.env.PAYPAL_SANDBOX_WEBHOOK_ID = 'WH-SANDBOX';
+    r = await api('/me/wallet/paypal-order', { amount: 10, sandbox: true }, { uid: 'uid-buyer', email: 'buyer@test.dev', emailVerified: true });
+    check('non-admin cannot use test payments (403)', r.status === 403, String(r.status));
+    r = await api('/me/wallet/paypal-order', { amount: 10, sandbox: true }, { ...adminUser, emailVerified: false });
+    check('admin with unverified email cannot use test payments (403)', r.status === 403, String(r.status));
+    r = await api('/me/wallet/paypal-order', { amount: 10, sandbox: true }, adminUser);
+    const sbOrder = (await r.json()).orderID;
+    check('admin test order created with the sandbox app', r.status === 200 && orders.get(sbOrder)?.auth === 'Bearer tok-sb-client', orders.get(sbOrder)?.auth);
+    check('test order is labelled TEST', /\(TEST\)/.test(orders.get(sbOrder)?.unit.description || ''));
+    r = await api('/me/wallet/paypal-order', { amount: 10 }, adminUser);
+    const liveOrder = (await r.json()).orderID;
+    check('normal order still uses the live app', orders.get(liveOrder)?.auth === 'Bearer tok-test-client', orders.get(liveOrder)?.auth);
+
+    r = await api('/me/wallet/paypal-capture', { orderID: sbOrder, sandbox: true }, adminUser);
+    const sbBody = await r.json();
+    check('test payment capture credits 100pt', r.status === 200 && sbBody.points === 100 && await adminBalance() === 100, JSON.stringify(sbBody));
+    const sbRow = (await query(`SELECT provider, status FROM payments WHERE order_id = $1`, [sbOrder])).rows[0];
+    check('test payment recorded as paypal_sandbox', sbRow?.provider === 'paypal_sandbox' && sbRow?.status === 'credited', JSON.stringify(sbRow));
+    const sbTx = (await query(`SELECT type FROM wallet_transactions WHERE reference_id = $1`, [`paypal:${sbOrder}`])).rows[0];
+    check('test points stored as test_charge (kept out of revenue)', sbTx?.type === 'test_charge');
+    check('real payments still recorded as paypal', (await query(`SELECT provider FROM payments WHERE order_id = $1`, [orderId])).rows[0]?.provider === 'paypal');
+
+    const sbWebhook = createPayPalWebhookHandler('sandbox');
+    res = await sendWebhook(sbWebhook, { id: 'EVS1', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: sbOrder } });
+    check('sandbox webhook verified with the sandbox webhook id', res.statusCode === 200 && lastVerifyBody?.webhook_id === 'WH-SANDBOX');
+    check('sandbox webhook after capture does not double credit', await adminBalance() === 100, String(await adminBalance()));
+    res = await sendWebhook(sbWebhook, { id: 'EVS2', event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { id: 'REFUNDS1', amount: { value: '10.00' }, links: [{ rel: 'up', href: `https://api.sandbox.paypal.com/v2/payments/captures/CAP-${sbOrder}` }] } });
+    check('sandbox refund takes the test points back', res.statusCode === 200 && await adminBalance() === 0 && (await payment(sbOrder))?.status === 'refunded', String(await adminBalance()));
+    server.close();
+
     // 9) 웹훅 ID가 없으면 무시 (503)
     delete process.env.PAYPAL_WEBHOOK_ID;
     res = await sendWebhook(paypalWebhookHandler, { id: 'EV9', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'X' } });

@@ -56,6 +56,8 @@ export const CONFIG = {
     // 5. Client ID 복사하여 아래에 입력
     PAYPAL: {
         CLIENT_ID: 'AQirNO21I_osrvoS7tvhGdtpGiv9sQC8k0XCurV-xZJZNY5ZnMn_64uwppCgscPbIfX2m1Nn9Z-TTPVp', // Live Client ID (프로덕션 모드)
+        // 관리자 테스트 결제 (주소에 ?paypaltest=1): 연습용 "World Map Advertising" 앱
+        SANDBOX_CLIENT_ID: 'ASSXMliYJQwdhXBONsRFuvA2ZsOQSfcG0v-ed3WgmG_KG8kQYyivPSOBsEy3KkDVXr2FS1uooo7urAIn',
         CURRENCY: 'USD',
         INTENT: 'capture' // 즉시 결제 캡처 모드
     },

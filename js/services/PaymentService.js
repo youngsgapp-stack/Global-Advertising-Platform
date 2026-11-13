@@ -8,6 +8,10 @@ import { eventBus, EVENTS } from '../core/EventBus.js';
 import { firebaseService } from './FirebaseService.js';
 import { walletService, TRANSACTION_TYPE } from './WalletService.js';
 
+// 관리자 테스트 결제: 연습용 PayPal로 결제 (서버가 관리자인지 확인함)
+const PAYPAL_TEST_MODE = typeof location !== 'undefined' && /[?&]paypaltest=1(&|$)/.test(location.search);
+const paypalModeBody = () => (PAYPAL_TEST_MODE ? { sandbox: true } : {});
+
 // 결제 상태
 export const PAYMENT_STATUS = {
     PENDING: 'pending',
@@ -105,7 +109,7 @@ class PaymentService {
         this.loadingPayPal = true;
         
         return new Promise((resolve, reject) => {
-            const clientId = CONFIG.PAYPAL.CLIENT_ID;
+            const clientId = PAYPAL_TEST_MODE ? CONFIG.PAYPAL.SANDBOX_CLIENT_ID : CONFIG.PAYPAL.CLIENT_ID;
             const currency = CONFIG.PAYPAL.CURRENCY;
             const intent = CONFIG.PAYPAL.INTENT || 'capture';
             // intent=capture 명시하여 즉시 결제 캡처 모드로 설정
@@ -319,6 +323,7 @@ class PaymentService {
                     <div class="modal-header">
                         <h2>💰 Charge Points</h2>
                         <p>Select a package to add points to your wallet</p>
+                        ${PAYPAL_TEST_MODE ? '<p style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#ffd43b;color:#222;font-weight:700">🧪 TEST MODE: sandbox PayPal (fake money, admins only)</p>' : ''}
                     </div>
                     
                     <div class="current-balance">
@@ -1050,7 +1055,8 @@ class PaymentService {
                         // 백엔드가 주문에 내 계정을 새겨서 생성 (결제 후 창이 닫혀도 PayPal 웹훅으로 자동 충전)
                         const { apiService } = await import('./ApiService.js');
                         const result = await apiService.post('/users/me/wallet/paypal-order', {
-                            amount: formattedAmount
+                            amount: formattedAmount,
+                            ...paypalModeBody()
                         });
                         
                         if (!result.success || !result.orderID) {
@@ -1150,7 +1156,8 @@ class PaymentService {
                         // 백엔드가 PayPal 주문을 캡처/검증하고 실제 결제 금액 기준으로 포인트 충전
                         const { apiService } = await import('./ApiService.js');
                         const captureResult = await apiService.post('/users/me/wallet/paypal-capture', {
-                            orderID: data.orderID
+                            orderID: data.orderID,
+                            ...paypalModeBody()
                         });
                         
                         if (!captureResult?.success) {

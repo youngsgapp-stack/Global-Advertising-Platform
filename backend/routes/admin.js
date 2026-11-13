@@ -287,7 +287,7 @@ router.get('/payments', async (req, res) => {
                     COUNT(*) FILTER (WHERE p.status = 'credited') AS credited,
                     COUNT(*) FILTER (WHERE p.status = 'credit_failed') AS credit_failed,
                     COUNT(*) FILTER (WHERE p.status IN ('failed', 'rejected')) AS failed,
-                    COALESCE(SUM(p.amount_usd) FILTER (WHERE p.status = 'credited'), 0) AS revenue_usd
+                    COALESCE(SUM(p.amount_usd) FILTER (WHERE p.status = 'credited' AND p.provider <> 'paypal_sandbox'), 0) AS revenue_usd
                  FROM payments p
                  LEFT JOIN users u ON p.user_id = u.id
                  ${where}`,
@@ -2011,7 +2011,7 @@ router.get('/revenue-summary', async (req, res) => {
         const dailyPayments = await query(
             `SELECT to_char(DATE(created_at), 'YYYY-MM-DD') AS day, SUM(amount_usd) AS usd, COUNT(*) AS count
              FROM payments
-             WHERE status = 'credited' AND created_at >= CURRENT_DATE - ($1::int - 1)
+             WHERE status = 'credited' AND provider <> 'paypal_sandbox' AND created_at >= CURRENT_DATE - ($1::int - 1)
              GROUP BY DATE(created_at)`,
             [days]
         ).catch(error => {

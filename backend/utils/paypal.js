@@ -2,6 +2,8 @@
  * PayPal 서버 연동 (포인트 충전 검증용)
  * 필요 환경변수: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_ENVIRONMENT ('production' | 'sandbox')
  * 웹훅: PAYPAL_WEBHOOK_ID (PayPal 개발자 대시보드에서 웹훅 등록 후 받은 ID)
+ * 관리자 테스트 결제(연습용 PayPal): PAYPAL_SANDBOX_CLIENT_ID, PAYPAL_SANDBOX_CLIENT_SECRET, PAYPAL_SANDBOX_WEBHOOK_ID
+ * mode: 'live' = 실제 결제 설정, 'sandbox' = 연습용 PayPal (관리자만)
  */
 
 // js/services/PaymentService.js의 POINT_PACKAGES / CUSTOM_AMOUNT_CONFIG와 동일하게 유지
@@ -31,25 +33,47 @@ export function pointsForUsdAmount(amountUsd) {
     return Math.floor(amount * CUSTOM_POINT_RATE);
 }
 
-function getPayPalBaseUrl() {
-    return process.env.PAYPAL_ENVIRONMENT === 'production'
-        ? 'https://api-m.paypal.com'
-        : 'https://api-m.sandbox.paypal.com';
+function paypalConfig(mode = 'live') {
+    if (mode === 'sandbox') {
+        return {
+            baseUrl: 'https://api-m.sandbox.paypal.com',
+            clientId: (process.env.PAYPAL_SANDBOX_CLIENT_ID || '').trim(),
+            clientSecret: (process.env.PAYPAL_SANDBOX_CLIENT_SECRET || '').trim(),
+            webhookId: (process.env.PAYPAL_SANDBOX_WEBHOOK_ID || '').trim()
+        };
+    }
+    return {
+        baseUrl: process.env.PAYPAL_ENVIRONMENT === 'production'
+            ? 'https://api-m.paypal.com'
+            : 'https://api-m.sandbox.paypal.com',
+        clientId: (process.env.PAYPAL_CLIENT_ID || '').trim(),
+        clientSecret: (process.env.PAYPAL_CLIENT_SECRET || '').trim(),
+        webhookId: (process.env.PAYPAL_WEBHOOK_ID || '').trim()
+    };
 }
 
-let tokenCache = null;
+export function isPayPalSandboxConfigured() {
+    const { clientId, clientSecret } = paypalConfig('sandbox');
+    return !!clientId && !!clientSecret;
+}
 
-async function getAccessToken(baseUrl) {
-    const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
-    const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
+export function isPayPalWebhookConfigured(mode = 'live') {
+    return !!paypalConfig(mode).webhookId;
+}
+
+const tokenCache = new Map();
+
+async function getAccessToken(mode = 'live') {
+    const { baseUrl, clientId, clientSecret } = paypalConfig(mode);
     if (!clientId || !clientSecret) {
         const error = new Error('PayPal credentials are not configured on the server');
         error.code = 'PAYPAL_NOT_CONFIGURED';
         throw error;
     }
     const cacheKey = `${baseUrl}|${clientId}`;
-    if (tokenCache && tokenCache.key === cacheKey && tokenCache.expiresAt > Date.now()) {
-        return tokenCache.token;
+    const cached = tokenCache.get(mode);
+    if (cached && cached.key === cacheKey && cached.expiresAt > Date.now()) {
+        return cached.token;
     }
     
     const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
@@ -70,7 +94,8 @@ async function getAccessToken(baseUrl) {
     const data = await response.json();
     // 웹훅·결제마다 PayPal 로그인을 반복하지 않도록 재사용하되, 키를 바꾸거나 끄면 30분 안에 반영되게 최대 30분만
     const lifetimeMs = Math.min(30 * 60 * 1000, Math.max(0, (Number(data.expires_in) || 0) * 1000 - 5 * 60 * 1000));
-    tokenCache = lifetimeMs > 0 ? { key: cacheKey, token: data.access_token, expiresAt: Date.now() + lifetimeMs } : null;
+    if (lifetimeMs > 0) tokenCache.set(mode, { key: cacheKey, token: data.access_token, expiresAt: Date.now() + lifetimeMs });
+    else tokenCache.delete(mode);
     return data.access_token;
 }
 
@@ -93,12 +118,20 @@ export async function getPayPalStatus() {
     if (statusCache && Date.now() - statusCache.at < 10 * 60 * 1000) {
         return statusCache.value;
     }
-    const value = { auth: 'unknown', orderTest: 'skipped', webhook: !!process.env.PAYPAL_WEBHOOK_ID };
+    const value = { auth: 'unknown', orderTest: 'skipped', webhook: isPayPalWebhookConfigured('live') };
     try {
-        await getAccessToken(getPayPalBaseUrl());
+        await getAccessToken('live');
         value.auth = 'ok';
     } catch (error) {
         value.auth = error.code === 'PAYPAL_NOT_CONFIGURED' ? 'not configured' : 'failed';
+    }
+    if (isPayPalSandboxConfigured()) {
+        try {
+            await getAccessToken('sandbox');
+            value.testMode = isPayPalWebhookConfigured('sandbox') ? 'ok' : 'ok (no webhook)';
+        } catch {
+            value.testMode = 'failed';
+        }
     }
     if (value.auth === 'ok') {
         // 캡처하지 않은 주문은 결제되지 않고 저절로 만료됨
@@ -113,8 +146,8 @@ export async function getPayPalStatus() {
     return value;
 }
 
-async function authHeaders(baseUrl) {
-    const accessToken = await getAccessToken(baseUrl);
+async function authHeaders(mode) {
+    const accessToken = await getAccessToken(mode);
     return {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
@@ -125,9 +158,9 @@ async function authHeaders(baseUrl) {
  * 충전 주문 생성. customId(사용자 DB id)를 주문에 새겨 두면 브라우저가 중간에 닫혀도 웹훅이 누구에게 충전할지 알 수 있음
  * @returns {Promise<string>} PayPal 주문 ID
  */
-export async function createPayPalOrder({ amount, customId, description }) {
-    const baseUrl = getPayPalBaseUrl();
-    const headers = await authHeaders(baseUrl);
+export async function createPayPalOrder({ amount, customId, description, mode = 'live' }) {
+    const { baseUrl } = paypalConfig(mode);
+    const headers = await authHeaders(mode);
     const response = await fetch(`${baseUrl}/v2/checkout/orders`, {
         method: 'POST',
         headers: { ...headers, 'PayPal-Request-Id': `order-${customId}-${Date.now()}` },
@@ -153,12 +186,11 @@ export async function createPayPalOrder({ amount, customId, description }) {
 /**
  * 웹훅 서명 검증 (원본 body 문자열을 그대로 넘겨야 숫자/공백이 바뀌지 않음)
  */
-export async function verifyPayPalWebhook(headers, rawBody) {
-    const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+export async function verifyPayPalWebhook(headers, rawBody, mode = 'live') {
+    const { baseUrl, webhookId } = paypalConfig(mode);
     if (!webhookId) {
         return false;
     }
-    const baseUrl = getPayPalBaseUrl();
     const meta = {
         auth_algo: headers['paypal-auth-algo'],
         cert_url: headers['paypal-cert-url'],
@@ -173,7 +205,7 @@ export async function verifyPayPalWebhook(headers, rawBody) {
     const body = `${JSON.stringify(meta).slice(0, -1)},"webhook_event":${rawBody}}`;
     const response = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
         method: 'POST',
-        headers: await authHeaders(baseUrl),
+        headers: await authHeaders(mode),
         body
     });
     if (!response.ok) {
@@ -189,9 +221,9 @@ export async function verifyPayPalWebhook(headers, rawBody) {
  * 주문을 캡처하고 (이미 캡처된 주문이면 조회) 검증된 결제 정보를 반환
  * @returns {Promise<{ orderId: string, amount: number, currency: string, captureId: string|null, payerId: string|null, customId: string|null }>}
  */
-export async function capturePayPalOrder(orderId) {
-    const baseUrl = getPayPalBaseUrl();
-    const headers = await authHeaders(baseUrl);
+export async function capturePayPalOrder(orderId, mode = 'live') {
+    const { baseUrl } = paypalConfig(mode);
+    const headers = await authHeaders(mode);
     
     let order;
     const captureResponse = await fetch(`${baseUrl}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {

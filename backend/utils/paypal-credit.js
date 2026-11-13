@@ -89,8 +89,8 @@ export async function grantReferralRewardIfEligible(userId, { amountUsd = 0, pay
 export async function recordPayment(orderId, fields) {
     try {
         await query(
-            `INSERT INTO payments (order_id, user_id, amount_usd, currency, points, status, capture_id, payer_id, error)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `INSERT INTO payments (order_id, user_id, amount_usd, currency, points, status, capture_id, payer_id, error, provider)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (order_id) DO UPDATE SET
                 user_id = COALESCE(EXCLUDED.user_id, payments.user_id),
                 amount_usd = COALESCE(EXCLUDED.amount_usd, payments.amount_usd),
@@ -110,7 +110,8 @@ export async function recordPayment(orderId, fields) {
                 fields.status,
                 fields.captureId ?? null,
                 fields.payerId ?? null,
-                fields.error ? String(fields.error).slice(0, 1000) : null
+                fields.error ? String(fields.error).slice(0, 1000) : null,
+                fields.sandbox ? 'paypal_sandbox' : 'paypal'
             ]
         );
     } catch (error) {
@@ -138,19 +139,21 @@ async function resolveChargeUser(orderId, requestUserId, customId) {
 /**
  * 주문 캡처(이미 캡처됐으면 조회) → 금액 검증 → 포인트 충전
  * @param {string} orderId
- * @param {{ userId?: string, source: 'client' | 'webhook' }} options  userId: 요청한 로그인 사용자 (웹훅은 없음)
+ * @param {{ userId?: string, source: 'client' | 'webhook', sandbox?: boolean }} options  userId: 요청한 로그인 사용자 (웹훅은 없음)
+ *   sandbox: 관리자 테스트 결제 (연습용 PayPal). 포인트는 'test_charge'로 들어가 매출·추천 보상에 잡히지 않음
  * @returns {Promise<{ status: number, body: object }>}
  */
-export async function creditPayPalOrder(orderId, { userId: requestUserId = null, source } = {}) {
+export async function creditPayPalOrder(orderId, { userId: requestUserId = null, source, sandbox = false } = {}) {
     const referenceId = `paypal:${orderId}`;
+    const chargeType = sandbox ? 'test_charge' : 'charge';
     
     let payment;
     try {
-        payment = await capturePayPalOrder(orderId);
+        payment = await capturePayPalOrder(orderId, sandbox ? 'sandbox' : 'live');
     } catch (error) {
         if (error.code === 'PAYPAL_PENDING') {
             console.warn(`[PayPal] Capture pending (${source}):`, { orderId, reason: error.reason });
-            await recordPayment(orderId, { userId: requestUserId, status: 'pending', error: `PayPal pending: ${error.reason || 'unknown'}` });
+            await recordPayment(orderId, { userId: requestUserId, sandbox, status: 'pending', error: `PayPal pending: ${error.reason || 'unknown'}` });
             return {
                 status: 200,
                 body: {
@@ -164,7 +167,7 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
         }
         const issue = paypalIssue(error.details);
         console.error(`[PayPal] Capture error (${source}):`, { orderId, code: error.code, issue, message: error.message });
-        await recordPayment(orderId, { userId: requestUserId, status: 'failed', error: `${error.code || ''} ${issue} ${error.message}`.trim() });
+        await recordPayment(orderId, { userId: requestUserId, sandbox, status: 'failed', error: `${error.code || ''} ${issue} ${error.message}`.trim() });
         const status = error.code === 'PAYPAL_NOT_CONFIGURED' ? 503 : 402;
         return { status, body: { error: issue ? `${error.message} (${issue})` : error.message, code: error.code, issue } };
     }
@@ -172,6 +175,7 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
     const userId = await resolveChargeUser(orderId, requestUserId, payment.customId);
     const paymentFields = {
         userId,
+        sandbox,
         amount: payment.amount,
         currency: payment.currency,
         captureId: payment.captureId,
@@ -204,7 +208,7 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
         await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [referenceId]);
         
         const existing = await client.query(
-            `SELECT user_id FROM wallet_transactions WHERE reference_id = $1 AND type = 'charge' LIMIT 1`,
+            `SELECT user_id FROM wallet_transactions WHERE reference_id = $1 AND type IN ('charge', 'test_charge') LIMIT 1`,
             [referenceId]
         );
         
@@ -224,15 +228,15 @@ export async function creditPayPalOrder(orderId, { userId: requestUserId = null,
         }
         
         const { balance } = await adjustWalletBalance(client, userId, points, {
-            type: 'charge',
-            description: `PayPal charge: $${payment.amount}`,
+            type: chargeType,
+            description: sandbox ? `PayPal TEST charge (sandbox): $${payment.amount}` : `PayPal charge: $${payment.amount}`,
             referenceId
         });
         
         await client.query('COMMIT');
         await invalidateUserCache(userId);
         await recordPayment(orderId, { ...paymentFields, points, status: 'credited', error: source === 'webhook' ? 'Credited automatically by PayPal webhook' : null });
-        const referralBonus = await grantReferralRewardIfEligible(userId, { amountUsd: payment.amount, payerId: payment.payerId, client });
+        const referralBonus = sandbox ? 0 : await grantReferralRewardIfEligible(userId, { amountUsd: payment.amount, payerId: payment.payerId, client });
         
         console.log(`[PayPal] Charge completed (${source}):`, { orderId, userId, amount: payment.amount, points, balance, referralBonus });
         return {

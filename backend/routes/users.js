@@ -7,7 +7,7 @@ import { query, getPool } from '../db/init.js';
 import { redis } from '../redis/init.js';
 import { CACHE_TTL, invalidateUserCache } from '../redis/cache-utils.js';
 import { isAdminUser } from '../middleware/admin.js';
-import { createPayPalOrder, pointsForUsdAmount, paypalIssue } from '../utils/paypal.js';
+import { createPayPalOrder, pointsForUsdAmount, paypalIssue, isPayPalSandboxConfigured } from '../utils/paypal.js';
 import { creditPayPalOrder, REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_FRIEND, REFERRAL_MIN_TOPUP_USD } from '../utils/paypal-credit.js';
 
 const router = express.Router();
@@ -275,8 +275,24 @@ router.put('/me/wallet', async (req, res) => {
  * POST /api/users/me/wallet/paypal-capture
  * PayPal 주문을 서버에서 캡처/검증하고, 실제 결제 금액 기준으로 포인트 충전
  */
+/** 관리자 테스트 결제(연습용 PayPal) 요청이면 true, 허용되지 않으면 응답을 보내고 null */
+function sandboxRequest(req, res) {
+    if (req.body?.sandbox !== true) return false;
+    if (!isAdminUser(req.user)) {
+        res.status(403).json({ error: 'Test payments are for admins only' });
+        return null;
+    }
+    if (!isPayPalSandboxConfigured()) {
+        res.status(503).json({ error: 'Test payments are not set up on the server (PAYPAL_SANDBOX_CLIENT_ID / PAYPAL_SANDBOX_CLIENT_SECRET)' });
+        return null;
+    }
+    return true;
+}
+
 router.post('/me/wallet/paypal-capture', async (req, res) => {
     const { orderID } = req.body || {};
+    const sandbox = sandboxRequest(req, res);
+    if (sandbox === null) return;
     
     if (!orderID || typeof orderID !== 'string' || !/^[A-Z0-9-]{8,40}$/i.test(orderID)) {
         return res.status(400).json({ error: 'Valid PayPal order ID is required' });
@@ -297,7 +313,7 @@ router.post('/me/wallet/paypal-capture', async (req, res) => {
         return res.status(500).json({ error: 'Failed to process payment' });
     }
     
-    const result = await creditPayPalOrder(orderID, { userId, source: 'client' });
+    const result = await creditPayPalOrder(orderID, { userId, source: 'client', sandbox });
     res.status(result.status).json(result.body);
 });
 
@@ -306,6 +322,8 @@ router.post('/me/wallet/paypal-capture', async (req, res) => {
  * 충전 주문 생성 (주문에 사용자 id를 새겨서, 결제 후 창이 닫혀도 웹훅으로 충전되게 함)
  */
 router.post('/me/wallet/paypal-order', async (req, res) => {
+    const sandbox = sandboxRequest(req, res);
+    if (sandbox === null) return;
     const amount = Math.round(parseFloat(req.body?.amount) * 100) / 100;
     const points = pointsForUsdAmount(amount);
     if (points <= 0) {
@@ -321,7 +339,8 @@ router.post('/me/wallet/paypal-order', async (req, res) => {
         const orderID = await createPayPalOrder({
             amount,
             customId: userId,
-            description: `${points.toLocaleString('en-US')} points - World Ad Map`
+            description: `${points.toLocaleString('en-US')} points - World Ad Map${sandbox ? ' (TEST)' : ''}`,
+            mode: sandbox ? 'sandbox' : 'live'
         });
         res.json({ success: true, orderID });
     } catch (error) {

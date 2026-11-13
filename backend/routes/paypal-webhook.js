@@ -4,7 +4,7 @@
  * PayPal은 2xx를 받을 때까지 최대 3일간 재전송하므로, 다시 시도할 가치가 있는 실패만 500으로 응답
  */
 
-import { verifyPayPalWebhook } from '../utils/paypal.js';
+import { verifyPayPalWebhook, isPayPalWebhookConfigured } from '../utils/paypal.js';
 import { creditPayPalOrder, markPaymentReversed } from '../utils/paypal-credit.js';
 
 const ORDER_ID_RE = /^[A-Z0-9-]{8,40}$/i;
@@ -14,7 +14,17 @@ function captureIdFromLinks(resource) {
     return up ? up.href.split('/captures/')[1]?.split(/[/?]/)[0] : null;
 }
 
-export async function paypalWebhookHandler(req, res) {
+/**
+ * POST /api/paypal/webhook-sandbox: 같은 처리를 연습용 PayPal(관리자 테스트 결제) 설정으로
+ */
+export function createPayPalWebhookHandler(mode = 'live') {
+    const sandbox = mode === 'sandbox';
+    return (req, res) => handlePayPalWebhook(req, res, { mode, sandbox });
+}
+
+export const paypalWebhookHandler = createPayPalWebhookHandler('live');
+
+async function handlePayPalWebhook(req, res, { mode, sandbox }) {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
     let event;
     try {
@@ -23,13 +33,13 @@ export async function paypalWebhookHandler(req, res) {
         return res.status(400).json({ error: 'Invalid JSON' });
     }
     
-    if (!process.env.PAYPAL_WEBHOOK_ID) {
-        console.warn('[PayPal Webhook] PAYPAL_WEBHOOK_ID is not set, ignoring event', event?.event_type);
+    if (!isPayPalWebhookConfigured(mode)) {
+        console.warn(`[PayPal Webhook] ${sandbox ? 'PAYPAL_SANDBOX_WEBHOOK_ID' : 'PAYPAL_WEBHOOK_ID'} is not set, ignoring event`, event?.event_type);
         return res.status(503).json({ error: 'Webhook not configured' });
     }
     
     try {
-        const verified = await verifyPayPalWebhook(req.headers, rawBody);
+        const verified = await verifyPayPalWebhook(req.headers, rawBody, mode);
         if (!verified) {
             console.warn('[PayPal Webhook] Signature verification failed', { type: event?.event_type, id: event?.id });
             return res.status(400).json({ error: 'Invalid signature' });
@@ -41,7 +51,7 @@ export async function paypalWebhookHandler(req, res) {
     
     const type = event.event_type;
     const resource = event.resource || {};
-    console.log('[PayPal Webhook] Event received:', { type, id: event.id, resourceId: resource.id });
+    console.log('[PayPal Webhook] Event received:', { type, id: event.id, resourceId: resource.id, sandbox });
     
     try {
         if (type === 'CHECKOUT.ORDER.APPROVED' || type === 'PAYMENT.CAPTURE.COMPLETED') {
@@ -52,7 +62,7 @@ export async function paypalWebhookHandler(req, res) {
                 console.warn('[PayPal Webhook] Event without a usable order ID:', { type, id: event.id });
                 return res.json({ received: true });
             }
-            const result = await creditPayPalOrder(orderId, { source: 'webhook' });
+            const result = await creditPayPalOrder(orderId, { source: 'webhook', sandbox });
             if (result.status >= 500) {
                 return res.status(500).json({ error: 'Credit failed, please retry' });
             }
